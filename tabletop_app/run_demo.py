@@ -3,6 +3,7 @@
 Run this to demo the TableTop app using mock I/O modules.
 """
 
+import influx as influx_lib
 import io_modules as io_modules_lib
 import tasks as tasks_module
 import trial_generators as trial_generators_module
@@ -32,6 +33,9 @@ def main():
         smartglass=smartglass,
         arm_door=arm_door,
     )
+    
+    # Create InfluxDB client
+    influx_client = influx_lib.Influx(tags={'subject': 'nick'})
 
     # Create TableTop app
     io_modules = [
@@ -43,7 +47,11 @@ def main():
         arm_door,
         eye_tracker,
     ]
-    tabletop_app.TableTopApp(task=task, io_modules=io_modules)
+    tabletop_app.TableTopApp(
+        task=task,
+        io_modules=io_modules,
+        influx_client=influx_client,
+    )
 
 
 if __name__ == "__main__":

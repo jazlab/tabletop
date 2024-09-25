@@ -8,6 +8,7 @@ import tkinter
 from pathlib import Path
 
 import common
+import influx
 import io_modules as io_modules_lib
 import tasks as tasks_module
 from logger import logger
@@ -20,6 +21,7 @@ class TableTopApp:
         self,
         task: tasks_module.BaseTask,
         io_modules: list[io_modules_lib.BaseIO],
+        influx_client: influx.Influx,
         base_log_dir: str = "./logs",
         thread_loop_sleep_ms: float = 1000,
     ):
@@ -29,12 +31,14 @@ class TableTopApp:
             task: The task to run. See ./tasks/.
             io_modules: A list of I/O modules. Some of these may also be used by
                 the task. See ./io_modules/.
+            influx_client: InfluxDB client for writing trial data.
             base_log_dir: Base log directory.
             thread_loop_sleep_ms: Number of milliseconds to sleep in the main
                 thread loop.
         """
         self._task = task
         self._io_modules = io_modules
+        self._influx_client = influx_client
         self._thread_loop_sleep_seconds = thread_loop_sleep_ms / 1000
 
         # Initialize state
@@ -166,6 +170,7 @@ class TableTopApp:
                 logger.info("\nRunning a trial")
                 trial_data = self._task.run_trial()
                 self._csv_writer.writerow(trial_data)
+                self._influx_client.write(trial_data)
                 time.sleep(self._thread_loop_sleep_seconds)
             elif self.state == common.State.PAUSED:
                 time.sleep(self._thread_loop_sleep_seconds)
