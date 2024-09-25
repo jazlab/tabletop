@@ -28,10 +28,6 @@ class Influx:
         self._client = InfluxDBClient(
             url='http://localhost:8086', token='', org='')
         self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
-        # self._client.create_database(db_name)
-        # self._client.switch_database(db_name)
-        # self._client.create_retention_policy(
-        #     'hot_data', '1d', 1, db_name, True, '3h')
         
     def write(self, measurements: dict[str, float]) -> list:
         """Writes a dictionary of elements to influx points.
