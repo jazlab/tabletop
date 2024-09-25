@@ -1,5 +1,4 @@
 """Initialize the trial_generators package."""
 
 from .base import BaseTrialGenerator
-from .mock import MockTrialGenerator
-from .mock import MockBlockStructuredAffordance
+from .mock import MockBlockStructuredAffordance, MockTrialGenerator
