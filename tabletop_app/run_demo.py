@@ -15,7 +15,7 @@ def main():
     """Main function."""
     # Create trial generator
     trial_generator = trial_generators_module.MockBlockStructuredAffordance(
-        affordance_to_object_ids={'twist': [0, 1, 2], 'pull': [3, 4, 5, 6]},
+        affordance_to_object_ids={"twist": [0, 1, 2], "pull": [3, 4, 5, 6]},
         trials_per_block=10,
     )
 
@@ -38,9 +38,9 @@ def main():
         smartglass=smartglass,
         arm_door=arm_door,
     )
-    
+
     # Create InfluxDB client
-    influx_client = influx_lib.Influx(tags={'subject': 'nick'})
+    influx_client = influx_lib.Influx(tags={"subject": "nick"})
 
     # Create TableTop app
     io_modules = [

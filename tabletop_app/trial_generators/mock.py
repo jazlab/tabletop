@@ -1,7 +1,7 @@
 """Mock trial generator module for the tabletop app."""
 
-from logger import logger
 import numpy as np
+from logger import logger
 from trial_generators.base import BaseTrialGenerator
 
 
@@ -25,11 +25,13 @@ class MockTrialGenerator(BaseTrialGenerator):
 class MockBlockStructuredAffordance(BaseTrialGenerator):
     """Mock block structured affordance trial generator."""
 
-    def __init__(self,
-                 affordance_to_object_ids: dict[str, list[int]],
-                 trials_per_block: int = 10):
+    def __init__(
+        self,
+        affordance_to_object_ids: dict[str, list[int]],
+        trials_per_block: int = 10,
+    ):
         """Initialize the MockBlockStructuredAffordance class.
-        
+
         Args:
             affordance_to_object_ids: A dictionary mapping affordances to object
                 IDs.
@@ -41,13 +43,13 @@ class MockBlockStructuredAffordance(BaseTrialGenerator):
         self._trial_count = 0
         self._since_block_change = 0
         self._current_affordance = np.random.choice(self._affordances)
-    
+
     def __call__(self) -> dict:
         """Generate a trial."""
         # Switch block if necessary and possible
         should_switch_block = (
-            self._since_block_change >= self._trials_per_block and
-            len(self._affordances) > 1
+            self._since_block_change >= self._trials_per_block
+            and len(self._affordances) > 1
         )
         if should_switch_block:
             new_affordance = self._current_affordance
@@ -60,7 +62,7 @@ class MockBlockStructuredAffordance(BaseTrialGenerator):
             )
             self._current_affordance = new_affordance
             self._since_block_change = 0
-        
+
         # Generate trial
         object_ids = self._affordance_to_object_ids[self._current_affordance]
         object_id = np.random.choice(object_ids)
@@ -72,10 +74,8 @@ class MockBlockStructuredAffordance(BaseTrialGenerator):
         self._trial_count += 1
         self._since_block_change += 1
         return trial_data
-    
+
     @property
     def field_names(self) -> list:
         """Return the field names for the trial generator."""
         return ["trial_number", "affordance", "object_id"]
-        
-    
