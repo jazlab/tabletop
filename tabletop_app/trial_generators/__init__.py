@@ -2,3 +2,4 @@
 
 from .base import BaseTrialGenerator
 from .mock import MockTrialGenerator
+from .mock import MockBlockStructuredAffordance

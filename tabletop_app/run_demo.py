@@ -13,6 +13,11 @@ import tabletop_app
 
 def main():
     """Main function."""
+    # Create trial generator
+    trial_generator = trial_generators_module.MockBlockStructuredAffordance(
+        affordance_to_object_ids={'twist': [0, 1, 2], 'pull': [3, 4, 5, 6]},
+        trials_per_block=10,
+    )
 
     # Create I/O modules
     robot = io_modules_lib.MockRobot()
@@ -25,7 +30,7 @@ def main():
 
     # Create task
     task = tasks_module.ButtonSearch(
-        trial_generator=trial_generators_module.MockTrialGenerator(),
+        trial_generator=trial_generator,
         robot=robot,
         reward_button=reward_button,
         juice_tube=juice_tube,
