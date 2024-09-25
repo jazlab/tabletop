@@ -1,0 +1,6 @@
+# Ignore caches
+**__pycache__/
+**.DS_Store
+
+# Ignore logs
+tabletop_app/logs/
