@@ -11,13 +11,12 @@ class BaseTrialGenerator(abc.ABC):
         """Generate a trial."""
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def feedback(self, trial_data: dict):
-        """Provide feedback to the trial generator."""
-        raise NotImplementedError
-
     @property
     @abc.abstractmethod
     def field_names(self) -> list:
         """Return the field names for the trial generator."""
         raise NotImplementedError
+
+    def feedback(self, trial_data: dict):
+        """Provide feedback to the trial generator."""
+        del trial_data
