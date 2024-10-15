@@ -4,7 +4,8 @@ import abc
 import time
 
 import numpy as np
-from io_modules.base import BaseIO
+
+from .base import BaseIO
 
 
 class BaseHandFixation(BaseIO, metaclass=abc.ABCMeta):
@@ -38,7 +39,7 @@ class MockHandFixation(BaseHandFixation):
         self,
         change_frequency_seconds: float = 1,
         waiting_period_ms: float = 10,
-        **base_hand_fixation_kwargs: dict
+        **base_hand_fixation_kwargs: dict,
     ):
         """Initialize the MockHandFixation class.
 

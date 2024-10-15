@@ -2,3 +2,9 @@
 
 from .base import BaseTrialGenerator
 from .mock import MockBlockStructuredAffordance, MockTrialGenerator
+
+__all__ = [
+    "BaseTrialGenerator",
+    "MockBlockStructuredAffordance",
+    "MockTrialGenerator",
+]

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabletop"
+version = "0.0.1"
+authors = [
+    { name = "Jack Gabel", email = "gabel@mit.edu" },
+    { name = "Valmiki Kothare", email = "valmiki.kothare.vk@gmail.com" },
+    { name = "Nicholas Watters", email = "nwatters@mit.edu" },
+]
+description = "TableTop app for behavioral experiments"
+requires-python = ">=3.7"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = ["numpy", "influxdb-client"]
+
+[project.scripts]
+tabletop = "tabletop.run_demo:main"
+
+
+[project.urls]
+Homepage = "https://github.com/jazlab/TableTop"
+Issues = "https://github.com/jazlab/TableTop/issues"
+
+[tool.ruff]
+line-length = 79

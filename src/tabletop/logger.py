@@ -1,6 +1,7 @@
 """Logger module for the tabletop app.
 
-Import this module with `from logger import logger` to get a logger instance.
+Import this module with `from tabletop.logger import logger` to get a logger
+instance.
 """
 
 import logging

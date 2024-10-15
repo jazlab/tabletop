@@ -3,7 +3,7 @@
 import abc
 import time
 
-from io_modules.base import BaseIO
+from .base import BaseIO
 
 
 class BaseSmartGlass(BaseIO, metaclass=abc.ABCMeta):

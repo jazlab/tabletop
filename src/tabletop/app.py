@@ -7,11 +7,9 @@ import time
 import tkinter
 from pathlib import Path
 
-import common
-import influx
-import io_modules as io_modules_lib
-import tasks as tasks_module
-from logger import logger
+from tabletop import common, influx, io
+from tabletop import tasks as tasks_module
+from tabletop.logger import logger
 
 
 class TableTopApp:
@@ -20,7 +18,7 @@ class TableTopApp:
     def __init__(
         self,
         task: tasks_module.BaseTask,
-        io_modules: list[io_modules_lib.BaseIO],
+        io_modules: list[io.BaseIO],
         influx_client: influx.Influx,
         base_log_dir: str = "./logs",
         thread_loop_sleep_ms: float = 1000,

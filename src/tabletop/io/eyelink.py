@@ -4,7 +4,8 @@ import time
 from collections import namedtuple
 
 import numpy as np
-from io_modules.base import BaseIO
+
+from .base import BaseIO
 
 
 class BaseEyelink(BaseIO):
