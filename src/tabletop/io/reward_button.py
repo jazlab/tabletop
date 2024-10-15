@@ -4,7 +4,8 @@ import abc
 import time
 
 import numpy as np
-from io_modules.base import BaseIO
+
+from .base import BaseIO
 
 
 class BaseRewardButton(BaseIO, metaclass=abc.ABCMeta):
@@ -31,7 +32,7 @@ class MockRewardButton(BaseRewardButton):
     def __init__(
         self,
         press_frequency_seconds: float = 2,
-        **base_reward_button_kwargs: dict
+        **base_reward_button_kwargs: dict,
     ):
         """Initialize the MockRewardButton class.
 

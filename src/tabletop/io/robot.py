@@ -4,7 +4,8 @@ import abc
 import time
 
 import numpy as np
-from io_modules.base import BaseIO
+
+from .base import BaseIO
 
 
 class BaseRobot(BaseIO, metaclass=abc.ABCMeta):

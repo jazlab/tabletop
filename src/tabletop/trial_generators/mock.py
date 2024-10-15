@@ -1,8 +1,10 @@
 """Mock trial generator module for the tabletop app."""
 
 import numpy as np
-from logger import logger
-from trial_generators.base import BaseTrialGenerator
+
+from tabletop.logger import logger
+
+from .base import BaseTrialGenerator
 
 
 class MockTrialGenerator(BaseTrialGenerator):
@@ -48,11 +50,10 @@ class MockBlockStructuredAffordance(BaseTrialGenerator):
         """Generate a trial."""
         # Switch block if necessary and possible
         should_switch_block = (
-            self._since_block_change >= self._trials_per_block
-            and len(self._affordances) > 1
+            len(self._affordances) > 1
+            and self._since_block_change >= self._trials_per_block
         )
         if should_switch_block:
-            new_affordance = self._current_affordance
             options = self._affordances.copy()
             options.remove(self._current_affordance)
             new_affordance = np.random.choice(options)

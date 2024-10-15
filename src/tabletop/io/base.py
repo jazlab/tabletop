@@ -6,8 +6,8 @@ import threading
 import time
 from pathlib import Path
 
-import common
-from logger import logger
+from tabletop import common
+from tabletop.logger import logger
 
 
 class BaseIO(abc.ABC):

@@ -8,3 +8,20 @@ from .juice_tube import BaseJuiceTube, MockJuiceTube
 from .reward_button import BaseRewardButton, MockRewardButton
 from .robot import BaseRobot, MockRobot
 from .smartglass import BaseSmartGlass, MockSmartGlass
+
+__all__ = [
+    "BaseArmDoor",
+    "MockArmDoor",
+    "BaseIO",
+    "MockEyelink",
+    "BaseHandFixation",
+    "MockHandFixation",
+    "BaseJuiceTube",
+    "MockJuiceTube",
+    "BaseRewardButton",
+    "MockRewardButton",
+    "BaseRobot",
+    "MockRobot",
+    "BaseSmartGlass",
+    "MockSmartGlass",
+]

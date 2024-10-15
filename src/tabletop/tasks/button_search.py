@@ -12,10 +12,10 @@ This task has the following trial structure:
 
 import time
 
-import io_modules as io_modules_lib
-import trial_generators as trial_generators_module
-from logger import logger
-from tasks import base
+from tabletop import io, trial_generators
+from tabletop.logger import logger
+
+from . import base
 
 
 class ButtonSearch(base.BaseTask):
@@ -23,13 +23,13 @@ class ButtonSearch(base.BaseTask):
 
     def __init__(
         self,
-        trial_generator: trial_generators_module.BaseTrialGenerator,
-        robot: io_modules_lib.BaseRobot,
-        reward_button: io_modules_lib.BaseRewardButton,
-        juice_tube: io_modules_lib.BaseJuiceTube,
-        hand_fixation: io_modules_lib.BaseHandFixation,
-        smartglass: io_modules_lib.BaseSmartGlass,
-        arm_door: io_modules_lib.BaseArmDoor,
+        trial_generator: trial_generators.BaseTrialGenerator,
+        robot: io.BaseRobot,
+        reward_button: io.BaseRewardButton,
+        juice_tube: io.BaseJuiceTube,
+        hand_fixation: io.BaseHandFixation,
+        smartglass: io.BaseSmartGlass,
+        arm_door: io.BaseArmDoor,
         robot_setup_ms: float = 1000,
         hand_fixation_ms: float = 1000,
         visible_only_ms: float = 1000,

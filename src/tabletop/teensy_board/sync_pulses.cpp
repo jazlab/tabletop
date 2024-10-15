@@ -1,17 +1,17 @@
 /*
  * Sync Pulse Generator
- * 
- * This program generates TTL pulses that are sent to a variety of data streams 
- * for synchronization. The pulses are sent from a specified pin (PULSE_PIN) 
- * and occur on a regular interval (BASE_INTERVAL). The pulses last for a set 
- * duration (PULSE_DURATION). Jitter (NOISE_RANGE) is added to the base 
- * interval so that the data streams can be easily aligned after the 
- * experiment. 
- * 
- * The program sends the state of the pulse pin ("ON" or "OFF") to the serial 
+ *
+ * This program generates TTL pulses that are sent to a variety of data streams
+ * for synchronization. The pulses are sent from a specified pin (PULSE_PIN)
+ * and occur on a regular interval (BASE_INTERVAL). The pulses last for a set
+ * duration (PULSE_DURATION). Jitter (NOISE_RANGE) is added to the base
+ * interval so that the data streams can be easily aligned after the
+ * experiment.
+ *
+ * The program sends the state of the pulse pin ("ON" or "OFF") to the serial
  * monitor with a timestamp every time the pin changes state.
- * 
- * This code can be run on a Teensy board from the Arduino IDE. 
+ *
+ * This code can be run on a Teensy board from the Arduino IDE.
  */
 
 #define PULSE_PIN         2      // Pin connected to sync cable
