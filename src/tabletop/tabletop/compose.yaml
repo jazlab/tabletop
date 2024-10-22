@@ -20,7 +20,24 @@ services:
     command: bash -c "source /opt/ros/rolling/setup.bash && python3 /catkin_ws/src/server.py"
     depends_on:
       - robot
+    develop:
+      watch:
+        - action: sync
+        - path: .
+        - target: /catkin_ws/src
+  
+  sensor1:
+    build:
+      context: .
+      dockerfile: Dockerfile_sensor1
+    image: ros:latest
+    volumes:
+      - ./sensor1.py:/catkin_ws/src/sensor1.py
+    command: bash -c "source /opt/ros/rolling/setup.bash && python3 /catkin_ws/src/sensor1.py"
+    depends_on:
+      - server
+
 
 networks:
   default:
-    driver: bridge
+    driver: ursim
