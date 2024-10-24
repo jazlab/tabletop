@@ -3,7 +3,7 @@
 Run this to demo the TableTop app using mock I/O modules.
 """
 
-from tabletop import app, influx, io, tasks, trial_generators
+from . import app, influx, io, tasks, trial_generators
 
 
 def main():
