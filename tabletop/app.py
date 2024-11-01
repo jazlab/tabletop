@@ -9,7 +9,6 @@ from pathlib import Path
 
 from tabletop import common, influx, io
 from tabletop import tasks as tasks_module
-from tabletop.logger import logger
 
 
 class TableTopApp:
