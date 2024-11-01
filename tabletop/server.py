@@ -20,27 +20,37 @@ class MinimalPublisher(Node):
 
 
 class Server(Node):
-    def __init__(self):
-        super().__init__("minimal_subscriber")
-        self.subscription = self.create_subscription(
-            String, "teensy", self.listener_callback, 10
+    def __init__(self, timer_period=0.5):
+        super().__init__("server")
+        self.reentrant_group = self.ReentrantCallbackGroup()
+        self.teensy_sub = self.create_subscription(
+            String, "teensy_sensors", self.teensy_callback, 1000
         )
+        self.robot_pub = self.create_publisher(String, "robot_commands", 1000)
+        self.create_timer(timer_period, self.robot_commands_callback)
 
-    def teensy_callback(self, msg):
-        self.
+    def teensy_sensors_callback(self, msg):
+        pass
+
+    def robot_commands_callback(self):
+        msg = String()
+        msg.data = "Hello World: %d" % self.i
+        self.publisher_.publish(msg)
+        self.get_logger().info('Publishing: "%s"' % msg.data)
+        self.i += 1
 
 
 def main(args=None):
     rclpy.init(args=args)
 
     server = Server()
+    executor = rclpy.executors.MultiThreadedExecutor()
 
-    executor = rclpy.get_global_executor()
-    executor.add_node(minimal_publisher)
-    executor.add_node(minimal_subscriber)
+    executor.add_node(server)
     executor.spin()
-    
+
     rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
