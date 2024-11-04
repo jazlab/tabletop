@@ -4,3 +4,6 @@
 
 # Ignore logs
 tabletop_app/logs/
+
+# Ignore scratch directories
+nwatters
