@@ -1,0 +1,55 @@
+{
+    "name": "ROS 2 Development Container",
+    "privileged": true,
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "workspaceFolder": "/root/ws",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/root/ws,type=bind",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.analysis.extraPaths": [
+                    "/opt/ros/jazzy/lib/python3.12/site-packages"
+                ],
+                "python.autoComplete.extraPaths": [
+                    "/opt/ros/jazzy/lib/python3.12/site-packages"
+                ]
+            },
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cpptools-themes",
+                "ms-vscode.cmake-tools",
+                "ms-iot.vscode-ros",
+                "KevinRose.vsc-python-indent",
+                "GitHub.copilot",
+                "GitHub.copilot-chat",
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.debugpy",
+                "mechatroner.rainbow-csv",
+                "charliermarsh.ruff",
+                "ms-toolsai.jupyter",
+                "ms-vscode.cpptools-extension-pack",
+                "tamasfe.even-better-toml",
+                "redhat.vscode-yaml"
+            ]
+        }
+    },
+    "containerEnv": {
+        "DISPLAY": "unix:0"
+    },
+    "runArgs": [
+        "--net=tabletop_net",
+        "--ip=192.168.13.2",
+        "--pid=host",
+        "--ipc=host",
+        "-e",
+        "DISPLAY=${env:DISPLAY}"
+    ],
+    "mounts": [
+        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
+        "source=/dev/dri,target=/dev/dri,type=bind,consistency=cached"
+    ],
+    "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -y"
+}
