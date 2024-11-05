@@ -1,0 +1,46 @@
+name: tabletop
+
+services:
+  robot:
+    image: universalrobots/ursim_e-series
+    volumes:
+      - ./ursim/urcaps:/urcaps
+      - ./ursim/programs:/ursim/programs
+    networks:
+      net:
+        ipv4_address: 192.168.13.10
+  server:
+    build:
+      context: .
+      dockerfile: ./Dockerfiles/server
+    volumes:
+      - ./:${HOME}/ws/
+    depends_on:
+      - robot
+    command: bash
+    tty: true
+    # develop:
+    #   watch:
+    #     - path: ./server.py
+    #       action: sync
+    #       target: /catkin_ws/src
+    networks:
+      net:
+        ipv4_address: 192.168.13.11
+  # sensor1:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile_sensor1
+  #   image: ros:latest
+  #   volumes:
+  #     - ./sensor1.py:/catkin_ws/src/sensor1.py
+  #   command: bash -c "source /opt/ros/rolling/setup.bash && python3 /catkin_ws/src/sensor1.py"
+  #   depends_on:
+  #     - server
+
+networks:
+  net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.13.0/24

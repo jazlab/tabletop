@@ -3,7 +3,9 @@
 **.DS_Store
 
 # Ignore logs
-tabletop_app/logs/
+**logs/
 
-# Ignore scratch directories
-nwatters
+# Ignore build artifacts
+**build/
+**dist/
+**egg-info/
