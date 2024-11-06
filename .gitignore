@@ -9,3 +9,6 @@
 **build/
 **dist/
 **egg-info/
+
+# Ignore vscode files
+.vscode/
