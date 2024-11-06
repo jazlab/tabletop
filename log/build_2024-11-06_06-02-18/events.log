@@ -1,0 +1,119 @@
+[0.000000] (-) TimerEvent: {}
+[0.003341] (tabletop) JobQueued: {'identifier': 'tabletop', 'dependencies': OrderedDict()}
+[0.003403] (tabletop) JobStarted: {'identifier': 'tabletop'}
+[0.099963] (-) TimerEvent: {}
+[0.201184] (-) TimerEvent: {}
+[0.301441] (-) TimerEvent: {}
+[0.401668] (-) TimerEvent: {}
+[0.501951] (-) TimerEvent: {}
+[0.602391] (-) TimerEvent: {}
+[0.703402] (-) TimerEvent: {}
+[0.804074] (-) TimerEvent: {}
+[0.904352] (-) TimerEvent: {}
+[1.004602] (-) TimerEvent: {}
+[1.087910] (tabletop) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', 'setup.py', 'egg_info', '--egg-base', 'build/tabletop', 'build', '--build-base', '/root/ws/src/tabletop/build/tabletop/build', 'install', '--record', '/root/ws/src/tabletop/build/tabletop/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/ws/src/tabletop', 'env': {'HOSTNAME': '19b7d0f429ce', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/jazzy/opt/rviz_ogre_vendor/lib:/opt/ros/jazzy/lib/x86_64-linux-gnu:/opt/ros/jazzy/opt/gz_math_vendor/lib:/opt/ros/jazzy/opt/gz_utils_vendor/lib:/opt/ros/jazzy/opt/gz_cmake_vendor/lib:/opt/ros/jazzy/lib', 'HOME': '/root', 'PYTHONUNBUFFERED': '1', 'ROS_PYTHON_VERSION': '3', 'REMOTE_CONTAINERS': 'true', 'ROS_DISTRO': 'jazzy', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-2ee2b7eb-1620-438e-8fd9-c9141def1c51.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'PATH': '/opt/ros/jazzy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-2ee2b7eb-1620-438e-8fd9-c9141def1c51.sock","/root/.gnupg/S.gpg-agent"]', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'LS_COLORS': '', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-2ee2b7eb-1620-438e-8fd9-c9141def1c51.sock', 'AMENT_PREFIX_PATH': '/opt/ros/jazzy', 'SHELL': '/bin/bash', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'SUBNET', 'PWD': '/root/ws/src/tabletop/build/tabletop', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:/opt/ros/jazzy/lib/python3.12/site-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor'}, 'shell': False}
+[1.104727] (-) TimerEvent: {}
+[1.204992] (-) TimerEvent: {}
+[1.305276] (-) TimerEvent: {}
+[1.348518] (tabletop) StdoutLine: {'line': b'running egg_info\n'}
+[1.349272] (tabletop) StdoutLine: {'line': b'creating build/tabletop/tabletop.egg-info\n'}
+[1.364056] (tabletop) StdoutLine: {'line': b'writing build/tabletop/tabletop.egg-info/PKG-INFO\n'}
+[1.364729] (tabletop) StdoutLine: {'line': b'writing dependency_links to build/tabletop/tabletop.egg-info/dependency_links.txt\n'}
+[1.364946] (tabletop) StdoutLine: {'line': b'writing entry points to build/tabletop/tabletop.egg-info/entry_points.txt\n'}
+[1.365050] (tabletop) StdoutLine: {'line': b'writing requirements to build/tabletop/tabletop.egg-info/requires.txt\n'}
+[1.365149] (tabletop) StdoutLine: {'line': b'writing top-level names to build/tabletop/tabletop.egg-info/top_level.txt\n'}
+[1.365267] (tabletop) StdoutLine: {'line': b"writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'\n"}
+[1.395516] (tabletop) StdoutLine: {'line': b"reading manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'\n"}
+[1.395740] (tabletop) StdoutLine: {'line': b"adding license file 'LICENSE'\n"}
+[1.396386] (tabletop) StdoutLine: {'line': b"writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'\n"}
+[1.396587] (tabletop) StdoutLine: {'line': b'running build\n'}
+[1.396685] (tabletop) StdoutLine: {'line': b'running build_py\n'}
+[1.396799] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build\n'}
+[1.396946] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build/lib\n'}
+[1.397090] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.397208] (tabletop) StdoutLine: {'line': b'copying tabletop/nodes.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.397333] (tabletop) StdoutLine: {'line': b'copying tabletop/app.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.397807] (tabletop) StdoutLine: {'line': b'copying tabletop/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.398329] (tabletop) StdoutLine: {'line': b'copying tabletop/common.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.398456] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators\n'}
+[1.398557] (tabletop) StdoutLine: {'line': b'copying tabletop/trial_generators/mock.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators\n'}
+[1.398655] (tabletop) StdoutLine: {'line': b'copying tabletop/trial_generators/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators\n'}
+[1.398749] (tabletop) StdoutLine: {'line': b'copying tabletop/trial_generators/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators\n'}
+[1.398841] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks\n'}
+[1.398935] (tabletop) StdoutLine: {'line': b'copying tabletop/tasks/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks\n'}
+[1.399173] (tabletop) StdoutLine: {'line': b'copying tabletop/tasks/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks\n'}
+[1.399268] (tabletop) StdoutLine: {'line': b'copying tabletop/tasks/button_search.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks\n'}
+[1.399489] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.399589] (tabletop) StdoutLine: {'line': b'copying tabletop/io/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.399685] (tabletop) StdoutLine: {'line': b'copying tabletop/io/smartglass.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.399817] (tabletop) StdoutLine: {'line': b'copying tabletop/io/arm_door.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.399982] (tabletop) StdoutLine: {'line': b'copying tabletop/io/hand_fixation.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400152] (tabletop) StdoutLine: {'line': b'copying tabletop/io/robot.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400241] (tabletop) StdoutLine: {'line': b'copying tabletop/io/juice_tube.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400322] (tabletop) StdoutLine: {'line': b'copying tabletop/io/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400402] (tabletop) StdoutLine: {'line': b'copying tabletop/io/eyelink.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400481] (tabletop) StdoutLine: {'line': b'copying tabletop/io/reward_button.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io\n'}
+[1.400606] (tabletop) StdoutLine: {'line': b'running install\n'}
+[1.405457] (-) TimerEvent: {}
+[1.409223] (tabletop) StdoutLine: {'line': b'running install_lib\n'}
+[1.428847] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.429061] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/nodes.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.429173] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators\n'}
+[1.429259] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/mock.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators\n'}
+[1.429342] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators\n'}
+[1.429428] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators\n'}
+[1.429508] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/app.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.429588] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks\n'}
+[1.432545] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks\n'}
+[1.432654] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks\n'}
+[1.432738] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/button_search.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks\n'}
+[1.432819] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433202] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433304] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/smartglass.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433386] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/arm_door.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433466] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/hand_fixation.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433545] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/robot.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433623] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/juice_tube.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433700] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433778] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/eyelink.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433856] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/reward_button.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io\n'}
+[1.433934] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.434027] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/common.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.434105] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/nodes.py to nodes.cpython-312.pyc\n'}
+[1.434678] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/mock.py to mock.cpython-312.pyc\n'}
+[1.434824] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/base.py to base.cpython-312.pyc\n'}
+[1.435153] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/__init__.py to __init__.cpython-312.pyc\n'}
+[1.436488] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/app.py to app.cpython-312.pyc\n'}
+[1.436616] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/base.py to base.cpython-312.pyc\n'}
+[1.436708] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/__init__.py to __init__.cpython-312.pyc\n'}
+[1.436900] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/button_search.py to button_search.cpython-312.pyc\n'}
+[1.437014] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/base.py to base.cpython-312.pyc\n'}
+[1.437097] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/smartglass.py to smartglass.cpython-312.pyc\n'}
+[1.437174] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/arm_door.py to arm_door.cpython-312.pyc\n'}
+[1.437246] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/hand_fixation.py to hand_fixation.cpython-312.pyc\n'}
+[1.437324] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/robot.py to robot.cpython-312.pyc\n'}
+[1.438694] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/juice_tube.py to juice_tube.cpython-312.pyc\n'}
+[1.438832] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/__init__.py to __init__.cpython-312.pyc\n'}
+[1.439111] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/eyelink.py to eyelink.cpython-312.pyc\n'}
+[1.441485] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/reward_button.py to reward_button.cpython-312.pyc\n'}
+[1.442344] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/__init__.py to __init__.cpython-312.pyc\n'}
+[1.442526] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/common.py to common.cpython-312.pyc\n'}
+[1.442610] (tabletop) StdoutLine: {'line': b'running install_data\n'}
+[1.442687] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/share/ament_index\n'}
+[1.442760] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index\n'}
+[1.442829] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index/packages\n'}
+[1.443775] (tabletop) StdoutLine: {'line': b'copying resource/tabletop -> /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index/packages\n'}
+[1.444040] (tabletop) StdoutLine: {'line': b'copying package.xml -> /root/ws/src/tabletop/install/tabletop/share/tabletop\n'}
+[1.444209] (tabletop) StdoutLine: {'line': b'creating /root/ws/src/tabletop/install/tabletop/share/tabletop/launch\n'}
+[1.448393] (tabletop) StdoutLine: {'line': b'copying launch/server_launch.py -> /root/ws/src/tabletop/install/tabletop/share/tabletop/launch\n'}
+[1.448627] (tabletop) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.464929] (tabletop) StdoutLine: {'line': b'Copying build/tabletop/tabletop.egg-info to /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info\n'}
+[1.466530] (tabletop) StdoutLine: {'line': b'running install_scripts\n'}
+[1.505565] (-) TimerEvent: {}
+[1.586858] (tabletop) StdoutLine: {'line': b'Installing command script to /root/ws/src/tabletop/install/tabletop/lib/tabletop\n'}
+[1.587571] (tabletop) StdoutLine: {'line': b'Installing teensy script to /root/ws/src/tabletop/install/tabletop/lib/tabletop\n'}
+[1.587896] (tabletop) StdoutLine: {'line': b"writing list of installed files to '/root/ws/src/tabletop/build/tabletop/install.log'\n"}
+[1.605663] (-) TimerEvent: {}
+[1.649497] (tabletop) CommandEnded: {'returncode': 0}
+[1.669039] (tabletop) JobEnded: {'identifier': 'tabletop', 'rc': 0}
+[1.669807] (-) EventReactorShutdown: {}

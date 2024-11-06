@@ -1,0 +1,24 @@
+running egg_info
+writing build/tabletop/tabletop.egg-info/PKG-INFO
+writing dependency_links to build/tabletop/tabletop.egg-info/dependency_links.txt
+writing entry points to build/tabletop/tabletop.egg-info/entry_points.txt
+writing requirements to build/tabletop/tabletop.egg-info/requires.txt
+writing top-level names to build/tabletop/tabletop.egg-info/top_level.txt
+reading manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+running build
+running build_py
+copying tabletop/test.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+running install
+running install_lib
+copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/test.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/test.py to test.cpython-312.pyc
+running install_data
+running install_egg_info
+removing '/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info' (and everything under it)
+Copying build/tabletop/tabletop.egg-info to /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info
+running install_scripts
+Installing command script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+Installing teensy script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+writing list of installed files to '/root/ws/src/tabletop/build/tabletop/install.log'
