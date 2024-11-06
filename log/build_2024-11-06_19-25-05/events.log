@@ -1,0 +1,42 @@
+[0.000000] (-) TimerEvent: {}
+[0.000739] (tabletop) JobQueued: {'identifier': 'tabletop', 'dependencies': OrderedDict()}
+[0.000864] (tabletop) JobStarted: {'identifier': 'tabletop'}
+[0.099779] (-) TimerEvent: {}
+[0.200017] (-) TimerEvent: {}
+[0.300252] (-) TimerEvent: {}
+[0.400493] (-) TimerEvent: {}
+[0.500730] (-) TimerEvent: {}
+[0.600985] (-) TimerEvent: {}
+[0.701214] (-) TimerEvent: {}
+[0.750397] (tabletop) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', 'setup.py', 'egg_info', '--egg-base', 'build/tabletop', 'build', '--build-base', '/root/ws/src/tabletop/build/tabletop/build', 'install', '--record', '/root/ws/src/tabletop/build/tabletop/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/ws/src/tabletop', 'env': {'HOSTNAME': '6d7fe6cf7101', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/jazzy/opt/rviz_ogre_vendor/lib:/opt/ros/jazzy/lib/x86_64-linux-gnu:/opt/ros/jazzy/opt/gz_math_vendor/lib:/opt/ros/jazzy/opt/gz_utils_vendor/lib:/opt/ros/jazzy/opt/gz_cmake_vendor/lib:/opt/ros/jazzy/lib', 'HOME': '/root', 'PYTHONUNBUFFERED': '1', 'ROS_PYTHON_VERSION': '3', 'REMOTE_CONTAINERS': 'true', 'COLCON_PREFIX_PATH': '/root/ws/install', 'ROS_DISTRO': 'jazzy', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-791e2624-4e84-43cb-8396-79373fee7da4.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'PATH': '/opt/ros/jazzy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-791e2624-4e84-43cb-8396-79373fee7da4.sock","/root/.gnupg/S.gpg-agent"]', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'LS_COLORS': '', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-791e2624-4e84-43cb-8396-79373fee7da4.sock', 'AMENT_PREFIX_PATH': '/root/ws/install/tabletop:/opt/ros/jazzy', 'SHELL': '/bin/bash', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'SUBNET', 'PWD': '/root/ws/src/tabletop/build/tabletop', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:/root/ws/install/tabletop/lib/python3.12/site-packages:/opt/ros/jazzy/lib/python3.12/site-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor'}, 'shell': False}
+[0.801298] (-) TimerEvent: {}
+[0.901519] (-) TimerEvent: {}
+[0.973664] (tabletop) StdoutLine: {'line': b'running egg_info\n'}
+[0.984804] (tabletop) StdoutLine: {'line': b'writing build/tabletop/tabletop.egg-info/PKG-INFO\n'}
+[0.985034] (tabletop) StdoutLine: {'line': b'writing dependency_links to build/tabletop/tabletop.egg-info/dependency_links.txt\n'}
+[0.985225] (tabletop) StdoutLine: {'line': b'writing entry points to build/tabletop/tabletop.egg-info/entry_points.txt\n'}
+[0.985330] (tabletop) StdoutLine: {'line': b'writing requirements to build/tabletop/tabletop.egg-info/requires.txt\n'}
+[0.985479] (tabletop) StdoutLine: {'line': b'writing top-level names to build/tabletop/tabletop.egg-info/top_level.txt\n'}
+[1.001604] (-) TimerEvent: {}
+[1.010242] (tabletop) StdoutLine: {'line': b"reading manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'\n"}
+[1.010485] (tabletop) StdoutLine: {'line': b"adding license file 'LICENSE'\n"}
+[1.011064] (tabletop) StdoutLine: {'line': b"writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'\n"}
+[1.011192] (tabletop) StdoutLine: {'line': b'running build\n'}
+[1.011278] (tabletop) StdoutLine: {'line': b'running build_py\n'}
+[1.011419] (tabletop) StdoutLine: {'line': b'copying tabletop/test.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop\n'}
+[1.012288] (tabletop) StdoutLine: {'line': b'running install\n'}
+[1.018723] (tabletop) StdoutLine: {'line': b'running install_lib\n'}
+[1.032412] (tabletop) StdoutLine: {'line': b'copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/test.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop\n'}
+[1.033245] (tabletop) StdoutLine: {'line': b'byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/test.py to test.cpython-312.pyc\n'}
+[1.033732] (tabletop) StdoutLine: {'line': b'running install_data\n'}
+[1.033944] (tabletop) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.046664] (tabletop) StdoutLine: {'line': b"removing '/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info' (and everything under it)\n"}
+[1.047010] (tabletop) StdoutLine: {'line': b'Copying build/tabletop/tabletop.egg-info to /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info\n'}
+[1.047801] (tabletop) StdoutLine: {'line': b'running install_scripts\n'}
+[1.101731] (-) TimerEvent: {}
+[1.141070] (tabletop) StdoutLine: {'line': b'Installing command script to /root/ws/src/tabletop/install/tabletop/lib/tabletop\n'}
+[1.141303] (tabletop) StdoutLine: {'line': b'Installing teensy script to /root/ws/src/tabletop/install/tabletop/lib/tabletop\n'}
+[1.141745] (tabletop) StdoutLine: {'line': b"writing list of installed files to '/root/ws/src/tabletop/build/tabletop/install.log'\n"}
+[1.181759] (tabletop) CommandEnded: {'returncode': 0}
+[1.197679] (tabletop) JobEnded: {'identifier': 'tabletop', 'rc': 0}
+[1.200892] (-) EventReactorShutdown: {}

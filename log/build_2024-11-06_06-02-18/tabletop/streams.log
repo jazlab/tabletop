@@ -1,0 +1,98 @@
+[1.085s] Invoking command in '/root/ws/src/tabletop': PYTHONPATH=/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py egg_info --egg-base build/tabletop build --build-base /root/ws/src/tabletop/build/tabletop/build install --record /root/ws/src/tabletop/build/tabletop/install.log --single-version-externally-managed install_data
+[1.345s] running egg_info
+[1.347s] creating build/tabletop/tabletop.egg-info
+[1.361s] writing build/tabletop/tabletop.egg-info/PKG-INFO
+[1.361s] writing dependency_links to build/tabletop/tabletop.egg-info/dependency_links.txt
+[1.362s] writing entry points to build/tabletop/tabletop.egg-info/entry_points.txt
+[1.362s] writing requirements to build/tabletop/tabletop.egg-info/requires.txt
+[1.362s] writing top-level names to build/tabletop/tabletop.egg-info/top_level.txt
+[1.362s] writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+[1.392s] reading manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+[1.392s] adding license file 'LICENSE'
+[1.393s] writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+[1.393s] running build
+[1.393s] running build_py
+[1.393s] creating /root/ws/src/tabletop/build/tabletop/build
+[1.394s] creating /root/ws/src/tabletop/build/tabletop/build/lib
+[1.394s] creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.394s] copying tabletop/nodes.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.394s] copying tabletop/app.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.395s] copying tabletop/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.395s] copying tabletop/common.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.395s] creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators
+[1.395s] copying tabletop/trial_generators/mock.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators
+[1.395s] copying tabletop/trial_generators/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators
+[1.395s] copying tabletop/trial_generators/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators
+[1.396s] creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks
+[1.396s] copying tabletop/tasks/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks
+[1.396s] copying tabletop/tasks/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks
+[1.396s] copying tabletop/tasks/button_search.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks
+[1.396s] creating /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.396s] copying tabletop/io/base.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.396s] copying tabletop/io/smartglass.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.396s] copying tabletop/io/arm_door.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/hand_fixation.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/robot.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/juice_tube.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/__init__.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/eyelink.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] copying tabletop/io/reward_button.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io
+[1.397s] running install
+[1.406s] running install_lib
+[1.426s] creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.426s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/nodes.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.426s] creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators
+[1.426s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/mock.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators
+[1.426s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators
+[1.426s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/trial_generators/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators
+[1.426s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/app.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.429s] creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks
+[1.429s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks
+[1.429s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks
+[1.429s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/tasks/button_search.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks
+[1.430s] creating /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/base.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/smartglass.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/arm_door.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/hand_fixation.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/robot.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/juice_tube.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.430s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/eyelink.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.431s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/io/reward_button.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io
+[1.431s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/__init__.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.431s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/common.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.431s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/nodes.py to nodes.cpython-312.pyc
+[1.431s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/mock.py to mock.cpython-312.pyc
+[1.432s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/base.py to base.cpython-312.pyc
+[1.433s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/trial_generators/__init__.py to __init__.cpython-312.pyc
+[1.433s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/app.py to app.cpython-312.pyc
+[1.433s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/base.py to base.cpython-312.pyc
+[1.433s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/__init__.py to __init__.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/tasks/button_search.py to button_search.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/base.py to base.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/smartglass.py to smartglass.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/arm_door.py to arm_door.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/hand_fixation.py to hand_fixation.cpython-312.pyc
+[1.434s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/robot.py to robot.cpython-312.pyc
+[1.435s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/juice_tube.py to juice_tube.cpython-312.pyc
+[1.436s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/__init__.py to __init__.cpython-312.pyc
+[1.436s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/eyelink.py to eyelink.cpython-312.pyc
+[1.438s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/io/reward_button.py to reward_button.cpython-312.pyc
+[1.439s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/__init__.py to __init__.cpython-312.pyc
+[1.439s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/common.py to common.cpython-312.pyc
+[1.439s] running install_data
+[1.439s] creating /root/ws/src/tabletop/install/tabletop/share/ament_index
+[1.439s] creating /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index
+[1.439s] creating /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index/packages
+[1.441s] copying resource/tabletop -> /root/ws/src/tabletop/install/tabletop/share/ament_index/resource_index/packages
+[1.441s] copying package.xml -> /root/ws/src/tabletop/install/tabletop/share/tabletop
+[1.445s] creating /root/ws/src/tabletop/install/tabletop/share/tabletop/launch
+[1.445s] copying launch/server_launch.py -> /root/ws/src/tabletop/install/tabletop/share/tabletop/launch
+[1.445s] running install_egg_info
+[1.462s] Copying build/tabletop/tabletop.egg-info to /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info
+[1.463s] running install_scripts
+[1.584s] Installing command script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+[1.584s] Installing teensy script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+[1.585s] writing list of installed files to '/root/ws/src/tabletop/build/tabletop/install.log'
+[1.646s] Invoked command in '/root/ws/src/tabletop' returned '0': PYTHONPATH=/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py egg_info --egg-base build/tabletop build --build-base /root/ws/src/tabletop/build/tabletop/build install --record /root/ws/src/tabletop/build/tabletop/install.log --single-version-externally-managed install_data

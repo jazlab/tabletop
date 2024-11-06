@@ -1,0 +1,26 @@
+[0.750s] Invoking command in '/root/ws/src/tabletop': PYTHONPATH=/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py egg_info --egg-base build/tabletop build --build-base /root/ws/src/tabletop/build/tabletop/build install --record /root/ws/src/tabletop/build/tabletop/install.log --single-version-externally-managed install_data
+[0.973s] running egg_info
+[0.984s] writing build/tabletop/tabletop.egg-info/PKG-INFO
+[0.984s] writing dependency_links to build/tabletop/tabletop.egg-info/dependency_links.txt
+[0.984s] writing entry points to build/tabletop/tabletop.egg-info/entry_points.txt
+[0.984s] writing requirements to build/tabletop/tabletop.egg-info/requires.txt
+[0.985s] writing top-level names to build/tabletop/tabletop.egg-info/top_level.txt
+[1.009s] reading manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+[1.010s] adding license file 'LICENSE'
+[1.010s] writing manifest file 'build/tabletop/tabletop.egg-info/SOURCES.txt'
+[1.010s] running build
+[1.010s] running build_py
+[1.011s] copying tabletop/test.py -> /root/ws/src/tabletop/build/tabletop/build/lib/tabletop
+[1.011s] running install
+[1.018s] running install_lib
+[1.032s] copying /root/ws/src/tabletop/build/tabletop/build/lib/tabletop/test.py -> /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop
+[1.032s] byte-compiling /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop/test.py to test.cpython-312.pyc
+[1.033s] running install_data
+[1.033s] running install_egg_info
+[1.046s] removing '/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info' (and everything under it)
+[1.046s] Copying build/tabletop/tabletop.egg-info to /root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages/tabletop-0.0.0-py3.12.egg-info
+[1.047s] running install_scripts
+[1.140s] Installing command script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+[1.140s] Installing teensy script to /root/ws/src/tabletop/install/tabletop/lib/tabletop
+[1.141s] writing list of installed files to '/root/ws/src/tabletop/build/tabletop/install.log'
+[1.181s] Invoked command in '/root/ws/src/tabletop' returned '0': PYTHONPATH=/root/ws/src/tabletop/build/tabletop/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ws/src/tabletop/install/tabletop/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py egg_info --egg-base build/tabletop build --build-base /root/ws/src/tabletop/build/tabletop/build install --record /root/ws/src/tabletop/build/tabletop/install.log --single-version-externally-managed install_data
