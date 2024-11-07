@@ -4,13 +4,13 @@ RUN apt-get update && apt-get upgrade -y
 RUN apt-get install -y python3-pip \
     python-is-python3 \
     ros-jazzy-ur \
+    ros-jazzy-moveit
+
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source /root/ws/install/setup.bash" >> $HOME/.bashrc
 
-ENV SHELL /bin/bash
 ENV PYTHONUNBUFFERED 1
 
-CMD ["/bin/bash", "-c", "\
-    /root/ws/src/tabletop/build.sh && \
-    source /root/ws/install/setup.bash && \
-    ros2 launch tabletop server.launch.py"]
+CMD ["bash", "-c", "\
+    source /root/ws/src/tabletop/build.sh  && \
+    ros2 launch tabletop moveit.launch.py"]

@@ -1,33 +1,34 @@
 name: tabletop
 
 services:
-  robot:
-    image: universalrobots/ursim_e-series
-    volumes:
-      - ./ursim/urcaps:/urcaps
-      - ./ursim/programs:/ursim/programs
-    networks:
-      net:
-        ipv4_address: 192.168.13.10
+  # robot:
+  #   image: universalrobots/ursim_e-series
+  #   volumes:
+  #     - ./ursim/urcaps:/urcaps
+  #     - ./ursim/programs:/ursim/programs
+  #   networks:
+  #     net:
+  #       ipv4_address: 192.168.13.10
   server:
     build:
       context: .
-      dockerfile: ./Dockerfiles/server
+      dockerfile: ./server.Dockerfile
     volumes:
-      - ./:${HOME}/ws/
-    depends_on:
-      - robot
-    command: bash
+      - $HOME/ws/src/tabletop/:$HOME/ws/src/tabletop/
+      - /tmp/.X11-unix:/tmp/.X11-unix
     tty: true
-    develop:
-      watch:
-        - path: ./
-          action: sync+restart
-          target: /root/ws/src/tabletop/
+    stdin_open: true
+    # develop:
+    #   watch:
+    #     - path: ./
+    #       action: sync+restart
+    #       target: /root/ws/src/tabletop/tabletop/
     networks:
       net:
         ipv4_address: 192.168.13.11
-
+    environment:
+      - DISPLAY=${DISPLAY}
+      
 networks:
   net:
     driver: bridge
