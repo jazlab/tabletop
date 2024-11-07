@@ -26,8 +26,9 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "command = tabletop.nodes:command",
-            "teensy = tabletop.nodes:teensy",
+            "control = tabletop.nodes:control",
+            "teensy_sensor = tabletop.nodes:teensy_sensor",
+            "teensy_control = tabletop.nodes:teensy_control",
         ],
     },
 )

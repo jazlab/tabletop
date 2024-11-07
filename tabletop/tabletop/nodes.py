@@ -47,7 +47,7 @@ class URScriptController(Node):
         self.goals = []  # List of JointTrajectoryPoint
         for name in goal_names:
             self.declare_parameter(name, rclpy.Parameter.Type.DOUBLE_ARRAY)
-            point = 
+            point = None
 
             def get_sub_param(sub_param):
                 param_name = name + "." + sub_param
@@ -104,25 +104,22 @@ class URScriptController(Node):
             self.get_logger().error("No valid goal found. Exiting...")
             exit(1)
 
-        publish_topic = "/" + controller_name + "/" + "joint_trajectory"
+        publish_topic = "/" + controller_name + "/" + "cartesian_trajectory"
 
         self.get_logger().info(
             f"Publishing {len(goal_names)} goals on topic '{publish_topic}' every "
             f"{wait_sec_between_publish} s"
         )
 
-        self.publisher_ = self.create_publisher(JointTrajectory, publish_topic, 1)
+        self.publisher_ = self.create_publisher(String, publish_topic, 1)
         self.timer = self.create_timer(wait_sec_between_publish, self.timer_callback)
         self.i = 0
 
     def timer_callback(self):
         if self.starting_point_ok:
             self.get_logger().info(f"Sending goal {self.goals[self.i]}.")
-
-            traj = JointTrajectory()
-            traj.joint_names = self.joints
-            traj.points.append(self.goals[self.i])
-            self.publisher_.publish(traj)
+            pos = None
+            self.publisher_.publish(pos)
 
             self.i += 1
             self.i %= len(self.goals)
@@ -159,7 +156,7 @@ class URScriptController(Node):
             return
 
 
-class Teensy(Node):
+class TeensySensors(Node):
     def __init__(self, timer_period=0.5):
         super().__init__("server")
         # Callback Groups
@@ -169,10 +166,14 @@ class Teensy(Node):
         self.sensor_pub = self.create_publisher(
             String, "serial_data", 1000, callback_group=self.reentrant_group
         )
-        
+
         # Subscribers
         self.control_sub = self.create_subscription(
-            String, "control", self.control_callback, 10, callback_group=self.reentrant_group
+            String,
+            "control",
+            self.control_callback,
+            10,
+            callback_group=self.reentrant_group,
         )
 
         # Timers
@@ -189,16 +190,42 @@ class Teensy(Node):
 
         # Log the data
         self.get_logger().info('Publishing: "%s"' % msg.data)
-        
+
     def control_callback(self, msg):
         self.get_logger().info('Received: "%s"' % msg.data)
-        
+
+
+class TeensyController(Node):
+    def __init__(self):
+        super().__init__("server")
+        # Callback Groups
+        self.reentrant_group = ReentrantCallbackGroup()
+
+        # Publishers
+        self.control_pub = self.create_publisher(
+            String, "control", 1000, callback_group=self.reentrant_group
+        )
+
+        # Subscribers
+        self.sensor_sub = self.create_subscription(
+            String,
+            "serial_data",
+            self.sensor_callback,
+            10,
+            callback_group=self.reentrant_group,
+        )
+
+    def sensor_callback(self, msg):
+        self.get_logger().info('Received: "%s"' % msg.data)
+
+    def control_callback(self, msg):
+        self.get_logger().info('Received: "%s"' % msg.data)
 
 
 def command(args=None):
     rclpy.init(args=args)
 
-    server = Command()
+    server = URScriptController()
 
     rclpy.spin(server)
 
@@ -208,7 +235,7 @@ def command(args=None):
 def teensy(args=None):
     rclpy.init(args=args)
 
-    server = MockTeensy()
+    server = TeensyController()
 
     rclpy.spin(server)
 

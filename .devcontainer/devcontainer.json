@@ -4,8 +4,8 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
-    "workspaceFolder": "/root/ws",
-    "workspaceMount": "source=${localWorkspaceFolder},target=/root/ws,type=bind",
+    "workspaceFolder": "/root/ws/src/tabletop",
+    "workspaceMount": "source=/home/valmiki/ws/src/tabletop,target=/root/ws/src/tabletop,type=bind",
     "customizations": {
         "vscode": {
             "settings": {
@@ -32,12 +32,10 @@
                 "ms-toolsai.jupyter",
                 "ms-vscode.cpptools-extension-pack",
                 "tamasfe.even-better-toml",
-                "redhat.vscode-yaml"
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-docker"
             ]
         }
-    },
-    "containerEnv": {
-        "DISPLAY": "unix:0"
     },
     "runArgs": [
         "--net=tabletop_net",
@@ -48,8 +46,12 @@
         "DISPLAY=${env:DISPLAY}"
     ],
     "mounts": [
-        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
-        "source=/dev/dri,target=/dev/dri,type=bind,consistency=cached"
+        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+        "source=/dev/dri,target=/dev/dri,type=bind"
     ],
-    "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -y"
+    "postCreateCommand": [
+        "bash",
+        "-c",
+        "source /root/ws/src/tabletop/build.sh"
+    ]
 }
