@@ -1,0 +1,64 @@
+#0 building with "default" instance using docker driver
+
+#1 [server internal] load build definition from server.Dockerfile
+#1 transferring dockerfile: 496B done
+#1 DONE 0.0s
+
+#2 [server internal] load metadata for docker.io/library/ros:jazzy
+#2 DONE 0.1s
+
+#3 [server internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [server 1/5] FROM docker.io/library/ros:jazzy@sha256:f7d9dcdc36509511bf260717d9212fc404beeb79b94bb825dbd6f24c88c6853a
+#4 DONE 0.0s
+
+#5 [server 2/5] RUN apt-get update && apt-get upgrade -y
+#5 CACHED
+
+#6 [server 3/5] RUN apt-get install -y python3-pip     python-is-python3     ros-jazzy-ur     ros-jazzy-moveit
+#6 CACHED
+
+#7 [server 4/5] RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
+#7 CACHED
+
+#8 [server 5/5] RUN echo "source /root/ws/install/setup.bash" >> $HOME/.bashrc
+#8 CACHED
+
+#9 [server] exporting to image
+#9 exporting layers done
+#9 writing image sha256:047511576af7f221042517e3bb164f019d3a0af057fbad25d5085dfd2dd70db9 done
+#9 naming to docker.io/library/tabletop-server done
+#9 DONE 0.0s
+
+#10 [server] resolving provenance for metadata file
+#10 DONE 0.0s
+Attaching to robot-1, server-1
+server-1  | bash: /root/ws/install/setup.bash: No such file or directory
+robot-1   | Universal Robots simulator for e-Series:5.17.2
+robot-1   | 
+robot-1   | 
+robot-1   | IP address of the simulator
+robot-1   | 
+robot-1   |      192.168.13.10
+robot-1   | 
+robot-1   | 
+robot-1   | Access the robots user interface through this URL:
+robot-1   | 
+robot-1   |      http://192.168.13.10:6080/vnc.html?host=192.168.13.10&port=6080
+robot-1   | 
+robot-1   | 
+robot-1   | Access the robots user interface with a VNC application on this address:
+robot-1   | 
+robot-1   |      192.168.13.10:5900
+robot-1   | 
+robot-1   | 
+robot-1   | You can find documentation on how to use this container on dockerhub:
+robot-1   | 
+robot-1   |      https://hub.docker.com/r/universalrobots/ursim_e-series
+robot-1   | 
+robot-1   | 
+robot-1   | Press Crtl-C to exit
+robot-1   | 
+robot-1   | 

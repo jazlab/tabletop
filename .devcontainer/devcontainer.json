@@ -52,6 +52,6 @@
     "postCreateCommand": [
         "bash",
         "-c",
-        "source /root/ws/src/tabletop/build.sh"
+        "source /root/ws/src/tabletop/scripts/build.sh"
     ]
 }

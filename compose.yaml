@@ -1,0 +1,46 @@
+name: tabletop
+
+services:
+  robot:
+    image: universalrobots/ursim_e-series
+    volumes:
+      - ./ursim/urcaps:/urcaps
+      - ./ursim/programs:/ursim/programs
+    networks:
+      net:
+        ipv4_address: 192.168.13.10
+    hostname: robot
+    # docker run --rm -it -v ./ursim/urcaps:/urcaps -v ./ursim/programs:/ursim/program --ip 192.168.13.10 -h robot --network tabletop_net universalrobots/ursim_e-series
+  server:
+    build:
+      context: .
+      dockerfile: ./server.Dockerfile
+    tty: true
+    stdin_open: true
+    volumes:
+      - /home/valmiki/ws/src/tabletop:/root/ws/src/tabletop
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    develop:
+      watch:
+        - path: ./
+          action: sync+restart
+          target: /root/ws/src/tabletop/tabletop/
+    pid: host
+    networks:
+      net:
+        ipv4_address: 192.168.13.11
+    hostname: server
+    environment:
+      - DISPLAY=$(echo $DISPLAY | sed 's/^[^:]*\(.*\)/172.17.0.1\1/')
+    # command: bash
+    command: >
+      bash -c 
+      "source /root/ws/src/tabletop/scripts/build.sh
+      && ros2 launch tabletop moveit.launch.py"
+      
+networks:
+  net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.13.0/24
