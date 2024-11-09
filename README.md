@@ -19,3 +19,9 @@ running `$ pre-commit run --all-files` and addressing any issues raised. In many
 cases the pre-commits will automatically modify files, so be sure to add the new
 changes to your stages files (an re-run the pre-commits to check for remaining
 issues).
+
+Notes:
+
+To ssh in to vnc server on docker:
+$ ssh -L 6080:192.168.13.10:6080 tabletop.valmikikothare.com -N
+$ http://localhost:6080/vnc.html?host=localhost&port=6080
