@@ -37,13 +37,17 @@
             ]
         }
     },
+    "containerEnv": {
+        "DISPLAY": "${host.docker.interal:0}",
+        "LIBGL_ALWAYS_INDIRECT": "1"
+    },
     "runArgs": [
         "--net=tabletop_net",
         "--ip=192.168.13.2",
         "--pid=host",
-        "--ipc=host",
-        "-e",
-        "DISPLAY=${env:DISPLAY}"
+        "--ipc=host"
+        // "-e",
+        // "DISPLAY=${env:DISPLAY}"
     ],
     "mounts": [
         "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
