@@ -38,16 +38,18 @@
         }
     },
     "containerEnv": {
-        "DISPLAY": "${host.docker.interal:0}",
+        "DISPLAY": "${env:DISPLAY}",
         "LIBGL_ALWAYS_INDIRECT": "1"
     },
     "runArgs": [
         "--net=tabletop_net",
         "--ip=192.168.13.2",
         "--pid=host",
-        "--ipc=host"
+        "--ipc=host",
         // "-e",
-        // "DISPLAY=${env:DISPLAY}"
+        // "DISPLAY=${env:DISPLAY}",
+        "-h",
+        "devcontainer"
     ],
     "mounts": [
         "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
@@ -56,6 +58,6 @@
     "postCreateCommand": [
         "bash",
         "-c",
-        "source /root/ws/src/tabletop/scripts/build.sh"
+        "source /root/ws/src/tabletop/scripts/build.sh && sudo apt install -y xarclock"
     ]
 }
