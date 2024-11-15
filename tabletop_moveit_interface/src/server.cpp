@@ -1,21 +1,22 @@
-
-#include <tabletop_moveit_interface/moveit_pose_server.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/robot_trajectory/robot_trajectory.h>
 #include <time.h>       
 
+#include <tabletop_moveit_interface/server.hpp>
+
 using namespace std::chrono_literals;
 
-namespace tabletop_moveit{
+namespace tabletop_moveit_interface{
 
 	service::service(const std::string& name):
 		Node(name, rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)){
             this->declare_parameter("eef_step", 0.06);
             this->declare_parameter("jump_threshold", 6.0);
-            auto eef_step = this->get_parameter("eef_step").as_double();
-            auto jump_threshold = this->get_parameter("jump_threshold").as_double();
+            
+            eef_step = this->get_parameter("eef_step").as_double();
+            jump_threshold = this->get_parameter("jump_threshold").as_double();
 
-            ros_service = create_service<tabletop_msgs::srv::PlanRequest>("tabletop_moveit/target_pose", 
+            ros_service = create_service<tabletop_msgs::srv::PlanRequest>("goal_pose", 
                     std::bind(&service::callback, this, std::placeholders::_1, std::placeholders::_2));
 		}
 
@@ -33,7 +34,7 @@ namespace tabletop_moveit{
         
         // Cartesian Path Planning
         waypoints.resize(1);
-        waypoints[0] = (request->target);
+        waypoints[0] = (request->goal_pose);
         moveit_msgs::msg::RobotTrajectory trajectory;
         double planning_result = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
 

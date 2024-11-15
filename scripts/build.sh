@@ -3,7 +3,7 @@
 pushd $HOME/ws
 source /opt/ros/jazzy/setup.bash
 rosdep update
-rosdep install -i --from-path src --rosdistro jazzy -y
+rosdep install --from-paths src -i -y
 colcon build --packages-select tabletop_msgs tabletop_server tabletop_moveit_config tabletop_moveit_interface
 source $HOME/ws/install/setup.bash
 

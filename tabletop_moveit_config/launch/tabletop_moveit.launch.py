@@ -29,10 +29,10 @@
 #
 # Author: Felix Exner
 import os
-import yaml
-
 from pathlib import Path
 
+import yaml
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
@@ -41,13 +41,9 @@ from launch.substitutions import (
     LaunchConfiguration,
     PathJoinSubstitution,
 )
-
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-
 from moveit_configs_utils import MoveItConfigsBuilder
-
-from ament_index_python.packages import get_package_share_directory
 
 
 def load_yaml(package_name, file_path):
@@ -57,14 +53,18 @@ def load_yaml(package_name, file_path):
     try:
         with open(absolute_file_path) as file:
             return yaml.safe_load(file)
-    except OSError:  # parent of IOError, OSError *and* WindowsError where available
+    except (
+        OSError
+    ):  # parent of IOError, OSError *and* WindowsError where available
         return None
 
 
 def declare_arguments():
     return LaunchDescription(
         [
-            DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?"),
+            DeclareLaunchArgument(
+                "launch_rviz", default_value="true", description="Launch RViz?"
+            ),
             DeclareLaunchArgument(
                 "ur_type",
                 description="Typo/series of used UR robot.",
@@ -82,11 +82,15 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "warehouse_sqlite_path",
-                default_value=os.path.expanduser("~/.ros/warehouse_ros.sqlite"),
+                default_value=os.path.expanduser(
+                    "~/.ros/warehouse_ros.sqlite"
+                ),
                 description="Path where the warehouse database should be stored",
             ),
             DeclareLaunchArgument(
-                "launch_servo", default_value="false", description="Launch Servo?"
+                "launch_servo",
+                default_value="false",
+                description="Launch Servo?",
             ),
             DeclareLaunchArgument(
                 "use_sim_time",
@@ -108,11 +112,15 @@ def generate_launch_description():
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
     launch_servo = LaunchConfiguration("launch_servo")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    publish_robot_description_semantic = LaunchConfiguration("publish_robot_description_semantic")
+    publish_robot_description_semantic = LaunchConfiguration(
+        "publish_robot_description_semantic"
+    )
 
     moveit_config = (
         MoveItConfigsBuilder(robot_name="ur", package_name="ur_moveit_config")
-        .robot_description_semantic(Path("srdf") / "ur.srdf.xacro", {"name": ur_type})
+        .robot_description_semantic(
+            Path("srdf") / "ur.srdf.xacro", {"name": ur_type}
+        )
         .to_moveit_configs()
     )
 

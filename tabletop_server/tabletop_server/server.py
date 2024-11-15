@@ -14,15 +14,14 @@ class TabletopServer(Node):
         self.goals = self.get_parameter("goals").value
 
         # Create Service Client
-        self.moveit_client = self.create_client(
-            PlanRequest, "tabletop_moveit/target_pose"
-        )
+        self.moveit_client = self.create_client(PlanRequest, "goal_pose")
         while not self.moveit_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info(
                 "MoveIt interface service not available, waiting again..."
             )
         self.req = PlanRequest.Request()
-        self.moveit_future = Future().set_result(None)
+        self.moveit_future = Future()
+        self.moveit_future.set_result(None)
 
         # Create Goals
         goal = Pose()
@@ -51,7 +50,7 @@ class TabletopServer(Node):
             self.get_logger().error("No valid goal found. Exiting...")
             exit(1)
 
-        self.timer = self.create_timer(self.delay_sec, self.timer_callback)
+        self.timer = self.create_timer(1 / self.freq, self.timer_callback)
         self.i = 0
 
     def _declare_parameters(self):
@@ -76,7 +75,7 @@ class TabletopServer(Node):
                             "Plan or execution failed! Trying again..."
                         )
             goal = self.goals[self.i % len(self.goals)]
-            self.req.goal = goal
+            self.req.goal_pose = goal
             self.moveit_future = self.moveit_client.call_async(self.req)
         else:
             self.get_logger().info("Waiting for previous request to finish")
