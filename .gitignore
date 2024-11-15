@@ -1,0 +1,16 @@
+# Ignore caches
+**__pycache__/
+**.DS_Store
+
+# Ignore logs
+**logs/
+**log/
+
+# Ignore build artifacts
+**build/
+**install/
+**dist/
+**egg-info/
+
+# Ignore vscode files
+.vscode/
