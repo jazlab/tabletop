@@ -1,4 +1,0 @@
-[0.000000] (-) TimerEvent: {}
-[0.002224] (-) JobUnselected: {'identifier': 'tabletop'}
-[0.002555] (-) JobUnselected: {'identifier': 'tabletop_msgs'}
-[0.003666] (-) EventReactorShutdown: {}
