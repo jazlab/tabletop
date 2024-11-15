@@ -23,3 +23,6 @@ joint_limits:
   wrist_3_joint:
     has_acceleration_limits: true
     max_acceleration: 5.0
+
+default_velocity_scaling_factor: 1.0
+default_acceleration_scaling_factor: 1.0

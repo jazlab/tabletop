@@ -1,7 +1,6 @@
 import random
 
 import rclpy
-from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -9,16 +8,12 @@ from std_msgs.msg import String
 class TeensyController(Node):
     def __init__(self):
         super().__init__("server")
-        # Callback Groups
-        self.reentrant_group = ReentrantCallbackGroup()
-
         # Subscribers
         self.control_sub = self.create_subscription(
             String,
             "teensy_control",
             self.control_callback,
             10,
-            callback_group=self.reentrant_group,
         )
 
     def control_callback(self, msg):
@@ -29,16 +24,11 @@ class TeensyController(Node):
 class TeensySensor(Node):
     def __init__(self):
         super().__init__("server")
-        # Callback Groups
-        self.reentrant_group = ReentrantCallbackGroup()
-
         # Publishers
-        self.sensor_pub = self.create_publisher(
-            String, "serial_data", 1000, callback_group=self.reentrant_group
-        )
+        self.sensor_pub = self.create_publisher(String, "serial_data", 1000)
 
         # Timers
-        self.create_timer(200, self.read_sensor_callback)
+        self.create_timer(10, self.read_sensor_callback)
 
     def read_sensor_callback(self):
         # Simulate reading from serial buffers

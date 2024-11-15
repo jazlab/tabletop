@@ -7,8 +7,18 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Camera.msg"
+  "msg/Eyelink.msg"
+  "msg/Flic.msg"
+  "msg/TeensyControl.msg"
+  "msg/TeensySensor.msg"
+  "srv/PlanRequest.srv"
+  DEPENDENCIES geometry_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
+)
 
 # uncomment the following section in order to fill in
 # further dependencies manually.

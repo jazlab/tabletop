@@ -7,34 +7,36 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(moveit REQUIRED)
+
+set(THIS_PACKAGE_INCLUDE_DEPENDS
+  rclcpp
+  moveit
+  moveit_ros_planning_interface
+  geometry_msgs
+  tabletop_msgs
+)
+
+foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
+  find_package(${Dependency} REQUIRED)
+endforeach()
 
 include_directories(include)
 
-add_library(srvcli SHARED src/moveit_pose_server.cpp src/moveit_pose_client.cpp)
-ament_target_dependencies(srvcli rclcpp moveit tabletop_msgs)
+add_library(_tabletop_moveit_interface SHARED src/server.cpp)
+ament_target_dependencies(_tabletop_moveit_interface ${THIS_PACKAGE_INCLUDE_DEPENDS})
 
-add_executable(moveit_interface src/moveit_interface.cpp)
-ament_target_dependencies(moveit_interface rclcpp moveit)
-
-add_executable(moveit_cli_node src/moveit_client_node.cpp)
-target_link_libraries(moveit_cli_node srvcli)
-ament_target_dependencies(moveit_interface rclcpp moveit)
-
-add_executable(moveit_srv_node src/moveit_server_node.cpp)
-target_link_libraries(moveit_srv_node srvcli)
-ament_target_dependencies(moveit_interface rclcpp moveit)
+add_executable(server src/server_node.cpp)
+target_link_libraries(server _tabletop_moveit_interface)
+ament_target_dependencies(server ${THIS_PACKAGE_INCLUDE_DEPENDS})
 
 install(DIRECTORY include/ DESTINATION include)
-install(TARGETS srvcli LIBRARY DESTINATION lib)
+install(TARGETS _tabletop_moveit_interface LIBRARY DESTINATION lib)
 
-install(TARGETS moveit_interface moveit_cli_node moveit_srv_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(TARGETS server DESTINATION lib/${PROJECT_NAME})
 
+ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS})
 ament_export_include_directories(include)
-ament_export_libraries(srvcli)
+ament_export_libraries(_tabletop_moveit_interface)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

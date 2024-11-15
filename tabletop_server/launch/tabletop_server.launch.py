@@ -3,14 +3,30 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
+    DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def declare_arguments():
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "rosbag_args",
+                default_value="-a",
+                description="Using or not time from simulation",
+            ),
+        ]
+    )
+
+
 def generate_launch_description():
+    args = declare_arguments()
+    rosbag_args = LaunchConfiguration("rosbag_args")
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
@@ -46,10 +62,9 @@ def generate_launch_description():
     )
 
     moveit_interface_server = Node(
+        name="tabletop_moveit_interface",
         package="tabletop_moveit_interface",
-        # executable="moveit_interface",
-        executable="moveit_srv_node",
-        # name="moveit_srv_node",
+        executable="server",
         output="screen",
     )
 
@@ -68,10 +83,14 @@ def generate_launch_description():
         package="tabletop_server",
         executable="teensy_sensor",
     )
-    bag = ExecuteProcess(cmd=["ros2", "bag", "record", "-a"], output="screen")
+    bag = ExecuteProcess(
+        cmd=["ros2", "bag", "record", rosbag_args],
+        output="screen",
+    )
 
     return LaunchDescription(
         [
+            args,
             ur_robot_driver,
             moveit,
             moveit_interface_server,
