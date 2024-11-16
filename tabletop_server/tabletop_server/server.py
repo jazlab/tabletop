@@ -85,4 +85,5 @@ def tabletop_server(args=None):
     rclpy.init(args=args)
     node = TabletopServer()
     rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()

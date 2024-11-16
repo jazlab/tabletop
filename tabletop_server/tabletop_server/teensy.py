@@ -25,7 +25,7 @@ class TeensySensor(Node):
     def __init__(self):
         super().__init__("server")
         # Publishers
-        self.sensor_pub = self.create_publisher(String, "serial_data", 1000)
+        self.sensor_pub = self.create_publisher(String, "sensors", 1000)
 
         # Timers
         self.create_timer(10, self.read_sensor_callback)

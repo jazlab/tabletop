@@ -3,6 +3,7 @@ name: tabletop
 services:
   robot:
     image: universalrobots/ursim_e-series
+    platform: linux/amd64
     volumes:
       - ./ursim/urcaps:/urcaps
       - ./ursim/programs:/ursim/programs
@@ -10,19 +11,18 @@ services:
     networks:
       tabletop_net:
         ipv4_address: 192.168.13.10
-    # ports:
-    #   - 6080:6080
-    #   - 5900:5900
+    ports:
+      - 6080:6080
+      - 5900:5900
     hostname: robot
     # docker run --rm -it -v ./ursim/urcaps:/urcaps -v ./ursim/programs:/ursim/program --ip 192.168.13.10 -h robot --network tabletop_net universalrobots/ursim_e-series
   server:
     build:
       context: .
       dockerfile: ./server.Dockerfile
-    tty: true
-    stdin_open: true
+    platform: linux/amd64
     volumes:
-      - /home/valmiki/ws/:/root/ws/
+      - $HOME/ws/:/root/ws/
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /dev/dri:/dev/dri
     develop:
