@@ -117,7 +117,9 @@ def generate_launch_description():
     )
 
     moveit_config = (
-        MoveItConfigsBuilder(robot_name="ur", package_name="ur_moveit_config")
+        MoveItConfigsBuilder(
+            robot_name="ur", package_name="tabletop_moveit_config"
+        )
         .robot_description_semantic(
             Path("srdf") / "ur.srdf.xacro", {"name": ur_type}
         )

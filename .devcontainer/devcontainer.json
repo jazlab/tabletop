@@ -5,7 +5,7 @@
         "dockerfile": "Dockerfile"
     },
     "workspaceFolder": "/root/ws",
-    "workspaceMount": "source=/home/valmiki/ws,target=/root/ws,type=bind",
+    "workspaceMount": "source=${env:HOME}/ws,target=/root/ws,type=bind",
     "customizations": {
         "vscode": {
             "settings": {
@@ -33,7 +33,9 @@
                 "ms-vscode.cpptools-extension-pack",
                 "tamasfe.even-better-toml",
                 "redhat.vscode-yaml",
-                "ms-azuretools.vscode-docker"
+                "ms-azuretools.vscode-docker",
+                "josetr.cmake-language-support-vscode",
+                "redhat.vscode-xml"
             ]
         }
     },

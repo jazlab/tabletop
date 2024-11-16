@@ -27,6 +27,7 @@ def declare_arguments():
 def generate_launch_description():
     args = declare_arguments()
     rosbag_args = LaunchConfiguration("rosbag_args")
+
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
