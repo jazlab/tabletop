@@ -7,6 +7,7 @@ RUN apt-get install -y python3-pip \
     ros-jazzy-moveit \
     ros-jazzy-moveit-py \
     ros-jazzy-ros2controlcli \
+    ros-jazzy-cv-bridge \ 
     ros-jazzy-rmw-cyclonedds-cpp \
     xarclock
 

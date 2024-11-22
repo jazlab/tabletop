@@ -21,7 +21,7 @@ def generate_launch_description():
             "ur_type": "ur5e",
             "robot_ip": "192.168.13.10",
             "reverse_ip": "192.168.13.11",
-            "use_mock_hardware": "false",
+            "use_mock_hardware": "true",
             "controller_spawner_timeout": "120",
         }.items(),
     )
