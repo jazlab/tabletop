@@ -1,7 +1,60 @@
 name: tabletop
 
 services:
+  novnc:
+    build:
+      context: ./docker/novnc
+    environment:
+      # Adjust to your screen size
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - RUN_XTERM=no
+      - WINDOW_MANAGER=dwm
+    ports:
+      - 8080:8080
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.13.12
+    restart: on-failure
+    tty: true
+    stdin_open: true
+
+  server:
+    build:
+      context: .
+      dockerfile: ./docker/tabletop_server/Dockerfile
+    volumes:
+      - $HOME/ws/:/root/ws/
+      # - /tmp/.X11-unix:/tmp/.X11-unix
+      # - /dev/dri:/dev/dri
+    develop:
+      watch:
+        - path: ./
+          action: sync+restart
+          target: /root/ws/src/tabletop/
+    pid: host
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.13.11
+    hostname: server
+    # extra_hosts:
+    #   - host.docker.internal:host-gateway
+    environment:
+      # - DISPLAY=$DISPLAY
+      # - DISPLAY=host.docker.internal:0
+      # - LIBGL_ALWAYS_INDIRECT=1
+      - DISPLAY=novnc:0.0
+    tty: true
+    stdin_open: true
+    command: >
+      bash -c 
+      "source /root/ws/src/tabletop/scripts/build.sh
+      && ros2 launch tabletop_server moveit.launch.py"
+    # && ros2 launch ur_calibration calibration_correction.launch.py \
+    # robot_ip:=192.168.13.10 target_filename:=/root/ws/src/tabletop/tabletop_server/config/server_params.yaml
+
   robot:
+    # image: universalrobots/ursim_polyscopex:0.11.186
     image: universalrobots/ursim_e-series
     platform: linux/amd64
     volumes:
@@ -15,39 +68,9 @@ services:
       - 6080:6080
       - 5900:5900
     hostname: robot
-    # docker run --rm -it -v ./ursim/urcaps:/urcaps -v ./ursim/programs:/ursim/program --ip 192.168.13.10 -h robot --network tabletop_net universalrobots/ursim_e-series
-  server:
-    build:
-      context: .
-      dockerfile: ./server.Dockerfile
-    platform: linux/amd64
-    volumes:
-      - $HOME/ws/:/root/ws/
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
-    develop:
-      watch:
-        - path: ./
-          action: sync+restart
-          target: /root/ws/src/tabletop/
-    pid: host
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.13.11
-    hostname: server
     environment:
-      # - DISPLAY=$(echo $DISPLAY | sed 's/^[^:]*\(.*\)/172.17.0.1\1/')
-      # - DISPLAY=host.docker.internal:0
-      - DISPLAY=$DISPLAY
-    # command: bash
-    command: >
-      bash -c 
-      "source /root/ws/src/tabletop/scripts/build.sh
-      && ros2 launch tabletop_server tabletop_server.launch.py"
+      - DISPLAY=novnc:0.0
 
-    # && ros2 launch ur_calibration calibration_correction.launch.py \
-    # robot_ip:=192.168.13.10 target_filename:=/root/ws/src/tabletop/tabletop_server/config/server_params.yaml
-      
 networks:
   tabletop_net:
     driver: bridge
