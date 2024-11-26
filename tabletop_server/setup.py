@@ -29,9 +29,10 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "tabletop_server = tabletop_server.server:tabletop_server",
+            "commander = tabletop_server.commander:main",
             "teensy_controller = tabletop_server.teensy:teensy_controller",
             "teensy_sensor = tabletop_server.teensy:teensy_sensor",
+            "camera = tabletop_server.camera:main",
         ],
     },
 )

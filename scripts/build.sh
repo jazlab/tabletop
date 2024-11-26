@@ -9,6 +9,6 @@ source $HOME/ws/install/setup.bash
 
 if ! grep -Fxq "source $HOME/ws/install/setup.bash" $HOME/.bashrc
 then
-    echo "source $HOME/ws/install/setup.bash" $HOME/.bashrc
+    echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 fi
 popd

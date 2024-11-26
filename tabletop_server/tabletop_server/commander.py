@@ -5,9 +5,9 @@ from rclpy.node import Node
 from tabletop_msgs.srv import PlanRequest
 
 
-class TabletopServer(Node):
+class Commander(Node):
     def __init__(self):
-        super().__init__("tabletop_server")
+        super().__init__("command")
         # Get Parameters
         self._declare_parameters()
         self.freq = self.get_parameter("freq").value
@@ -81,9 +81,9 @@ class TabletopServer(Node):
             self.get_logger().info("Waiting for previous request to finish")
 
 
-def tabletop_server(args=None):
+def commander(args=None):
     rclpy.init(args=args)
-    node = TabletopServer()
+    node = Commander()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
