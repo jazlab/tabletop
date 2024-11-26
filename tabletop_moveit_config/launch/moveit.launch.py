@@ -155,7 +155,7 @@ def generate_launch_description():
         ],
     )
 
-    servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    servo_yaml = load_yaml("tabletop_moveit_config", "config/ur_servo.yaml")
     servo_params = {"moveit_servo": servo_yaml}
     servo_node = Node(
         package="moveit_servo",
@@ -169,7 +169,7 @@ def generate_launch_description():
     )
 
     rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare("ur_moveit_config"), "config", "moveit.rviz"]
+        [FindPackageShare("tabletop_moveit_config"), "config", "moveit.rviz"]
     )
     rviz_node = Node(
         package="rviz2",

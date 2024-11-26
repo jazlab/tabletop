@@ -1,0 +1,23 @@
+name: tabletop
+
+services:
+  devcontainer:
+    extends:
+      file: ../compose.yaml
+      service: server
+    hostname: devcontainer
+    networks:
+      net:
+        ipv4_address: 192.168.13.02
+    command: >
+      bash -c 
+      "source /root/ws/src/tabletop/scripts/build.sh
+      && sleep infinity"
+
+networks:
+  net:
+    attachable: true
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.13.0/24
