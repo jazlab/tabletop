@@ -23,7 +23,6 @@ def generate_launch_description():
             "ur_type": "ur5e",
             "robot_ip": "192.168.13.10",
             "use_mock_hardware": "false",
-            "initial_joint_controller": "joint_trajectory_controller",
         }.items(),
     )
 

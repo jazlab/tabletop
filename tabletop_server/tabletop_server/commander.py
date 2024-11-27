@@ -2,6 +2,7 @@ import rclpy
 from geometry_msgs.msg import Pose
 from rclpy import Future
 from rclpy.node import Node
+
 from tabletop_msgs.srv import PlanRequest
 
 
@@ -81,9 +82,13 @@ class Commander(Node):
             self.get_logger().info("Waiting for previous request to finish")
 
 
-def commander(args=None):
+def main(args=None):
     rclpy.init(args=args)
     node = Commander()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
