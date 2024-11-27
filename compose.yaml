@@ -48,10 +48,11 @@ services:
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
+      - LAUNCH_FILE=${LAUNCH_FILE:-server.launch.py}
     command: >
       bash -c 
       "source /root/ws/src/tabletop/scripts/build.sh
-      && ros2 launch tabletop_server moveit.launch.py"
+      && ros2 launch tabletop_server $${LAUNCH_FILE}"
 
 networks:
   net:

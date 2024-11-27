@@ -60,11 +60,12 @@ class TabletopServer(Node):
             self.planning_component.execute(plan)
             self.i += 1
         else:
-            self.get_logger().error("Plan failed. Trying again in ")
+            self.get_logger().error("Plan failed. Exiting...")
 
 
-def server(args=None):
+def main(args=None):
     rclpy.init(args=args)
     node = TabletopServer()
     rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()

@@ -52,7 +52,7 @@ def generate_launch_description():
                 os.path.join(
                     get_package_share_directory("tabletop_moveit_config"),
                     "launch",
-                    "tabletop_moveit.launch.py",
+                    "moveit.launch.py",
                 )
             ]
         ),
@@ -63,23 +63,26 @@ def generate_launch_description():
     )
 
     moveit_interface_server = Node(
-        name="tabletop_moveit_interface",
+        namespace="tabletop",
+        name="server",
         package="tabletop_moveit_interface",
         executable="server",
         output="screen",
     )
-
-    tabletop_server = Node(
-        name="tabletop_server",
+    tabletop_commander = Node(
+        namespace="tabletop",
+        name="commander",
         package="tabletop_server",
-        executable="tabletop_server",
+        executable="commander",
     )
     teensy_controller = Node(
+        namespace="tabletop",
         name="teensy_controller",
         package="tabletop_server",
         executable="teensy_controller",
     )
     teensy_sensor = Node(
+        namespace="tabletop",
         name="teensy_sensor",
         package="tabletop_server",
         executable="teensy_sensor",
@@ -95,7 +98,7 @@ def generate_launch_description():
             ur_robot_driver,
             moveit,
             moveit_interface_server,
-            tabletop_server,
+            tabletop_commander,
             teensy_controller,
             teensy_sensor,
             bag,

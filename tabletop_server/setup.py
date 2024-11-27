@@ -30,8 +30,8 @@ setup(
     entry_points={
         "console_scripts": [
             "commander = tabletop_server.commander:main",
-            "teensy_controller = tabletop_server.teensy:teensy_controller",
-            "teensy_sensor = tabletop_server.teensy:teensy_sensor",
+            "teensy_controller = tabletop_server.teensy_controller:main",
+            "teensy_sensor = tabletop_server.teensy_sensor:main",
             "camera = tabletop_server.camera:main",
         ],
     },
