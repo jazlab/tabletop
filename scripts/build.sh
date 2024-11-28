@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -ex
+
 pushd $HOME/ws
 source /opt/ros/jazzy/setup.bash
 rosdep update

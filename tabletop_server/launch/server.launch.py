@@ -20,6 +20,7 @@ def declare_arguments():
                 default_value="-a",
                 description="Using or not time from simulation",
             ),
+            DeclareLaunchArgument("ser"),
         ]
     )
 
