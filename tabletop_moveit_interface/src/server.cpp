@@ -12,11 +12,13 @@ namespace tabletop_moveit_interface{
 		Node(name, rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)){
             this->declare_parameter("eef_step", 0.06);
             this->declare_parameter("jump_threshold", 6.0);
+            this->declare_parameter("service_name", "tabletop_moveit_interface/goal_pose");
             
             eef_step = this->get_parameter("eef_step").as_double();
             jump_threshold = this->get_parameter("jump_threshold").as_double();
+            service_name = this->get_parameter("service_name").as_string();
 
-            ros_service = create_service<tabletop_msgs::srv::PlanRequest>("goal_pose", 
+            ros_service = create_service<tabletop_msgs::srv::PlanRequest>(service_name, 
                     std::bind(&service::callback, this, std::placeholders::_1, std::placeholders::_2));
 		}
 
