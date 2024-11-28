@@ -13,9 +13,14 @@ class Commander(Node):
         self._declare_parameters()
         self.freq = self.get_parameter("freq").value
         self.goals = self.get_parameter("goals").value
+        self.moveit_interface_service_name = self.get_parameter(
+            "moveit_interface_service_name"
+        ).value
 
         # Create Service Client
-        self.moveit_client = self.create_client(PlanRequest, "goal_pose")
+        self.moveit_client = self.create_client(
+            PlanRequest, self.moveit_interface_service_name
+        )
         while not self.moveit_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info(
                 "MoveIt interface service not available, waiting again..."
@@ -57,6 +62,10 @@ class Commander(Node):
     def _declare_parameters(self):
         self.declare_parameter("freq", 1.0)
         self.declare_parameter("goals", [])
+        self.declare_parameter(
+            "moveit_interface_service_name",
+            "tabletop_moveit_interface/goal_pose",
+        )
 
     def timer_callback(self):
         if self.moveit_future.done():

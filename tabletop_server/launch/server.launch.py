@@ -20,7 +20,10 @@ def declare_arguments():
                 default_value="-a",
                 description="Using or not time from simulation",
             ),
-            DeclareLaunchArgument("ser"),
+            DeclareLaunchArgument(
+                "moveit_interface_service_name",
+                default_value="tabletop_moveit_interface/goal_pose",
+            ),
         ]
     )
 
@@ -28,6 +31,9 @@ def declare_arguments():
 def generate_launch_description():
     args = declare_arguments()
     rosbag_args = LaunchConfiguration("rosbag_args")
+    moveit_interface_service_name = LaunchConfiguration(
+        "moveit_interface_service_name"
+    )
 
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -69,6 +75,7 @@ def generate_launch_description():
         package="tabletop_moveit_interface",
         executable="server",
         output="screen",
+        parameters=[{"service_name": moveit_interface_service_name}],
     )
     tabletop_commander = Node(
         namespace="tabletop",
