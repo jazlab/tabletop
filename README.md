@@ -84,7 +84,7 @@ http://localhost:8080/vnc.html in your web browser.
 ### Choosing launch files
 
 There are 2 main launch files in the `tabletop_server/launch` directory:
-- `tabletop_server.launch.py`: The main launch file for the TableTop project.
+- `server.launch.py`: The main launch file for the TableTop project.
    This will 
 - `moveit.launch.py`: The MoveIt launch file for the TableTop project.
 
