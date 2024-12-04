@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -ex
+set -e
 
 pushd $HOME/ws
 source /opt/ros/jazzy/setup.bash

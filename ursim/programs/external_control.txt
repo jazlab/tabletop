@@ -1,4 +1,0 @@
- Program
-   Variables Setup
-   Robot Program
-     Control by server

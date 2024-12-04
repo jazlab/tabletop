@@ -11,7 +11,7 @@ class Commander(Node):
         super().__init__("command")
         # Get Parameters
         self._declare_parameters()
-        self.freq = self.get_parameter("freq").value
+        self.timer_sec = self.get_parameter("timer_sec").value
         self.goals = self.get_parameter("goals").value
         self.moveit_interface_service_name = self.get_parameter(
             "moveit_interface_service_name"
@@ -56,11 +56,11 @@ class Commander(Node):
             self.get_logger().error("No valid goal found. Exiting...")
             exit(1)
 
-        self.timer = self.create_timer(1 / self.freq, self.timer_callback)
+        self.timer = self.create_timer(self.timer_sec, self.timer_callback)
         self.i = 0
 
     def _declare_parameters(self):
-        self.declare_parameter("freq", 1.0)
+        self.declare_parameter("timer_sec", 5.0)
         self.declare_parameter("goals", [])
         self.declare_parameter(
             "moveit_interface_service_name",
