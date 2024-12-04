@@ -10,6 +10,7 @@ from launch.actions import (
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def declare_arguments():
@@ -33,6 +34,16 @@ def generate_launch_description():
     rosbag_args = LaunchConfiguration("rosbag_args")
     moveit_interface_service_name = LaunchConfiguration(
         "moveit_interface_service_name"
+    )
+
+    moveit_config = (
+        MoveItConfigsBuilder(
+            robot_name="ur", package_name="tabletop_moveit_config"
+        )
+        .robot_description_semantic(
+            os.path.join("srdf", "ur.srdf.xacro"), {"name": "ur5e"}
+        )
+        .to_moveit_configs()
     )
 
     ur_robot_driver = IncludeLaunchDescription(
@@ -70,18 +81,22 @@ def generate_launch_description():
     )
 
     moveit_interface_server = Node(
-        namespace="tabletop",
-        name="server",
         package="tabletop_moveit_interface",
         executable="server",
         output="screen",
-        parameters=[{"service_name": moveit_interface_service_name}],
+        parameters=[
+            {"service_name": moveit_interface_service_name},
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+        ],
     )
     tabletop_commander = Node(
-        namespace="tabletop",
         name="commander",
         package="tabletop_server",
         executable="commander",
+        parameters=[
+            {"moveit_interface_service_name": moveit_interface_service_name}
+        ],
     )
     teensy_controller = Node(
         namespace="tabletop",

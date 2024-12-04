@@ -31,5 +31,7 @@ ENV HOME=/root \
 COPY ./config/i3.config /root/.config/i3/config
 COPY . /app
 RUN chmod +x /app/entrypoint.sh
-CMD ["/app/entrypoint.sh"]
+RUN chmod +x /app/healthcheck.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []
 EXPOSE 8080

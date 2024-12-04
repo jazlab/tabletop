@@ -10,6 +10,13 @@ services:
       net:
         ipv4_address: 192.168.13.12
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]  
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
     environment:
       # Adjust to your screen size
       - DISPLAY_WIDTH=1920
@@ -19,14 +26,16 @@ services:
 
   robot:
     depends_on:
-      - novnc
+      novnc:
+        condition: service_healthy
     restart: on-failure
     image: universalrobots/ursim_e-series
     platform: linux/amd64
+    pid: host
     volumes:
       - ./ursim/urcaps:/urcaps
       - ./ursim/programs:/ursim/programs
-    pid: host
+      - ./ursim/entrypoint.sh:/entrypoint.sh
     networks:
       net:
         ipv4_address: 192.168.13.10
@@ -36,7 +45,8 @@ services:
 
   server:
     depends_on:
-      - novnc
+      novnc:
+        condition: service_healthy
     build:
       context: ./tabletop_server
     volumes:
