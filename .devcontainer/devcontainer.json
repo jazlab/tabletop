@@ -1,21 +1,20 @@
 {
-    "name": "ROS 2 Development Container",
-    "privileged": true,
-    "build": {
-        "dockerfile": "Dockerfile"
-    },
-    "workspaceFolder": "/root/ws",
-    "workspaceMount": "source=${localWorkspaceFolder},target=/root/ws,type=bind",
+    "name": "Tabletop",
+    "dockerComposeFile": [
+        "compose.extend.yaml"
+    ],
+    "service": "devcontainer",
     "customizations": {
         "vscode": {
-            "settings": {
-                "python.analysis.extraPaths": [
-                    "/opt/ros/jazzy/lib/python3.12/site-packages"
-                ],
-                "python.autoComplete.extraPaths": [
-                    "/opt/ros/jazzy/lib/python3.12/site-packages"
-                ]
-            },
+            // "settings": {
+            //     "python.analysis.extraPaths": [
+            //         "/opt/ros/jazzy/lib/python3.12/site-packages",
+            //         "/"
+            //     ],
+            //     "python.autoComplete.extraPaths": [
+            //         "/opt/ros/jazzy/lib/python3.12/site-packages"
+            //     ]
+            // },
             "extensions": [
                 "ms-vscode.cpptools",
                 "ms-vscode.cpptools-themes",
@@ -32,24 +31,11 @@
                 "ms-toolsai.jupyter",
                 "ms-vscode.cpptools-extension-pack",
                 "tamasfe.even-better-toml",
-                "redhat.vscode-yaml"
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-docker",
+                "josetr.cmake-language-support-vscode",
+                "redhat.vscode-xml"
             ]
         }
-    },
-    "containerEnv": {
-        "DISPLAY": "unix:0"
-    },
-    "runArgs": [
-        "--net=tabletop_net",
-        "--ip=192.168.13.2",
-        "--pid=host",
-        "--ipc=host",
-        "-e",
-        "DISPLAY=${env:DISPLAY}"
-    ],
-    "mounts": [
-        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached",
-        "source=/dev/dri,target=/dev/dri,type=bind,consistency=cached"
-    ],
-    "postCreateCommand": "sudo rosdep update && sudo rosdep install --from-paths src --ignore-src -y"
+    }
 }
