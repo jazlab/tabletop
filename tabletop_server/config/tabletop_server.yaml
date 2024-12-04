@@ -1,0 +1,5 @@
+tabletop_server:
+  robot_ip: ads;flkja
+  server_ip: a;lsdfkj
+  use_mock_hardware: false
+  controller_spawner_timeout: 10

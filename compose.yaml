@@ -1,45 +1,72 @@
 name: tabletop
 
 services:
+  novnc:
+    build:
+      context: ./novnc
+    ports:
+      - 8080:8080
+    networks:
+      net:
+        ipv4_address: 192.168.13.12
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]  
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+    environment:
+      # Adjust to your screen size
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - RUN_XTERM=no
+      - WINDOW_MANAGER=DWM
+
   robot:
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: on-failure
     image: universalrobots/ursim_e-series
+    platform: linux/amd64
+    pid: host
     volumes:
       - ./ursim/urcaps:/urcaps
       - ./ursim/programs:/ursim/programs
+      - ./ursim/entrypoint.sh:/entrypoint.sh
     networks:
       net:
         ipv4_address: 192.168.13.10
+    hostname: robot
+    environment:
+      - DISPLAY=novnc:0.0
+
   server:
-    build:
-      context: .
-      dockerfile: ./Dockerfiles/server
-    volumes:
-      - ./:${HOME}/ws/
     depends_on:
-      - robot
-    command: bash
-    tty: true
-    # develop:
-    #   watch:
-    #     - path: ./server.py
-    #       action: sync
-    #       target: /catkin_ws/src
+      novnc:
+        condition: service_healthy
+    build:
+      context: ./tabletop_server
+    volumes:
+      - $HOME/ws/src/tabletop:/root/ws/src/tabletop
     networks:
       net:
         ipv4_address: 192.168.13.11
-  # sensor1:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile_sensor1
-  #   image: ros:latest
-  #   volumes:
-  #     - ./sensor1.py:/catkin_ws/src/sensor1.py
-  #   command: bash -c "source /opt/ros/rolling/setup.bash && python3 /catkin_ws/src/sensor1.py"
-  #   depends_on:
-  #     - server
+    
+    hostname: server
+    environment:
+      - DISPLAY=novnc:0.0
+      - LAUNCH_FILE=${LAUNCH_FILE:-server.launch.py}
+    command: >
+      bash -c 
+      "source /root/ws/src/tabletop/scripts/build.sh
+      && ros2 launch tabletop_server $${LAUNCH_FILE}"
 
 networks:
   net:
+    attachable: true
     driver: bridge
     ipam:
       config:
