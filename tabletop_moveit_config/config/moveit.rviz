@@ -42,7 +42,7 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: true
     - Acceleration_Scaling_Factor: 1.0
-      Velocity_Scaling_Factor: 1.0
+      Velocity_Scaling_Factor: 0.5
       Class: moveit_rviz_plugin/MotionPlanning
       Enabled: true
       Move Group Namespace: ""
