@@ -2,12 +2,12 @@
 
 ## Description
 
-TableTop is a meta-package for the TableTop project, containing multiple ROS2
-packages and utilities. This repository provides ROS2 control over one or more
+TableTop is a meta-package for the TableTop project, containing multiple ROS 2
+packages and utilities. This repository provides ROS 2 control over one or more
 Universal Robots UR5e robots in a monkey electrophysiology rig. It also includes
 a virtual tabletop environment for simulation and system testing purposes.
 Additionally, the package supports recording sensor and robot state space data
-using ROS2 Bag files. We additionally provide post-processing tools for motion
+using ROS 2 Bag files. We additionally provide post-processing tools for motion
 correction, spike sorting, NWB file conversion, etc.
 
 ## Table of Contents
@@ -28,23 +28,23 @@ correction, spike sorting, NWB file conversion, etc.
 
 The following decisions were made when designing the TableTop project:
 
-### ROS2
-The project uses ROS2 as the main framework for controlling the UR5e robot
+### ROS 2
+The project uses [ROS 2](https://docs.ros.org/en/jazzy/index.html) as the main framework for controlling the UR5e robot
 as well as recording and compiling sensor and state space data. There were
-several reasaons for choosing to use ROS2 over a bespoke solution, some of
+several reasons for choosing to use ROS 2 over a bespoke solution, some of
 which are delineated below:
-* ROS2 provides a powerful and flexible framework for building complex
+* ROS 2 provides a powerful and flexible framework for building complex
   distributed software systems with many interdependent components.
-* ROS2's message-based architecture allows for easy communication between
+* ROS 2's message-based architecture allows for easy communication between
   different nodes in the system. This allows for modularity and clear
   separation of various functionality within the codebase, as well as
   efficient communication between robot, hardware, and sensor I/O.
-* ROS2 has built-in recording and playback capabilities via ROS2 Bag files.
-* ROS2 provides many built-in packages for customizing each stage of the robot
+* ROS 2 has built-in recording and playback capabilities via ROS 2 Bag files.
+* ROS 2 provides many built-in packages for customizing each stage of the robot
   control pipeline.
-* Universal Robots has a robust ROS2 driver for the UR5e robot, making it
-  easy to integrate with existing ROS2 pipelines.
-* ROS2 has support for real-time kernels, which can be used to ensure that
+* Universal Robots has a robust ROS 2 driver for the UR5e robot, making it
+  easy to integrate with existing ROS 2 pipelines.
+* ROS 2 has support for real-time kernels, which can be used to ensure that
   critical tasks are executed in time (e.g., closed-loop motion control).
 
 A bespoke solution would require a significant amount of development time
@@ -59,7 +59,7 @@ Reasons for using MoveIt 2 include:
   as for visualizing the robot and environment state spaces in real-time.
 * MoveIt 2 supports a variety of motion controllers and planning algorithms,
   each with its own customization options.
-* The Universal Robots ROS2 driver comes with Moveit 2 functionality
+* The Universal Robots ROS 2 driver comes with Moveit 2 functionality
   pre-configured.
 
 The alternative (sending URScript commands directly to the robot) limits the
@@ -79,7 +79,7 @@ which provide:
 
 Developing and deploying on bare metal would require manual dependency management
 and configuration, which can be time-consuming, error-prone, and often
-system-breaking. It also limits the platform compatibility, as ROS2 is intended
+system-breaking. It also limits the platform compatibility, as ROS 2 is intended
 and optimized for Ubuntu. The Universal Robot Simulator also cannot be
 installed on Apple Silicon and must be run in a Docker container (with
 modifications made in the `ursim/` directory and `compose.yaml` file).
@@ -106,7 +106,7 @@ You may experience issues with the Universal Robots Simulator otherwise.
 
 ## Installation
 
-1. Create a new ROS2 workspace directory:
+1. Create a new ROS 2 workspace directory:
 
     ```bash
     mkdir -p ~/ws/src
@@ -144,7 +144,7 @@ running.
 This will build the Docker images and start the containers. There are 3 primary
 containers:
 - `server`: The server container for the TableTop project, which
-    runs all the local ROS2 nodes (including the Universal Robots driver nodes,
+    runs all the local ROS 2 nodes (including the Universal Robots driver nodes,
     the MoveIt nodes, and the TableTop nodes). On startup, the `server`
     container will install any dependencies and build the project. It will then
     run the launch file specified in the `LAUNCH_FILE` environment variable or
@@ -161,7 +161,7 @@ http://localhost:8080/vnc.html in your web browser.
 ### Interacting with the GUI
 
 The web interface provides a desktop-like interface for interacting with the
-Universal Robots simulator and the ROS2 visualization nodes. 
+Universal Robots simulator and the ROS 2 visualization nodes. 
 
 To make sure that you can see the whole screen:
 * Click the drawer icon on the left of the screen to expand it
@@ -180,7 +180,7 @@ after opening the web interface, you will need to:
 * Press the play button
 
 This will power on the simulated robot and initiate communication with the
-ROS2 driver.
+ROS 2 driver.
 
 If you are using the `server.launch.py` file, the TableTop `commander` node
 will start the TableTop program and the robot should start moving according
@@ -219,7 +219,7 @@ LAUNCH_FILE=moveit.launch.py docker compose up --build --force-recreate
 
 ### VSCode Development using docker Dev Containers
 
-To be able to develop within the ROS2 environment (giving you syntax highlighting,
+To be able to develop within the ROS 2 environment (giving you syntax highlighting,
 intellisense, debugging, etc.) you can use the VSCode Dev Container extension.
 To open VSCode in the development container:
 
@@ -233,7 +233,7 @@ development environment.
 
 ## Project Structure
 
-The TableTop meta-package consists of the following ROS2 packages, located in
+The TableTop meta-package consists of the following ROS 2 packages, located in
 the repository's root directory:
 
 - `tabletop_msgs`: TableTop message definitions
@@ -242,7 +242,7 @@ the repository's root directory:
 - `tabletop_server`: TableTop server nodes and launch files
 - `tabletop_teensy`: TableTop Teensy nodes and launch files
 
-Additional non-ROS2 packages (also located in the repository's root directory):
+Additional non-ROS 2 packages (also located in the repository's root directory):
 - `novnc`: Context for building and running noVNC Docker container
 - `ursim`: Contains the external control URCAP for the host machine
    to interface with the robot.
@@ -266,7 +266,7 @@ Contributions are welcome! To contribute, follow these steps:
    "New pull request" button.
 
 Please follow the coding standards and best practices described in the
-[ROS2 documentation](https://index.ros.org/doc/ros2/Contributing/).
+[ROS 2 documentation](https://index.ros.org/doc/ROS 2/Contributing/).
 
 ## License
 MIT License

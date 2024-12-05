@@ -1,20 +1,12 @@
 {
     "name": "Tabletop",
     "dockerComposeFile": [
-        "compose.extend.yaml"
+        "compose.devcontainer.yaml"
     ],
+    "workspaceFolder": "/root/ws/src/tabletop",
     "service": "devcontainer",
     "customizations": {
         "vscode": {
-            // "settings": {
-            //     "python.analysis.extraPaths": [
-            //         "/opt/ros/jazzy/lib/python3.12/site-packages",
-            //         "/"
-            //     ],
-            //     "python.autoComplete.extraPaths": [
-            //         "/opt/ros/jazzy/lib/python3.12/site-packages"
-            //     ]
-            // },
             "extensions": [
                 "ms-vscode.cpptools",
                 "ms-vscode.cpptools-themes",
@@ -34,7 +26,8 @@
                 "redhat.vscode-yaml",
                 "ms-azuretools.vscode-docker",
                 "josetr.cmake-language-support-vscode",
-                "redhat.vscode-xml"
+                "redhat.vscode-xml",
+                "Codeium.codeium"
             ]
         }
     }
