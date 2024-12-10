@@ -14,9 +14,12 @@ RUN apt-get install -y python3-pip \
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source /root/ws/install/setup.bash" >> $HOME/.bashrc
 
+RUN curl -sS https://starship.rs/install.sh | sh -s -- -y \
+    && echo 'eval "$(starship init bash)"' >> /root/.bashrc
+
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 
 CMD ["bash", "-c", "\
     source /root/ws/src/tabletop/scripts/build.sh  && \
-    ros2 launch tabletop_server server.launch.py"]
+    sleep infinity"]

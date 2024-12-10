@@ -8,7 +8,7 @@ from tabletop_msgs.srv import PlanRequest
 
 class Commander(Node):
     def __init__(self):
-        super().__init__("command")
+        super().__init__("commander")
         # Get Parameters
         self._declare_parameters()
         self.timer_sec = self.get_parameter("timer_sec").value

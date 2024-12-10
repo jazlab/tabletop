@@ -62,6 +62,7 @@ def generate_launch_description():
             "reverse_ip": "192.168.13.11",
             "use_mock_hardware": "false",
             "controller_spawner_timeout": "120",
+            "launch_rviz": "false",
         }.items(),
     )
     moveit = IncludeLaunchDescription(
