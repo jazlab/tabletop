@@ -154,7 +154,6 @@ def generate_launch_description():
     )
 
     commander = Node(
-        name="commander",
         package="tabletop_server",
         executable="commander_moveit_py",
         output="both",
