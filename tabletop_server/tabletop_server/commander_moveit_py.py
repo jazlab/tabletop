@@ -92,7 +92,7 @@ class Commander(Node):
 def main(args=None):
     rclpy.init(args=args)
     logger = get_logger("commander")
-    logger.info(args)
+    logger.info("Node args", args)
     moveit_py = MoveItPy("moveit_py")
     node = Commander(moveit_py)
     rclpy.spin(node)
