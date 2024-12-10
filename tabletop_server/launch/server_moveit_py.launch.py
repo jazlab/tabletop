@@ -153,7 +153,9 @@ def generate_launch_description():
         ],
     )
 
+    # TODO: Something wrong with namespaces and paramter server for moveit_py node
     commander = Node(
+        name="moveit_py",
         package="tabletop_server",
         executable="commander_moveit_py",
         output="both",
