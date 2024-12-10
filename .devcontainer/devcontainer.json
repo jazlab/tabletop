@@ -1,10 +1,8 @@
 {
     "name": "Tabletop",
-    "dockerComposeFile": [
-        "compose.devcontainer.yaml"
-    ],
-    "workspaceFolder": "/root/ws/src/tabletop",
+    "dockerComposeFile": "compose.devcontainer.yaml",
     "service": "devcontainer",
+    "workspaceFolder": "/root/ws/src/tabletop",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -13,8 +11,6 @@
                 "ms-vscode.cmake-tools",
                 "ms-iot.vscode-ros",
                 "KevinRose.vsc-python-indent",
-                "GitHub.copilot",
-                "GitHub.copilot-chat",
                 "ms-python.python",
                 "ms-python.vscode-pylance",
                 "ms-python.debugpy",

@@ -3,7 +3,7 @@ name: tabletop
 services:
   devcontainer:
     build:
-      context: ../tabletop_server
+      context: .
     volumes:
       - $HOME/ws/src/tabletop:/root/ws/src/tabletop
     hostname: devcontainer
@@ -12,10 +12,6 @@ services:
         ipv4_address: 192.168.13.101
     environment:
       - DISPLAY=novnc:0.0
-    command: >
-      bash -c 
-      "source /root/ws/src/tabletop/scripts/build.sh
-      && sleep infinity"
 
 networks:
   net:
