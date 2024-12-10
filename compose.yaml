@@ -48,9 +48,9 @@ services:
       novnc:
         condition: service_healthy
     build:
-      context: ./tabletop_server
+      context: ./tabletop_server/
     volumes:
-      - $HOME/ws/src/tabletop:/root/ws/src/tabletop
+      - ./:/root/ws/src/tabletop/
     networks:
       net:
         ipv4_address: 192.168.13.11
@@ -58,7 +58,7 @@ services:
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
-      - LAUNCH_FILE=${LAUNCH_FILE:-server.launch.py}
+      - LAUNCH_FILE=${LAUNCH_FILE:-server_moveit_py.launch.py}
     command: >
       bash -c 
       "source /root/ws/src/tabletop/scripts/build.sh

@@ -40,6 +40,7 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "ur_type",
+                default_value="ur5e",
                 description="Typo/series of used UR robot.",
                 choices=[
                     "ur3",
@@ -155,7 +156,7 @@ def generate_launch_description():
     commander = Node(
         name="commander",
         package="tabletop_server",
-        executable="commander",
+        executable="commander_moveit_py",
         output="both",
         parameters=[
             moveit_config.to_dict(),
