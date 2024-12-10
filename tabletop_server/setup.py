@@ -29,10 +29,12 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
+            "commander_moveit_py = tabletop_server.commander_moveit_py:main",
             "commander = tabletop_server.commander:main",
             "teensy_controller = tabletop_server.teensy_controller:main",
             "teensy_sensor = tabletop_server.teensy_sensor:main",
             "camera = tabletop_server.camera:main",
+            "monkey = tabletop_server.monkey:main",
         ],
     },
 )

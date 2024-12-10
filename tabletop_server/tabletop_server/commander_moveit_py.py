@@ -1,6 +1,7 @@
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from moveit import MoveItPy
+from rclpy.logging import get_logger
 from rclpy.node import Node
 
 
@@ -9,7 +10,7 @@ class Commander(Node):
         super().__init__("commander")
         self._declare_parameters()
         # Read parameters
-        self.delay_sec = self.get_parameter("delay_sec").value
+        self.timer_sec = self.get_parameter("timer_sec").value
         # goal_names = self.get_parameter("goal_names").value
 
         # Initialize MoveItPy
@@ -58,17 +59,20 @@ class Commander(Node):
             self.get_logger().error("No valid goal found. Exiting...")
             exit(1)
 
-        self.timer = self.create_timer(self.delay_sec, self.timer_callback)
+        self.timer = self.create_timer(self.timer_sec, self.timer_callback)
         self.i = 0
 
     def _declare_parameters(self):
-        self.declare_parameter("delay_sec", 6)
-        self.declare_parameter("goal_names", ["pos1", "pos2"])
-        self.declare_parameter("check_starting_point", False)
+        self.declare_parameter("timer_sec", 1)
+        self.declare_parameter("goals", [])
 
     def timer_callback(self):
         goal = self.goals[self.i % len(self.goals)]
 
+        self.get_logger().info(
+            f"Last execution status: "
+            f"{self.trajectory_execution_manager.get_last_execution_status()}"
+        )
         if (
             self.trajectory_execution_manager.get_last_execution_status()
             == "SUCCEEDED"
@@ -81,11 +85,14 @@ class Commander(Node):
                 self.i += 1
             else:
                 self.get_logger().error("Plan failed. Exiting...")
+        else:
+            self.get_logger().info("Last execution not finished.")
 
 
 def main(args=None):
     rclpy.init(args=args)
-
+    logger = get_logger("commander")
+    logger.info(args)
     moveit_py = MoveItPy("moveit_py")
     node = Commander(moveit_py)
     rclpy.spin(node)
