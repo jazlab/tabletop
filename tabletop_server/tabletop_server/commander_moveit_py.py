@@ -1,7 +1,6 @@
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from moveit import MoveItPy
-from rclpy.logging import get_logger
 from rclpy.node import Node
 
 
@@ -15,7 +14,6 @@ class Commander(Node):
 
         # Initialize MoveItPy
         self.moveit_py = moveit_py
-
         # Get the planning component for your robot
         self.planning_component = self.moveit_py.get_planning_component(
             "ur_manipulator"
@@ -71,17 +69,17 @@ class Commander(Node):
 
         self.get_logger().info(
             f"Last execution status: "
-            f"{self.trajectory_execution_manager.get_last_execution_status()}"
+            f"{self.moveit_py.trajectory_execution_manager.get_last_execution_status()}"
         )
         if (
-            self.trajectory_execution_manager.get_last_execution_status()
+            self.moveit_py.trajectory_execution_manager.get_last_execution_status()
             == "SUCCEEDED"
         ):
             self.get_logger().info("Last execution finished.")
-            plan = self.planning_component.plan(goal)
+            plan = self.moveit_pyplanning_component.plan(goal)
             if plan.success:
                 self.get_logger().info("Plan succeeded, executing...")
-                self.moveit_py.execute(plan)
+                self.execute(plan)
                 self.i += 1
             else:
                 self.get_logger().error("Plan failed. Exiting...")
@@ -91,10 +89,20 @@ class Commander(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    logger = get_logger("commander")
-    logger.info("Node args", args)
+    node = Node(
+        "commander",
+    )
+    node.get_logger().info("Commander started")
+    params = node.get_parameters_by_prefix("")
+    node.get_logger().info("type(params): %s" % type(params))
+
+    for name, param in params.items():
+        node.get_logger().info("type(param): %s" % type(param))
+        node.get_logger().info(f"{name}: {param.name}: {param.value}")
+
     moveit_py = MoveItPy("moveit_py")
-    node = Commander(moveit_py)
     rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    # commander = Commander(moveit_py)
+    # rclpy.spin(commander)
+    # commander.destroy_node()
+    # rclpy.shutdown()
