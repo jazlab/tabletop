@@ -91,6 +91,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node(
         "commander",
+        automatically_declare_parameters_from_overrides=True,
     )
     node.get_logger().info("Commander started")
     params = node.get_parameters_by_prefix("")
