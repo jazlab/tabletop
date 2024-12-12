@@ -76,6 +76,11 @@ def declare_arguments():
                 default_value="-a",
                 description="Using or not time from simulation",
             ),
+            DeclareLaunchArgument(
+                "timer_sec",
+                default_value="1",
+                description="Timer sec",
+            ),
         ]
     )
 
@@ -99,6 +104,9 @@ def generate_launch_description():
         .robot_description_semantic(
             file_path="srdf/ur.srdf.xacro", mappings={"name": ur_type}
         )
+        .moveit_cpp(
+            file_path="config/moveit_cpp.yaml",
+        )
         .to_moveit_configs()
     )
 
@@ -107,11 +115,25 @@ def generate_launch_description():
         "warehouse_host": warehouse_sqlite_path,
     }
 
+    moveit_py_config = (
+        moveit_config.to_dict()
+        | warehouse_ros_config
+        | {
+            "use_sim_time": use_sim_time,
+            "publish_robot_description_semantic": publish_robot_description_semantic,
+        }
+    )
+
     rviz_config_file = os.path.join(
         get_package_share_directory("tabletop_moveit_config"),
         "config",
         "moveit.rviz",
     )
+
+    commander_config = {
+        "timer_sec": 1,
+        "goals": [1],
+    }
 
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -130,6 +152,7 @@ def generate_launch_description():
             "use_mock_hardware": "false",
             "controller_spawner_timeout": "120",
             "launch_rviz": "false",
+            "use_sim_time": use_sim_time,
         }.items(),
     )
 
@@ -147,26 +170,15 @@ def generate_launch_description():
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
             warehouse_ros_config,
-            {
-                "use_sim_time": use_sim_time,
-            },
+            {"use_sim_time": use_sim_time},
         ],
     )
 
-    # TODO: Something wrong with namespaces and paramter server for moveit_py node
     commander = Node(
-        name="moveit_py",
         package="tabletop_server",
         executable="commander_moveit_py",
         output="both",
-        parameters=[
-            moveit_config.to_dict(),
-            warehouse_ros_config,
-            {
-                "use_sim_time": use_sim_time,
-                "publish_robot_description_semantic": publish_robot_description_semantic,
-            },
-        ],
+        parameters=[moveit_py_config, commander_config],
     )
 
     teensy_controller = Node(
