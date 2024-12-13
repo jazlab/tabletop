@@ -5,22 +5,21 @@ from rclpy.node import Node
 
 
 class Commander(Node):
-    def __init__(self, moveit_py: MoveItPy):
-        super().__init__("commander")
-        self._declare_parameters()
-        # Read parameters
-        self.timer_sec = self.get_parameter("timer_sec").value
-        # goal_names = self.get_parameter("goal_names").value
+    def __init__(self):
+        super().__init__(
+            "commander", automatically_declare_parameters_from_overrides=True
+        )
 
         # Initialize MoveItPy
-        self.moveit_py = moveit_py
+        self.moveit_py = MoveItPy("moveit_py")
+
         # Get the planning component for your robot
         self.planning_component = self.moveit_py.get_planning_component(
             "ur_manipulator"
         )
 
         self.trajectory_execution_manager = (
-            self.moveit_py.get_trajectory_execution_manager()
+            self.moveit_py.get_trajactory_execution_manager()
         )
 
         self.goals = []
@@ -49,61 +48,95 @@ class Commander(Node):
 
         self.goals.append(goal)
 
-        goal = self.planning_component.get_current_pose().pose
-
-        self.goals.append(goal)
-
         if len(self.goals) < 1:
             self.get_logger().error("No valid goal found. Exiting...")
             exit(1)
 
-        self.timer = self.create_timer(self.timer_sec, self.timer_callback)
+        # self.timer = self.create_timer(self.timer_sec, self.timer_callback)
         self.i = 0
 
-    def _declare_parameters(self):
-        self.declare_parameter("timer_sec", 1)
-        self.declare_parameter("goals", [])
+        self.get_logger().info("Commander initialized")
 
-    def timer_callback(self):
-        goal = self.goals[self.i % len(self.goals)]
+        self.plan_and_execute()
 
-        self.get_logger().info(
-            f"Last execution status: "
-            f"{self.moveit_py.trajectory_execution_manager.get_last_execution_status()}"
+    def plan_and_execute(
+        self,
+        single_plan_parameters=None,
+        multi_plan_parameters=None,
+    ):
+        """Helper function to plan and execute a motion."""
+        # plan to goal
+        self.get_logger().info("Planning trajectory")
+
+        # Set start state
+        self.planning_component.set_start_state_to_current_state()
+
+        # Set goal state
+        goal = self.goals[self.i]
+
+        self.planning_component.set_goal_state(
+            pose_stamped=goal, pose_link="tool0"
         )
-        if (
-            self.moveit_py.trajectory_execution_manager.get_last_execution_status()
-            == "SUCCEEDED"
-        ):
-            self.get_logger().info("Last execution finished.")
-            plan = self.moveit_pyplanning_component.plan(goal)
-            if plan.success:
-                self.get_logger().info("Plan succeeded, executing...")
-                self.execute(plan)
-                self.i += 1
-            else:
-                self.get_logger().error("Plan failed. Exiting...")
+
+        # Plan
+        if multi_plan_parameters is not None:
+            plan_result = self.planning_component.plan(
+                multi_plan_parameters=multi_plan_parameters
+            )
+        elif single_plan_parameters is not None:
+            plan_result = self.planning_component.plan(
+                single_plan_parameters=single_plan_parameters
+            )
         else:
-            self.get_logger().info("Last execution not finished.")
+            plan_result = self.planning_component.plan()
+
+        # Execute plan
+        if plan_result:
+            self.get_logger().info("Executing plan")
+            robot_trajectory = plan_result.trajectory
+            self.trajectory_execution_manager.push(robot_trajectory)
+            self.trajectory_execution_manager.execute(
+                self.execution_callback, blocking=False
+            )
+        else:
+            self.get_logger.error("Planning failed, moving on to next goal...")
+            self.i += 1 % len(self.goals)
+            self.plan_and_execute()
+
+    def execution_callback(self):
+        self.get_logger().info("Execution finished")
+
+        status = self.trajectory_execution_manager.get_last_execution_status()
+        if status == "SUCCEEDED":
+            self.get_logger().info("Execution succeeded")
+        else:
+            self.get_logger().warn("Execution failed with status: %s" % status)
+
+        self.get_logger().info("Moving on to next goal...")
+
+        self.i += 1 % len(self.goals)
+        self.plan_and_execute()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = Node(
-        "commander",
-        automatically_declare_parameters_from_overrides=True,
-    )
-    node.get_logger().info("Commander started")
-    params = node.get_parameters_by_prefix("")
-    node.get_logger().info("type(params): %s" % type(params))
+    # node = Node(
+    #     "commander",
+    #     automatically_declare_parameters_from_overrides=True,
+    # )
+    # params = node.get_parameters_by_prefix("")
+    # node.get_logger().info("type(params): %s" % type(params))
+    # node.get_logger().info("Commander started")
 
-    for name, param in params.items():
-        node.get_logger().info("type(param): %s" % type(param))
-        node.get_logger().info(f"{name}: {param.name}: {param.value}")
+    # for name, param in params.items():
+    #     node.get_logger().info("type(param): %s" % type(param))
+    #     node.get_logger().info(f"{name}: {param.name}: {param.value}")
 
-    moveit_py = MoveItPy("moveit_py")
-    rclpy.spin(node)
+    commander = Commander()
+
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(commander)
+    executor.spin()
     # commander = Commander(moveit_py)
-    # rclpy.spin(commander)
-    # commander.destroy_node()
-    # rclpy.shutdown()
+    commander.destroy_node()
+    rclpy.shutdown()

@@ -23,7 +23,8 @@
                 "ms-azuretools.vscode-docker",
                 "josetr.cmake-language-support-vscode",
                 "redhat.vscode-xml",
-                "Codeium.codeium"
+                "Codeium.codeium",
+                "GitHub.copilot"
             ]
         }
     }

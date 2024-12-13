@@ -48,9 +48,9 @@ services:
       novnc:
         condition: service_healthy
     build:
-      context: ./tabletop_server/
+      context: ./tabletop_server
     volumes:
-      - ./:/root/ws/src/tabletop/
+      - .:/root/ws/src/tabletop
     networks:
       net:
         ipv4_address: 192.168.13.11
