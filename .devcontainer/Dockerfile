@@ -19,6 +19,10 @@ WORKDIR /root
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y \
     && echo 'eval "$(starship init bash)"' >> /root/.bashrc
 
+COPY ./starship.toml /root/.config/starship.toml
+
+RUN apt-get install -y gdb 
+
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 

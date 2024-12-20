@@ -5,7 +5,7 @@ services:
     build:
       context: .
     volumes:
-      - $HOME/ws/src/tabletop:/root/ws/src/tabletop
+      - ../../..:/root/ws
     hostname: devcontainer
     networks:
       net:

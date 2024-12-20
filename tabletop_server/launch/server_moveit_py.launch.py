@@ -41,7 +41,7 @@ def declare_arguments():
             DeclareLaunchArgument(
                 "ur_type",
                 default_value="ur5e",
-                description="Typo/series of used UR robot.",
+                description="Type/series of used UR robot.",
                 choices=[
                     "ur3",
                     "ur3e",
@@ -73,8 +73,13 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "rosbag_args",
-                default_value="-a",
-                description="Using or not time from simulation",
+                default_value="--all",
+                description="'ros2 bag' command line args",
+            ),
+            DeclareLaunchArgument(
+                "rosbag_dir",
+                default_value="/root/ws/src/tabletop/bags",
+                description="Base directory to save rosbags",
             ),
             DeclareLaunchArgument(
                 "timer_sec",
@@ -87,7 +92,6 @@ def declare_arguments():
 
 def generate_launch_description():
     args = declare_arguments()
-    rosbag_args = LaunchConfiguration("rosbag_args")
     launch_rviz = LaunchConfiguration("launch_rviz")
     ur_type = LaunchConfiguration("ur_type")
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
@@ -95,6 +99,9 @@ def generate_launch_description():
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
     )
+
+    rosbag_args = LaunchConfiguration("rosbag_args")
+    rosbag_dir = LaunchConfiguration("rosbag_dir")
 
     # Load configs
     moveit_config = (
@@ -179,6 +186,7 @@ def generate_launch_description():
         executable="commander_moveit_py",
         output="both",
         parameters=[moveit_py_config, commander_config],
+        # prefix=["gdbserver :3000"],
     )
 
     teensy_controller = Node(
@@ -197,6 +205,7 @@ def generate_launch_description():
 
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
+        cwd=rosbag_dir,
         output="screen",
     )
 
@@ -211,3 +220,14 @@ def generate_launch_description():
             bag,
         ]
     )
+
+
+# def main():
+#     ls = LaunchService()
+#     ld = generate_launch_description()
+#     ls.include_launch_description(ld)
+#     return ls.run()
+
+
+# if __name__ == "__main__":
+#     main()
