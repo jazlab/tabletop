@@ -1,22 +1,11 @@
 def ros2_external_control():
   global _hidden_verificationVariable=0
-  step_count_ad98a875_b699_4ab0_b11e_0a8cf86a68ce = 0.0
-  thread Step_Counter_Thread_26e3084d_ac32_4d55_a2c6_81de1fd78e6c():
-    while (True):
-      step_count_ad98a875_b699_4ab0_b11e_0a8cf86a68ce = step_count_ad98a875_b699_4ab0_b11e_0a8cf86a68ce + 1.0
-      sync()
-    end
-  end
-  run Step_Counter_Thread_26e3084d_ac32_4d55_a2c6_81de1fd78e6c()
-  set_target_payload(1.000000, [0.000000, 0.000000, 0.000000], [0.001539, 0.001539, 0.001539, 0.000000, 0.000000, 0.000000])
-  set_safety_mode_transition_hardness(1)
-  set_gravity([0.0, 0.0, 9.82])
-  set_tcp(p[0.0,0.0,0.0,0.0,0.0,0.0])
   set_tool_communication(False, 115200, 0, 1, 1.5, 3.5)
   set_tool_output_mode(0)
   set_tool_digital_output_mode(0, 1)
   set_tool_digital_output_mode(1, 1)
   set_tool_voltage(0)
+  set_target_payload(1.000000, [0.000000, 0.000000, 0.000000], [0.001539, 0.001539, 0.001539, 0.000000, 0.000000, 0.000000])
   set_standard_analog_input_domain(0, 1)
   set_standard_analog_input_domain(1, 1)
   set_tool_analog_input_domain(0, 1)
@@ -24,10 +13,21 @@ def ros2_external_control():
   set_analog_outputdomain(0, 0)
   set_analog_outputdomain(1, 0)
   set_input_actions_to_default()
+  set_gravity([0.0, 0.0, 9.82])
+  set_safety_mode_transition_hardness(1)
+  set_tcp(p[0.0,0.0,0.0,0.0,0.0,0.0])
   # begin: URCap Installation Node
   #   Source: External Control, 1.0.5, FZI Research Center for Information Technology
   #   Type: External Control
   # end: URCap Installation Node
+  step_count_3bc8e06a_595f_4ef1_a306_5627b7b01e91 = 0.0
+  thread Step_Counter_Thread_ebf1efb0_64bf_4e38_9eec_45a2447c8df5():
+    while (True):
+      step_count_3bc8e06a_595f_4ef1_a306_5627b7b01e91 = step_count_3bc8e06a_595f_4ef1_a306_5627b7b01e91 + 1.0
+      sync()
+    end
+  end
+  run Step_Counter_Thread_ebf1efb0_64bf_4e38_9eec_45a2447c8df5()
   while (True):
     $ 2 "Robot Program"
     # begin: URCap Program Node
