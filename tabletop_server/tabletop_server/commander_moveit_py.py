@@ -34,7 +34,7 @@ class Commander(Node):
 
         # Get the planning component and trajectory execution manager
         self.planning_component = self.moveit_py.get_planning_component(
-            "ur_manipulator"
+            self.get_parameter("group_name").value
         )
         self.trajectory_execution_manager = (
             self.moveit_py.get_trajactory_execution_manager()
@@ -73,7 +73,7 @@ class Commander(Node):
         self.i = 0
 
         self.log("Commander initialized")
-        self.state = "INITIALIZED"
+        self.change_state("INITIALIZED")
 
         # self.log("Sleeping for 20 seconds...")
         # time.sleep(20)
@@ -107,13 +107,12 @@ class Commander(Node):
             self.get_logger().trace(msg)
 
     def start_robot(self):
-        self.state = "STARTING"
+        self.change_state("STARTING")
         self.log("Starting robot")
         self.dashboard_trigger("/dashboard_client/brake_release")
-        self.load_program(self.get_parameter("ur_program").value)
-        self.load_installation(self.get_parameter("ur_installation").value)
+        self.dashboard_load_program(self.get_parameter("ur_program").value)
         self.dashboard_trigger("/dashboard_client/play")
-        self.state = "READY"
+        self.change_state("READY")
 
     def dashboard_trigger(self, service_name):
         self.log(f"Triggering {service_name}")
@@ -125,13 +124,18 @@ class Commander(Node):
         response = service_client.call(request)
         if response is None:
             self.log(f"{service_name} service call timed out", level="error")
-        elif not response.success:
-            self.log(f"{service_name} service call failed", level="error")
+        elif response.success:
+            self.log(
+                f"{service_name} service call succeeded: '{response.message}'"
+            )
         else:
-            self.log(f"{service_name} service call succeeded")
+            self.log(
+                f"{service_name} service call failed: '{response.message}'",
+                level="error",
+            )
         service_client.destroy()
 
-    def load_program(self, program_name):
+    def dashboard_load_program(self, program_name):
         self.log(f"Loading program: {program_name}")
         service_client = self.create_client(
             Load, "/dashboard_client/load_program"
@@ -146,36 +150,19 @@ class Commander(Node):
             self.log("load_program service call timed out", level="error")
         elif not response.success:
             self.log(
-                "/dashboard_client/load_program service call failed",
+                "/dashboard_client/load_program service call failed: '"
+                f"{response.answer}'",
                 level="error",
             )
         else:
-            self.log("/dashboard_client/load_program service call succeeded")
-        service_client.destroy()
-
-    def load_installation(self, installation_name):
-        self.log(f"Loading installation: {installation_name}")
-        service_client = self.create_client(
-            Load, "/dashboard_client/load_installation"
-        )
-        while not service_client.wait_for_service(timeout_sec=2.0):
             self.log(
-                "load_installation service not available, waiting again..."
+                "/dashboard_client/load_program service call succeeded: '"
+                f"{response.answer}'"
             )
-
-        request = Load.Request()
-        request.filename = installation_name
-        response = service_client.call(request)
-        if response is None:
-            self.log("load_installation service call timed out", level="error")
-        elif not response.success:
-            self.log("load_installation service call failed", level="error")
-        else:
-            self.log("load_installation service call succeeded")
         service_client.destroy()
 
     def plan(self, single_plan_parameters=None, multi_plan_parameters=None):
-        self.state = "PLANNING"
+        self.change_state("PLANNING")
         self.log("Planning trajectory")
 
         self.planning_component.set_start_state_to_current_state()
@@ -196,45 +183,49 @@ class Commander(Node):
             self.plan_result = self.planning_component.plan()
 
         self.log("Planning finished!")
-        self.state = "PLANNED"
+        self.change_state("PLANNED")
 
-    def execute(self, plan_result):
-        if plan_result:
-            self.state = "EXECUTING"
+    def execute(self):
+        if self.plan_result:
+            self.change_state("EXECUTING")
             self.log("Executing plan")
 
             robot_trajectory_msg = (
-                plan_result.trajectory.get_robot_trajectory_msg()
+                self.plan_result.trajectory.get_robot_trajectory_msg()
             )
             self.trajectory_execution_manager.push(robot_trajectory_msg)
             self.trajectory_execution_manager.execute(self.execution_callback)
         else:
             self.log("Planning failed! Trying again...", level="error")
-            self.state = "READY"
+            self.change_state("READY")
 
     def execution_callback(self, response):
         if response.status == "SUCCEEDED":
-            self.state = "EXECUTED"
+            self.change_state("EXECUTED")
             self.log("Execution succeeded!")
             self.i = (self.i + 1) % len(self.goals)
             self.log("Moving on to goal %d" % self.i)
-            self.state = "READY"
+            self.change_state("READY")
         else:
             self.log(
                 f"Execution failed with status {response.status}: {response.message}",
                 level="warn",
             )
             self.log("Trying again...", level="warn")
-            self.state = "PLANNED"
+            self.change_state("PLANNED")
+
+    def change_state(self, state):
+        self.log(f"Changing state to {state}")
+        self.state = state
 
     def state_machine(self):
         match self.state:
             case "INITIALIZED":
                 self.start_robot()
             case "READY":
-                self.plan_result = self.plan()
+                self.plan()
             case "PLANNED":
-                self.execute(self.plan_result)
+                self.execute()
             case "EXECUTING":
                 pass
             case "ERROR":
@@ -242,7 +233,7 @@ class Commander(Node):
                     "Commander entered ERROR state, restarting...",
                     level="error",
                 )
-                self.state = "INITIALIZED"
+                self.change_state("INITIALIZED")
             case _:
                 raise ValueError(f"Invalid state: {self.state}")
 

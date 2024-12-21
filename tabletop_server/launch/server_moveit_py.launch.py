@@ -36,7 +36,9 @@ def declare_arguments():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "launch_rviz", default_value="true", description="Launch RViz?"
+                "launch_rviz",
+                default_value="false",
+                description="Launch RViz?",
             ),
             DeclareLaunchArgument(
                 "ur_type",
@@ -86,6 +88,26 @@ def declare_arguments():
                 default_value="1",
                 description="Timer sec",
             ),
+            DeclareLaunchArgument(
+                "robot_ip",
+                default_value="192.168.13.10",
+                description="IP address of the robot",
+            ),
+            DeclareLaunchArgument(
+                "reverse_ip",
+                default_value="192.168.13.11",
+                description="Reverse IP address",
+            ),
+            DeclareLaunchArgument(
+                "use_mock_hardware",
+                default_value="false",
+                description="Use mock hardware",
+            ),
+            DeclareLaunchArgument(
+                "controller_spawner_timeout",
+                default_value="120",
+                description="Controller spawner timeout",
+            ),
         ]
     )
 
@@ -99,6 +121,12 @@ def generate_launch_description():
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
     )
+    controller_spawner_timeout = LaunchConfiguration(
+        "controller_spawner_timeout"
+    )
+    robot_ip = LaunchConfiguration("robot_ip")
+    reverse_ip = LaunchConfiguration("reverse_ip")
+    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
 
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
@@ -154,11 +182,11 @@ def generate_launch_description():
         ),
         launch_arguments={
             "ur_type": ur_type,
-            "robot_ip": "192.168.13.10",
-            "reverse_ip": "192.168.13.11",
-            "use_mock_hardware": "false",
-            "controller_spawner_timeout": "120",
-            "launch_rviz": "false",
+            "robot_ip": robot_ip,
+            "reverse_ip": reverse_ip,
+            "use_mock_hardware": use_mock_hardware,
+            "controller_spawner_timeout": controller_spawner_timeout,
+            "launch_rviz": launch_rviz,
             "use_sim_time": use_sim_time,
         }.items(),
     )
