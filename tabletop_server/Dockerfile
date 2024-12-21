@@ -1,7 +1,9 @@
 FROM ros:jazzy
 
 RUN apt-get update && apt-get upgrade -y
-RUN apt-get install -y python3-pip \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y python3-pip \
     python-is-python3 \
     ros-jazzy-ur \
     ros-jazzy-moveit \
@@ -9,6 +11,8 @@ RUN apt-get install -y python3-pip \
     ros-jazzy-ros2controlcli \
     ros-jazzy-cv-bridge \ 
     ros-jazzy-rmw-cyclonedds-cpp \
+    gdb \
+    iputils-ping \
     xarclock
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc

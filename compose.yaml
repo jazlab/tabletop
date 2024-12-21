@@ -19,8 +19,8 @@ services:
       start_interval: 2s
     environment:
       # Adjust to your screen size
-      - DISPLAY_WIDTH=1920
-      - DISPLAY_HEIGHT=1080
+      - DISPLAY_WIDTH=1280
+      - DISPLAY_HEIGHT=824
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
@@ -42,6 +42,7 @@ services:
     hostname: robot
     environment:
       - DISPLAY=novnc:0.0
+      - ROBOT_MODEL=ur5e
 
   server:
     depends_on:
