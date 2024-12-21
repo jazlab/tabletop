@@ -3,8 +3,8 @@ FROM debian:latest
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install git, supervisor, VNC, & X11 packages
-RUN set -ex; \
-    apt-get update; \
+RUN apt-get update; \
+    apt-get upgrade -y; \
     apt-get install -y \
     bash \
     dbus-x11 \
