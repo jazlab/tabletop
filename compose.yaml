@@ -28,7 +28,6 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-    restart: on-failure
     image: universalrobots/ursim_e-series
     platform: linux/amd64
     pid: host
@@ -45,9 +44,9 @@ services:
       - ROBOT_MODEL=ur5e
 
   server:
-    depends_on:
-      novnc:
-        condition: service_healthy
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
     build:
       context: ./tabletop_server
     volumes:
@@ -59,7 +58,7 @@ services:
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
-      - LAUNCH_FILE=${LAUNCH_FILE:-server_moveit_py.launch.py}
+      - LAUNCH_FILE=${LAUNCH_FILE:-server.launch.py}
     command: >
       bash -c 
       "cd /root/ws
