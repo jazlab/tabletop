@@ -44,9 +44,9 @@ services:
       - ROBOT_MODEL=ur5e
 
   server:
-    # depends_on:
-    #   novnc:
-    #     condition: service_healthy
+    depends_on:
+      novnc:
+        condition: service_healthy
     build:
       context: ./tabletop_server
     volumes:
