@@ -14,3 +14,6 @@
 
 # Ignore vscode files
 .vscode/
+
+# Ignore bag files
+bags/

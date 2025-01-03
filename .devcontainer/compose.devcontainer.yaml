@@ -2,17 +2,16 @@ name: tabletop
 
 services:
   devcontainer:
-    extends:
-      file: ../compose.yaml
-      service: server
+    build:
+      context: .
+    volumes:
+      - ../../..:/root/ws
     hostname: devcontainer
     networks:
       net:
-        ipv4_address: 192.168.13.02
-    command: >
-      bash -c 
-      "source /root/ws/src/tabletop/scripts/build.sh
-      && sleep infinity"
+        ipv4_address: 192.168.13.101
+    environment:
+      - DISPLAY=novnc:0.0
 
 networks:
   net:

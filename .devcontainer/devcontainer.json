@@ -1,28 +1,16 @@
 {
     "name": "Tabletop",
-    "dockerComposeFile": [
-        "compose.extend.yaml"
-    ],
+    "dockerComposeFile": "compose.devcontainer.yaml",
     "service": "devcontainer",
+    "workspaceFolder": "/root/ws/src/tabletop",
     "customizations": {
         "vscode": {
-            // "settings": {
-            //     "python.analysis.extraPaths": [
-            //         "/opt/ros/jazzy/lib/python3.12/site-packages",
-            //         "/"
-            //     ],
-            //     "python.autoComplete.extraPaths": [
-            //         "/opt/ros/jazzy/lib/python3.12/site-packages"
-            //     ]
-            // },
             "extensions": [
                 "ms-vscode.cpptools",
                 "ms-vscode.cpptools-themes",
                 "ms-vscode.cmake-tools",
                 "ms-iot.vscode-ros",
                 "KevinRose.vsc-python-indent",
-                "GitHub.copilot",
-                "GitHub.copilot-chat",
                 "ms-python.python",
                 "ms-python.vscode-pylance",
                 "ms-python.debugpy",
@@ -34,7 +22,9 @@
                 "redhat.vscode-yaml",
                 "ms-azuretools.vscode-docker",
                 "josetr.cmake-language-support-vscode",
-                "redhat.vscode-xml"
+                "redhat.vscode-xml",
+                "Codeium.codeium",
+                "GitHub.copilot"
             ]
         }
     }
