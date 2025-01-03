@@ -19,6 +19,10 @@ setup(
             os.path.join("share", package_name, "launch"),
             glob(os.path.join("launch", "*launch.[pxy][yma]*")),
         ),
+        (
+            os.path.join("share", package_name, "config"),
+            glob(os.path.join("config", "*.*")),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -33,6 +37,7 @@ setup(
             "teensy_controller = tabletop_server.teensy_controller:main",
             "teensy_sensor = tabletop_server.teensy_sensor:main",
             "camera = tabletop_server.camera:main",
+            "monkey = tabletop_server.monkey:main",
         ],
     },
 )
