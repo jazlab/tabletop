@@ -12,7 +12,8 @@ planning_pipelines:
 
 plan_request_params:
   planning_attempts: 10
-  planning_pipeline: ompl
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: "PTP"
   max_velocity_scaling_factor: 0.3
   max_acceleration_scaling_factor: 0.5
   planning_time: 2.0

@@ -48,7 +48,7 @@ services:
       novnc:
         condition: service_healthy
     build:
-      context: ./tabletop_server
+      context: ./ros/tabletop_server
     volumes:
       - ../..:/root/ws
     networks:

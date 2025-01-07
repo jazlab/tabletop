@@ -21,10 +21,8 @@
                 "tamasfe.even-better-toml",
                 "redhat.vscode-yaml",
                 "ms-azuretools.vscode-docker",
-                "josetr.cmake-language-support-vscode",
                 "redhat.vscode-xml",
-                "Codeium.codeium",
-                "GitHub.copilot"
+                "ms-dotnettools.vscode-dotnet-runtime"
             ]
         }
     }

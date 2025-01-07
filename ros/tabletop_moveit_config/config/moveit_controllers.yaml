@@ -5,7 +5,7 @@ trajectory_execution:
   allowed_execution_duration_scaling: 1.2
   allowed_goal_duration_margin: 0.5
   allowed_start_tolerance: 0.01
-  execution_duration_monitoring: false # May lead to unexpectedly aborted goals with scaled JTC
+  execution_duration_monitoring: true # May lead to unexpectedly aborted goals with scaled JTC
 
 moveit_simple_controller_manager:
   controller_names:
@@ -14,7 +14,7 @@ moveit_simple_controller_manager:
   scaled_joint_trajectory_controller:
     action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
-    default: true 
+    default: true
     joints:
       - shoulder_pan_joint
       - shoulder_lift_joint

@@ -37,9 +37,14 @@ def declare_arguments():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "launch_rviz",
+                "launch_rviz_ur_driver",
+                default_value="true",
+                description="Launch RViz for UR Driver?",
+            ),
+            DeclareLaunchArgument(
+                "launch_rviz_moveit",
                 default_value="false",
-                description="Launch RViz?",
+                description="Launch RViz for MoveIt?",
             ),
             DeclareLaunchArgument(
                 "ur_type",
@@ -110,7 +115,8 @@ def declare_arguments():
 
 def generate_launch_description():
     args = declare_arguments()
-    launch_rviz = LaunchConfiguration("launch_rviz")
+    launch_rviz_ur_driver = LaunchConfiguration("launch_rviz_ur_driver")
+    launch_rviz_moveit = LaunchConfiguration("launch_rviz_moveit")
     ur_type = LaunchConfiguration("ur_type")
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -179,14 +185,14 @@ def generate_launch_description():
             "reverse_ip": reverse_ip,
             "use_mock_hardware": use_mock_hardware,
             "controller_spawner_timeout": controller_spawner_timeout,
-            "launch_rviz": launch_rviz,
+            "launch_rviz": launch_rviz_ur_driver,
             "use_sim_time": use_sim_time,
         }.items(),
     )
 
     rviz = Node(
         package="rviz2",
-        condition=IfCondition(launch_rviz),
+        condition=IfCondition(launch_rviz_moveit),
         executable="rviz2",
         name="rviz2_moveit",
         output="log",
