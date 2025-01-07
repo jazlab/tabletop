@@ -23,6 +23,11 @@ def generate_launch_description():
             "reverse_ip": "192.168.13.11",
             "use_mock_hardware": "false",
             "controller_spawner_timeout": "120",
+            "description_launch_file": os.path.join(
+                get_package_share_directory("tabletop_description"),
+                "launch",
+                "tabletop_rsp.launch.py",
+            ),
         }.items(),
     )
     moveit = IncludeLaunchDescription(
