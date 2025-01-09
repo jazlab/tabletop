@@ -4,6 +4,7 @@ services:
   devcontainer:
     build:
       context: .
+      pull: true
     volumes:
       - ../../..:/root/ws
       # - /tmp/.X11-unix:/tmp/.X11-unix

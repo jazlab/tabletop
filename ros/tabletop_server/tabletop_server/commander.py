@@ -40,7 +40,7 @@ class Commander(Node):
             self.get_parameter("group_name").value
         )
         self.trajectory_execution_manager = (
-            self.moveit_py.get_trajactory_execution_manager()
+            self.moveit_py.get_trajectory_execution_manager()
         )
 
         self.waypoint_path = self.get_parameter("waypoint_path").value
