@@ -43,10 +43,10 @@ class Commander(Node):
             self.moveit_py.get_trajactory_execution_manager()
         )
 
-        self.waypoint_names = self.get_parameter("waypoint_names").value
+        self.waypoint_path = self.get_parameter("waypoint_path").value
         self.waypoints = {}
 
-        for name in self.waypoint_names:
+        for name in set(self.waypoint_path):
             waypoint = PoseStamped()
             waypoint.header.frame_id = self.get_parameter(
                 f"waypoints.{name}.header.frame_id"
@@ -73,8 +73,6 @@ class Commander(Node):
             )
             self.waypoints[name] = waypoint
 
-        self.waypoints = list(self.waypoints.values())
-
         if len(self.waypoints) < 1:
             self.log("No valid waypoints found. Exiting...", level="error")
             exit(1)
@@ -83,9 +81,6 @@ class Commander(Node):
 
         self.log("Commander initialized")
         self.change_state("INITIALIZED")
-
-        # self.log("Sleeping for 20 seconds...")
-        # time.sleep(20)
 
         self.timer = self.create_timer(
             self.get_parameter("timer_sec").value,
@@ -173,10 +168,10 @@ class Commander(Node):
     def plan(self, single_plan_parameters=None, multi_plan_parameters=None):
         self.change_state("PLANNING")
         self.log("Planning trajectory to waypoint %d" % self.i)
-        self.log(f"Waypoint: {self.waypoints[self.i]}")
+        self.log(f"Waypoint: {self.waypoints[self.waypoint_path[self.i]]}")
 
         self.planning_component.set_start_state_to_current_state()
-        goal = self.waypoints[self.i]
+        goal = self.waypoints[self.waypoint_path[self.i]]
         self.planning_component.set_goal_state(
             pose_stamped_msg=goal, pose_link="tool0"
         )
@@ -213,7 +208,7 @@ class Commander(Node):
         if response.status == "SUCCEEDED":
             self.change_state("EXECUTED")
             self.log("Execution succeeded!")
-            self.i = (self.i + 1) % len(self.waypoints)
+            self.i = (self.i + 1) % len(self.waypoint_path)
             self.log("Moving on to waypoint %d" % self.i)
             self.change_state("READY")
         else:

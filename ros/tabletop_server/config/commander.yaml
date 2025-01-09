@@ -1,9 +1,12 @@
-waypoint_names:
-  - init
+waypoint_path:
   - object_area
   - object_grab
+  - object_area
   - monkey_area_1
   - monkey_area_2
+  - object_area
+  - object_grab
+  - object_area
 
 waypoints:
   init:
