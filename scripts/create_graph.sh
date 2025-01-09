@@ -1,0 +1,1 @@
+ros2_graph $(ros2 node list | tr '\n' ' ') -o graph.md

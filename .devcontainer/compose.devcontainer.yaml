@@ -6,15 +6,18 @@ services:
       context: .
     volumes:
       - ../../..:/root/ws
+      # - /tmp/.X11-unix:/tmp/.X11-unix
     hostname: devcontainer
     networks:
-      net:
+      tabletop_net:
         ipv4_address: 192.168.13.101
-    environment:
-      - DISPLAY=novnc:0.0
+    # environment:
+      # - DISPLAY=novnc:0.0
+      # - DISPLAY=$DISPLAY
 
 networks:
-  net:
+  tabletop_net:
+    name: tabletop_net
     attachable: true
     driver: bridge
     ipam:

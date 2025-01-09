@@ -225,35 +225,33 @@ If you are using the `moveit.launch.py` file, you should now be able to set
 goal positions using the RViz GUI and send planning and execution requests 
 to the MoveGroup.
 
-### Choosing Launch File
+### Choosing Launch Command
 
-There are 2 main launch files in the `tabletop_server/launch` directory:
-- `server.launch.py`: The main launch file for the TableTop project. This will 
-    start the Universal Robots ROS 2 driver nodes, the MoveIt nodes, and the 
-    TableTop nodes, including the commander node.
-- `moveit.launch.py`: The MoveIt launch file for the TableTop project. This 
-    will start an Universal Robots ROS 2 driver nodes, the MoveIt nodes, and 
-    a GUI to plan and execute simple motion plans. This is good for testing 
-    and debugging your planning scene and motion planners.
+The default behavior of the `server` container is to source and build the ROS2
+environment (by sourcing `scripts/build.sh`) then launch the `server.launch.py`
+file. To change this default behavior, you can set the LAUNCH_COMMAND 
+environment variable to your desired bash command. You can do this by
+* Setting the variable from the command line:
+    ```bash
+    LAUNCH_COMMAND="ros2 launch tabletop_moveit_config moveit.launch.py" docker compose up --build --force-recreate
+    ```
+* Using an environment file (commonly used such files in `env_files/`):
+    ```bash
+    docker compose --env-file env_files/moveit.env up --build --force-recreate
+    ```
+* Editing the `compose.yaml` file:
+    ```yaml
+    services:
+        ...
+        server:
+            ...
+            environment:
+                # Edit the default value so that you can overwrite it from the command line later
+                - LAUNCH_COMMAND=${LAUNCH_COMMAND:-ros2 launch tabletop_moveit_config tabletop_moveit.launch.py}
 
-To use either file, you need to edit the `compose.yaml` file and set the 
-environment variable `LAUNCH_FILE` to the name of the launch file you want to 
-use. For example, to use the `moveit.launch.py` file, you would set the 
-following in the `compose.yaml` file:
-```yaml
-services:
-    server:
-        environment:
-            - LAUNCH_FILE=moveit.launch.py
-```
-followed by initializing the Docker containers as in the previous section.
-
-Alternatively, you can use the `LAUNCH_FILE` environment variable in the Docker 
-command line. For example, to use the `moveit.launch.py` file, you would run 
-the following:
-```bash
-LAUNCH_FILE=moveit.launch.py docker compose up --build --force-recreate
-```
+                # Don't do the below, you will lose the ability to overwrite LAUNCH_COMMAND
+                # - LAUNCH_COMMAND=ros2 launch tabletop_moveit_config tabletop_moveit.launch.py
+    ```
 
 ### VSCode Development using docker Dev Containers
 

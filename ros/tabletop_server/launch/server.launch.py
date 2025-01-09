@@ -14,8 +14,9 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
@@ -109,6 +110,16 @@ def declare_arguments():
                 default_value="120",
                 description="Controller spawner timeout",
             ),
+            DeclareLaunchArgument(
+                "kinematics_params_package",
+                default_value="tabletop_server",
+                description="Package name for kinematics params",
+            ),
+            DeclareLaunchArgument(
+                "kinematics_params_file",
+                default_value="config/calibration.yaml",
+                description="Calibration file",
+            ),
         ]
     )
 
@@ -129,6 +140,10 @@ def generate_launch_description():
     robot_ip = LaunchConfiguration("robot_ip")
     reverse_ip = LaunchConfiguration("reverse_ip")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
+    kinematics_params_package = LaunchConfiguration(
+        "kinematics_params_package"
+    )
+    kinematics_params_file = LaunchConfiguration("kinematics_params_file")
 
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
@@ -169,6 +184,7 @@ def generate_launch_description():
 
     commander_config = load_yaml("tabletop_server", "config/commander.yaml")
 
+    # UR Robot Driver
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
@@ -187,9 +203,16 @@ def generate_launch_description():
             "controller_spawner_timeout": controller_spawner_timeout,
             "launch_rviz": launch_rviz_ur_driver,
             "use_sim_time": use_sim_time,
+            "kinematics_params_file": PathJoinSubstitution(
+                [
+                    FindPackageShare(kinematics_params_package),
+                    kinematics_params_file,
+                ]
+            ),
         }.items(),
     )
 
+    # MoveIt Rviz
     rviz = Node(
         package="rviz2",
         condition=IfCondition(launch_rviz_moveit),
@@ -208,6 +231,7 @@ def generate_launch_description():
         ],
     )
 
+    # Commander
     commander = Node(
         package="tabletop_server",
         executable="commander",
@@ -216,6 +240,7 @@ def generate_launch_description():
         # prefix=["gdbserver :3000"],
     )
 
+    # Teensy Controller
     teensy_controller = Node(
         namespace="tabletop",
         name="teensy_controller",
@@ -223,6 +248,7 @@ def generate_launch_description():
         executable="teensy_controller",
     )
 
+    # Teensy Sensor
     teensy_sensor = Node(
         namespace="tabletop",
         name="teensy_sensor",
@@ -230,6 +256,7 @@ def generate_launch_description():
         executable="teensy_sensor",
     )
 
+    # Bag
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
         cwd=rosbag_dir,
