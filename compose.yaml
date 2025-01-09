@@ -4,6 +4,7 @@ services:
   novnc:
     build:
       context: ./novnc
+      pull: true
     ports:
       - 8080:8080
     networks:
@@ -29,6 +30,7 @@ services:
       novnc:
         condition: service_healthy
     image: universalrobots/ursim_e-series
+    pull_policy: always
     platform: linux/amd64
     pid: host
     volumes:
@@ -49,6 +51,7 @@ services:
         condition: service_healthy
     build:
       context: ./ros/tabletop_server
+      pull: true
     volumes:
       - ../..:/root/ws
     networks:
