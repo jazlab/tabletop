@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:macro name="eef"
+    params="
+    tf_prefix
+    parent
+    *origin
+    radius
+    mass
+    ">
+
+    <link name="${tf_prefix}eef">
+      <visual>
+        <geometry>
+          <sphere radius="${radius}" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </visual>
+      <collision>
+        <geometry>
+          <sphere radius="${radius}" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </collision>
+      <inertial>
+        <mass value="${mass}" />
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <inertia ixx="${(2/5) * mass * radius * radius}" ixy="0" ixz="0"
+          iyy="${(2/5) * mass * radius * radius}" iyz="0"
+          izz="${(2/5) * mass * radius * radius}" />
+      </inertial>
+    </link>
+
+    <joint name="${parent}-eef" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}" />
+      <child link="${tf_prefix}eef" />
+    </joint>
+
+  </xacro:macro>
+
+</robot>

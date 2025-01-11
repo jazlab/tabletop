@@ -16,6 +16,7 @@ colcon build --symlink-install \
         --event-handlers console_cohesion+ \
         --base-paths /root/ws \
         "${CMAKE_ARGS[@]}"
+mkdir -p bags
 source $HOME/ws/install/setup.bash
 
 if ! grep -Fxq "source $HOME/ws/install/setup.bash" $HOME/.bashrc
