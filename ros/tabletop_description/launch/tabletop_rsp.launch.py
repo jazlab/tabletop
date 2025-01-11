@@ -213,7 +213,7 @@ def generate_launch_description():
                 "ur10",
                 "ur10e",
                 "ur16e",
-                "ur5e",
+                "ur20",
                 "ur30",
             ],
         )
@@ -308,7 +308,7 @@ def generate_launch_description():
                 [
                     FindPackageShare("tabletop_description"),
                     "urdf",
-                    "ur.urdf.xacro",
+                    "tabletop.urdf.xacro",
                 ]
             ),
             description="URDF/XACRO description file with the robot.",

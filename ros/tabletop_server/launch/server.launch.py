@@ -77,7 +77,7 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "publish_robot_description_semantic",
-                default_value="true",
+                default_value="false",
                 description="MoveGroup publishes robot description semantic",
             ),
             DeclareLaunchArgument(
@@ -112,13 +112,23 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "kinematics_params_package",
-                default_value="tabletop_server",
+                default_value="tabletop_description",
                 description="Package name for kinematics params",
             ),
             DeclareLaunchArgument(
                 "kinematics_params_file",
-                default_value="config/calibration.yaml",
+                default_value="config/ursim_calibration.yaml",
                 description="Calibration file",
+            ),
+            DeclareLaunchArgument(
+                "description_launch_package",
+                default_value="tabletop_description",
+                description="Package name for the description launch file",
+            ),
+            DeclareLaunchArgument(
+                "description_launch_file",
+                default_value="launch/tabletop_rsp.launch.py",
+                description="Launch file for the description",
             ),
         ]
     )
@@ -144,6 +154,10 @@ def generate_launch_description():
         "kinematics_params_package"
     )
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
+    description_launch_package = LaunchConfiguration(
+        "description_launch_package"
+    )
+    description_launch_file = LaunchConfiguration("description_launch_file")
 
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
@@ -154,7 +168,7 @@ def generate_launch_description():
             robot_name="ur", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            file_path="srdf/ur.srdf.xacro", mappings={"name": ur_type}
+            file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}
         )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",
@@ -176,10 +190,20 @@ def generate_launch_description():
         }
     )
 
-    rviz_config_file = os.path.join(
-        get_package_share_directory("tabletop_moveit_config"),
-        "config",
-        "moveit.rviz",
+    moveit_rviz_config_file = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_moveit_config"),
+            "config",
+            "moveit.rviz",
+        ]
+    )
+
+    ur_rviz_config_file = PathJoinSubstitution(
+        [
+            FindPackageShare("ur_description"),
+            "rviz",
+            "view_robot.rviz",
+        ]
     )
 
     commander_config = load_yaml("tabletop_server", "config/commander.yaml")
@@ -188,10 +212,12 @@ def generate_launch_description():
     ur_robot_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [
-                os.path.join(
-                    get_package_share_directory("ur_robot_driver"),
-                    "launch",
-                    "ur_control.launch.py",
+                PathJoinSubstitution(
+                    [
+                        FindPackageShare("ur_robot_driver"),
+                        "launch",
+                        "ur_control.launch.py",
+                    ]
                 )
             ]
         ),
@@ -202,11 +228,18 @@ def generate_launch_description():
             "use_mock_hardware": use_mock_hardware,
             "controller_spawner_timeout": controller_spawner_timeout,
             "launch_rviz": launch_rviz_ur_driver,
+            "rviz_config_file": ur_rviz_config_file,
             "use_sim_time": use_sim_time,
             "kinematics_params_file": PathJoinSubstitution(
                 [
                     FindPackageShare(kinematics_params_package),
                     kinematics_params_file,
+                ]
+            ),
+            "description_launch_file": PathJoinSubstitution(
+                [
+                    FindPackageShare(description_launch_package),
+                    description_launch_file,
                 ]
             ),
         }.items(),
@@ -219,7 +252,7 @@ def generate_launch_description():
         executable="rviz2",
         name="rviz2_moveit",
         output="log",
-        arguments=["-d", rviz_config_file],
+        arguments=["-d", moveit_rviz_config_file],
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
