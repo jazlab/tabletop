@@ -16,8 +16,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Flic.msg"
   "msg/TeensyControl.msg"
   "msg/TeensySensor.msg"
-  "srv/PlanRequest.srv"
-  DEPENDENCIES geometry_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
+  DEPENDENCIES geometry_msgs
 )
 
 # uncomment the following section in order to fill in

@@ -3,7 +3,7 @@
 <package format="3">
   <name>tabletop_moveit_config</name>
 
-  <version>2.4.13</version>
+  <version>0.0.1</version>
 
   <description>The MoveIt 2 configuration package for the Tabletop project.</description>
 
@@ -11,10 +11,10 @@
 
   <license>BSD-3-Clause</license>
 
-  <author email="wilbrandt@fzi.de">Robert Wilbrandt</author>
-  <author email="denis@stoglrobotics.de">Denis Stogl</author>
-  <author email="lovro.ivanov@gmail.com">Lovro Ivanov</author>
-  <author email="zelenak@picknik.ai">Andy Zelenak</author>
+  <url type="website">http://moveit.ros.org/</url>
+  <url type="bugtracker">https://github.com/moveit/moveit2/issues</url>
+  <url type="repository">https://github.com/moveit/moveit2</url>
+
   <author email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -27,10 +27,9 @@
   <exec_depend>moveit_ros_visualization</exec_depend>
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>moveit_simple_controller_manager</exec_depend>
-  <exec_depend>ur_description</exec_depend>
-  <exec_depend>warehouse_ros_sqlite</exec_depend>
-  <exec_depend>xacro</exec_depend>
   <exec_depend>rmw_cyclonedds_cpp</exec_depend>
+  <exec_depend>tabletop_description</exec_depend>
+  <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

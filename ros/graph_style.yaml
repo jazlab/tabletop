@@ -34,7 +34,6 @@ ignore:
     - /forward_position_controller
     - /forward_velocity_controller
     - /force_mode_controller
-    - /force_torque_sensor_broadcaster
     - /freedrive_mode_controller
     - /joint_trajectory_controller
     - /passthrough_trajectory_controller
