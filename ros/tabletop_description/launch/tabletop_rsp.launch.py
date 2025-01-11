@@ -308,7 +308,7 @@ def generate_launch_description():
                 [
                     FindPackageShare("tabletop_description"),
                     "urdf",
-                    "tabletop.urdf.xacro",
+                    "tabletop_control.urdf.xacro",
                 ]
             ),
             description="URDF/XACRO description file with the robot.",

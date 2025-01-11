@@ -20,6 +20,7 @@ class Commander(Node):
         "ur_installation": "default.installation",
         "timer_sec": 1.0,
         "waypoint_names": [],
+        "pose_link": "eef",
     }
 
     def __init__(self):
@@ -173,7 +174,8 @@ class Commander(Node):
         self.planning_component.set_start_state_to_current_state()
         goal = self.waypoints[self.waypoint_path[self.i]]
         self.planning_component.set_goal_state(
-            pose_stamped_msg=goal, pose_link="tool0"
+            pose_stamped_msg=goal,
+            pose_link=self.get_parameter("pose_link").value,
         )
 
         if multi_plan_parameters is not None:
