@@ -14,7 +14,7 @@ plan_request_params:
   planning_attempts: 10
   planning_pipeline: pilz_industrial_motion_planner
   planner_id: "PTP"
-  max_velocity_scaling_factor: 0.3
+  max_velocity_scaling_factor: 0.5
   max_acceleration_scaling_factor: 0.5
   planning_time: 2.0
 
@@ -29,17 +29,25 @@ ompl_rrtc: # Namespace for individual plan request
 
 pilz_lin:
   plan_request_params:
-    planning_attempts: 1
+    planning_attempts: 10
     planning_pipeline: pilz_industrial_motion_planner
-    planner_id: "PTP"
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-    planning_time: 0.8
+    planner_id: "LIN"
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
+    planning_time: 2.0
 
 chomp_planner:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: chomp
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+    planning_time: 1.5
+
+stomp_planner:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: stomp
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
     planning_time: 1.5

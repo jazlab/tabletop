@@ -82,11 +82,11 @@
   <!-- end effector -->
   <xacro:eef
     tf_prefix="$(arg tf_prefix)"
-    parent="$(arg tf_prefix)tool0"
+    parent="$(arg tf_prefix)flange"
     radius="0.05"
     mass="0.5"
   >
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="0 0 0" rpy="${pi/2.0} 0 ${pi/2.0}" />
   </xacro:eef>
 
   <xacro:ur_ros2_control
