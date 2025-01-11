@@ -4,10 +4,11 @@ services:
   novnc:
     build:
       context: ./novnc
+      pull: true
     ports:
       - 8080:8080
     networks:
-      net:
+      tabletop_net:
         ipv4_address: 192.168.13.12
     restart: on-failure
     healthcheck:
@@ -28,8 +29,8 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-    restart: on-failure
     image: universalrobots/ursim_e-series
+    pull_policy: always
     platform: linux/amd64
     pid: host
     volumes:
@@ -37,7 +38,7 @@ services:
       - ./ursim/programs:/ursim/programs
       - ./ursim/entrypoint.sh:/entrypoint.sh
     networks:
-      net:
+      tabletop_net:
         ipv4_address: 192.168.13.10
     hostname: robot
     environment:
@@ -49,25 +50,29 @@ services:
       novnc:
         condition: service_healthy
     build:
-      context: ./tabletop_server
+      context: ./ros/tabletop_server
+      pull: true
     volumes:
       - ../..:/root/ws
     networks:
-      net:
+      tabletop_net:
         ipv4_address: 192.168.13.11
     
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
-      - LAUNCH_FILE=${LAUNCH_FILE:-server_moveit_py.launch.py}
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-ros2 launch tabletop_server server.launch.py}
+    env_file:
+      - ./env_files/server.env
     command: >
       bash -c 
       "cd /root/ws
       && source /root/ws/src/tabletop/scripts/build.sh
-      && ros2 launch tabletop_server $${LAUNCH_FILE}"
+      && $$LAUNCH_COMMAND"
 
 networks:
-  net:
+  tabletop_net:
+    name: tabletop_net
     attachable: true
     driver: bridge
     ipam:

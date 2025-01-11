@@ -17,3 +17,5 @@
 
 # Ignore bag files
 bags/
+
+tabletop_moveit_config_new/
