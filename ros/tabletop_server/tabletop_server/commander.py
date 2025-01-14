@@ -1,12 +1,14 @@
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from moveit.planning import MoveItPy
+from moveit_msgs.msg import CollisionObject
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
 from rclpy.exceptions import ParameterAlreadyDeclaredException
 from rclpy.node import Node
+from shape_msgs.msg import Plane
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.srv import Load
 
@@ -43,6 +45,11 @@ class Commander(Node):
         self.trajectory_execution_manager = (
             self.moveit_py.get_trajectory_execution_manager()
         )
+        self.planning_scene_monitor = (
+            self.moveit_py.get_planning_scene_monitor()
+        )
+
+        self.setup_planning_scene()
 
         self.waypoint_path = self.get_parameter("waypoint_path").value
         self.waypoints = {}
@@ -88,6 +95,22 @@ class Commander(Node):
             self.state_machine,
             callback_group=self.state_machine_mutex_group,
         )
+
+    def setup_planning_scene(self):
+        with self.planning_scene_monitor.read_write() as scene:
+            collision_object = CollisionObject()
+            collision_object.header.frame_id = "world"
+            collision_object.id = "floor"
+
+            plane = Plane()
+            plane.coef = [0, 0, 1, 0]
+
+            collision_object.planes.append(plane)
+
+            collision_object.operation = CollisionObject.ADD
+
+            scene.apply_collision_object(collision_object)
+            scene.current_state.update()  # Important to ensure the scene is updated
 
     def _declare_parameters(self):
         for param, value in self.default_params.items():
