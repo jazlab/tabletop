@@ -63,18 +63,18 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "robot_ip",
-            default_value="192.168.13.11",
+            default_value="192.168.12.11",
             description="The IP address of the robot",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "description_launch_file",
+            "description_launchfile",
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_description"),
                     "launch",
-                    "tabletop_rsp.launch.py",
+                    "rsp.launch.py",
                 ]
             ),
             description="URDF/XACRO description file (absolute path) with the robot.",
@@ -98,7 +98,7 @@ def generate_launch_description():
     ur_type = LaunchConfiguration("ur_type")
     robot_ip = LaunchConfiguration("robot_ip")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
-    description_launchfile = LaunchConfiguration("description_launch_file")
+    description_launchfile = LaunchConfiguration("description_launchfile")
 
     joint_state_publisher_node = Node(
         package="joint_state_publisher_gui",

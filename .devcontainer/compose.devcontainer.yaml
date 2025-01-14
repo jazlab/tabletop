@@ -11,7 +11,7 @@ services:
     hostname: devcontainer
     networks:
       tabletop_net:
-        ipv4_address: 192.168.13.101
+        ipv4_address: 192.168.12.101
     # environment:
       # - DISPLAY=novnc:0.0
       # - DISPLAY=$DISPLAY
@@ -23,4 +23,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.13.0/24
+        - subnet: 192.168.12.0/24

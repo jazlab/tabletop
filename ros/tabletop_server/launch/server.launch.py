@@ -77,7 +77,7 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "publish_robot_description_semantic",
-                default_value="false",
+                default_value="true",
                 description="MoveGroup publishes robot description semantic",
             ),
             DeclareLaunchArgument(
@@ -92,12 +92,12 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "robot_ip",
-                default_value="192.168.13.10",
+                default_value="192.168.12.10",
                 description="IP address of the robot",
             ),
             DeclareLaunchArgument(
                 "reverse_ip",
-                default_value="192.168.13.11",
+                default_value="192.168.12.11",
                 description="Reverse IP address",
             ),
             DeclareLaunchArgument(
@@ -111,24 +111,26 @@ def declare_arguments():
                 description="Controller spawner timeout",
             ),
             DeclareLaunchArgument(
-                "kinematics_params_package",
-                default_value="tabletop_description",
-                description="Package name for kinematics params",
-            ),
-            DeclareLaunchArgument(
                 "kinematics_params_file",
-                default_value="config/ursim_calibration.yaml",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("tabletop_server"),
+                        "config",
+                        "ursim_calibration.yaml",
+                    ]
+                ),
                 description="Calibration file",
             ),
             DeclareLaunchArgument(
-                "description_launch_package",
-                default_value="tabletop_description",
-                description="Package name for the description launch file",
-            ),
-            DeclareLaunchArgument(
-                "description_launchfile",
-                default_value="launch/tabletop_rsp.launch.py",
-                description="Launch file for the description",
+                "description_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("tabletop_description"),
+                        "urdf",
+                        "tabletop_control.urdf.xacro",
+                    ]
+                ),
+                description="URDF/XACRO description file with the robot.",
             ),
         ]
     )
@@ -149,16 +151,9 @@ def generate_launch_description():
     )
     robot_ip = LaunchConfiguration("robot_ip")
     reverse_ip = LaunchConfiguration("reverse_ip")
-    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
-    kinematics_params_package = LaunchConfiguration(
-        "kinematics_params_package"
-    )
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
-    description_launch_package = LaunchConfiguration(
-        "description_launch_package"
-    )
-    description_launchfile = LaunchConfiguration("description_launchfile")
-
+    description_file = LaunchConfiguration("description_file")
+    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
 
@@ -229,19 +224,9 @@ def generate_launch_description():
             "controller_spawner_timeout": controller_spawner_timeout,
             "launch_rviz": launch_rviz_ur_driver,
             "rviz_config_file": ur_rviz_config_file,
+            "kinematics_params_file": kinematics_params_file,
+            "description_file": description_file,
             "use_sim_time": use_sim_time,
-            "kinematics_params_file": PathJoinSubstitution(
-                [
-                    FindPackageShare(kinematics_params_package),
-                    kinematics_params_file,
-                ]
-            ),
-            "description_launchfile": PathJoinSubstitution(
-                [
-                    FindPackageShare(description_launch_package),
-                    description_launchfile,
-                ]
-            ),
         }.items(),
     )
 
