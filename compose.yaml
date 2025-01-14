@@ -9,7 +9,7 @@ services:
       - 8080:8080
     networks:
       tabletop_net:
-        ipv4_address: 192.168.13.12
+        ipv4_address: 192.168.12.12
     restart: on-failure
     healthcheck:
       test: ["CMD", "/app/healthcheck.sh"]  
@@ -40,7 +40,7 @@ services:
       - ./ursim/entrypoint.sh:/entrypoint.sh
     networks:
       tabletop_net:
-        ipv4_address: 192.168.13.10
+        ipv4_address: 192.168.12.10
     hostname: robot
     environment:
       - DISPLAY=novnc:0.0
@@ -53,18 +53,23 @@ services:
     build:
       context: ./ros/tabletop_server
       pull: true
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     volumes:
       - ../..:/root/ws
     networks:
       tabletop_net:
-        ipv4_address: 192.168.13.11
+        ipv4_address: 192.168.12.11
     
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-ros2 launch tabletop_server server.launch.py}
     env_file:
-      - ./env_files/server.env
+      - ./env_files/server_sim.env
     command: >
       bash -c 
       "cd /root/ws
@@ -78,4 +83,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.13.0/24
+        - subnet: 192.168.12.0/24
