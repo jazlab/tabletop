@@ -29,6 +29,7 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
+    restart: unless-stopped
     image: universalrobots/ursim_e-series
     pull_policy: always
     platform: linux/amd64
