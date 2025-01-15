@@ -1,3 +1,9 @@
+#!/bin/bash
+
+SCRIPT_DIR=$(dirname $(readlink -f $0))
+source $SCRIPT_DIR/env.sh
+
+
 # Default to 4 levels up if not specified
 LEVELS_UP=${1:-3}
 UP_PATH=$(printf '../%.0s' $(seq 1 $LEVELS_UP))

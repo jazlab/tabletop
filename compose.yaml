@@ -46,6 +46,13 @@ services:
       - DISPLAY=novnc:0.0
       - ROBOT_MODEL=ur5e
 
+  robot_x11:
+    extends: robot
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=$DISPLAY
+
   server:
     depends_on:
       novnc:
@@ -59,7 +66,8 @@ services:
       - 50003:50003
       - 50004:50004
     volumes:
-      - ../..:/root/ws
+      - ../..:/root/w
+      # - /tmp/.X11-unix:/tmp/.X11-unixs
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
@@ -67,6 +75,7 @@ services:
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
+      # - DISPLAY=$DISPLAY
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-ros2 launch tabletop_server server.launch.py}
     env_file:
       - ./env_files/server_sim.env
