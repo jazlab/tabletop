@@ -8,7 +8,7 @@ else
     CMAKE_ARGS=("--cmake-args" "-DCMAKE_BUILD_TYPE=Debug")
 fi
 
-pushd $HOME/ws
+pushd $ROOT/ws
 source /opt/ros/jazzy/setup.bash
 rosdep update
 rosdep install --from-paths src -i -y
