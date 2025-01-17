@@ -41,5 +41,5 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 
 CMD ["bash", "-c", "\
-    source /root/ws/src/tabletop/scripts/build.sh \
+    /root/ws/src/tabletop/scripts/build.sh \
     && sleep infinity"]

@@ -73,6 +73,10 @@ def generate_launch_description():
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
 
+    # end effector arguments
+    eef_radius = LaunchConfiguration("eef_radius")
+    eef_mass = LaunchConfiguration("eef_mass")
+
     script_filename = PathJoinSubstitution(
         [
             FindPackageShare("ur_client_library"),
@@ -191,6 +195,11 @@ def generate_launch_description():
             "trajectory_port:=",
             trajectory_port,
             " ",
+            "eef_radius:=",
+            eef_radius,
+            " ",
+            "eef_mass:=",
+            eef_mass,
         ]
     )
     robot_description = {
@@ -308,7 +317,7 @@ def generate_launch_description():
                 [
                     FindPackageShare("tabletop_description"),
                     "urdf",
-                    "tabletop_control.urdf.xacro",
+                    "tabletop.urdf.xacro",
                 ]
             ),
             description="URDF/XACRO description file with the robot.",
@@ -475,6 +484,20 @@ def generate_launch_description():
             "trajectory_port",
             default_value="50003",
             description="Port that will be opened for trajectory control.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "eef_radius",
+            default_value="0.05",
+            description="Radius of the end effector.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "eef_mass",
+            default_value="0.5",
+            description="Mass of the end effector.",
         )
     )
 

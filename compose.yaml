@@ -66,24 +66,29 @@ services:
       - 50003:50003
       - 50004:50004
     volumes:
-      - ../..:/root/w
-      # - /tmp/.X11-unix:/tmp/.X11-unixs
+      - ../..:/root/ws
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
-    
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
-      # - DISPLAY=$DISPLAY
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-ros2 launch tabletop_server server.launch.py}
-    env_file:
-      - ./env_files/server_sim.env
-    command: >
-      bash -c 
-      "cd /root/ws
-      && source /root/ws/src/tabletop/scripts/build.sh
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+    command: bash -c 
+      "source /opt/ros/jazzy/setup.bash
+      && /root/ws/src/tabletop/scripts/build.sh
+      && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
+  
+  server_x11:
+    extends: server
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=$DISPLAY
 
 networks:
   tabletop_net:

@@ -85,7 +85,7 @@ def generate_launch_description():
             "rviz_config_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("ur_description"),
+                    FindPackageShare("tabletop_description"),
                     "rviz",
                     "view_robot.rviz",
                 ]

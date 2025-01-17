@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SCRIPT_DIR=$(dirname $(readlink -f $0))
-source $SCRIPT_DIR/env.sh
+ROOT=$(dirname $(dirname $(readlink -f $0)))
+source $ROOT/env_files/robot.env
 
 if [ $# -eq 0 ]; then
     scp ursim/programs/*.urcap robot:/ursim/programs/

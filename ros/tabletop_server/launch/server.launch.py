@@ -12,7 +12,6 @@ from launch.actions import (
     ExecuteProcess,
     IncludeLaunchDescription,
 )
-from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -38,14 +37,20 @@ def declare_arguments():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "launch_rviz_ur_driver",
+                "launch_rviz",
                 default_value="true",
-                description="Launch RViz for UR Driver?",
+                description="Launch RViz?",
             ),
             DeclareLaunchArgument(
-                "launch_rviz_moveit",
-                default_value="false",
-                description="Launch RViz for MoveIt?",
+                "rviz_config_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("tabletop_description"),
+                        "rviz",
+                        "view_robot.rviz",
+                    ]
+                ),
+                description="RViz config file",
             ),
             DeclareLaunchArgument(
                 "ur_type",
@@ -62,13 +67,6 @@ def declare_arguments():
                     "ur20",
                     "ur30",
                 ],
-            ),
-            DeclareLaunchArgument(
-                "warehouse_sqlite_path",
-                default_value=os.path.expanduser(
-                    "~/.ros/warehouse_ros.sqlite"
-                ),
-                description="Path where the warehouse database should be stored",
             ),
             DeclareLaunchArgument(
                 "use_sim_time",
@@ -122,6 +120,17 @@ def declare_arguments():
                 description="Calibration file",
             ),
             DeclareLaunchArgument(
+                "description_launchfile",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("tabletop_description"),
+                        "launch",
+                        "rsp.launch.py",
+                    ]
+                ),
+                description="URDF/XACRO description file with the robot.",
+            ),
+            DeclareLaunchArgument(
                 "description_file",
                 default_value=PathJoinSubstitution(
                     [
@@ -138,10 +147,9 @@ def declare_arguments():
 
 def generate_launch_description():
     args = declare_arguments()
-    launch_rviz_ur_driver = LaunchConfiguration("launch_rviz_ur_driver")
-    launch_rviz_moveit = LaunchConfiguration("launch_rviz_moveit")
+    launch_rviz = LaunchConfiguration("launch_rviz")
+    rviz_config_file = LaunchConfiguration("rviz_config_file")
     ur_type = LaunchConfiguration("ur_type")
-    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
     use_sim_time = LaunchConfiguration("use_sim_time")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
@@ -152,6 +160,7 @@ def generate_launch_description():
     robot_ip = LaunchConfiguration("robot_ip")
     reverse_ip = LaunchConfiguration("reverse_ip")
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
+    description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
     rosbag_args = LaunchConfiguration("rosbag_args")
@@ -171,35 +180,10 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
+    moveit_py_config = moveit_config.to_dict() | {
+        "use_sim_time": use_sim_time,
+        "publish_robot_description_semantic": publish_robot_description_semantic,
     }
-
-    moveit_py_config = (
-        moveit_config.to_dict()
-        | warehouse_ros_config
-        | {
-            "use_sim_time": use_sim_time,
-            "publish_robot_description_semantic": publish_robot_description_semantic,
-        }
-    )
-
-    moveit_rviz_config_file = PathJoinSubstitution(
-        [
-            FindPackageShare("tabletop_moveit_config"),
-            "config",
-            "moveit.rviz",
-        ]
-    )
-
-    ur_rviz_config_file = PathJoinSubstitution(
-        [
-            FindPackageShare("ur_description"),
-            "rviz",
-            "view_robot.rviz",
-        ]
-    )
 
     commander_config = load_yaml("tabletop_server", "config/commander.yaml")
 
@@ -222,31 +206,13 @@ def generate_launch_description():
             "reverse_ip": reverse_ip,
             "use_mock_hardware": use_mock_hardware,
             "controller_spawner_timeout": controller_spawner_timeout,
-            "launch_rviz": launch_rviz_ur_driver,
-            "rviz_config_file": ur_rviz_config_file,
+            "launch_rviz": launch_rviz,
+            "rviz_config_file": rviz_config_file,
             "kinematics_params_file": kinematics_params_file,
+            "description_launchfile": description_launchfile,
             "description_file": description_file,
             "use_sim_time": use_sim_time,
         }.items(),
-    )
-
-    # MoveIt Rviz
-    rviz = Node(
-        package="rviz2",
-        condition=IfCondition(launch_rviz_moveit),
-        executable="rviz2",
-        name="rviz2_moveit",
-        output="log",
-        arguments=["-d", moveit_rviz_config_file],
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
-            moveit_config.planning_pipelines,
-            moveit_config.joint_limits,
-            warehouse_ros_config,
-            {"use_sim_time": use_sim_time},
-        ],
     )
 
     # Commander
@@ -286,7 +252,6 @@ def generate_launch_description():
             args,
             ur_robot_driver,
             commander,
-            rviz,
             teensy_controller,
             teensy_sensor,
             bag,

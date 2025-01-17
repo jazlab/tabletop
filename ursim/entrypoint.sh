@@ -11,10 +11,10 @@ if [[ ! $1 == "" ]]; then
         LOG_OUTPUT=$1
 fi
 
-file=/tmp/.X1-lock
-if test -f $file; then
-  rm /tmp/.X1-lock
-fi
+# file=/tmp/.X1-lock
+# if test -f $file; then
+#   rm /tmp/.X1-lock
+# fi
 
 # Setup VNC server
 # Xvfb :0 -screen 0 1920x1080x24 &
@@ -23,18 +23,18 @@ fi
 # Copy urcaps into bundle, to be installed properly, when the simulator is started
 cp -r /urcaps/*.jar /ursim/GUI/bundle/ 2>/dev/null
 
-# find path to daemon run file
-runsvdir=$(find /etc/service/ -name "runsvdir*")
-run_file="$runsvdir/run"
+# # find path to daemon run file
+# runsvdir=$(find /etc/service/ -name "runsvdir*")
+# run_file="$runsvdir/run"
 
-# Correct path in run file and make executable
-mkdir -p /home/root/service
-sed -i 's|/ursim/service|/home/root/service|g' $run_file
-chmod +x $run_file
+# # Correct path in run file and make executable
+# mkdir -p /home/root/service
+# sed -i 's|/ursim/service|/home/root/service|g' $run_file
+# chmod +x $run_file
 
-# Run daemon service
-runsv $runsvdir/ &
-rm -r /ursim/service
+# # Run daemon service
+# runsv $runsvdir/ &
+# rm -r /ursim/service
 
 # Create webserver interface for vnc
 # sed -i 's/$(hostname)/localhost/g' /usr/share/novnc/utils/novnc_proxy
