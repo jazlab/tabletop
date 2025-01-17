@@ -79,9 +79,7 @@ def declare_arguments():
             ),
             DeclareLaunchArgument(
                 "warehouse_sqlite_path",
-                default_value=os.path.expanduser(
-                    "~/.ros/warehouse_ros.sqlite"
-                ),
+                default_value="/root/ws/.ros/warehouse_ros.sqlite",
                 description="Path where the warehouse database should be stored",
             ),
             DeclareLaunchArgument(

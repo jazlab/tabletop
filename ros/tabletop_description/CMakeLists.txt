@@ -4,7 +4,7 @@ project(tabletop_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY launch urdf 
+  DIRECTORY launch urdf rviz meshes
   DESTINATION share/${PROJECT_NAME}
 )
 
