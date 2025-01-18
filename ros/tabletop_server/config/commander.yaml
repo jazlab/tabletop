@@ -1,3 +1,5 @@
+pipeline: ["ompl_prm_star", "ompl_rrt_star", "ompl_rrtc"]
+
 waypoint_path:
   - object_area
   - object_grab
@@ -55,7 +57,7 @@ waypoints:
       position:
         x: -0.2
         y: -0.5
-        z: 0.3
+        z: 0.8
       orientation:
         roll: 0.4
         pitch: -0.1
@@ -68,7 +70,7 @@ waypoints:
       position:
         x: 0.2
         y: -0.5
-        z: 0.2
+        z: 0.7
       orientation:
         roll: -0.4
         pitch: 0.1

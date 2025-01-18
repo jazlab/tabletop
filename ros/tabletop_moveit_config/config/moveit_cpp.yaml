@@ -8,40 +8,42 @@ planning_scene_monitor_options:
   wait_for_initial_state_timeout: 10.0
 
 planning_pipelines:
-  pipeline_names: ["ompl", "pilz_industrial_motion_planner", "chomp"]
-
-# plan_request_params:
-#   planning_attempts: 50
-#   planning_pipeline: pilz_industrial_motion_planner
-#   planner_id: "PTP"
-#   max_velocity_scaling_factor: 0.5
-#   max_acceleration_scaling_factor: 0.5
-#   planning_time: 2.0
+  pipeline_names: ["ompl", "chomp", "stomp"]
 
 plan_request_params:
-  planning_attempts: 50
-  planning_pipeline: ompl
-  max_velocity_scaling_factor: 0.5
-  max_acceleration_scaling_factor: 1.0
-  planning_time: 1.0
+  planning_attempts: 10 # Number of attempts the planning pipeline tries to solve a given motion planning problem
+  planning_pipeline: ompl # Name of the pipeline that is being used
+  planner_id: "PersistentPRMstar" # Name of the specific planner to be used by the pipeline
+  max_velocity_scaling_factor: 1.0 # Velocity scaling parameter for the trajectory generation algorithm that is called (if configured) after the path planning
+  max_acceleration_scaling_factor: 1.0 # Acceleration scaling parameter for the trajectory generation algorithm that is called (if configured) after the path planning
+  planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
 
-ompl_rrtc: # Namespace for individual plan request
-  plan_request_params: # PlanRequestParameters similar to the ones that are used by the single pipeline planning of moveit_cpp
-    planning_attempts: 3 # Number of attempts the planning pipeline tries to solve a given motion planning problem
-    planning_pipeline: ompl # Name of the pipeline that is being used
-    planner_id: "RRTConnectkConfigDefault" # Name of the specific planner to be used by the pipeline
-    max_velocity_scaling_factor: 1.0 # Velocity scaling parameter for the trajectory generation algorithm that is called (if configured) after the path planning
-    max_acceleration_scaling_factor: 1.0 # Acceleration scaling parameter for the trajectory generation algorithm that is called (if configured) after the path planning
-    planning_time: 5.0 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
-
-pilz_lin:
+ompl_rrtc:
   plan_request_params:
-    planning_attempts: 10
-    planning_pipeline: pilz_industrial_motion_planner
-    planner_id: "LIN"
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.5
-    planning_time: 2.0
+    planning_attempts: 3
+    planning_pipeline: ompl
+    planner_id: "RRTConnect"
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+    planning_time: 5.0
+
+ompl_rrt_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: "RRTstar"
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+    planning_time: 5.0
+
+ompl_prm_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: "PersistentPRMstar"
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+    planning_time: 5.0
 
 chomp_planner:
   plan_request_params:
@@ -50,10 +52,11 @@ chomp_planner:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
     planning_time: 1.5
-# stomp_planner:
-#   plan_request_params:
-#     planning_attempts: 1
-#     planning_pipeline: stomp
-#     max_velocity_scaling_factor: 1.0
-#     max_acceleration_scaling_factor: 1.0
-#     planning_time: 1.5
+
+stomp_planner:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: stomp
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+    planning_time: 1.5

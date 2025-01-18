@@ -1,6 +1,10 @@
 import rclpy
 from geometry_msgs.msg import PoseStamped
-from moveit.planning import MoveItPy
+from moveit.planning import (
+    MoveItPy,
+    MultiPipelinePlanRequestParameters,
+    PlanRequestParameters,
+)
 from moveit_msgs.msg import CollisionObject
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
@@ -21,8 +25,9 @@ class Commander(Node):
         "ur_program": "external_control.urp",
         "ur_installation": "default.installation",
         "timer_sec": 1.0,
-        "waypoint_names": [],
+        "waypoint_path": [],
         "pose_link": "eef",
+        "planning_pipeline": "default",
     }
 
     def __init__(self):
@@ -97,20 +102,20 @@ class Commander(Node):
         )
 
     def setup_planning_scene(self):
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = "world"
+        collision_object.id = "floor"
+
+        plane = Plane()
+        plane.coef = [0, 0, 1, 0]
+
+        collision_object.planes.append(plane)
+
+        collision_object.operation = CollisionObject.ADD
+
         with self.planning_scene_monitor.read_write() as scene:
-            collision_object = CollisionObject()
-            collision_object.header.frame_id = "world"
-            collision_object.id = "floor"
-
-            plane = Plane()
-            plane.coef = [0, 0, 1, 0]
-
-            collision_object.planes.append(plane)
-
-            collision_object.operation = CollisionObject.ADD
-
             scene.apply_collision_object(collision_object)
-            scene.current_state.update()  # Important to ensure the scene is updated
+            scene.current_state.update()
 
     def _declare_parameters(self):
         for param, value in self.default_params.items():
@@ -189,7 +194,7 @@ class Commander(Node):
             )
         service_client.destroy()
 
-    def plan(self, single_plan_parameters=None, multi_plan_parameters=None):
+    def plan(self):
         self.change_state("PLANNING")
         self.log("Planning trajectory to waypoint %d" % self.i)
         self.log(f"Waypoint: {self.waypoints[self.waypoint_path[self.i]]}")
@@ -201,16 +206,25 @@ class Commander(Node):
             pose_link=self.get_parameter("pose_link").value,
         )
 
-        if multi_plan_parameters is not None:
-            self.plan_result = self.planning_component.plan(
-                multi_plan_parameters=multi_plan_parameters
-            )
-        elif single_plan_parameters is not None:
-            self.plan_result = self.planning_component.plan(
-                single_plan_parameters=single_plan_parameters
-            )
-        else:
+        if self.get_parameter("pipeline").value == "default":
             self.plan_result = self.planning_component.plan()
+        else:
+            try:
+                request_params = PlanRequestParameters(
+                    self.moveit_py,
+                    self.get_parameter("pipeline").value,
+                )
+                self.plan_result = self.planning_component.plan(
+                    single_plan_parameters=request_params
+                )
+            except TypeError:
+                request_params = MultiPipelinePlanRequestParameters(
+                    self.moveit_py,
+                    self.get_parameter("pipeline").value,
+                )
+                self.plan_result = self.planning_component.plan(
+                    multi_plan_parameters=request_params
+                )
 
         self.log("Planning finished!")
         self.change_state("PLANNED")
@@ -231,6 +245,7 @@ class Commander(Node):
 
     def execution_callback(self, response):
         if response.status == "SUCCEEDED":
+            # TODO: Not thread safe, add mutex (execution_callback in separate callback group to state_machine)
             self.change_state("EXECUTED")
             self.log("Execution succeeded!")
             self.i = (self.i + 1) % len(self.waypoint_path)
