@@ -1,4 +1,4 @@
-pipeline: ["ompl_prm_star", "ompl_rrt_star", "ompl_rrtc"]
+pipeline: ["ompl_rrt_star", "ompl_rrtc"]
 
 waypoint_path:
   - object_area
