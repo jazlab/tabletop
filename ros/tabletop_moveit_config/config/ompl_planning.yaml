@@ -149,19 +149,19 @@ planner_configs:
     store_planner_data: 1
     load_planner_data: 0
     planner_data_path: /root/ws/prmstar.graph
-  PersistentPRM: # loads roadmap from disk
+  PersistentLoadingPRM: # loads roadmap from disk
     type: geometric::PRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 1
     planner_data_path: /root/ws/prm.graph
-  PersistentLazyPRMstar: # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
+  PersistentLazyPRMstar: # saves roadmap to disk
     type: geometric::LazyPRMstar
     multi_query_planning_enabled: 1
     store_planner_data: 1
     load_planner_data: 0
     planner_data_path: /root/ws/lazyprmstar.graph
-  PersistentLazyPRM:
+  PersistentLoadingLazyPRM: # loads roadmap from disk
     type: geometric::LazyPRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
@@ -206,9 +206,9 @@ ur_manipulator:
     - SPARS
     - SPARStwo
     - PersistentPRMstar
-    - PersistentPRM
+    - PersistentLoadingPRM
     - PersistentLazyPRMstar
-    - PersistentLazyPRM
+    - PersistentLoadingLazyPRM
     - APS
   projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
   enforce_constrained_state_space: true
