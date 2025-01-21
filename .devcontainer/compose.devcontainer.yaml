@@ -11,18 +11,18 @@ services:
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.101
-        
-  devcontainer_x11:
-    extends: devcontainer
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-    environment:
-      - DISPLAY=$DISPLAY
-    
-  devcontainer_novnc:
-    extends: devcontainer
-    environment:
-      - DISPLAY=novnc:0.0
+
+  # devcontainer_x11:
+  #   extends: devcontainer
+  #   volumes:
+  #     - /tmp/.X11-unix:/tmp/.X11-unix
+  #   environment:
+  #     - DISPLAY=$DISPLAY
+
+  # devcontainer_novnc:
+  #   extends: devcontainer
+  #   environment:
+  #     - DISPLAY=novnc:0.0
 
 networks:
   tabletop_net:

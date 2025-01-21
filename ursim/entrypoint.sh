@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is a modification of the entrypoint script for the 
+# This script is a modification of the entrypoint script for the
 # unversalrobots/ursim_e-series docker image which removes the
 # Xvfb and x11vnc servers, as well as the webserver interface.
 # This allows for the use of a single vnc server across all containers

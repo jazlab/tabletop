@@ -9,7 +9,7 @@ RUN apt-get update \
     ros-jazzy-moveit \
     ros-jazzy-moveit-py \
     ros-jazzy-ros2controlcli \
-    ros-jazzy-cv-bridge \ 
+    ros-jazzy-cv-bridge \
     ros-jazzy-rmw-cyclonedds-cpp \
     gdb \
     iputils-ping \

@@ -12,7 +12,7 @@ services:
         ipv4_address: 192.168.12.12
     restart: on-failure
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]  
+      test: ["CMD", "/app/healthcheck.sh"]
       interval: 10s
       timeout: 2s
       retries: 3
@@ -77,12 +77,12 @@ services:
         ros2 launch tabletop_server server.launch.py
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
-    command: bash -c 
+    command: bash -c
       "source /opt/ros/jazzy/setup.bash
       && /root/ws/src/tabletop/scripts/build.sh
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
-  
+
   server_x11:
     extends: server
     volumes:
