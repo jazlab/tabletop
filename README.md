@@ -34,18 +34,16 @@ framework for controlling the UR5e robot as well as recording and compiling
 sensor and state space data. There were several reasons for choosing to use
 ROS 2 over a bespoke solution, some of which are delineated below:
 * ROS 2 provides a powerful and flexible framework for building complex
-    distributed software systems with many interdependent components.
+    distributed software systems with many interdependent components
 * ROS 2's message-based architecture allows for easy communication between
-    different nodes in the system. This allows for modularity and clear
-    separation of various functionality within the codebase, as well as
-    efficient communication between robot, hardware, and sensor I/O.
-* ROS 2 has built-in recording and playback capabilities via ROS 2 Bag files.
+    different nodes in the system
+* ROS 2 has built-in recording and playback capabilities via ROS 2 Bag files
 * ROS 2 provides many built-in packages for customizing each stage of the robot
-    control pipeline.
+    control pipeline
 * Universal Robots has a robust ROS 2 driver for the UR5e robot, making it
-    easy to integrate with existing ROS 2 pipelines.
+    easy to integrate with existing ROS 2 pipelines
 * ROS 2 has support for real-time kernels, which can be used to ensure that
-    critical tasks are executed in time (e.g., closed-loop motion control).
+    critical tasks are executed in time (e.g., closed-loop motion control)
 
 A bespoke solution would require a significant amount of development time
 and would limit the ability to incorporate new features and functionality,
@@ -69,12 +67,12 @@ support complex scenario planning and feedback control.
 The project runs entirely in [Docker](https://www.docker.com/) containers,
 which provide:
 * OS-agnostic development and deployment environments, making it accessible
-    to users regardless of hardware constraints.
+    to users regardless of hardware constraints
 * An isolated environment for each component of the software stack, each with
-    its own dependencies and configurations already set up.
-* A consistent and reproducible environment for development and deployment.
+    its own dependencies and configurations already set up
+* A consistent and reproducible environment for development and deployment
 * A quick and easy way to run software without having to install and configure
-    dependencies manually.
+    dependencies manually
 
 Developing and deploying on bare metal would require manual dependency
 management and configuration, which can be time-consuming, error-prone, and
@@ -127,44 +125,78 @@ To run the entire software stack using Docker:
 
 1. Make sure Docker is installed on your system and the Docker daemon is
     running.
-    1. For macOS, make sure Rosetta is enabled in Docker settings (see
-        [above](#requirements)).
+
+    For macOS, make sure Rosetta is enabled in Docker settings (see
+    [above](#requirements)).
+
 2. Navigate to the package root directory:
 
     ```bash
     cd ~/ws/src/tabletop
     ```
 
-3. Build and start the Docker containers:
+3. [Optional] Clean up your docker environment and ROS 2 workspace:
+
+    ```bash
+    ./scripts/docker_prune.sh [-a]
+    ./scripts/clean_ws.sh
+    ```
+    **Warning**: The `-a` flag in `docker_prune.sh` will remove all containers,
+    networks, images, and build cache associated with the TableTop project
+    (except the ursim image).
+
+4. Build the Docker containers:
+
+    ```bash
+    docker compose build --pull [--no-cache]
+    ```
+
+    Use `--no-cache` to force a rebuild of the Docker images and install the
+    latest versions of the dependencies.
+
+5. Start the Docker containers:
 
     All at once:
     ```bash
-    docker compose up --build --force-recreate
+    docker compose up [--force-recreate] novnc robot server
     ```
 
     Individually:
     ```bash
-    docker compose up --build --force-recreate novnc
-    docker compose up --build --force-recreate robot
-    docker compose up --build --force-recreate server
+    docker compose up [--force-recreate] novnc
+    docker compose up [--force-recreate] robot
+    docker compose up [--force-recreate] server
     ```
 
-4. Open a web browser and navigate to http://localhost:8080/vnc.html
+    Optionally, you can opt to use your host machine's X server, in which case
+    you need only run:
+    ```bash
+    xhost +
+    docker compose up [--force-recreate] robot_x11 server_x11
+    ```
+
+    **Note**: This has only been tested on Ubuntu 24.04. The compose file
+    may need to be modified for other operating systems.
+
+    Use `--force-recreate` to make sure that the containers are recreated if
+    they already exist (ensures consistent behavior across runs).
+    Alternatively, you can call `docker compose down` before running the above
+    commands to destroy any existing containers.
 
 This will build the Docker images and start the containers. There are 3 primary
 containers:
 - `novnc`: The noVNC container, which exposes a web interface to interact
     with the GUIs in any of the running docker containers. Includes a dynamic
     window manager ([dwm](https://dwm.suckless.org/)) for multiple GUI windows
-    to be displayed at once.
+    to be displayed at once. A list of commonly used keyboard shortcuts can be
+    found [here](https://wiki.gentoo.org/wiki/Dwm#Keys_and_key_functions:~:text=the%20window%20to.-,Default%20shortcuts,-Those%20shortcuts%20are).
 - `server`: The server container for the TableTop project, which
     runs all the local ROS 2 nodes (including the Universal Robots driver nodes,
     the MoveIt nodes, and the TableTop nodes). On startup, the `server`
     container will install any dependencies and build the project. It will then
     run the launch file specified in the `LAUNCH_FILE` environment variable or
-    the default in `compose.yaml` if `LAUNCH_FILE` is not set.
-- `robot`: The container for the Universal Robots simulator, which
-    simulates the real robot's teach pendant UI, as well as the physical and
+    the default in `compose.yaml` if `LAUNCH_FILE` is not set
+- `robot`: The container for the Universal Robots simulator, which simulates the
     safety constraints of the real robot.
 
 Once the containers are started, you can access the web interface at
@@ -186,19 +218,17 @@ To get started:
     down` in the root directory of the project).
 2. Start the docker containers for the `novnc` and `robot` containers, as above.
     - It is currently necessary to do these before the `server` in order to
-      manually enable **Remote Control Mode** for the robot first (follow
-      instructions below).
-3. Enable **Remote Control Mode** for the robot.
-    1. Bring the URSim to the main panel of the window manager, if it is not
-        already there (focus it with your mouse, then type `alt+enter`
-        (`command+enter` on macOS)).
-    2. Click the "hamburger" (menu) icon in the top right corner of the URSim
-        window.
-    3. Click **Settings**.
-    4. Under **System->Remote Control**, click **Enable**.
-    5. Click **Exit** in the lower left corner of the menu.
-    6. Click the **Local** button in the top right corner of the URSim window.
-    7. Select **Remote Control** from the dropdown.
+      give the 'robot' container time to spin up.
+3. [Only if you are connecting to the physical robot] Enable **Remote Control Mode** for the robot.
+    1. On the Teach Pendant (the "tablet" included with the robot), click the "hamburger" (menu) icon in the top right corner of the window.
+    2. Click **Settings**.
+    3. Under **System->Remote Control**, click **Enable**.
+    4. Click **Exit** in the lower left corner of the menu.
+    5. Click the **Local** button in the top right corner of the URSim window.
+    6. Select **Remote Control** from the dropdown.
+
+    *You should not need to do this for the simulator.*
+
 4. Start the `server` container, as above.
     * **Note**: If you are running MacOS, you may need to comment out the
         following lines in the `compose.yaml` file:
@@ -217,29 +247,27 @@ To get started:
 This will power on the simulated robot and initiate communication with the
 ROS 2 driver.
 
-If you are using the `server.launch.py` file, the TableTop `commander` node
-will start the TableTop program and the robot should start moving according
-to the task designation.
-
-If you are using the `moveit.launch.py` file, you should now be able to set
-goal positions using the RViz GUI and send planning and execution requests
-to the MoveGroup.
-
 ### Choosing Launch Command
 
 The default behavior of the `server` container is to source and build the ROS2
 environment (by sourcing `scripts/build.sh`) then launch the `server.launch.py`
-file. To change this default behavior, you can set the LAUNCH_COMMAND
-environment variable to your desired bash command. You can do this by
+file. To change this default behavior, you can set the `LAUNCH_COMMAND`
+environment variable to your desired bash command.  You can do this by
 * Setting the variable from the command line:
     ```bash
-    LAUNCH_COMMAND="ros2 launch tabletop_moveit_config moveit.launch.py" docker compose up --build --force-recreate
+    LAUNCH_COMMAND="ros2 launch tabletop_moveit_config moveit.launch.py" \
+    docker compose up --build --force-recreate
     ```
-* Using an environment file (commonly used such files in `env_files/`):
+* [Preferred] Using an environment file (commonly used such files in
+    `env_files/`):
     ```bash
-    docker compose --env-file env_files/moveit.env up --build --force-recreate
+    docker compose --env-file env_files/sim.env --env-file env_files/launch_moveit.env up ...
     ```
-* Editing the `compose.yaml` file:
+    Note that the order of the environment files matters. Here, the `sim.env`
+    file sets variables that are used by the `launch_moveit.env` file.
+* Editing the `compose.yaml` file (make sure to edit the default value so that
+    you can overwrite `LAUNCH_COMMAND` from the command line later):
+
     ```yaml
     services:
         ...
@@ -275,13 +303,14 @@ the repository's root directory:
 - `tabletop_msgs`: TableTop message definitions
 - `tabletop_moveit_interface`: TableTop MoveIt interface
 - `tabletop_moveit_config`: TableTop MoveIt configurations
+- `tabletop_description`: TableTop URDF description
 - `tabletop_server`: TableTop server nodes and launch files
 - `tabletop_teensy`: TableTop Teensy nodes and launch files
 
 Additional non-ROS 2 packages (also located in the repository's root directory):
 - `novnc`: Context for building and running noVNC Docker container
-- `ursim`: Contains the external control URCAP for the host machine
-    to interface with the robot.
+- `ursim`: Contains the URCAPs and programs for starting the Universal Robots
+    Simulator and interfacing with the simulator or physical robot
 - `scripts`: Utility scripts for setting up the environment (locally and
     in Docker)
 

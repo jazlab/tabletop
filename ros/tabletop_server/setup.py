@@ -38,6 +38,7 @@ setup(
             "teensy_sensor = tabletop_server.teensy_sensor:main",
             "camera = tabletop_server.camera:main",
             "monkey = tabletop_server.monkey:main",
+            "test = tabletop_server.test:main",
         ],
     },
 )

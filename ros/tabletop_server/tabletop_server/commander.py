@@ -1,3 +1,5 @@
+from threading import Lock
+
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from moveit.planning import (
@@ -39,6 +41,7 @@ class Commander(Node):
 
         self.state_machine_mutex_group = MutuallyExclusiveCallbackGroup()
         self.reentrant_group = ReentrantCallbackGroup()
+        self.execution_callback_mutex = Lock()
 
         # Initialize MoveItPy
         self.moveit_py = MoveItPy("moveit_py")
@@ -225,6 +228,10 @@ class Commander(Node):
                 self.plan_result = self.planning_component.plan(
                     multi_plan_parameters=request_params
                 )
+            except Exception as e:
+                self.log(f"Error planning: {e}", level="error")
+                self.change_state("ERROR")
+                return
 
         self.log("Planning finished!")
         self.change_state("PLANNED")
@@ -244,64 +251,54 @@ class Commander(Node):
             self.change_state("READY")
 
     def execution_callback(self, response):
-        if response.status == "SUCCEEDED":
-            # TODO: Not thread safe, add mutex (execution_callback in separate callback group to state_machine)
-            self.change_state("EXECUTED")
-            self.log("Execution succeeded!")
-            self.i = (self.i + 1) % len(self.waypoint_path)
-            self.log("Moving on to waypoint %d" % self.i)
-            self.change_state("READY")
-        else:
-            self.log(
-                f"Execution failed with status {response.status}",
-                level="warn",
-            )
-            self.log("Trying execution again...", level="warn")
-            self.change_state("PLANNED")
+        with self.execution_callback_mutex:
+            if response.status == "SUCCEEDED":
+                self.change_state("EXECUTED")
+                self.log("Execution succeeded!")
+                self.i = (self.i + 1) % len(self.waypoint_path)
+                self.log("Moving on to waypoint %d" % self.i)
+                self.change_state("READY")
+            else:
+                self.log(
+                    f"Execution failed with status {response.status}",
+                    level="warn",
+                )
+                self.log("Trying execution again...", level="warn")
+                self.change_state("PLANNED")
 
     def change_state(self, state):
         self.log(f"Changing state to {state}")
         self.state = state
 
     def state_machine(self):
-        match self.state:
-            case "INITIALIZED":
-                self.start_robot()
-            case "READY":
-                self.plan()
-            case "PLANNED":
-                self.execute()
-            case "EXECUTING":
-                pass
-            case "ERROR":
-                self.log(
-                    "Commander entered ERROR state, restarting...",
-                    level="error",
-                )
-                self.change_state("INITIALIZED")
-            case _:
-                raise ValueError(f"Invalid state: {self.state}")
+        with self.execution_callback_mutex:
+            match self.state:
+                case "INITIALIZED":
+                    self.start_robot()
+                case "READY":
+                    self.plan()
+                case "PLANNED":
+                    self.execute()
+                case "EXECUTING":
+                    pass
+                case "ERROR":
+                    self.log(
+                        "Commander entered ERROR state, restarting...",
+                        level="error",
+                    )
+                    self.change_state("INITIALIZED")
+                case _:
+                    raise ValueError(f"Invalid state: {self.state}")
 
 
 def main(args=None):
     rclpy.init(args=args)
-    # node = Node(
-    #     "commander",
-    #     automatically_declare_parameters_from_overrides=True,
-    # )
-    # params = node.get_parameters_by_prefix("")
-    # node.get_logger().info("type(params): %s" % type(params))
-    # node.get_logger().info("Commander started")
-
-    # for name, param in params.items():
-    #     node.get_logger().info("type(param): %s" % type(param))
-    #     node.get_logger().info(f"{name}: {param.name}: {param.value}")
 
     commander = Commander()
 
     executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(commander)
     executor.spin()
-    # commander = Commander(moveit_py)
+
     commander.destroy_node()
     rclpy.shutdown()

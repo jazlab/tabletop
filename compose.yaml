@@ -78,8 +78,8 @@ services:
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     command: bash -c
-      "source /opt/ros/jazzy/setup.bash
-      && /root/ws/src/tabletop/scripts/build.sh
+      "/root/ws/src/tabletop/scripts/build.sh
+      && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
