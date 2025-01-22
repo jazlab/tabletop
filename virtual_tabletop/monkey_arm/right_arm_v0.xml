@@ -330,124 +330,124 @@
       <site site="flex_carpi_ulnaris-P2"/>
       <site site="flex_carpi_ulnaris-P3"/>
     </spatial>
-    
+
     <spatial name="flex_digit_profundus_tendon">
       <site site="flex_digit_profundus-P1"/>
       <site site="flex_digit_profundus-P2"/>
       <site site="flex_digit_profundus-P3"/>
       <site site="flex_digit_profundus-P4"/>
     </spatial>
-    
+
     <spatial name="flex_digit_superficialis_tendon">
       <site site="flex_digit_superficialis-P1"/>
       <site site="flex_digit_superficialis-P2"/>
       <site site="flex_digit_superficialis-P3"/>
     </spatial>
-    
+
     <spatial name="flex_poll_longus_tendon">
       <site site="flex_poll_longus-P1"/>
       <site site="flex_poll_longus-P2"/>
       <site site="flex_poll_longus-P3"/>
     </spatial>
-    
+
     <spatial name="infraspinatus_tendon">
       <site site="infraspinatus-P1"/>
       <site site="infraspinatus-P2"/>
     </spatial>
-    
+
     <spatial name="lat_dorsi_sup_tendon">
       <site site="lat_dorsi_sup-P1"/>
       <site site="lat_dorsi_sup-P2"/>
       <site site="lat_dorsi_sup-P3"/>
       <site site="lat_dorsi_sup-P4"/>
     </spatial>
-    
+
     <spatial name="lat_dorsi_cen_tendon">
       <site site="lat_dorsi_cen-P1"/>
       <site site="lat_dorsi_cen-P2"/>
       <site site="lat_dorsi_cen-P3"/>
       <site site="lat_dorsi_cen-P4"/>
     </spatial>
-    
+
     <spatial name="lat_dorsi_inf_tendon">
       <site site="lat_dorsi_inf-P1"/>
       <site site="lat_dorsi_inf-P2"/>
       <site site="lat_dorsi_inf-P3"/>
       <site site="lat_dorsi_inf-P4"/>
     </spatial>
-    
+
     <spatial name="palmaris_longus_tendon">
       <site site="palmaris_longus-P1"/>
       <site site="palmaris_longus-P2"/>
       <site site="palmaris_longus-P3"/>
       <site site="palmaris_longus-P4"/>
     </spatial>
-    
+
     <spatial name="pectoralis_sup_tendon">
       <site site="pectoralis_sup-P1"/>
       <site site="pectoralis_sup-P2"/>
       <site site="pectoralis_sup-P3"/>
     </spatial>
-    
+
     <spatial name="pectoralis_inf_tendon">
       <site site="pectoralis_inf-P1"/>
       <site site="pectoralis_inf-P2"/>
       <site site="pectoralis_inf-P3"/>
     </spatial>
-    
+
     <spatial name="pronator_quad_tendon">
       <site site="pronator_quad-P1"/>
       <site site="pronator_quad-P2"/>
     </spatial>
-    
+
     <spatial name="pronator_teres_tendon">
       <site site="pronator_teres-P1"/>
       <site site="pronator_teres-P2"/>
     </spatial>
-    
+
     <spatial name="subscapularis_tendon">
       <site site="subscapularis-P1"/>
       <site site="subscapularis-P2"/>
     </spatial>
-    
+
     <spatial name="supinator_tendon">
       <site site="supinator-P1"/>
       <site site="supinator-P2"/>
     </spatial>
-    
+
     <spatial name="supraspinatus_tendon">
       <site site="supraspinatus-P1"/>
       <site site="supraspinatus-P2"/>
       <site site="supraspinatus-P3"/>
     </spatial>
-    
+
     <spatial name="teres_major_tendon">
       <site site="teres_major-P1"/>
       <site site="teres_major-P2"/>
       <site site="teres_major-P3"/>
     </spatial>
-    
+
     <spatial name="teres_minor_tendon">
       <site site="teres_minor-P1"/>
       <site site="teres_minor-P2"/>
       <site site="teres_minor-P3"/>
       <site site="teres_minor-P4"/>
     </spatial>
-    
+
     <spatial name="tricep_lat_tendon">
       <site site="tricep_lat-P1"/>
       <site site="tricep_lat-P2"/>
       <site site="tricep_lat-P3"/>
       <site site="tricep_lat-P4"/>
     </spatial>
-    
+
     <spatial name="tricep_lon_tendon">
       <site site="tricep_lon-P1"/>
       <site site="tricep_lon-P2"/>
       <site site="tricep_lon-P3"/>
       <site site="tricep_lon-P4"/>
     </spatial>
-    
+
     <spatial name="tricep_sho_tendon">
       <site site="tricep_sho-P1"/>
       <site site="tricep_sho-P2"/>
