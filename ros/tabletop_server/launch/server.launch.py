@@ -23,14 +23,8 @@ def load_yaml(package_name, file_path):
     package_path = get_package_share_directory(package_name)
     absolute_file_path = os.path.join(package_path, file_path)
 
-    try:
-        with open(absolute_file_path) as file:
-            return yaml.safe_load(file)
-    except (
-        OSError
-    ) as e:  # parent of IOError, OSError *and* WindowsError where available
-        print(f"Failed to load YAML file {absolute_file_path}: {e}")
-        return None
+    with open(absolute_file_path) as file:
+        return yaml.safe_load(file)
 
 
 def declare_arguments():
@@ -230,6 +224,7 @@ def generate_launch_description():
         name="teensy_controller",
         package="tabletop_server",
         executable="teensy_controller",
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # Teensy Sensor
@@ -238,6 +233,7 @@ def generate_launch_description():
         name="teensy_sensor",
         package="tabletop_server",
         executable="teensy_sensor",
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # Bag
