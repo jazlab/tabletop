@@ -43,6 +43,8 @@ class Commander(Node):
         self.reentrant_group = ReentrantCallbackGroup()
         self.execution_callback_mutex = Lock()
 
+        self.start_robot()
+
         # Initialize MoveItPy
         self.moveit_py = MoveItPy("moveit_py")
 
@@ -209,6 +211,7 @@ class Commander(Node):
             pose_link=self.get_parameter("pose_link").value,
         )
 
+        # TODO: Figure out a way to make planning asynchronous
         if self.get_parameter("pipeline").value == "default":
             self.plan_result = self.planning_component.plan()
         else:
