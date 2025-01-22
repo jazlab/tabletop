@@ -1,5 +1,6 @@
 # Ignore caches
 **__pycache__/
+**.ruff_cache/
 **.DS_Store
 
 # Ignore logs
@@ -14,6 +15,3 @@
 
 # Ignore vscode files
 .vscode/
-
-# Ignore bag files
-bags/

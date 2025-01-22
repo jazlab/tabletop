@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:macro name="scene"
+    params="
+    tf_prefix
+    parent
+    *origin
+    ">
+
+    <link name="${tf_prefix}scene">
+      <visual>
+        <geometry>
+          <mesh filename="package://tabletop_description/meshes/scene.dae" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="package://tabletop_description/meshes/scene.dae" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </collision>
+    </link>
+
+    <joint name="${parent}-scene" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}" />
+      <child link="${tf_prefix}scene" />
+    </joint>
+
+  </xacro:macro>
+
+</robot>

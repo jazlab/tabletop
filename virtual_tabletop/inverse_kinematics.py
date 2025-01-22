@@ -17,29 +17,33 @@
 
 import collections
 
-from absl import logging
 import mujoco
 import numpy as np
+from absl import logging
 
 _REQUIRE_TARGET_POS_OR_QUAT = (
-    'At least one of `target_pos` or `target_quat` must be specified.')
+    "At least one of `target_pos` or `target_quat` must be specified."
+)
 
 IKResult = collections.namedtuple(
-    'IKResult', ['qpos', 'err_norm', 'steps', 'success'])
+    "IKResult", ["qpos", "err_norm", "steps", "success"]
+)
 
 
-def qpos_from_site_pose(model,
-                        data,
-                        site_name,
-                        target_pos=None,
-                        target_quat=None,
-                        tol=1e-14,
-                        rot_weight=1.0,
-                        regularization_threshold=0.1,
-                        regularization_strength=3e-2,
-                        max_update_norm=2.0,
-                        progress_thresh=20.0,
-                        max_steps=100):
+def qpos_from_site_pose(
+    model,
+    data,
+    site_name,
+    target_pos=None,
+    target_quat=None,
+    tol=1e-14,
+    rot_weight=1.0,
+    regularization_threshold=0.1,
+    regularization_strength=3e-2,
+    max_update_norm=2.0,
+    progress_thresh=20.0,
+    max_steps=100,
+):
     """Find joint positions that satisfy a target site position and/or rotation.
 
     Args:
@@ -130,7 +134,6 @@ def qpos_from_site_pose(model,
     success = False
 
     for steps in range(max_steps):
-
         err_norm = 0.0
 
         if target_pos is not None:
@@ -146,7 +149,7 @@ def qpos_from_site_pose(model,
             err_norm += np.linalg.norm(err_rot) * rot_weight
 
         if err_norm < tol:
-            print('Converged after %i steps: err_norm=%3g', steps, err_norm)
+            print("Converged after %i steps: err_norm=%3g", steps, err_norm)
             success = True
             break
         else:
@@ -156,19 +159,26 @@ def qpos_from_site_pose(model,
 
             # TODO(b/112141592): This does not take joint limits into consideration.
             reg_strength = (
-                regularization_strength if err_norm > regularization_threshold
-                else 0.0)
+                regularization_strength
+                if err_norm > regularization_threshold
+                else 0.0
+            )
             update_joints = nullspace_method(
-                jac_joints, err, regularization_strength=reg_strength)
+                jac_joints, err, regularization_strength=reg_strength
+            )
 
             update_norm = np.linalg.norm(update_joints)
 
             # Check whether we are still making enough progress, and halt if not.
             progress_criterion = err_norm / update_norm
             if progress_criterion > progress_thresh:
-                print('Step %2i: err_norm / update_norm (%3g) > '
-                            'tolerance (%3g). Halting due to insufficient progress',
-                            steps, progress_criterion, progress_thresh)
+                print(
+                    "Step %2i: err_norm / update_norm (%3g) > "
+                    "tolerance (%3g). Halting due to insufficient progress",
+                    steps,
+                    progress_criterion,
+                    progress_thresh,
+                )
                 break
 
             if update_norm > max_update_norm:
@@ -185,8 +195,9 @@ def qpos_from_site_pose(model,
             mujoco.mj_fwdPosition(model, data)
 
     if not success and steps == max_steps - 1:
-        logging.warning('Failed to converge after %i steps: err_norm=%3g',
-                        steps, err_norm)
+        logging.warning(
+            "Failed to converge after %i steps: err_norm=%3g", steps, err_norm
+        )
 
     # If we're modifying data in place then it's fine to return a view.
     qpos = data.qpos

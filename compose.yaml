@@ -4,14 +4,15 @@ services:
   novnc:
     build:
       context: ./novnc
+      pull: true
     ports:
       - 8080:8080
     networks:
-      net:
-        ipv4_address: 192.168.13.12
+      tabletop_net:
+        ipv4_address: 192.168.12.12
     restart: on-failure
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]  
+      test: ["CMD", "/app/healthcheck.sh"]
       interval: 10s
       timeout: 2s
       retries: 3
@@ -28,7 +29,9 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
+    restart: unless-stopped
     image: universalrobots/ursim_e-series
+    pull_policy: always
     platform: linux/amd64
     pid: host
     volumes:
@@ -36,39 +39,62 @@ services:
       - ./ursim/programs:/ursim/programs
       - ./ursim/entrypoint.sh:/entrypoint.sh
     networks:
-      net:
-        ipv4_address: 192.168.13.10
+      tabletop_net:
+        ipv4_address: 192.168.12.10
     hostname: robot
     environment:
       - DISPLAY=novnc:0.0
       - ROBOT_MODEL=ur5e
+
+  robot_x11:
+    extends: robot
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=$DISPLAY
 
   server:
     depends_on:
       novnc:
         condition: service_healthy
     build:
-      context: ./tabletop_server
+      context: ./ros/tabletop_server
+      pull: true
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     volumes:
       - ../..:/root/ws
     networks:
-      net:
-        ipv4_address: 192.168.13.11
-    
+      tabletop_net:
+        ipv4_address: 192.168.12.11
     hostname: server
     environment:
       - DISPLAY=novnc:0.0
-      - LAUNCH_FILE=${LAUNCH_FILE:-server.launch.py}
-    command: >
-      bash -c 
-      "cd /root/ws
-      && source /root/ws/src/tabletop/scripts/build.sh
-      && ros2 launch tabletop_server $${LAUNCH_FILE}"
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+    command: bash -c
+      "/root/ws/src/tabletop/scripts/build.sh
+      && source /opt/ros/jazzy/setup.bash
+      && source /root/ws/install/setup.bash
+      && $$LAUNCH_COMMAND"
+
+  server_x11:
+    extends: server
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - DISPLAY=$DISPLAY
 
 networks:
-  net:
+  tabletop_net:
+    name: tabletop_net
     attachable: true
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.13.0/24
+        - subnet: 192.168.12.0/24
