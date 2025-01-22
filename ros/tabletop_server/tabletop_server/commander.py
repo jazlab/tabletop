@@ -32,7 +32,7 @@ class Commander(Node):
         "planning_pipeline": "default",
     }
 
-    def __init__(self):
+    def __init__(self, executor):
         super().__init__(
             "commander",
             automatically_declare_parameters_from_overrides=True,
@@ -41,9 +41,8 @@ class Commander(Node):
 
         self.state_machine_mutex_group = MutuallyExclusiveCallbackGroup()
         self.reentrant_group = ReentrantCallbackGroup()
-        self.execution_callback_mutex = Lock()
-
-        self.start_robot()
+        self._executor = executor
+        self._mutex = Lock()
 
         # Initialize MoveItPy
         self.moveit_py = MoveItPy("moveit_py")
@@ -199,7 +198,7 @@ class Commander(Node):
             )
         service_client.destroy()
 
-    def plan(self):
+    async def plan_async(self):
         self.change_state("PLANNING")
         self.log("Planning trajectory to waypoint %d" % self.i)
         self.log(f"Waypoint: {self.waypoints[self.waypoint_path[self.i]]}")
@@ -211,16 +210,15 @@ class Commander(Node):
             pose_link=self.get_parameter("pose_link").value,
         )
 
-        # TODO: Figure out a way to make planning asynchronous
         if self.get_parameter("pipeline").value == "default":
-            self.plan_result = self.planning_component.plan()
+            return self.planning_component.plan()
         else:
             try:
                 request_params = PlanRequestParameters(
                     self.moveit_py,
                     self.get_parameter("pipeline").value,
                 )
-                self.plan_result = self.planning_component.plan(
+                return self.planning_component.plan(
                     single_plan_parameters=request_params
                 )
             except TypeError:
@@ -228,16 +226,19 @@ class Commander(Node):
                     self.moveit_py,
                     self.get_parameter("pipeline").value,
                 )
-                self.plan_result = self.planning_component.plan(
+                return self.planning_component.plan(
                     multi_plan_parameters=request_params
                 )
-            except Exception as e:
-                self.log(f"Error planning: {e}", level="error")
-                self.change_state("ERROR")
-                return
 
-        self.log("Planning finished!")
-        self.change_state("PLANNED")
+    def plan_callback(self, task):
+        with self._mutex:
+            self.plan_result = task.result()
+            self.log("Planning finished!")
+            self.change_state("PLANNED")
+
+    def plan(self):
+        self._plan_task = self._executor.create_task(self.plan_async())
+        self._plan_task.add_done_callback(self.plan_callback)
 
     def execute(self):
         if self.plan_result:
@@ -254,7 +255,7 @@ class Commander(Node):
             self.change_state("READY")
 
     def execution_callback(self, response):
-        with self.execution_callback_mutex:
+        with self._mutex:
             if response.status == "SUCCEEDED":
                 self.change_state("EXECUTED")
                 self.log("Execution succeeded!")
@@ -274,12 +275,14 @@ class Commander(Node):
         self.state = state
 
     def state_machine(self):
-        with self.execution_callback_mutex:
+        with self._mutex:
             match self.state:
                 case "INITIALIZED":
                     self.start_robot()
                 case "READY":
                     self.plan()
+                case "PLANNING":
+                    pass
                 case "PLANNED":
                     self.execute()
                 case "EXECUTING":
@@ -296,10 +299,10 @@ class Commander(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
-    commander = Commander()
-
     executor = rclpy.executors.MultiThreadedExecutor()
+
+    commander = Commander(executor)
+
     executor.add_node(commander)
     executor.spin()
 
