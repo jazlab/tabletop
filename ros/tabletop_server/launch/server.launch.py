@@ -18,6 +18,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
+from tabletop_server.utils import string_to_bool
 
 
 def load_yaml(package_name, file_path):
@@ -28,9 +29,19 @@ def load_yaml(package_name, file_path):
         return yaml.safe_load(file)
 
 
+def save_yaml(file_path, data):
+    with open(file_path, "w") as file:
+        yaml.dump(data, file, default_flow_style=True, sort_keys=False)
+
+
 def declare_arguments():
     return [
         # Common
+        DeclareLaunchArgument(
+            "tmp_dir",
+            default_value="/tmp",
+            description="Temporary directory for saving configs as yaml files",
+        ),
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
@@ -150,7 +161,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "waypoints_path",
-            default_value="none",
+            default_value="object_area,monkey_area_1",
             description="List of waypoint names in order of execution",
         ),
         # MoveIt
@@ -187,6 +198,7 @@ def declare_arguments():
 
 def launch_setup(context):
     # Common
+    tmp_dir = LaunchConfiguration("tmp_dir")
     use_sim_time = LaunchConfiguration("use_sim_time")
     ur_type = LaunchConfiguration("ur_type")
 
@@ -236,14 +248,10 @@ def launch_setup(context):
             file_path="config/moveit_cpp.yaml",
         )
         .to_moveit_configs()
+        .to_dict()
     )
 
-    moveit_py_config = moveit_config.to_dict() | {
-        "use_sim_time": use_sim_time,
-        "publish_robot_description_semantic": publish_robot_description_semantic,
-    }
-
-    commander_config = PathJoinSubstitution(
+    commander_yaml = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_server"),
             "config",
@@ -254,7 +262,6 @@ def launch_setup(context):
     commander_overrides = {
         name: value
         for name, value in {
-            "debug": debug.perform(context),
             "dashboard.installation": dashboard_installation.perform(context),
             "dashboard.program": dashboard_program.perform(context),
             "planning.group_name": planning_group_name.perform(context),
@@ -264,6 +271,14 @@ def launch_setup(context):
         }.items()
         if value not in ["none", ["none"]]
     }
+    commander_overrides = {
+        "/commander": {"ros__parameters": commander_overrides}
+    }
+
+    commander_overrides_yaml = (
+        f"{tmp_dir.perform(context)}/commander_overrides.yaml"
+    )
+    save_yaml(commander_overrides_yaml, commander_overrides)
 
     # UR Robot Driver
     ur_robot_driver = IncludeLaunchDescription(
@@ -298,12 +313,22 @@ def launch_setup(context):
         package="tabletop_server",
         executable="commander",
         output="both",
-        parameters=[commander_config, moveit_py_config, commander_overrides],
+        parameters=[
+            moveit_config,
+            commander_yaml,
+            commander_overrides_yaml,
+            {
+                "publish_robot_description_semantic": publish_robot_description_semantic,
+                "use_sim_time": use_sim_time,
+            },
+        ],
         ros_arguments=[
             "--log-level",
             log_level,
         ],
-        prefix=["gdbserver :3000"] if debug.perform(context) == "true" else [],
+        prefix=["gdbserver :3000"]
+        if string_to_bool(debug.perform(context))
+        else [],
     )
 
     # Teensy Controller
