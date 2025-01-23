@@ -1,6 +1,19 @@
 import math
 
-from geometry_msgs.msg import Quaternion
+from geometry_msgs.msg import Pose, PoseStamped, Quaternion
+from rclpy.node import Node
+
+
+class ServiceCallTimeoutError(Exception):
+    """Custom exception for service call timeout."""
+
+    pass
+
+
+class ServiceWaitTimeoutError(Exception):
+    """Custom exception for wait_for_service timeout."""
+
+    pass
 
 
 def quaternion_from_euler(roll, pitch, yaw):
@@ -21,3 +34,21 @@ def quaternion_from_euler(roll, pitch, yaw):
     q.z = cr * cp * sy - sr * sp * cy
 
     return q
+
+
+def pose_stamped_from_params(node: Node, prefix: str):
+    pose_stamped = PoseStamped()
+    pose_stamped.header.frame_id = node.get_parameter(
+        f"{prefix}.header.frame_id"
+    ).value
+    pose = Pose()
+    pose.position.x = node.get_parameter(f"{prefix}.pose.position.x").value
+    pose.position.y = node.get_parameter(f"{prefix}.pose.position.y").value
+    pose.position.z = node.get_parameter(f"{prefix}.pose.position.z").value
+    pose.orientation = quaternion_from_euler(
+        node.get_parameter(f"{prefix}.pose.orientation.roll").value,
+        node.get_parameter(f"{prefix}.pose.orientation.pitch").value,
+        node.get_parameter(f"{prefix}.pose.orientation.yaw").value,
+    )
+    pose_stamped.pose = pose
+    return pose_stamped

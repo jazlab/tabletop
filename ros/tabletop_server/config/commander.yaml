@@ -1,77 +1,94 @@
-pipeline: ["ompl_rrt_star", "ompl_rrtc"]
+/commander:
+  ros__parameters:
+    state_machine_period: 0.25
+    max_plan_attempts: 5
+    max_execution_attempts: 3
+    max_reset_attempts: 3
 
-waypoint_path:
-  - object_area
-  - object_grab
-  - object_area
-  - monkey_area_1
-  - monkey_area_2
-  - object_area
-  - object_grab
-  - object_area
+    dashboard:
+      installation: default.installation
+      program: external_control.urp
+      connect_timeout: 5.0
+      default_wait_timeout: 5.0
+      default_call_timeout: 2.0
 
-waypoints:
-  init:
-    header:
-      frame_id: world
-    pose:
-      position:
-        x: 0.1
-        y: 0.1
-        z: 0.8
-      orientation:
-        roll: 0.0
-        pitch: 0.0
-        yaw: 1.5707
+    planning:
+      group_name: ur_manipulator
+      pose_link: eef
+      pipeline: ["ompl_rrt_star", "ompl_rrtc"]
 
-  object_area:
-    header:
-      frame_id: world
-    pose:
-      position:
-        x: 0.3
-        y: 0.6
-        z: 0.6
-      orientation:
-        roll: 0.0
-        pitch: 0.0
-        yaw: 1.5707
+    waypoints:
+      path:
+        - object_area
+        - object_grab
+        - object_area
+        - monkey_area_1
+        - monkey_area_2
+        - object_area
+        - object_grab
+        - object_area
+      poses_stamped:
+        init:
+          header:
+            frame_id: world
+          pose:
+            position:
+              x: 0.1
+              y: 0.1
+              z: 0.8
+            orientation:
+              roll: 0.0
+              pitch: 0.0
+              yaw: 1.5707
 
-  object_grab:
-    header:
-      frame_id: world
-    pose:
-      position:
-        x: 0.3
-        y: 0.65
-        z: 0.6
-      orientation:
-        roll: 0.0
-        pitch: 0.0
-        yaw: 1.5707
+        object_area:
+          header:
+            frame_id: world
+          pose:
+            position:
+              x: 0.3
+              y: 0.6
+              z: 0.6
+            orientation:
+              roll: 0.0
+              pitch: 0.0
+              yaw: 1.5707
 
-  monkey_area_1:
-    header:
-      frame_id: world
-    pose:
-      position:
-        x: -0.2
-        y: -0.5
-        z: 0.8
-      orientation:
-        roll: 0.4
-        pitch: -0.1
-        yaw: -1.5707
+        object_grab:
+          header:
+            frame_id: world
+          pose:
+            position:
+              x: 0.3
+              y: 0.65
+              z: 0.6
+            orientation:
+              roll: 0.0
+              pitch: 0.0
+              yaw: 1.5707
 
-  monkey_area_2:
-    header:
-      frame_id: world
-    pose:
-      position:
-        x: 0.2
-        y: -0.5
-        z: 0.7
-      orientation:
-        roll: -0.4
-        pitch: 0.1
-        yaw: -1.5707
+        monkey_area_1:
+          header:
+            frame_id: world
+          pose:
+            position:
+              x: -0.2
+              y: -0.5
+              z: 0.8
+            orientation:
+              roll: 0.4
+              pitch: -0.1
+              yaw: -1.5707
+
+        monkey_area_2:
+          header:
+            frame_id: world
+          pose:
+            position:
+              x: 0.2
+              y: -0.5
+              z: 0.7
+            orientation:
+              roll: -0.4
+              pitch: 0.1
+              yaw: -1.5707
