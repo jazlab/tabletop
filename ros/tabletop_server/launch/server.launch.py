@@ -11,6 +11,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -28,126 +29,170 @@ def load_yaml(package_name, file_path):
 
 
 def declare_arguments():
-    return LaunchDescription(
-        [
-            DeclareLaunchArgument(
-                "launch_rviz",
-                default_value="true",
-                description="Launch RViz?",
+    return [
+        # Common
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            description="Using or not time from simulation",
+        ),
+        DeclareLaunchArgument(
+            "ur_type",
+            default_value="ur5e",
+            description="Type/series of used UR robot.",
+            choices=[
+                "ur3",
+                "ur3e",
+                "ur5",
+                "ur5e",
+                "ur10",
+                "ur10e",
+                "ur16e",
+                "ur20",
+                "ur30",
+            ],
+        ),
+        # UR Robot Driver
+        DeclareLaunchArgument(
+            "launch_rviz",
+            default_value="true",
+            description="Launch RViz?",
+        ),
+        DeclareLaunchArgument(
+            "rviz_config_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_description"),
+                    "rviz",
+                    "view_robot.rviz",
+                ]
             ),
-            DeclareLaunchArgument(
-                "rviz_config_file",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_description"),
-                        "rviz",
-                        "view_robot.rviz",
-                    ]
-                ),
-                description="RViz config file",
+            description="RViz config file",
+        ),
+        DeclareLaunchArgument(
+            "robot_ip",
+            default_value="192.168.12.10",
+            description="IP address of the robot",
+        ),
+        DeclareLaunchArgument(
+            "reverse_ip",
+            default_value="192.168.12.11",
+            description="Reverse IP address",
+        ),
+        DeclareLaunchArgument(
+            "use_mock_hardware",
+            default_value="false",
+            description="Use mock hardware",
+        ),
+        DeclareLaunchArgument(
+            "controller_spawner_timeout",
+            default_value="120",
+            description="Controller spawner timeout",
+        ),
+        DeclareLaunchArgument(
+            "kinematics_params_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_server"),
+                    "config",
+                    "ursim_calibration.yaml",
+                ]
             ),
-            DeclareLaunchArgument(
-                "ur_type",
-                default_value="ur5e",
-                description="Type/series of used UR robot.",
-                choices=[
-                    "ur3",
-                    "ur3e",
-                    "ur5",
-                    "ur5e",
-                    "ur10",
-                    "ur10e",
-                    "ur16e",
-                    "ur20",
-                    "ur30",
-                ],
+            description="Calibration file",
+        ),
+        DeclareLaunchArgument(
+            "description_launchfile",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_description"),
+                    "launch",
+                    "rsp.launch.py",
+                ]
             ),
-            DeclareLaunchArgument(
-                "use_sim_time",
-                default_value="false",
-                description="Using or not time from simulation",
+            description="URDF/XACRO description file with the robot.",
+        ),
+        DeclareLaunchArgument(
+            "description_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_description"),
+                    "urdf",
+                    "tabletop_control.urdf.xacro",
+                ]
             ),
-            DeclareLaunchArgument(
-                "publish_robot_description_semantic",
-                default_value="true",
-                description="MoveGroup publishes robot description semantic",
-            ),
-            DeclareLaunchArgument(
-                "rosbag_args",
-                default_value="--all",
-                description="'ros2 bag' command line args",
-            ),
-            DeclareLaunchArgument(
-                "rosbag_dir",
-                default_value="/root/ws/bags",
-                description="Base directory to save rosbags",
-            ),
-            DeclareLaunchArgument(
-                "robot_ip",
-                default_value="192.168.12.10",
-                description="IP address of the robot",
-            ),
-            DeclareLaunchArgument(
-                "reverse_ip",
-                default_value="192.168.12.11",
-                description="Reverse IP address",
-            ),
-            DeclareLaunchArgument(
-                "use_mock_hardware",
-                default_value="false",
-                description="Use mock hardware",
-            ),
-            DeclareLaunchArgument(
-                "controller_spawner_timeout",
-                default_value="120",
-                description="Controller spawner timeout",
-            ),
-            DeclareLaunchArgument(
-                "kinematics_params_file",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_server"),
-                        "config",
-                        "ursim_calibration.yaml",
-                    ]
-                ),
-                description="Calibration file",
-            ),
-            DeclareLaunchArgument(
-                "description_launchfile",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_description"),
-                        "launch",
-                        "rsp.launch.py",
-                    ]
-                ),
-                description="URDF/XACRO description file with the robot.",
-            ),
-            DeclareLaunchArgument(
-                "description_file",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_description"),
-                        "urdf",
-                        "tabletop_control.urdf.xacro",
-                    ]
-                ),
-                description="URDF/XACRO description file with the robot.",
-            ),
-        ]
-    )
+            description="URDF/XACRO description file with the robot.",
+        ),
+        # Commander overrides
+        DeclareLaunchArgument(
+            "planning_group_name",
+            default_value="none",
+            description="MoveIt group name",
+        ),
+        DeclareLaunchArgument(
+            "planning_pose_link",
+            default_value="none",
+            description="Pose link",
+        ),
+        DeclareLaunchArgument(
+            "planning_pipeline",
+            default_value="none",
+            description="Planning pipeline",
+        ),
+        DeclareLaunchArgument(
+            "dashboard_program",
+            default_value="none",
+            description="UR program name",
+        ),
+        DeclareLaunchArgument(
+            "dashboard_installation",
+            default_value="none",
+            description="UR installation name",
+        ),
+        DeclareLaunchArgument(
+            "waypoints_path",
+            default_value="none",
+            description="List of waypoint names in order of execution",
+        ),
+        # MoveIt
+        DeclareLaunchArgument(
+            "publish_robot_description_semantic",
+            default_value="true",
+            description="MoveGroup publishes robot description semantic",
+        ),
+        # Bag
+        DeclareLaunchArgument(
+            "rosbag_args",
+            default_value="--all",
+            description="'ros2 bag' command line args",
+        ),
+        DeclareLaunchArgument(
+            "rosbag_dir",
+            default_value="/root/ws/bags",
+            description="Base directory to save rosbags",
+        ),
+        # Debug
+        DeclareLaunchArgument(
+            "debug",
+            default_value="false",
+            description="Debug mode",
+        ),
+        DeclareLaunchArgument(
+            "log_level",
+            default_value="INFO",
+            description="Log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+    ]
 
 
-def generate_launch_description():
-    args = declare_arguments()
+def launch_setup(context):
+    # Common
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    ur_type = LaunchConfiguration("ur_type")
+
+    # UR Robot Driver
     launch_rviz = LaunchConfiguration("launch_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
-    ur_type = LaunchConfiguration("ur_type")
-    use_sim_time = LaunchConfiguration("use_sim_time")
-    publish_robot_description_semantic = LaunchConfiguration(
-        "publish_robot_description_semantic"
-    )
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
@@ -157,8 +202,27 @@ def generate_launch_description():
     description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
     use_mock_hardware = LaunchConfiguration("use_mock_hardware")
+
+    # Commander
+    planning_group_name = LaunchConfiguration("planning_group_name")
+    planning_pose_link = LaunchConfiguration("planning_pose_link")
+    planning_pipeline = LaunchConfiguration("planning_pipeline")
+    dashboard_program = LaunchConfiguration("dashboard_program")
+    dashboard_installation = LaunchConfiguration("dashboard_installation")
+    waypoints_path = LaunchConfiguration("waypoints_path")
+
+    # MoveIt
+    publish_robot_description_semantic = LaunchConfiguration(
+        "publish_robot_description_semantic"
+    )
+
+    # Bag
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
+
+    # Debug
+    debug = LaunchConfiguration("debug")
+    log_level = LaunchConfiguration("log_level")
 
     # Load configs
     moveit_config = (
@@ -179,7 +243,27 @@ def generate_launch_description():
         "publish_robot_description_semantic": publish_robot_description_semantic,
     }
 
-    commander_config = load_yaml("tabletop_server", "config/commander.yaml")
+    commander_config = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_server"),
+            "config",
+            "commander.yaml",
+        ]
+    )
+
+    commander_overrides = {
+        name: value
+        for name, value in {
+            "debug": debug.perform(context),
+            "dashboard.installation": dashboard_installation.perform(context),
+            "dashboard.program": dashboard_program.perform(context),
+            "planning.group_name": planning_group_name.perform(context),
+            "planning.pose_link": planning_pose_link.perform(context),
+            "planning.pipeline": planning_pipeline.perform(context).split(","),
+            "waypoints.path": waypoints_path.perform(context).split(","),
+        }.items()
+        if value not in ["none", ["none"]]
+    }
 
     # UR Robot Driver
     ur_robot_driver = IncludeLaunchDescription(
@@ -214,8 +298,12 @@ def generate_launch_description():
         package="tabletop_server",
         executable="commander",
         output="both",
-        parameters=[moveit_py_config, commander_config],
-        # prefix=["gdbserver :3000"],
+        parameters=[commander_config, moveit_py_config, commander_overrides],
+        ros_arguments=[
+            "--log-level",
+            log_level,
+        ],
+        prefix=["gdbserver :3000"] if debug.perform(context) == "true" else [],
     )
 
     # Teensy Controller
@@ -243,15 +331,13 @@ def generate_launch_description():
         output="screen",
     )
 
+    return [ur_robot_driver, commander, teensy_controller, teensy_sensor, bag]
+
+
+def generate_launch_description():
+    # launch.logging.launch_config.level = logging.DEBUG
     return LaunchDescription(
-        [
-            args,
-            ur_robot_driver,
-            commander,
-            teensy_controller,
-            teensy_sensor,
-            bag,
-        ]
+        declare_arguments() + [OpaqueFunction(function=launch_setup)]
     )
 
 

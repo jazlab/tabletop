@@ -21,21 +21,21 @@ RUN apt-get update \
 WORKDIR /root
 SHELL ["/bin/bash", "-c"]
 
-RUN mkdir -p venv \
-    && python3 -m venv venv \
-    && source venv/bin/activate \
-    && pip install \
-    ros2-graph \
-    numpy
-
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y \
     && echo 'eval "$(starship init bash)"' >> /root/.bashrc
 
 COPY ./starship.toml /root/.config/starship.toml
 
+RUN mkdir -p venv \
+    && python3 -m venv venv \
+    && source venv/bin/activate \
+    && pip install \
+    ros2-graph \
+    numpy \
+    && deactivate
+
 RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc
 RUN echo "source /root/ws/install/setup.bash" >> /root/.bashrc
-RUN echo "source /root/venv/bin/activate" >> /root/.bashrc
 
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
