@@ -13,25 +13,19 @@ from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
-from rclpy.exceptions import (
-    ParameterAlreadyDeclaredException,
-    ParameterNotDeclaredException,
-)
-from rclpy.node import Node
 from shape_msgs.msg import Plane
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.srv import Load
 
+from .base_node import BaseNode
 from .utils import (
-    ServiceCallTimeoutError,
-    ServiceWaitTimeoutError,
     pose_stamped_from_params,
 )
 
 
-class Commander(Node):
-    default_params: dict[str, Any] = {}
-    required_params: set[str] = {
+class Commander(BaseNode):
+    default_params: dict[str, Any] = BaseNode.default_params | {}
+    required_params: set[str] = BaseNode.required_params | {
         "state_machine_period",
         "max_plan_attempts",
         "max_execution_attempts",
@@ -42,8 +36,6 @@ class Commander(Node):
         "dashboard.installation",
         "dashboard.program",
         "dashboard.connect_timeout",
-        "dashboard.default_wait_timeout",
-        "dashboard.default_call_timeout",
     }
 
     def __init__(self, executor):
@@ -51,12 +43,6 @@ class Commander(Node):
             "commander",
             automatically_declare_parameters_from_overrides=True,
         )
-        # Initialize parameters
-        assert not self.required_params & self.default_params.keys()
-        self._check_required_parameters()
-        self._declare_default_parameters()
-        self.log_params()
-
         # Initialize callback groups
         self.state_machine_mutex_group = MutuallyExclusiveCallbackGroup()
         self.reentrant_group = ReentrantCallbackGroup()
@@ -97,9 +83,6 @@ class Commander(Node):
         self.execution_attempts = 0
         self.reset_attempts = 0
 
-        self.change_state("INITIALIZED")
-        self.log("Commander initialized")
-
         # Start the state machine timer
         self.timer = self.create_timer(
             self.get_parameter("state_machine_period").value,
@@ -107,37 +90,8 @@ class Commander(Node):
             callback_group=self.state_machine_mutex_group,
         )
 
-    def _check_required_parameters(self):
-        """
-        Check if all required parameters are declared and exit if not.
-        """
-        for name in self.required_params:
-            try:
-                self.get_parameter(name)
-            except ParameterNotDeclaredException:
-                self.log(
-                    f"Required parameter {name} not declared", severity="ERROR"
-                )
-                exit(1)
-
-    def _declare_default_parameters(self):
-        """
-        Declare the default parameters, which are used if no overrides are
-        provided.
-        """
-        for name, value in self.default_params.items():
-            try:
-                self.declare_parameter(name, value)
-            except ParameterAlreadyDeclaredException:
-                self.log(
-                    f"Parameter {name} already declared, using override",
-                    severity="WARN",
-                )
-
-    def log_params(self, prefix: str = "", severity: str = "INFO"):
-        params = self.get_parameters_by_prefix(prefix)
-        for name, param in params.items():
-            self.log(f"{prefix}.{name}: {param.value}", severity=severity)
+        self.log("Commander initialized")
+        self.change_state("INITIALIZED")
 
     def setup_planning_scene(self):
         """
@@ -171,7 +125,6 @@ class Commander(Node):
             self.get_logger().fatal(message)
 
     def reset_robot(self):
-        self.change_state("RESETTING")
         self.log("Resetting robot")
         try:
             # self.dashboard_trigger(
@@ -180,84 +133,54 @@ class Commander(Node):
             #         "dashboard.connect_timeout"
             #     ).value,
             # )
-            self.dashboard_trigger(
-                "/dashboard_client/close_popup",
-            )
-            self.dashboard_trigger(
-                "/dashboard_client/close_safety_popup",
-            )
+            # self.dashboard_load(
+            #     "/dashboard_client/load_installation",
+            #     self.get_parameter("dashboard.installation").value,
+            # )
+            self.dashboard_trigger("/dashboard_client/close_popup")
+            self.dashboard_trigger("/dashboard_client/close_safety_popup")
             self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
             self.dashboard_load(
                 "/dashboard_client/load_program",
                 self.get_parameter("dashboard.program").value,
             )
-            # self.dashboard_load(
-            #     "/dashboard_client/load_installation",
-            #     self.get_parameter("dashboard.installation").value,
-            # )
             self.dashboard_trigger("/dashboard_client/brake_release")
             self.dashboard_trigger("/dashboard_client/play")
-        except (ServiceWaitTimeoutError, ServiceCallTimeoutError) as e:
-            self.log(f"Timeout while resetting robot: {e}", severity="ERROR")
-            self.log("Resetting robot failed", severity="ERROR")
-            self.change_state("ERROR")
-        except Exception as e:
-            self.log(f"Error resetting robot: {e}", severity="ERROR")
-            self.change_state("ERROR")
-        else:
+
+            self.reset_attempts = 0
             self.change_state("READY")
+        except Exception as e:
+            self.log(
+                f"Error resetting robot: {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
+            self.reset_attempts += 1
+            max_reset_attempts = self.get_parameter("max_reset_attempts").value
+            if self.reset_attempts >= max_reset_attempts:
+                self.log(
+                    "Max reset attempts reached, entering ERROR state",
+                    severity="ERROR",
+                )
+                raise TimeoutError("Max reset attempts reached")
+            else:
+                self.log(
+                    f"Resetting robot failed, trying again ({self.reset_attempts}/{max_reset_attempts} attempts)...",
+                    severity="WARN",
+                )
 
     def dashboard_trigger(
-        self, service_name, wait_timeout=None, call_timeout=None
+        self, srv_name, wait_timeout=None, call_timeout=None
     ):
         """
         Trigger a service via the dashboard client.
         """
-        self.log(f"Triggering {service_name} service")
-        service_client = self.create_client(Trigger, service_name)
-        try:
-            # Wait for the service to be available
-            self.log(
-                f"Waiting for {service_name} service to be available...",
-                severity="INFO",
-            )
-            wait_timeout = (
-                wait_timeout
-                if wait_timeout is not None
-                else self.get_parameter("dashboard.default_wait_timeout").value
-            )
-            if not service_client.wait_for_service(timeout_sec=wait_timeout):
-                error_msg = f"{service_name} not available!"
-                self.log(error_msg, severity="ERROR")
-                raise ServiceWaitTimeoutError(error_msg)
-
-            self.log(f"{service_name} service is available", severity="INFO")
-
-            # Call the service
-            self.log(f"Calling {service_name} service...", severity="INFO")
-            call_timeout = (
-                call_timeout
-                if call_timeout is not None
-                else self.get_parameter("dashboard.default_call_timeout").value
-            )
-            request = Trigger.Request()
-            response = service_client.call(request, timeout_sec=call_timeout)
-
-            # Check if the service call succeeded
-            if response is None:
-                error_msg = f"{service_name} service call timed out!"
-                self.log(error_msg, severity="ERROR")
-                raise ServiceCallTimeoutError(error_msg)
-            elif not response.success:
-                error_msg = f"{service_name} service call failed: '{response.message}'!"
-                self.log(error_msg, severity="ERROR")
-                raise RuntimeError(error_msg)
-            else:
-                self.log(
-                    f"{service_name} service call succeeded: '{response.message}'"
-                )
-        finally:
-            service_client.destroy()
+        self.service_wait_and_call(
+            srv_type=Trigger,
+            srv_name=srv_name,
+            srv_request=Trigger.Request(),
+            wait_timeout=wait_timeout,
+            call_timeout=call_timeout,
+        )
 
     def dashboard_load(
         self, service_name, filename, wait_timeout=None, call_timeout=None
@@ -265,54 +188,15 @@ class Commander(Node):
         """
         Load a program or installation via the dashboard client.
         """
-        self.log(f"Loading {filename} via the {service_name} service")
-        service_client = self.create_client(Load, service_name)
-        try:
-            # Wait for the service to be available
-            self.log(
-                f"Waiting for {service_name} service to be available...",
-                severity="INFO",
-            )
-            wait_timeout = (
-                wait_timeout
-                if wait_timeout is not None
-                else self.get_parameter("dashboard.default_wait_timeout").value
-            )
-            if not service_client.wait_for_service(timeout_sec=wait_timeout):
-                error_msg = f"{service_name} not available!"
-                self.log(error_msg, severity="ERROR")
-                raise ServiceWaitTimeoutError(error_msg)
-
-            self.log(f"{service_name} service is available", severity="INFO")
-
-            # Call the service
-            self.log(f"Calling {service_name} service...", severity="INFO")
-            call_timeout = (
-                call_timeout
-                if call_timeout is not None
-                else self.get_parameter("dashboard.default_call_timeout").value
-            )
-            request = Load.Request()
-            request.filename = filename
-            response = service_client.call(request, timeout_sec=call_timeout)
-
-            # Check if the service call succeeded
-            if response is None:
-                error_msg = f"{service_name} service call timed out!"
-                self.log(error_msg, severity="ERROR")
-                raise ServiceCallTimeoutError(error_msg)
-            elif not response.success:
-                error_msg = (
-                    f"{service_name} service call failed: '{response.answer}'!"
-                )
-                self.log(error_msg, severity="ERROR")
-                raise RuntimeError(error_msg)
-            else:
-                self.log(
-                    f"{service_name} service call succeeded: '{response.answer}'"
-                )
-        finally:
-            service_client.destroy()
+        request = Load.Request()
+        request.filename = filename
+        self.service_wait_and_call(
+            srv_type=Load,
+            srv_name=service_name,
+            srv_request=request,
+            wait_timeout=wait_timeout,
+            call_timeout=call_timeout,
+        )
 
     async def plan_async(self):
         """
@@ -367,7 +251,7 @@ class Commander(Node):
             elif self.plan_result.error_code.val != 1:
                 self.log(
                     f"Planning failed with error code {self.plan_result.error_code.val}",
-                    severity="ERROR",
+                    severity="WARN",
                 )
             else:
                 self.plan_attempts = 0
@@ -375,7 +259,10 @@ class Commander(Node):
                 self.change_state("PLANNED")
                 return
         except Exception as e:
-            self.log(f"Planning failed with exception: {e}", severity="ERROR")
+            self.log(
+                f"Planning failed with exception {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
 
         # Check if we have reached the maximum number of planning attempts
         self.plan_attempts += 1
