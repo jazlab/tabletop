@@ -17,8 +17,8 @@ from shape_msgs.msg import Plane
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.srv import Load
 
-from .base_node import BaseNode
-from .utils import (
+from tabletop_server.base_node import BaseNode
+from tabletop_server.utils import (
     pose_stamped_from_params,
 )
 

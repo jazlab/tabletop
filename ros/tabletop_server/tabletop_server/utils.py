@@ -16,6 +16,18 @@ class ServiceWaitTimeoutError(Exception):
     pass
 
 
+# Handle boolean launch arguments
+def string_to_bool(value: str) -> bool:
+    if value == "true":
+        return True
+    elif value == "false":
+        return False
+    else:
+        raise ValueError(
+            f"Boolean launch argument {value} must be 'true' or 'false'"
+        )
+
+
 def quaternion_from_euler(roll, pitch, yaw):
     """
     Convert roll, pitch, yaw angles (in radians) to a quaternion.
