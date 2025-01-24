@@ -337,6 +337,12 @@ class Commander(BaseNode):
             self.plan_result.trajectory.get_robot_trajectory_msg()
         )
         self.trajectory_execution_manager.execute(self.execution_callback)
+        
+    def execute_sync(self):
+        self.trajectory_execution_manager.push(
+            self.plan_result.trajectory.get_robot_trajectory_msg()
+        )
+        return self.trajectory_execution_manager.execute()
 
     def change_state(self, state):
         """
@@ -344,6 +350,57 @@ class Commander(BaseNode):
         """
         self.log(f"Changing state to {state}")
         self.state = state
+
+        # State machine functions
+
+    def task(self):
+        """
+        Plan the trajectory to the current waypoint asynchronously and add a
+        callback to handle the plan result (non-blocking).
+        """
+        
+
+        self.change_state("TASK")
+        task_generator_fn = self.get_parameter("tasks").value[self.i]
+        task_function = task_generators["task_generator_fn"]
+        
+        
+
+        try:
+            self._task = self._executor.create_task(self.task_async())
+            self._task.add_done_callback(self.task_callback)
+        except Exception as e:
+            self.log(
+                f"Task failed with exception {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
+            self.change_state("ERROR")
+            
+    def plan_and_execute_sync(self, pose):
+        for i in range(self.get_parameter("max_plan_attempts").value):  
+            plan_result = await self.plan_async()
+            self.validate_plan(plan_result)
+            break
+        else:
+            raise TimeoutError("Max planning attempts reached")
+        
+        for i in range(self.get_parameter("max_execution_attempts").value):
+            response = self.execute_sync()
+            if response.status == "SUCCEEDED":
+                break
+        else:
+            raise TimeoutError("Max execution attempts reached")
+        
+    async def _plan_and_execute_async(self, pose):
+        self._plan_and_execute_task()
+    
+    def plan_and_execute(self, pose, done_callback=None):
+        self._plan_and_execute_task = self._executor.create_task(self._plan_and_execute_async(pose))
+        if done_callback:
+            self._plan_and_execute_task.add_done_callback(done_callback)
+        
+    def arm_door_open(self):
+        
 
     def state_machine(self):
         """
@@ -353,6 +410,10 @@ class Commander(BaseNode):
             case "INITIALIZED":
                 self.reset_robot()
             case "READY":
+            #     self.trial_generator()
+            # case "TASK":
+                self.task()
+            case "PLAN":
                 self.plan()
             case "PLANNING":
                 pass
@@ -365,6 +426,7 @@ class Commander(BaseNode):
                     "Commander entered ERROR state, resetting...",
                     severity="ERROR",
                 )
+                # TODO: Remove sleep
                 time.sleep(1)
                 self.reset_robot()
             case _:
