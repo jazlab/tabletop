@@ -1,22 +1,25 @@
 import math
+import os
 
+import yaml
+from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from rclpy.node import Node
 
 
-class ServiceCallTimeoutError(Exception):
-    """Custom exception for service call timeout."""
+def load_yaml(package_name, file_path):
+    package_path = get_package_share_directory(package_name)
+    absolute_file_path = os.path.join(package_path, file_path)
 
-    pass
-
-
-class ServiceWaitTimeoutError(Exception):
-    """Custom exception for wait_for_service timeout."""
-
-    pass
+    with open(absolute_file_path) as file:
+        return yaml.safe_load(file)
 
 
-# Handle boolean launch arguments
+def save_yaml(file_path, data):
+    with open(file_path, "w") as file:
+        yaml.dump(data, file, default_flow_style=True, sort_keys=False)
+
+
 def string_to_bool(value: str) -> bool:
     if value == "true":
         return True
