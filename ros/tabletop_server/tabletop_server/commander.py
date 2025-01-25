@@ -337,7 +337,7 @@ class Commander(BaseNode):
             self.plan_result.trajectory.get_robot_trajectory_msg()
         )
         self.trajectory_execution_manager.execute(self.execution_callback)
-        
+
     def execute_sync(self):
         self.trajectory_execution_manager.push(
             self.plan_result.trajectory.get_robot_trajectory_msg()
@@ -358,13 +358,10 @@ class Commander(BaseNode):
         Plan the trajectory to the current waypoint asynchronously and add a
         callback to handle the plan result (non-blocking).
         """
-        
 
         self.change_state("TASK")
         task_generator_fn = self.get_parameter("tasks").value[self.i]
         task_function = task_generators["task_generator_fn"]
-        
-        
 
         try:
             self._task = self._executor.create_task(self.task_async())
@@ -375,32 +372,65 @@ class Commander(BaseNode):
                 severity="ERROR",
             )
             self.change_state("ERROR")
-            
+
     def plan_and_execute_sync(self, pose):
-        for i in range(self.get_parameter("max_plan_attempts").value):  
+        for i in range(self.get_parameter("max_plan_attempts").value):
             plan_result = await self.plan_async()
             self.validate_plan(plan_result)
             break
         else:
             raise TimeoutError("Max planning attempts reached")
-        
+
         for i in range(self.get_parameter("max_execution_attempts").value):
             response = self.execute_sync()
             if response.status == "SUCCEEDED":
                 break
         else:
             raise TimeoutError("Max execution attempts reached")
-        
+
     async def _plan_and_execute_async(self, pose):
         self._plan_and_execute_task()
-    
+
     def plan_and_execute(self, pose, done_callback=None):
-        self._plan_and_execute_task = self._executor.create_task(self._plan_and_execute_async(pose))
+        self._plan_and_execute_task = self._executor.create_task(
+            self._plan_and_execute_async(pose)
+        )
         if done_callback:
             self._plan_and_execute_task.add_done_callback(done_callback)
-        
+
+    def smartglass_occlude(self):
+        print("    Occluding smartglass")
+
+    def smartglass_reveal(self):
+        print("    Revealing smartglass")
+
     def arm_door_open(self):
-        
+        print("    Opening arm door")
+
+    def arm_door_close(self):
+        print("    Closing arm door")
+
+    def reward(self, duration_ms):
+        print(f"    Rewarding for {duration_ms} ms")
+
+    def fetch_object(self, object_id, object_pose):
+        # Note: We may want an intermediate level here, e.g. "ObjectMap",
+        # to handle converting the fetch command to a series of waypoints, based
+        # on the rig configuration. I don't know if this is best done as an
+        # argument to ForagingTask or in the Commander node.
+        print(f"    Fetching object {object_id} at pose {object_pose}")
+
+    def return_object(self, object_id):
+        print(f"    Returning object {object_id}")
+
+    def move_to_position_sync(self, position):
+        print(f"    Moving to position {position}")
+
+    def t_hand_fixation_off(self):
+        return self._hand_fixation_process()
+
+    def t_flic_button(self):
+        return self._flic_button_process()
 
     def state_machine(self):
         """
@@ -410,8 +440,8 @@ class Commander(BaseNode):
             case "INITIALIZED":
                 self.reset_robot()
             case "READY":
-            #     self.trial_generator()
-            # case "TASK":
+                #     self.trial_generator()
+                # case "TASK":
                 self.task()
             case "PLAN":
                 self.plan()

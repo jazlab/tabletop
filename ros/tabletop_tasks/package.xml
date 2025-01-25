@@ -5,27 +5,18 @@
 
   <version>0.0.0</version>
 
-  <description>The server nodes for the TableTop project</description>
+  <description>The tasks for the TableTop project</description>
 
   <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
 
   <license>MIT</license>
 
   <depend>ament_index_python</depend>
-  <depend>std_msgs</depend>
   <depend>rclpy</depend>
-  <depend>ur</depend>
-  <depend>moveit</depend>
-  <depend>moveit_py</depend>
-  <depend>ros2controlcli</depend>
-  <depend>cv_bridge</depend>
   <depend>sensor_msgs</depend>
-  <depend>rosbag2</depend>
-  <depend>rosbag2_py</depend>
   <depend>rmw_cyclonedds_cpp</depend>
-  <depend>tabletop_moveit_config</depend>
-  <depend>tabletop_msgs</depend>
-
+  <depend>backward_ros</depend>
+  <depend>tabletop_server</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
