@@ -1,8 +1,8 @@
-import time
 from threading import Lock
-from typing import Any
+from typing import Any, Optional
 
 import rclpy
+from geometry_msgs.msg import PoseStamped
 from moveit.planning import (
     MoveItPy,
     MultiPipelinePlanRequestParameters,
@@ -124,6 +124,36 @@ class Commander(BaseNode):
         elif severity == "FATAL":
             self.get_logger().fatal(message)
 
+    def dashboard_trigger(
+        self, srv_name, wait_timeout=None, call_timeout=None
+    ):
+        """
+        Trigger a service via the dashboard client.
+        """
+        self.service_wait_and_call(
+            srv_type=Trigger,
+            srv_name=srv_name,
+            srv_request=Trigger.Request(),
+            wait_timeout=wait_timeout,
+            call_timeout=call_timeout,
+        )
+
+    def dashboard_load(
+        self, service_name, filename, wait_timeout=None, call_timeout=None
+    ):
+        """
+        Load a program or installation via the dashboard client.
+        """
+        request = Load.Request()
+        request.filename = filename
+        self.service_wait_and_call(
+            srv_type=Load,
+            srv_name=service_name,
+            srv_request=request,
+            wait_timeout=wait_timeout,
+            call_timeout=call_timeout,
+        )
+
     def reset_robot(self):
         self.log("Resetting robot")
         try:
@@ -168,51 +198,18 @@ class Commander(BaseNode):
                     severity="WARN",
                 )
 
-    def dashboard_trigger(
-        self, srv_name, wait_timeout=None, call_timeout=None
-    ):
-        """
-        Trigger a service via the dashboard client.
-        """
-        self.service_wait_and_call(
-            srv_type=Trigger,
-            srv_name=srv_name,
-            srv_request=Trigger.Request(),
-            wait_timeout=wait_timeout,
-            call_timeout=call_timeout,
-        )
-
-    def dashboard_load(
-        self, service_name, filename, wait_timeout=None, call_timeout=None
-    ):
-        """
-        Load a program or installation via the dashboard client.
-        """
-        request = Load.Request()
-        request.filename = filename
-        self.service_wait_and_call(
-            srv_type=Load,
-            srv_name=service_name,
-            srv_request=request,
-            wait_timeout=wait_timeout,
-            call_timeout=call_timeout,
-        )
-
-    async def plan_async(self):
+    async def _plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
         """
         Coroutine to plan the trajectory from the current state to the current
         waypoint.
         """
-        self.log(
-            f"Planning trajectory to waypoint {self.i}: {self.waypoints_path[self.i]}"
-        )
-        self.log(f"Waypoint: {self.waypoints[self.waypoints_path[self.i]]}")
+        self.log(f"Planning trajectory to waypoint: {goal}")
 
         self.planning_component.set_start_state_to_current_state()
-        goal = self.waypoints[self.waypoints_path[self.i]]
         self.planning_component.set_goal_state(
             pose_stamped_msg=goal,
-            pose_link=self.get_parameter("planning.pose_link").value,
+            pose_link=pose_link
+            or self.get_parameter("planning.pose_link").value,
         )
 
         if self.get_parameter("planning.pipeline").value == "default":
@@ -235,6 +232,23 @@ class Commander(BaseNode):
                     multi_plan_parameters=request_params
                 )
 
+    def plan_async(self, goal: PoseStamped, pose_link: Optional[str] = None):
+        """
+        Plan the trajectory to the current waypoint asynchronously and add a
+        callback to handle the plan result (non-blocking).
+        """
+        self.change_state("PLANNING")
+        self._plan_task = self._executor.create_task(
+            self._plan(goal, pose_link)
+        )
+        self._plan_task.add_done_callback(self.plan_callback)
+
+    def plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
+        """
+        Plan the trajectory to the current waypoint synchronously.
+        """
+        return self._plan(goal, pose_link)
+
     # Callbacks
     def plan_callback(self, task):
         """
@@ -243,8 +257,8 @@ class Commander(BaseNode):
         assert self.state == "PLANNING"
         # Check if the planning succeeded
         try:
-            self.plan_result = task.result()
-            if self.plan_result is None:
+            plan_result = task.result()
+            if plan_result is None:
                 self.log(
                     "Planning failed and returned None!", severity="ERROR"
                 )
@@ -256,7 +270,6 @@ class Commander(BaseNode):
             else:
                 self.plan_attempts = 0
                 self.log("Planning finished!")
-                self.change_state("PLANNED")
                 return
         except Exception as e:
             self.log(
@@ -317,16 +330,6 @@ class Commander(BaseNode):
                 )
                 self.change_state("READY")
 
-    # State machine functions
-    def plan(self):
-        """
-        Plan the trajectory to the current waypoint asynchronously and add a
-        callback to handle the plan result (non-blocking).
-        """
-        self.change_state("PLANNING")
-        self._plan_task = self._executor.create_task(self.plan_async())
-        self._plan_task.add_done_callback(self.plan_callback)
-
     def execute(self):
         """
         Start the execution of the plan asynchronously and add a callback to
@@ -351,52 +354,40 @@ class Commander(BaseNode):
         self.log(f"Changing state to {state}")
         self.state = state
 
-        # State machine functions
-
-    def task(self):
-        """
-        Plan the trajectory to the current waypoint asynchronously and add a
-        callback to handle the plan result (non-blocking).
-        """
-
-        self.change_state("TASK")
-        task_generator_fn = self.get_parameter("tasks").value[self.i]
-        task_function = task_generators["task_generator_fn"]
-
-        try:
-            self._task = self._executor.create_task(self.task_async())
-            self._task.add_done_callback(self.task_callback)
-        except Exception as e:
-            self.log(
-                f"Task failed with exception {type(e).__name__}: {e}",
-                severity="ERROR",
-            )
-            self.change_state("ERROR")
-
-    def plan_and_execute_sync(self, pose):
+    async def _plan_and_execute(
+        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
+    ):
         for i in range(self.get_parameter("max_plan_attempts").value):
-            plan_result = await self.plan_async()
+            plan_result = self.plan(pose_stamped, pose_link)
             self.validate_plan(plan_result)
             break
         else:
-            raise TimeoutError("Max planning attempts reached")
+            raise TimeoutError(
+                f"Max planning attempts ({self.get_parameter('max_plan_attempts').value}) reached"
+            )
 
         for i in range(self.get_parameter("max_execution_attempts").value):
             response = self.execute_sync()
             if response.status == "SUCCEEDED":
                 break
         else:
-            raise TimeoutError("Max execution attempts reached")
+            raise TimeoutError(
+                f"Max execution attempts ({self.get_parameter('max_execution_attempts').value}) reached"
+            )
 
-    async def _plan_and_execute_async(self, pose):
-        self._plan_and_execute_task()
-
-    def plan_and_execute(self, pose, done_callback=None):
+    def plan_and_execute_async(
+        self,
+        pose_stamped: PoseStamped,
+        pose_link: Optional[str] = None,
+        done_callback=None,
+    ):
         self._plan_and_execute_task = self._executor.create_task(
-            self._plan_and_execute_async(pose)
+            self._plan_and_execute(), 
         )
         if done_callback:
             self._plan_and_execute_task.add_done_callback(done_callback)
+        else:
+            
 
     def smartglass_occlude(self):
         print("    Occluding smartglass")
@@ -440,24 +431,13 @@ class Commander(BaseNode):
             case "INITIALIZED":
                 self.reset_robot()
             case "READY":
-                #     self.trial_generator()
-                # case "TASK":
+                pass
                 self.task()
-            case "PLAN":
-                self.plan()
-            case "PLANNING":
-                pass
-            case "PLANNED":
-                self.execute()
-            case "EXECUTING":
-                pass
             case "ERROR":
                 self.log(
                     "Commander entered ERROR state, resetting...",
                     severity="ERROR",
                 )
-                # TODO: Remove sleep
-                time.sleep(1)
                 self.reset_robot()
             case _:
                 raise ValueError(f"Invalid state: {self.state}")

@@ -1,21 +1,20 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>tabletop_tasks</name>
+  <name>tabletop_bringup</name>
 
   <version>0.0.0</version>
 
-  <description>The tasks for the TableTop project</description>
+  <description>The bringup package for the TableTop project</description>
 
   <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
 
   <license>MIT</license>
 
+  <depend>ament_index_python</depend>
   <depend>rclpy</depend>
-  <depend>sensor_msgs</depend>
-  <depend>rmw_cyclonedds_cpp</depend>
-  <depend>backward_ros</depend>
   <depend>tabletop_server</depend>
+  <depend>tabletop_tasks</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
