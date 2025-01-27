@@ -91,7 +91,7 @@ class Commander(BaseNode):
         )
 
         self.log("Commander initialized")
-        self.change_state("INITIALIZED")
+        self._change_state("INITIALIZED")
 
     def setup_planning_scene(self):
         """
@@ -178,7 +178,7 @@ class Commander(BaseNode):
             self.dashboard_trigger("/dashboard_client/play")
 
             self.reset_attempts = 0
-            self.change_state("READY")
+            self._change_state("RUNNING")
         except Exception as e:
             self.log(
                 f"Error resetting robot: {type(e).__name__}: {e}",
@@ -246,18 +246,61 @@ class Commander(BaseNode):
                 self._plan(), args=(goal, pose_link)
             )
             self._plan_task.add_done_callback(done_callback)
+            return self._plan_task
         else:
             return self._plan(goal, pose_link)
+
+    def plan_callback(self, task):
+        """
+        Done callback for the planning of the trajectory to the current waypoint.
+        """
+        assert self.state == "PLANNING"
+        # Check if the planning succeeded
+        try:
+            self.plan_result = task.result()
+            if self.plan_result is None:
+                self.log(
+                    "Planning failed and returned None!", severity="ERROR"
+                )
+            elif self.plan_result.error_code.val != 1:
+                self.log(
+                    f"Planning failed with error code {self.plan_result.error_code.val}",
+                    severity="WARN",
+                )
+            else:
+                self.plan_attempts = 0
+                self.log("Planning finished!")
+                self.change_state("PLANNED")
+                return
+        except Exception as e:
+            self.log(
+                f"Planning failed with exception {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
+
+        # Check if we have reached the maximum number of planning attempts
+        self.plan_attempts += 1
+        max_plan_attempts = self.get_parameter("max_plan_attempts").value
+        if self.plan_attempts >= max_plan_attempts:
+            self.log(
+                f"Max planning attempts ({max_plan_attempts}) reached, entering ERROR state",
+                severity="ERROR",
+            )
+            self.change_state("ERROR")
+        else:
+            self.log(
+                f"Planning failed, trying again ({self.plan_attempts}/{max_plan_attempts} attempts)...",
+                severity="WARN",
+            )
+            self.change_state("READY")
 
     def execution_callback(self, response):
         """
         Done callback for the execution of the current plan.
         """
-        assert self.state == "EXECUTING"
         if response.status == "SUCCEEDED":
             self.log("Execution succeeded!")
             self.execution_attempts = 0
-            self.change_state("READY")
         else:
             self.log(
                 f"Execution failed with status {response.status}",
@@ -274,27 +317,26 @@ class Commander(BaseNode):
                     f"Max execution attempts ({max_execution_attempts}) reached, entering ERROR state",
                     severity="ERROR",
                 )
-                self.change_state("ERROR")
+                self._change_state("ERROR")
             else:
                 self.log(
                     f"Execution failed, trying again ({self.execution_attempts}/{max_execution_attempts} attempts)...",
                     severity="WARN",
                 )
-                self.change_state("READY")
 
-    def execute(self, robot_trajectory_msg, done_callback=None):
+    def execute(self, robot_trajectory, done_callback=None):
         """
         Start the execution of the plan asynchronously and add a callback to
         handle the execution result (non-blocking).
         """
-        self.trajectory_execution_manager.push(robot_trajectory_msg)
+        self.trajectory_execution_manager.push(robot_trajectory)
         self.trajectory_execution_manager.execute(done_callback)
 
     @property
     def state(self):
         return self._state
 
-    def change_state(self, state):
+    def _change_state(self, state):
         """
         Change the state of the commander node.
         """
@@ -306,14 +348,21 @@ class Commander(BaseNode):
     ):
         for _ in range(self.get_parameter("max_plan_attempts").value):
             plan_result = self._plan(pose_stamped, pose_link)
-            break
+            if plan_result:
+                self.plan_attempts = 0
+                self.log("Planning finished!")
+                break
+            else:
+                self.log("Planning failed!", severity="ERROR")
+                raise TimeoutError("Max planning attempts reached")
         else:
+            self._change_state("ERROR")
             raise TimeoutError(
                 f"Max planning attempts ({self.get_parameter('max_plan_attempts').value}) reached"
             )
 
         for _ in range(self.get_parameter("max_execution_attempts").value):
-            response = self.execute(
+            response = self.execute_and_wait(
                 plan_result.trajectory.get_robot_trajectory_msg()
             )
             if response.status == "SUCCEEDED":
@@ -327,15 +376,21 @@ class Commander(BaseNode):
         self,
         pose_stamped: PoseStamped,
         pose_link: Optional[str] = None,
+    ):
+        return self._plan_and_execute(pose_stamped, pose_link)
+
+    def plan_and_execute_async(
+        self,
+        pose_stamped: PoseStamped,
+        pose_link: Optional[str] = None,
         done_callback=None,
     ):
+        task = self._executor.create_task(
+            self._plan_and_execute(), args=(pose_stamped, pose_link)
+        )
         if done_callback:
-            self._plan_and_execute_task = self._executor.create_task(
-                self._plan_and_execute(), args=(pose_stamped, pose_link)
-            )
-            self._plan_and_execute_task.add_done_callback(done_callback)
-        else:
-            self._plan_and_execute(pose_stamped, pose_link)
+            task.add_done_callback(done_callback)
+        return task
 
     def smartglass_occlude(self):
         """
