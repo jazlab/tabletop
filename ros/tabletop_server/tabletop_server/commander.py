@@ -198,7 +198,7 @@ class Commander(BaseNode):
                     severity="WARN",
                 )
 
-    async def _plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
+    def _plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
         """
         Coroutine to plan the trajectory from the current state to the current
         waypoint.
@@ -232,66 +232,22 @@ class Commander(BaseNode):
                     multi_plan_parameters=request_params
                 )
 
-    def plan_async(self, goal: PoseStamped, pose_link: Optional[str] = None):
-        """
-        Plan the trajectory to the current waypoint asynchronously and add a
-        callback to handle the plan result (non-blocking).
-        """
-        self.change_state("PLANNING")
-        self._plan_task = self._executor.create_task(
-            self._plan(goal, pose_link)
-        )
-        self._plan_task.add_done_callback(self.plan_callback)
-
-    def plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
+    def plan(
+        self,
+        goal: PoseStamped,
+        pose_link: Optional[str] = None,
+        done_callback=None,
+    ):
         """
         Plan the trajectory to the current waypoint synchronously.
         """
-        return self._plan(goal, pose_link)
-
-    # Callbacks
-    def plan_callback(self, task):
-        """
-        Done callback for the planning of the trajectory to the current waypoint.
-        """
-        assert self.state == "PLANNING"
-        # Check if the planning succeeded
-        try:
-            plan_result = task.result()
-            if plan_result is None:
-                self.log(
-                    "Planning failed and returned None!", severity="ERROR"
-                )
-            elif self.plan_result.error_code.val != 1:
-                self.log(
-                    f"Planning failed with error code {self.plan_result.error_code.val}",
-                    severity="WARN",
-                )
-            else:
-                self.plan_attempts = 0
-                self.log("Planning finished!")
-                return
-        except Exception as e:
-            self.log(
-                f"Planning failed with exception {type(e).__name__}: {e}",
-                severity="ERROR",
+        if done_callback:
+            self._plan_task = self._executor.create_task(
+                self._plan(), args=(goal, pose_link)
             )
-
-        # Check if we have reached the maximum number of planning attempts
-        self.plan_attempts += 1
-        max_plan_attempts = self.get_parameter("max_plan_attempts").value
-        if self.plan_attempts >= max_plan_attempts:
-            self.log(
-                f"Max planning attempts ({max_plan_attempts}) reached, entering ERROR state",
-                severity="ERROR",
-            )
-            self.change_state("ERROR")
+            self._plan_task.add_done_callback(done_callback)
         else:
-            self.log(
-                f"Planning failed, trying again ({self.plan_attempts}/{max_plan_attempts} attempts)...",
-                severity="WARN",
-            )
-            self.change_state("READY")
+            return self._plan(goal, pose_link)
 
     def execution_callback(self, response):
         """
@@ -301,10 +257,6 @@ class Commander(BaseNode):
         if response.status == "SUCCEEDED":
             self.log("Execution succeeded!")
             self.execution_attempts = 0
-            self.i = (self.i + 1) % len(self.waypoints_path)
-            self.log(
-                f"Moving on to waypoint {self.i}: {self.waypoints_path[self.i]}"
-            )
             self.change_state("READY")
         else:
             self.log(
@@ -330,44 +282,40 @@ class Commander(BaseNode):
                 )
                 self.change_state("READY")
 
-    def execute(self):
+    def execute(self, robot_trajectory_msg, done_callback=None):
         """
         Start the execution of the plan asynchronously and add a callback to
         handle the execution result (non-blocking).
         """
-        self.change_state("EXECUTING")
-        self.trajectory_execution_manager.push(
-            self.plan_result.trajectory.get_robot_trajectory_msg()
-        )
-        self.trajectory_execution_manager.execute(self.execution_callback)
+        self.trajectory_execution_manager.push(robot_trajectory_msg)
+        self.trajectory_execution_manager.execute(done_callback)
 
-    def execute_sync(self):
-        self.trajectory_execution_manager.push(
-            self.plan_result.trajectory.get_robot_trajectory_msg()
-        )
-        return self.trajectory_execution_manager.execute()
+    @property
+    def state(self):
+        return self._state
 
     def change_state(self, state):
         """
         Change the state of the commander node.
         """
         self.log(f"Changing state to {state}")
-        self.state = state
+        self._state = state
 
-    async def _plan_and_execute(
+    def _plan_and_execute(
         self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
     ):
-        for i in range(self.get_parameter("max_plan_attempts").value):
-            plan_result = self.plan(pose_stamped, pose_link)
-            self.validate_plan(plan_result)
+        for _ in range(self.get_parameter("max_plan_attempts").value):
+            plan_result = self._plan(pose_stamped, pose_link)
             break
         else:
             raise TimeoutError(
                 f"Max planning attempts ({self.get_parameter('max_plan_attempts').value}) reached"
             )
 
-        for i in range(self.get_parameter("max_execution_attempts").value):
-            response = self.execute_sync()
+        for _ in range(self.get_parameter("max_execution_attempts").value):
+            response = self.execute(
+                plan_result.trajectory.get_robot_trajectory_msg()
+            )
             if response.status == "SUCCEEDED":
                 break
         else:
@@ -375,47 +323,54 @@ class Commander(BaseNode):
                 f"Max execution attempts ({self.get_parameter('max_execution_attempts').value}) reached"
             )
 
-    def plan_and_execute_async(
+    def plan_and_execute(
         self,
         pose_stamped: PoseStamped,
         pose_link: Optional[str] = None,
         done_callback=None,
     ):
-        self._plan_and_execute_task = self._executor.create_task(
-            self._plan_and_execute(), 
-        )
         if done_callback:
+            self._plan_and_execute_task = self._executor.create_task(
+                self._plan_and_execute(), args=(pose_stamped, pose_link)
+            )
             self._plan_and_execute_task.add_done_callback(done_callback)
         else:
-            
+            self._plan_and_execute(pose_stamped, pose_link)
 
     def smartglass_occlude(self):
-        print("    Occluding smartglass")
+        """
+        Occlude the smartglass.
+        """
+        self.service_wait_and_call(
+            srv_type=Trigger,
+            srv_name="/dashboard_client/occlude_smartglass",
+            srv_request=Trigger.Request(),
+        )
 
     def smartglass_reveal(self):
-        print("    Revealing smartglass")
+        self.log("Revealing smartglass")
 
     def arm_door_open(self):
-        print("    Opening arm door")
+        self.log("Opening arm door")
 
     def arm_door_close(self):
-        print("    Closing arm door")
+        self.log("Closing arm door")
 
     def reward(self, duration_ms):
-        print(f"    Rewarding for {duration_ms} ms")
+        self.log(f"Rewarding for {duration_ms} ms")
 
     def fetch_object(self, object_id, object_pose):
         # Note: We may want an intermediate level here, e.g. "ObjectMap",
         # to handle converting the fetch command to a series of waypoints, based
         # on the rig configuration. I don't know if this is best done as an
         # argument to ForagingTask or in the Commander node.
-        print(f"    Fetching object {object_id} at pose {object_pose}")
+        self.log(f"Fetching object {object_id} at pose {object_pose}")
 
     def return_object(self, object_id):
-        print(f"    Returning object {object_id}")
+        self.log(f"Returning object {object_id}")
 
     def move_to_position_sync(self, position):
-        print(f"    Moving to position {position}")
+        self.log(f"Moving to position {position}")
 
     def t_hand_fixation_off(self):
         return self._hand_fixation_process()
@@ -432,7 +387,6 @@ class Commander(BaseNode):
                 self.reset_robot()
             case "READY":
                 pass
-                self.task()
             case "ERROR":
                 self.log(
                     "Commander entered ERROR state, resetting...",

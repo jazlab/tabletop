@@ -3,7 +3,7 @@
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    state_machine_period: 0.25
+    state_machine_period: 1.0
     max_plan_attempts: 5
     max_execution_attempts: 3
     max_reset_attempts: 3
