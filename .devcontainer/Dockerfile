@@ -40,6 +40,4 @@ RUN echo "source /root/ws/install/setup.bash" >> /root/.bashrc
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 
-CMD ["bash", "-c", "\
-    /root/ws/src/tabletop/scripts/build.sh \
-    && sleep infinity"]
+CMD ["bash", "-c", "sleep infinity"]

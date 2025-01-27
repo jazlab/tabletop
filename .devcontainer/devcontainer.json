@@ -6,7 +6,7 @@
     "postStartCommand": [
         "bash",
         "-c",
-        "/root/ws/src/tabletop/scripts/build.sh && source /opt/ros/jazzy/setup.bash && source /root/ws/install/setup.bash"
+        "/root/ws/src/tabletop/scripts/build.sh"
     ],
     "customizations": {
         "vscode": {
