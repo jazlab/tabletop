@@ -4,10 +4,12 @@ import abc
 import csv
 import threading
 import time
+from logging import getLogger
 from pathlib import Path
 
-from tabletop import common
-from tabletop.logger import logger
+from tabletop_server import common
+
+logger = getLogger(__name__)
 
 
 class BaseIO(abc.ABC):
