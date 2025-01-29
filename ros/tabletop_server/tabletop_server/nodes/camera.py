@@ -3,10 +3,10 @@ import rclpy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 
-from tabletop_server.base import BaseNode
+from tabletop_server.nodes import BaseNode
 
 
-class CameraReaderWriter(BaseNode):
+class Camera(BaseNode):
     default_params = {
         "camera_topic": "camera/image",
         "camera_frame": "camera",
@@ -15,12 +15,14 @@ class CameraReaderWriter(BaseNode):
 
     def __init__(self):
         super().__init__("camera_reader_writer")
+
         self.publisher = self.create_publisher(Image, "camera/image", 10)
+
         self.bridge = CvBridge()
         self.cap = cv2.VideoCapture(0)
-        self.create_timer(
-            1 / self.get_parameter("camera_fps").value, self.timer_callback
-        )
+
+        timer_period = 1 / (2 * self.get_parameter("camera_fps").value)
+        self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def timer_callback(self):
         ret, frame = self.cap.read()
@@ -36,14 +38,14 @@ def main(args=None):
     rclpy.init(args=args)
     try:
         executor = rclpy.executors.MultiThreadedExecutor()
-        camera_reader_writer = CameraReaderWriter(executor)
-        executor.add_node(camera_reader_writer)
+        camera = Camera(executor)
+        executor.add_node(camera)
 
         try:
             executor.spin()
         finally:
             executor.shutdown()
-            camera_reader_writer.destroy_node()
+            camera.destroy_node()
     finally:
         rclpy.shutdown()
 

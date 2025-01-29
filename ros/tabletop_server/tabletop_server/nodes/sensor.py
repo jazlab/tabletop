@@ -1,10 +1,10 @@
 import rclpy
 from tabletop_msgs.msg import TeensySensor
 
-from tabletop_server.base import BaseNode
+from tabletop_server.nodes import BaseNode
 
 
-class SensorReader(BaseNode):
+class Sensor(BaseNode):
     def __init__(self):
         super().__init__("server")
 
@@ -20,13 +20,13 @@ def main(args=None):
     rclpy.init(args=args)
 
     executor = rclpy.executors.MultiThreadedExecutor()
-    sensor_reader = SensorReader()
-    executor.add_node(sensor_reader)
+    sensor = Sensor()
+    executor.add_node(sensor)
 
     try:
         executor.spin()
     finally:
-        sensor_reader.destroy_node()
+        sensor.destroy_node()
         rclpy.shutdown()
 
 

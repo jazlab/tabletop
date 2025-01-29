@@ -19,7 +19,7 @@ from tabletop_msgs.msg import TeensySensors
 from tabletop_msgs.srv import SetFloat
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.base import BaseNode
+from tabletop_server.nodes import BaseNode
 from tabletop_server.utils import (
     MaxAttemptsReachedError,
     pose_stamped_from_params,
@@ -107,22 +107,17 @@ class Commander(BaseNode):
 
     def smartglass_occlude(
         self,
-        occlude: bool,
-        blocking: bool = True,
-        callback: Optional[Callable] = None,
     ) -> SetBool.Response | Callable:
         """
         Occlude the smartglass.
         """
         return self.service_call(
+            srv_request=SetBool.Request(data=True),
             srv_type=SetBool,
-            srv_name="/dashboard_client/occlude_smartglass",
-            srv_request=SetBool.Request(data=occlude),
-            blocking=blocking,
-            callback=callback,
+            srv_name="/smartglass_control",
         )
 
-    def arm_door(
+    def arm_door_control(
         self,
         open: bool,
         blocking: bool = True,
@@ -150,22 +145,19 @@ class Commander(BaseNode):
             callback=callback,
         )
 
-    def reset_hand_fixation(
+    def start_hand_fixation(
         self,
-        blocking: bool = True,
         callback: Optional[Callable] = None,
     ) -> Trigger.Response | Callable:
-        return self.service_call(
+        return self.service_call_async(
             srv_type=Trigger,
             srv_name="/dashboard_client/reset_hand_fixation",
             srv_request=Trigger.Request(),
-            blocking=blocking,
             callback=callback,
         )
 
-    def reset_flic_button(self):
-        with self._mutex:
-            self._flic_button_state = False
+    def start_flic_button(self):
+        return self.service_cal_async
 
     def dashboard_trigger(
         self, srv_name, wait_timeout=None, call_timeout=None
@@ -173,7 +165,7 @@ class Commander(BaseNode):
         """
         Trigger a service via the dashboard client.
         """
-        self.service_wait_and_call(
+        self.service_call(
             srv_type=Trigger,
             srv_name=srv_name,
             srv_request=Trigger.Request(),

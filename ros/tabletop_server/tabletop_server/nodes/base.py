@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
@@ -7,7 +7,7 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
-from tf2_ros import Future
+from rclpy.task import Future
 
 
 class BaseNode(Node):
@@ -117,10 +117,16 @@ class BaseNode(Node):
 
         return nested_params
 
-    def create_future(self, function, *args, callback=None, **kwargs):
+    def create_future(
+        self,
+        function: Callable,
+        *args,
+        callback: Optional[Callable] = None,
+        **kwargs,
+    ) -> Future:
         """
         Create a future that will be resolved when the task is finished.
-        To wait for the
+        To wait for the task to finish, await the future.
         """
         if self._executor is None:
             raise ValueError("Executor not set")
@@ -213,13 +219,13 @@ class BaseNode(Node):
         finally:
             service_client.destroy()
 
-    def service_call_async(
+    def service_call_async[T](
         self,
-        srv_request: Any,
-        srv_type: type,
+        srv_request: T.Request,
+        srv_type: type[T],
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-    ):
+    ) -> tuple[Future[T.Response], Client]:
         """
         Call a service.
         """
@@ -235,11 +241,11 @@ class BaseNode(Node):
         future = service_client.call_async(srv_request)
         return future, service_client
 
-    async def wait_for_service_future(
+    async def wait_for_service_future[T](
         self,
-        future: Future,
-        service_client_to_destroy: Client,
-    ):
+        future: Future[T.Response],
+        service_client_to_destroy: Client[T.Request, T.Response],
+    ) -> T.Response:
         """
         Wait for a service to be available.
         """

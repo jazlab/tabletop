@@ -7,6 +7,7 @@ import time
 from ros.tabletop_tasks.tabletop_tasks.trial_generators.blocked_cup_drawer import (
     BlockedCupDrawer,
 )
+from tabletop_tasks.utils import without_keys
 
 
 class ForagingState(enum.Enum):
@@ -41,14 +42,13 @@ class ForagingTask(abc.ABC):
         self._response_timeout = response_timeout
         self._reward_duration_ms = reward_duration_ms
         self._reveal_duration = reveal_duration
-        self._state = ForagingState.IDLE
 
         for trial_generator_config in trial_generators:
             match trial_generator_config["type"]:
                 case "blocked_cup_drawer":
                     self._trial_generators.append(
                         BlockedCupDrawer(
-                            **trial_generator_config,
+                            **without_keys(trial_generator_config, "type"),
                         )
                     )
                 case _:

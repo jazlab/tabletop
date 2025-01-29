@@ -1,6 +1,7 @@
 """SmoothPursuit task."""
 
 import abc
+import asyncio
 import time
 
 import numpy as np
@@ -19,10 +20,13 @@ class SmoothPursuit(abc.ABC):
         total_time: float,
         reward_period: float = 1.0,
         reward_duration: float = 0.1,
+        loop_period: float = 0.01,
     ):
         self._commander = commander
+        self._total_time = total_time
         self._reward_period = reward_period
         self._reward_duration = reward_duration
+        self._loop_period = loop_period
 
         # Make circular path
         self._path = []
@@ -53,17 +57,20 @@ class SmoothPursuit(abc.ABC):
         except Exception as e:
             self._commander.log(f"Failed to plan path: {e}", severity="ERROR")
 
+        future = self._commander.execute_async(plan_result.trajectory)
+
         while time.time() - start_time < self._total_time:
-            future = self._commander.plan_and_execute_async(
-                plan_result.trajectory
-            )
             # TODO: Reward logic
-            while (
-                not future.done()
-                and time.time() - start_time < self._total_time
-            ):
+            if future.done():
+                # Raise exception if execution failed
+                future.result()
+
+                future = self._commander.execute_async(plan_result.trajectory)
+            else:
                 if time.time() - last_reward_time > self._reward_period:
                     self._commander.reward(self._reward_duration)
                     last_reward_time = time.time()
 
-            await future
+            await asyncio.sleep(self._loop_period)
+
+        await future
