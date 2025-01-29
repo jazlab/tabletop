@@ -7,6 +7,10 @@ from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from rclpy.node import Node
 
 
+class MaxAttemptsReachedError(Exception):
+    pass
+
+
 def load_yaml(package_name, file_path):
     package_path = get_package_share_directory(package_name)
     absolute_file_path = os.path.join(package_path, file_path)

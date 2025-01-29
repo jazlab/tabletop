@@ -4,6 +4,10 @@ import abc
 import enum
 import time
 
+from ros.tabletop_tasks.tabletop_tasks.trial_generators.blocked_cup_drawer import (
+    BlockedCupDrawer,
+)
+
 
 class ForagingState(enum.Enum):
     """Foraging state."""
@@ -21,7 +25,7 @@ class ForagingTask(abc.ABC):
     def __init__(
         self,
         commander,
-        trial_generator,
+        trial_generators: list[dict],
         fixation_duration=0.5,
         stimulus_duration=0.5,
         delay_duration=0.5,
@@ -29,8 +33,8 @@ class ForagingTask(abc.ABC):
         reward_duration_ms=100,
         reveal_duration=0.5,
     ):
+        self._trial_generators = []
         self._commander = commander
-        self._trial_generator = trial_generator
         self._fixation_duration = fixation_duration
         self._stimulus_duration = stimulus_duration
         self._delay_duration = delay_duration
@@ -38,6 +42,19 @@ class ForagingTask(abc.ABC):
         self._reward_duration_ms = reward_duration_ms
         self._reveal_duration = reveal_duration
         self._state = ForagingState.IDLE
+
+        for trial_generator_config in trial_generators:
+            match trial_generator_config["type"]:
+                case "blocked_cup_drawer":
+                    self._trial_generators.append(
+                        BlockedCupDrawer(
+                            **trial_generator_config,
+                        )
+                    )
+                case _:
+                    raise ValueError(
+                        f"Unknown trial generator type: {trial_generator_config['type']}"
+                    )
 
     def _fetch(self):
         """Fetch object for trial."""
@@ -193,40 +210,12 @@ class ForagingTask(abc.ABC):
 
         self._state = ForagingState.FETCH
 
-    def _run_loop(self):
+    async def run(self):
         """Run a trial."""
-        if self._state == ForagingState.FETCH:
+        for self._trial_generator in self._trial_generators:
             self._fetch()
-        elif self._state == ForagingState.STIMULUS:
             self._stimulus()
-        elif self._state == ForagingState.DELAY:
             self._delay()
-        elif self._state == ForagingState.RESPONSE:
             self._response()
-        elif self._state == ForagingState.REVEAL:
             self._reveal()
-        elif self._state == ForagingState.RETURN:
             self._return()
-
-    def run_async_example(self):
-        self._trial_spec = self._trial_generator()
-        self._trial_feedback = dict(
-            broke_fixation=False,
-            reaction_time=None,
-            timeout=None,
-        )
-        print("New trial")
-
-        # Make smartglass opaque
-        self._commander.smartglass_occlude()
-
-        # Fetch object
-        object_id = self._trial_spec.object_id
-        object_pose = self._trial_spec.object_pose
-        fetch_task = self._commander.fetch_object_async(object_id, object_pose)
-
-    def start(self):
-        self._state = ForagingState.FETCH
-        while True:
-            self._run_loop()
-            time.sleep(0.01)

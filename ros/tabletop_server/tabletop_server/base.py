@@ -1,24 +1,36 @@
-from typing import Any
+from typing import Any, Optional
 
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.client import Client
 from rclpy.exceptions import (
     ParameterAlreadyDeclaredException,
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
+from tf2_ros import Future
 
 
 class BaseNode(Node):
+    """
+    Base class for all nodes.
+
+    This class extends the Node class with common functionality, including
+    parameter declaration, logging, and service calls.
+    """
+
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
     }
     required_params: set[str] = set()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, executor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
         self.log_params()
+
+        self._executor = executor
 
     def log(self, message, severity="INFO"):
         """
@@ -82,24 +94,58 @@ class BaseNode(Node):
         for name, param in params.items():
             self.log(f"{prefix}{name}: {param.value}", severity=severity)
 
-    def service_wait_and_call(
+    def get_nested_parameters(self, prefix: str = "") -> dict:
+        """
+        Retrieves all parameters from a ROS2 node and structures them into a nested dictionary.
+        Namespaces are represented as nested dictionaries.
+        """
+        prefix = (
+            f"{prefix}." if prefix and not prefix.endswith(".") else prefix
+        )
+        params = self.get_parameters_by_prefix(prefix)
+        nested_params = {}
+
+        for name, param in params.items():
+            value = param.value
+            name_parts = name.split(".")
+            current_level = nested_params
+
+            for part in name_parts[:-1]:
+                current_level = current_level.get(part, {})
+
+            current_level[name_parts[-1]] = value
+
+        return nested_params
+
+    def create_future(self, function, *args, callback=None, **kwargs):
+        """
+        Create a future that will be resolved when the task is finished.
+        To wait for the
+        """
+        if self._executor is None:
+            raise ValueError("Executor not set")
+
+        future = self._executor.create_task(function, *args, **kwargs)
+        if callback is not None:
+            future.add_done_callback(callback)
+
+        return future
+
+    def wait_for_service(
         self,
         srv_type,
         srv_name,
-        srv_request,
         wait_timeout=None,
-        call_timeout=None,
     ):
         """
-        Wait for a service to be available and call it.
+        Wait for a service to be available.
         """
-        service_client = self.create_client(srv_type, srv_name)
+        service_client = self.create_client(
+            srv_type, srv_name, callback_group=MutuallyExclusiveCallbackGroup()
+        )
         try:
             # Wait for the service to be available
-            self.log(
-                f"Waiting for {srv_name} service to be available...",
-                severity="INFO",
-            )
+            self.log(f"Waiting for {srv_name} service to be available...")
             wait_timeout = (
                 wait_timeout
                 if wait_timeout is not None
@@ -110,10 +156,33 @@ class BaseNode(Node):
                 self.log(error_msg, severity="ERROR")
                 raise TimeoutError(error_msg)
 
-            self.log(f"{srv_name} service is available", severity="INFO")
+            self.log(f"{srv_name} service is available")
+        finally:
+            service_client.destroy()
 
+    def service_call(
+        self,
+        srv_request: Any,
+        srv_type: type,
+        srv_name: Optional[str] = None,
+        service_client: Optional[Client] = None,
+        call_timeout: Optional[float] = None,
+    ):
+        """
+        Call a service.
+        """
+        service_client = (
+            self.create_client(
+                srv_type,
+                srv_name,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
+            if service_client is None
+            else service_client
+        )
+        try:
             # Call the service
-            self.log(f"Calling {srv_name} service...", severity="INFO")
+            self.log(f"Calling {service_client.service_name} service...")
             call_timeout = (
                 call_timeout
                 if call_timeout is not None
@@ -125,15 +194,70 @@ class BaseNode(Node):
 
             # Check if the service call succeeded
             if response is None:
-                error_msg = f"{srv_name} service call timed out!"
+                error_msg = (
+                    f"{service_client.service_name} service call timed out!"
+                )
                 self.log(error_msg, severity="ERROR")
                 raise TimeoutError(error_msg)
             elif not response.success:
-                error_msg = f"{srv_name} service call failed!"
+                error_msg = (
+                    f"{service_client.service_name} service call failed!"
+                )
                 self.log(error_msg, severity="ERROR")
                 raise RuntimeError(error_msg)
             else:
-                self.log(f"{srv_name} service call succeeded")
+                self.log(
+                    f"{service_client.service_name} service call succeeded"
+                )
                 return response
         finally:
             service_client.destroy()
+
+    def service_call_async(
+        self,
+        srv_request: Any,
+        srv_type: type,
+        srv_name: Optional[str] = None,
+        service_client: Optional[Client] = None,
+    ):
+        """
+        Call a service.
+        """
+        service_client = (
+            self.create_client(
+                srv_type,
+                srv_name,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
+            if service_client is None
+            else service_client
+        )
+        future = service_client.call_async(srv_request)
+        return future, service_client
+
+    async def wait_for_service_future(
+        self,
+        future: Future,
+        service_client_to_destroy: Client,
+    ):
+        """
+        Wait for a service to be available.
+        """
+        # Check if the service call succeeded
+        try:
+            response = await future
+            if response is None:
+                error_msg = f"{service_client_to_destroy.service_name} service call timed out!"
+                self.log(error_msg, severity="ERROR")
+                raise TimeoutError(error_msg)
+            elif not response.success:
+                error_msg = f"{service_client_to_destroy.service_name} service call failed!"
+                self.log(error_msg, severity="ERROR")
+                raise RuntimeError(error_msg)
+            else:
+                self.log(
+                    f"{service_client_to_destroy.service_name} service call succeeded"
+                )
+                return response
+        finally:
+            service_client_to_destroy.destroy()

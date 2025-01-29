@@ -1,4 +1,0 @@
-# A PoseStamped with a link name.
-
-string link
-geometry_msgs/PoseStamped pose_stamped

@@ -2,15 +2,16 @@
 
 OUTPUT_FILE=${1:-graph.md}
 
-NODES_TO_IGNORE="/rosbag2_recorder
-/rviz2
-/forward_position_controller
-/forward_velocity_controller
-/force_mode_controller
-/force_torque_sensor_broadcaster
-/freedrive_mode_controller
-/joint_trajectory_controller
-/passthrough_trajectory_controller"
+NODES_TO_IGNORE=""
+# /rosbag2_recorder
+# /rviz2
+# /forward_position_controller
+# /forward_velocity_controller
+# /force_mode_controller
+# /force_torque_sensor_broadcaster
+# /freedrive_mode_controller
+# /joint_trajectory_controller
+# /passthrough_trajectory_controller"
 
 NODES=$(ros2 node list | grep -vE "$NODES_TO_IGNORE" | tr '\n' ' ')
 echo Nodes: $NODES

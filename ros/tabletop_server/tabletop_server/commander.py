@@ -1,5 +1,5 @@
 from threading import Lock
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
@@ -8,17 +8,20 @@ from moveit.planning import (
     MultiPipelinePlanRequestParameters,
     PlanRequestParameters,
 )
-from moveit_msgs.msg import CollisionObject
+from moveit_msgs.msg import CollisionObject, RobotTrajectory
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
 from shape_msgs.msg import Plane
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
+from tabletop_msgs.msg import TeensySensors
+from tabletop_msgs.srv import SetFloat
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.base_node import BaseNode
+from tabletop_server.base import BaseNode
 from tabletop_server.utils import (
+    MaxAttemptsReachedError,
     pose_stamped_from_params,
 )
 
@@ -42,11 +45,13 @@ class Commander(BaseNode):
         super().__init__(
             "commander",
             automatically_declare_parameters_from_overrides=True,
+            executor=executor,
         )
         # Initialize callback groups
-        self.state_machine_mutex_group = MutuallyExclusiveCallbackGroup()
-        self.reentrant_group = ReentrantCallbackGroup()
-        self._executor = executor
+        self.flic_cg = MutuallyExclusiveCallbackGroup()
+        self.state_machine_cg = MutuallyExclusiveCallbackGroup()
+        self.dashboard_cg = MutuallyExclusiveCallbackGroup()
+        self.reentrant_cg = ReentrantCallbackGroup()
         self._mutex = Lock()
 
         # Initialize MoveItPy
@@ -65,6 +70,13 @@ class Commander(BaseNode):
             self.moveit_py.get_trajectory_execution_manager()
         )
 
+        self.sensors_sub = self.create_subscription(
+            TeensySensors,
+            "/teensy_sensors",
+            self.sensors_callback,
+            callback_group=self.flic_cg,
+        )
+
         # Initialize waypoints
         self.waypoints_path = self.get_parameter("waypoints.path").value
         self.waypoints = {}
@@ -74,7 +86,7 @@ class Commander(BaseNode):
             self.waypoints[name] = pose_stamped_from_params(self, prefix)
 
         if len(self.waypoints) < 1:
-            self.log("No valid waypoints found. Exiting...", severity="ERROR")
+            self.log("No valid waypoints found. Exiting...!", severity="ERROR")
             exit(1)
 
         # Initialize state variables
@@ -87,42 +99,73 @@ class Commander(BaseNode):
         self.timer = self.create_timer(
             self.get_parameter("state_machine_period").value,
             self.state_machine,
-            callback_group=self.state_machine_mutex_group,
+            callback_group=self.state_machine_cg,
         )
 
         self.log("Commander initialized")
-        self._change_state("INITIALIZED")
+        self._change_state("RESET")
 
-    def setup_planning_scene(self):
+    def smartglass_occlude(
+        self,
+        occlude: bool,
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> SetBool.Response | Callable:
         """
-        Setup the planning scene by adding a floor collision object.
+        Occlude the smartglass.
         """
-        collision_object = CollisionObject()
-        collision_object.header.frame_id = "world"
-        collision_object.id = "floor"
+        return self.service_call(
+            srv_type=SetBool,
+            srv_name="/dashboard_client/occlude_smartglass",
+            srv_request=SetBool.Request(data=occlude),
+            blocking=blocking,
+            callback=callback,
+        )
 
-        plane = Plane()
-        plane.coef = [0, 0, 1, 0]
+    def arm_door(
+        self,
+        open: bool,
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> SetBool.Response | Callable:
+        return self.service_call(
+            srv_type=SetBool,
+            srv_name="/dashboard_client/arm_door_open",
+            srv_request=SetBool.Request(data=open),
+            blocking=blocking,
+            callback=callback,
+        )
 
-        collision_object.planes.append(plane)
+    def reward(
+        self,
+        duration_ms,
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> SetFloat.Response | Callable:
+        return self.service_call(
+            srv_type=SetFloat,
+            srv_name="/dashboard_client/reward",
+            srv_request=SetFloat.Request(data=duration_ms),
+            blocking=blocking,
+            callback=callback,
+        )
 
-        collision_object.operation = CollisionObject.ADD
+    def reset_hand_fixation(
+        self,
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> Trigger.Response | Callable:
+        return self.service_call(
+            srv_type=Trigger,
+            srv_name="/dashboard_client/reset_hand_fixation",
+            srv_request=Trigger.Request(),
+            blocking=blocking,
+            callback=callback,
+        )
 
-        with self.planning_scene_monitor.read_write() as scene:
-            scene.apply_collision_object(collision_object)
-            scene.current_state.update()
-
-    def log(self, message, severity="INFO"):
-        if severity == "DEBUG":
-            self.get_logger().debug(message)
-        elif severity == "INFO":
-            self.get_logger().info(message)
-        elif severity == "WARN":
-            self.get_logger().warning(message)
-        elif severity == "ERROR":
-            self.get_logger().error(message)
-        elif severity == "FATAL":
-            self.get_logger().fatal(message)
+    def reset_flic_button(self):
+        with self._mutex:
+            self._flic_button_state = False
 
     def dashboard_trigger(
         self, srv_name, wait_timeout=None, call_timeout=None
@@ -181,17 +224,17 @@ class Commander(BaseNode):
             self._change_state("RUNNING")
         except Exception as e:
             self.log(
-                f"Error resetting robot: {type(e).__name__}: {e}",
+                f"Error resetting robot: {type(e).__name__}: {e}!",
                 severity="ERROR",
             )
             self.reset_attempts += 1
             max_reset_attempts = self.get_parameter("max_reset_attempts").value
             if self.reset_attempts >= max_reset_attempts:
                 self.log(
-                    "Max reset attempts reached, entering ERROR state",
+                    "Max reset attempts reached, entering ERROR state!",
                     severity="ERROR",
                 )
-                raise TimeoutError("Max reset attempts reached")
+                raise MaxAttemptsReachedError("Max reset attempts reached!")
             else:
                 self.log(
                     f"Resetting robot failed, trying again ({self.reset_attempts}/{max_reset_attempts} attempts)...",
@@ -231,106 +274,187 @@ class Commander(BaseNode):
                 return self.planning_component.plan(
                     multi_plan_parameters=request_params
                 )
+            except Exception as e:
+                self.log(f"Error planning: {e}", level="error")
+                self.change_state("ERROR")
+                return
 
     def plan(
         self,
         goal: PoseStamped,
         pose_link: Optional[str] = None,
-        done_callback=None,
-    ):
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> RobotTrajectory | Callable:
         """
         Plan the trajectory to the current waypoint synchronously.
         """
-        if done_callback:
-            self._plan_task = self._executor.create_task(
-                self._plan(), args=(goal, pose_link)
-            )
-            self._plan_task.add_done_callback(done_callback)
-            return self._plan_task
+
+        future = self.create_future(
+            self._plan,
+            callback=callback,
+            goal=goal,
+            pose_link=pose_link,
+        )
+
+        if blocking:
+            future()
+            return future.result()
         else:
-            return self._plan(goal, pose_link)
+            return future
 
-    def plan_callback(self, task):
-        """
-        Done callback for the planning of the trajectory to the current waypoint.
-        """
-        assert self.state == "PLANNING"
-        # Check if the planning succeeded
-        try:
-            self.plan_result = task.result()
-            if self.plan_result is None:
-                self.log(
-                    "Planning failed and returned None!", severity="ERROR"
-                )
-            elif self.plan_result.error_code.val != 1:
-                self.log(
-                    f"Planning failed with error code {self.plan_result.error_code.val}",
-                    severity="WARN",
-                )
-            else:
-                self.plan_attempts = 0
-                self.log("Planning finished!")
-                self.change_state("PLANNED")
-                return
-        except Exception as e:
-            self.log(
-                f"Planning failed with exception {type(e).__name__}: {e}",
-                severity="ERROR",
-            )
-
-        # Check if we have reached the maximum number of planning attempts
-        self.plan_attempts += 1
-        max_plan_attempts = self.get_parameter("max_plan_attempts").value
-        if self.plan_attempts >= max_plan_attempts:
-            self.log(
-                f"Max planning attempts ({max_plan_attempts}) reached, entering ERROR state",
-                severity="ERROR",
-            )
-            self.change_state("ERROR")
-        else:
-            self.log(
-                f"Planning failed, trying again ({self.plan_attempts}/{max_plan_attempts} attempts)...",
-                severity="WARN",
-            )
-            self.change_state("READY")
-
-    def execution_callback(self, response):
-        """
-        Done callback for the execution of the current plan.
-        """
-        if response.status == "SUCCEEDED":
-            self.log("Execution succeeded!")
-            self.execution_attempts = 0
-        else:
-            self.log(
-                f"Execution failed with status {response.status}",
-                severity="WARN",
-            )
-
-            # Check if we have reached the maximum number of execution attempts
-            self.execution_attempts += 1
-            max_execution_attempts = self.get_parameter(
-                "max_execution_attempts"
-            ).value
-            if self.execution_attempts >= max_execution_attempts:
-                self.log(
-                    f"Max execution attempts ({max_execution_attempts}) reached, entering ERROR state",
-                    severity="ERROR",
-                )
-                self._change_state("ERROR")
-            else:
-                self.log(
-                    f"Execution failed, trying again ({self.execution_attempts}/{max_execution_attempts} attempts)...",
-                    severity="WARN",
-                )
-
-    def execute(self, robot_trajectory, done_callback=None):
+    def execute(
+        self, robot_trajectory, blocking=True, done_callback=None
+    ) -> Callable:
         """
         Start the execution of the plan asynchronously and add a callback to
         handle the execution result (non-blocking).
         """
         self.trajectory_execution_manager.push(robot_trajectory)
-        self.trajectory_execution_manager.execute(done_callback)
+
+        if blocking:
+            return self.trajectory_execution_manager.execute_and_wait()
+        else:
+            self.trajectory_execution_manager.execute(done_callback)
+            return self.trajectory_execution_manager.wait_for_execution
+
+    def _plan_and_execute(
+        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
+    ):
+        # Plan the trajectory
+        failure_msgs = []
+        max_plan_attempts = self.get_parameter("max_plan_attempts").value
+        for i in range(max_plan_attempts):
+            try:
+                plan_result = self._plan(pose_stamped, pose_link)
+                if plan_result:
+                    break
+                else:
+                    error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} failed with error code {plan_result.error_code}"
+                    failure_msgs.append(error_msg)
+                    self.log(
+                        error_msg,
+                        severity="WARN",
+                    )
+            except Exception as e:
+                error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} raised exception {type(e).__name__}: {e}"
+                failure_msgs.append(error_msg)
+                self.log(
+                    error_msg,
+                    severity="WARN",
+                )
+        else:
+            error_msg = f"Max planning attempts ({max_plan_attempts}) reached!: {failure_msgs}"
+            self.log(error_msg, severity="ERROR")
+            self._change_state("ERROR")
+            raise MaxAttemptsReachedError(error_msg)
+
+        # Execute the plan
+        failure_msgs = []
+        max_execution_attempts = self.get_parameter(
+            "max_execution_attempts"
+        ).value
+        for i in range(max_execution_attempts):
+            try:
+                execution_status = self.execute_and_wait(
+                    plan_result.trajectory.get_robot_trajectory_msg()
+                )
+                if execution_status:
+                    break
+                else:
+                    error_msg = f"Execution attempt {i + 1}/{max_execution_attempts} failed with status {execution_status.status}"
+                    failure_msgs.append(error_msg)
+                    self.log(
+                        error_msg,
+                        severity="WARN",
+                    )
+            except Exception as e:
+                error_msg = f"Execution attempt {i + 1}/{max_execution_attempts} raised exception {type(e).__name__}: {e}"
+                failure_msgs.append(error_msg)
+                self.log(
+                    error_msg,
+                    severity="WARN",
+                )
+        else:
+            error_msg = f"Max execution attempts ({max_execution_attempts}) reached!: {failure_msgs}"
+            self.log(error_msg, severity="ERROR")
+            self._change_state("ERROR")
+            raise MaxAttemptsReachedError(error_msg)
+
+    def plan_and_execute(
+        self,
+        pose_stamped: PoseStamped,
+        pose_link: Optional[str] = None,
+        blocking: bool = True,
+        callback: Optional[Callable] = None,
+    ) -> Callable:
+        future = self.create_future(
+            self._plan_and_execute,
+            callback=callback,
+            pose_stamped=pose_stamped,
+            pose_link=pose_link,
+        )
+        if blocking:
+            future()
+            return future.result()
+        else:
+            return future
+
+    def setup_planning_scene(self):
+        """
+        Setup the planning scene by adding a floor collision object.
+        """
+        with self.planning_scene_monitor.read_write() as scene:
+            collision_object = CollisionObject()
+            collision_object.header.frame_id = "world"
+            collision_object.id = "floor"
+
+            plane = Plane()
+            plane.coef = [0, 0, 1, 0]
+
+            collision_object.planes.append(plane)
+
+            collision_object.operation = CollisionObject.ADD
+
+            scene.apply_collision_object(collision_object)
+            scene.current_state.update()
+
+    def attach_object(self, object_id):
+        with self.planning_scene_monitor.read_write() as scene:
+            scene.remove_collision_object(object_id)
+            scene.current_state.update()
+
+    def _fetch_object(self, object_id, reference_frame_id="world"):
+        self.log(f"Fetching object {object_id}")
+        with self.planning_scene_monitor.read_only() as scene:
+            object_pose = scene.get_frame_transform(object_id)
+
+            target_pose = PoseStamped()
+            target_pose.header.frame_id = reference_frame_id
+            target_pose.pose = object_pose.pose
+            target_pose.pose.position.z -= 0.1  # Move 10cm below the object
+
+            self._plan_and_execute(target_pose)
+
+            target_pose.header.frame_id = reference_frame_id
+
+    def return_object(self, object_id):
+        self.log(f"Returning object {object_id}")
+        with self.planning_scene_monitor.read_only() as scene:
+            object_pose = scene.get_object_pose(object_id)
+            if object_pose is None:
+                self.log(
+                    f"Object {object_id} not found in planning scene",
+                    severity="ERROR",
+                )
+                return
+
+            target_pose = PoseStamped()
+            target_pose.header = object_pose.header
+            target_pose.pose = object_pose.pose
+            target_pose.pose.position.z -= 0.1  # Move 10cm below the object
+
+            self.plan_and_execute(target_pose)
 
     @property
     def state(self):
@@ -343,123 +467,40 @@ class Commander(BaseNode):
         self.log(f"Changing state to {state}")
         self._state = state
 
-    def _plan_and_execute(
-        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
-    ):
-        for _ in range(self.get_parameter("max_plan_attempts").value):
-            plan_result = self._plan(pose_stamped, pose_link)
-            if plan_result:
-                self.plan_attempts = 0
-                self.log("Planning finished!")
-                break
-            else:
-                self.log("Planning failed!", severity="ERROR")
-                raise TimeoutError("Max planning attempts reached")
-        else:
-            self._change_state("ERROR")
-            raise TimeoutError(
-                f"Max planning attempts ({self.get_parameter('max_plan_attempts').value}) reached"
-            )
-
-        for _ in range(self.get_parameter("max_execution_attempts").value):
-            response = self.execute_and_wait(
-                plan_result.trajectory.get_robot_trajectory_msg()
-            )
-            if response.status == "SUCCEEDED":
-                break
-        else:
-            raise TimeoutError(
-                f"Max execution attempts ({self.get_parameter('max_execution_attempts').value}) reached"
-            )
-
-    def plan_and_execute(
-        self,
-        pose_stamped: PoseStamped,
-        pose_link: Optional[str] = None,
-    ):
-        return self._plan_and_execute(pose_stamped, pose_link)
-
-    def plan_and_execute_async(
-        self,
-        pose_stamped: PoseStamped,
-        pose_link: Optional[str] = None,
-        done_callback=None,
-    ):
-        task = self._executor.create_task(
-            self._plan_and_execute(), args=(pose_stamped, pose_link)
-        )
-        if done_callback:
-            task.add_done_callback(done_callback)
-        return task
-
-    def smartglass_occlude(self):
-        """
-        Occlude the smartglass.
-        """
-        self.service_wait_and_call(
-            srv_type=Trigger,
-            srv_name="/dashboard_client/occlude_smartglass",
-            srv_request=Trigger.Request(),
-        )
-
-    def smartglass_reveal(self):
-        self.log("Revealing smartglass")
-
-    def arm_door_open(self):
-        self.log("Opening arm door")
-
-    def arm_door_close(self):
-        self.log("Closing arm door")
-
-    def reward(self, duration_ms):
-        self.log(f"Rewarding for {duration_ms} ms")
-
-    def fetch_object(self, object_id, object_pose):
-        # Note: We may want an intermediate level here, e.g. "ObjectMap",
-        # to handle converting the fetch command to a series of waypoints, based
-        # on the rig configuration. I don't know if this is best done as an
-        # argument to ForagingTask or in the Commander node.
-        self.log(f"Fetching object {object_id} at pose {object_pose}")
-
-    def return_object(self, object_id):
-        self.log(f"Returning object {object_id}")
-
-    def move_to_position_sync(self, position):
-        self.log(f"Moving to position {position}")
-
-    def t_hand_fixation_off(self):
-        return self._hand_fixation_process()
-
-    def t_flic_button(self):
-        return self._flic_button_process()
-
     def state_machine(self):
         """
         State machine for the commander node.
         """
         match self.state:
-            case "INITIALIZED":
+            case "RESET":
                 self.reset_robot()
-            case "READY":
+            case "RUNNING":
                 pass
             case "ERROR":
                 self.log(
-                    "Commander entered ERROR state, resetting...",
+                    "Commander entered ERROR state, resetting...!",
                     severity="ERROR",
                 )
                 self.reset_robot()
             case _:
-                raise ValueError(f"Invalid state: {self.state}")
+                raise ValueError(f"Invalid state: {self.state}!")
+
+    def destroy_node(self):
+        self.moveit_py.shutdown()
+        super().destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    executor = rclpy.executors.MultiThreadedExecutor()
+    try:
+        executor = rclpy.executors.MultiThreadedExecutor()
+        commander = Commander(executor)
+        executor.add_node(commander)
 
-    commander = Commander(executor)
-
-    executor.add_node(commander)
-    executor.spin()
-
-    commander.destroy_node()
-    rclpy.shutdown()
+        try:
+            executor.spin()
+        finally:
+            executor.shutdown()
+            commander.destroy_node()
+    finally:
+        rclpy.shutdown()
