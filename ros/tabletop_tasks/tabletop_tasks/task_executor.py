@@ -2,9 +2,10 @@ import asyncio
 
 import rclpy
 import yaml
-from tabletop_server.commander import Commander
+from tabletop_server.nodes import Commander
 
 from tabletop_tasks.tasks import ForagingTask, SmoothPursuit
+from tabletop_tasks.utils import without_keys
 
 
 async def _run(commander):
@@ -16,12 +17,12 @@ async def _run(commander):
             case "smooth_pursuit":
                 task = SmoothPursuit(
                     commander=commander,
-                    **task_config,
+                    **without_keys(task_config, "type"),
                 )
             case "foraging":
                 task = ForagingTask(
                     commander=commander,
-                    **task_config,
+                    **without_keys(task_config, "type"),
                 )
             case _:
                 raise ValueError(f"Unknown task type: {task_config['type']}")

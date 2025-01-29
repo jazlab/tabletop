@@ -2,6 +2,7 @@
 
 import abc
 import collections
+from typing import Any, Generator
 
 # TrialSpec contains the specification for a foraging task trial
 TrialSpec = collections.namedtuple(
@@ -18,17 +19,6 @@ class BaseTrialGenerator(abc.ABC):
     """Base class for trial generators."""
 
     @abc.abstractmethod
-    def __call__(self) -> TrialSpec:
+    def __iter__(self) -> Generator[TrialSpec, Any, None]:
         """Generate a new trial."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def feedback(
-        self,
-        trial_spec: TrialSpec,
-        broke_fixation: bool,
-        reaction_time: float,
-        timeout: float,
-    ) -> None:
-        """Provide feedback for trial."""
         raise NotImplementedError
