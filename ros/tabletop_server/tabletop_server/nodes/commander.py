@@ -105,30 +105,32 @@ class Commander(BaseNode):
         self.log("Commander initialized")
         self._change_state("RESET")
 
-    def smartglass_occlude(
+    def smartglass_occlude_async(
         self,
     ) -> SetBool.Response | Callable:
         """
         Occlude the smartglass.
         """
-        return self.service_call(
+        return self.service_call_async(
             srv_request=SetBool.Request(data=True),
             srv_type=SetBool,
             srv_name="/smartglass_control",
         )
 
-    def arm_door_control(
+    def smart_glass_reveal_async(
         self,
-        open: bool,
-        blocking: bool = True,
-        callback: Optional[Callable] = None,
     ) -> SetBool.Response | Callable:
+        return self.service_call_async(
+            srv_type=SetBool,
+            srv_name="/dashboard_client/smart_glass_reveal",
+            srv_request=SetBool.Request(data=True),
+        )
+
+    def arm_door_open(self) -> Future:
         return self.service_call(
             srv_type=SetBool,
             srv_name="/dashboard_client/arm_door_open",
             srv_request=SetBool.Request(data=open),
-            blocking=blocking,
-            callback=callback,
         )
 
     def reward(

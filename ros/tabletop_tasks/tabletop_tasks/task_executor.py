@@ -13,6 +13,14 @@ async def _run(commander):
     config = yaml.safe_load(config_file)
 
     for task_config in config["tasks"]:
+        trial_generator_constructor = trials_generator_config["constructor"]
+        trial_generator_kwargs = without_keys(
+            trials_generator_config, "constructor"
+        )
+        trial_generator = importlib.import_module(trial_generator_constructor)(
+            **trial_generator_kwargs
+        )
+
         match task_config["type"]:
             case "smooth_pursuit":
                 task = SmoothPursuit(
