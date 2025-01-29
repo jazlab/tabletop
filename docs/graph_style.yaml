@@ -26,17 +26,17 @@ links_style:
   action_server: fill:none,stroke:green;
   action_client: fill:none,stroke:green;
 display_keys: True
-ignore:
-  nodes:
-    - /Graph_generator
-    - /rosbag2_recorder
-    - /rviz2
-    - /forward_position_controller
-    - /forward_velocity_controller
-    - /force_mode_controller
-    - /freedrive_mode_controller
-    - /joint_trajectory_controller
-    - /passthrough_trajectory_controller
-  topics: []
-  services: []
-  actions: []
+# ignore:
+#   nodes:
+#     - /Graph_generator
+#     - /rosbag2_recorder
+#     - /rviz2
+#     - /forward_position_controller
+#     - /forward_velocity_controller
+#     - /force_mode_controller
+#     - /freedrive_mode_controller
+#     - /joint_trajectory_controller
+#     - /passthrough_trajectory_controller
+#   topics: []
+#   services: []
+#   actions: []

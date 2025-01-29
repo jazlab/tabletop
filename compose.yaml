@@ -35,9 +35,9 @@ services:
     platform: linux/amd64
     pid: host
     volumes:
-      - ./ursim/urcaps:/urcaps
-      - ./ursim/programs:/ursim/programs
-      - ./ursim/entrypoint.sh:/entrypoint.sh
+      - ./ur_robot/urcaps:/urcaps
+      - ./ur_robot/programs:/ursim/programs
+      - ./ur_robot/entrypoint.sh:/entrypoint.sh
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10

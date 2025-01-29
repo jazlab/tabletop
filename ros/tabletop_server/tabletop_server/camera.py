@@ -1,32 +1,26 @@
 import cv2
 import rclpy
-import rosbag2_py
 from cv_bridge import CvBridge
-from rclpy.node import Node
 from sensor_msgs.msg import Image
 
+from tabletop_server.base import BaseNode
 
-class CameraNode(Node):
+
+class CameraReaderWriter(BaseNode):
+    default_params = {
+        "camera_topic": "camera/image",
+        "camera_frame": "camera",
+        "camera_fps": 30,
+    }
+
     def __init__(self):
-        super().__init__("camera_node")
+        super().__init__("camera_reader_writer")
         self.publisher = self.create_publisher(Image, "camera/image", 10)
         self.bridge = CvBridge()
         self.cap = cv2.VideoCapture(0)
-        self.create_timer(0.1, self.timer_callback)
-        self.bag_writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(
-            uri="camera_data", storage_id="sqlite3"
+        self.create_timer(
+            1 / self.get_parameter("camera_fps").value, self.timer_callback
         )
-        converter_options = rosbag2_py.ConverterOptions(
-            input_serialization_format="cdr", output_serialization_format="cdr"
-        )
-        self.bag_writer.open(storage_options, converter_options)
-        topic_info = rosbag2_py.TopicMetadata(
-            name="camera/image",
-            type="sensor_msgs/msg/Image",
-            serialization_format="cdr",
-        )
-        self.bag_writer.create_topic(topic_info)
 
     def timer_callback(self):
         ret, frame = self.cap.read()
@@ -36,15 +30,22 @@ class CameraNode(Node):
 
     def __del__(self):
         self.cap.release()
-        self.bag_writer.close()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    camera_node = CameraNode()
-    rclpy.spin(camera_node)
-    camera_node.destroy_node()
-    rclpy.shutdown()
+    try:
+        executor = rclpy.executors.MultiThreadedExecutor()
+        camera_reader_writer = CameraReaderWriter(executor)
+        executor.add_node(camera_reader_writer)
+
+        try:
+            executor.spin()
+        finally:
+            executor.shutdown()
+            camera_reader_writer.destroy_node()
+    finally:
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

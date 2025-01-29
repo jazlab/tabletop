@@ -5,7 +5,7 @@
 
   <version>0.0.0</version>
 
-  <description>The TeensyBoard node definitions for the Tabletop project.</description>
+  <description>The TeensyBoard Micro-ROS node definitions for the Tabletop project.</description>
 
   <maintainer email="valmiki.kothare.vk@gmail.com">valmiki</maintainer>
 

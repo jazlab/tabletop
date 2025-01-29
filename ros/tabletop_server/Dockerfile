@@ -21,6 +21,4 @@ RUN echo "source /root/ws/install/setup.bash" >> $HOME/.bashrc
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 
-CMD ["bash", "-c", "\
-    source /root/ws/src/tabletop/scripts/build.sh  && \
-    ros2 launch tabletop_server server.launch.py"]
+CMD ["bash"]

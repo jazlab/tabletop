@@ -14,4 +14,5 @@
 **egg-info/
 
 # Ignore vscode files
-.vscode/
+.vscode/c_cpp_properties.json
+.vscode/settings.json
