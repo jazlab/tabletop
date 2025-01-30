@@ -7,12 +7,32 @@ from std_srvs.srv import SetBool
 from tabletop_msgs.msg import TeensySensor
 from tabletop_msgs.srv import SetFloat
 
+pin_states = [bool(random.getrandbits(1)) for _ in range(55)]
+
+
+def digitalWrite(pin: int, value: bool):
+    pin_states[pin] = value
+
+
+def digitalRead(pin: int) -> bool:
+    return pin_states[pin]
+
 
 class MockTeensy(Node):
     def __init__(self):
         super().__init__("server")
 
         self.reentrant_cg = ReentrantCallbackGroup()
+
+        self.pin = {
+            "arm_door_control": 2,
+            "smartglass_control": 3,
+            "reward_control": 4,
+            "arm_door_state": 5,
+            "smartglass_state": 6,
+            "reward_state": 7,
+            "hand_fixation_state": 8,
+        }
 
         self.arm_door_service = self.create_service(
             SetBool,
@@ -35,39 +55,31 @@ class MockTeensy(Node):
             callback_group=self.reentrant_cg,
         )
 
-        self.hand_fixation_service = self.create_service(
-            SetBool,
-            "hand_fixation",
-            self.hand_fixation_callback,
-            callback_group=self.reentrant_cg,
-        )
-
         self.sensor_pub = self.create_publisher(TeensySensor, "sensors", 1000)
 
-    def arm_door_callback(self, request, response):
-        self.get_logger().info("Received arm door request")
+    def arm_door_callback(
+        self, request: SetBool.Request, response: SetBool.Response
+    ):
+        pin = self.pin["arm_door_control"]
+        digitalWrite(pin, request.data)
 
-        response.success = random.random() < 0.9
         if response.success:
             self.get_logger().info("Arm door opened")
             response.message = "Arm door opened"
         else:
             self.get_logger().info("Arm door failed to open")
             response.message = "Arm door failed to open"
-
         return response
 
-    def smartglass_callback(self, request, response):
-        self.get_logger().info("Received smartglass request")
+    def smartglass_callback(
+        self, request: SetBool.Request, response: SetBool.Response
+    ):
+        return self.random_response_success(request, response)
 
-        response.success = random.random() < 0.9
-        if response.success:
-            self.get_logger().info("Smartglass opened")
-            response.message = "Smartglass opened"
-        else:
-            self.get_logger().info("Smartglass failed to open")
-            response.message = "Smartglass failed to open"
-        return response
+    def reward_callback(
+        self, request: SetFloat.Request, response: SetFloat.Response
+    ):
+        return self.random_response_success(request, response)
 
 
 def main(args=None):

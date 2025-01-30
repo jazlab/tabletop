@@ -4,7 +4,9 @@ import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
+from rclpy.client import Client
 from rclpy.node import Node
+from rclpy.task import Future
 
 
 class MaxAttemptsReachedError(Exception):
@@ -71,3 +73,14 @@ def pose_stamped_from_params(node: Node, prefix: str):
     )
     pose_stamped.pose = pose
     return pose_stamped
+
+
+class ClientFuture(Future):
+    def __init__(self, client: Client, future: Future):
+        self.client = client
+        super().__init__(future)
+
+    def destroy(self):
+        if self.client is not None:
+            self.client.destroy()
+            self.client = None

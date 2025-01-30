@@ -117,6 +117,12 @@ You may experience issues with the Universal Robots Simulator otherwise.
     git clone https://github.com/jazlab/tabletop.git
     ```
 
+3. Upload the Micro-ROS Client software to the Teensy:
+
+    ```bash
+    ./scripts/upload_teensy.sh
+    ```
+
 ## Usage
 
 ### Starting Docker Containers
