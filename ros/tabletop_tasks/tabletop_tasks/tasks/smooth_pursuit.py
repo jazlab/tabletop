@@ -7,7 +7,7 @@ import time
 import numpy as np
 from geometry_msgs.msg import Point, Pose, PoseStamped
 from std_msgs.msg import Header
-from tabletop_server.commander import Commander
+from tabletop_server.nodes.commander import Commander
 from tabletop_server.utils import quaternion_from_euler
 
 

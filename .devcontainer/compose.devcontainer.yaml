@@ -7,6 +7,9 @@ services:
       pull: true
     volumes:
       - ../../..:/root/ws
+      - ./starship.toml:/root/.config/starship.toml
+    devices:
+      - /dev/ttyACM0
     hostname: devcontainer
     networks:
       tabletop_net:

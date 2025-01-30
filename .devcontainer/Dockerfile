@@ -24,7 +24,8 @@ SHELL ["/bin/bash", "-c"]
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y \
     && echo 'eval "$(starship init bash)"' >> /root/.bashrc
 
-COPY ./starship.toml /root/.config/starship.toml
+RUN curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py \
+    && python3 get-platformio.py
 
 RUN mkdir -p venv \
     && python3 -m venv venv \
@@ -36,6 +37,11 @@ RUN mkdir -p venv \
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc
 RUN echo "source /root/ws/install/setup.bash" >> /root/.bashrc
+RUN echo "PATH=\$PATH:/root/.platformio/penv/bin" >> /root/.bashrc
+
+
+COPY ../ros/tabletop_server/00-teensy.rules /etc/udev/rules.d/00-teensy.rules
+
 
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1

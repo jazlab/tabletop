@@ -121,7 +121,7 @@ class BaseNode(Node):
         self,
         function: Callable,
         *args,
-        callback: Optional[Callable] = None,
+        done_callback: Optional[Callable] = None,
         **kwargs,
     ) -> Future:
         """
@@ -132,8 +132,8 @@ class BaseNode(Node):
             raise ValueError("Executor not set")
 
         future = self._executor.create_task(function, *args, **kwargs)
-        if callback is not None:
-            future.add_done_callback(callback)
+        if done_callback is not None:
+            future.add_done_callback(done_callback)
 
         return future
 
@@ -175,7 +175,7 @@ class BaseNode(Node):
         call_timeout: Optional[float] = None,
     ):
         """
-        Call a service.
+        Call a service synchronously, returning the response.
         """
         service_client = (
             self.create_client(
@@ -227,7 +227,8 @@ class BaseNode(Node):
         service_client: Optional[Client] = None,
     ) -> tuple[Future[T.Response], Client]:
         """
-        Call a service.
+        Call a service asynchronously, returning a future and the service
+        client.
         """
         service_client = (
             self.create_client(
@@ -244,10 +245,13 @@ class BaseNode(Node):
     async def wait_for_service_future[T](
         self,
         future: Future[T.Response],
-        service_client_to_destroy: Client[T.Request, T.Response],
+        service_client_to_destroy: Optional[
+            Client[T.Request, T.Response]
+        ] = None,
     ) -> T.Response:
         """
-        Wait for a service to be available.
+        Wait for a service future to be resolved, returning the response and
+        destroying the service client, if provided.
         """
         # Check if the service call succeeded
         try:
@@ -266,4 +270,5 @@ class BaseNode(Node):
                 )
                 return response
         finally:
-            service_client_to_destroy.destroy()
+            if service_client_to_destroy is not None:
+                service_client_to_destroy.destroy()

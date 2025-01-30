@@ -18,6 +18,8 @@ RUN apt-get update \
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source /root/ws/install/setup.bash" >> $HOME/.bashrc
 
+COPY ./00-teensy.rules /etc/udev/rules.d/00-teensy.rules
+
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV PYTHONUNBUFFERED 1
 

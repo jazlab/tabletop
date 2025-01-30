@@ -13,6 +13,7 @@ from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
+from rclpy.task import Future
 from shape_msgs.msg import Plane
 from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.msg import TeensySensors
@@ -235,7 +236,7 @@ class Commander(BaseNode):
                     severity="WARN",
                 )
 
-    def _plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
+    def plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
         """
         Coroutine to plan the trajectory from the current state to the current
         waypoint.
@@ -273,44 +274,36 @@ class Commander(BaseNode):
                 self.change_state("ERROR")
                 return
 
-    def plan(
+    def plan_async(
         self,
         goal: PoseStamped,
         pose_link: Optional[str] = None,
-        blocking: bool = True,
-        callback: Optional[Callable] = None,
+        done_callback: Optional[Callable] = None,
     ) -> RobotTrajectory | Callable:
         """
-        Plan the trajectory to the current waypoint synchronously.
+        Plan the trajectory to the current waypoint asynchronously.
         """
 
-        future = self.create_future(
-            self._plan,
-            callback=callback,
+        return self.create_future(
+            self.plan,
+            done_callback=done_callback,
             goal=goal,
             pose_link=pose_link,
         )
 
-        if blocking:
-            future()
-            return future.result()
-        else:
-            return future
-
-    def execute(
-        self, robot_trajectory, blocking=True, done_callback=None
-    ) -> Callable:
+    def execute(self, robot_trajectory) -> Callable:
         """
         Start the execution of the plan asynchronously and add a callback to
         handle the execution result (non-blocking).
         """
         self.trajectory_execution_manager.push(robot_trajectory)
+        self.trajectory_execution_manager.execute_and_wait()
 
-        if blocking:
-            return self.trajectory_execution_manager.execute_and_wait()
-        else:
-            self.trajectory_execution_manager.execute(done_callback)
-            return self.trajectory_execution_manager.wait_for_execution
+    def execute_async(
+        self, robot_trajectory, done_callback: Optional[Callable] = None
+    ) -> Callable:
+        self.trajectory_execution_manager.push(robot_trajectory)
+        self.trajectory_execution_manager.execute(done_callback)
 
     def _plan_and_execute(
         self, pose_stamped: PoseStamped, pose_link: Optional[str] = None

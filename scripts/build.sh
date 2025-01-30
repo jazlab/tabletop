@@ -2,16 +2,26 @@
 
 set -e
 
-SCRIPT_DIR=$(dirname $(readlink -f $0))
+SCRIPT_DIR=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
 source $SCRIPT_DIR/utils.sh
 WS_DIR=$(get_parent_dir $SCRIPT_DIR 3)
 
 # Parse arguments
-CMAKE_ARGS=()
+CMAKE_ARGS=""
+CLEAN=false
+BUILD_MICRO_ROS_SETUP=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --debug)
             CMAKE_ARGS="--cmake-args -DCMAKE_BUILD_TYPE=Debug"
+            shift
+            ;;
+        --clean)
+            CLEAN=true
+            shift
+            ;;
+        --build-micro-ros-setup)
+            BUILD_MICRO_ROS_SETUP=true
             shift
             ;;
         *)
@@ -22,19 +32,39 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "$CLEAN" == "true" ]]; then
+    $SCRIPT_DIR/clean_ws.sh
+fi
+
+PACKAGES_TO_SKIP=("micro_ros_agent")
+if [[ "$CLEAN" != "true" ]] && [[ "$BUILD_MICRO_ROS_SETUP" != "true" ]]; then
+    PACKAGES_TO_SKIP+=("micro_ros_setup")
+fi
 
 pushd $WS_DIR
-source /opt/ros/jazzy/setup.bash
+
+echo "Installing ROS 2 dependencies"
+source /opt/ros/$ROS_DISTRO/setup.bash
 rosdep update
-rosdep install --from-paths src -i -y
+rosdep install --from-paths src --ignore-src -y
+echo ""
+
+echo "Building ROS 2 packages"
 colcon build --symlink-install \
+        --packages-skip ${PACKAGES_TO_SKIP[@]} \
         --event-handlers console_cohesion+ \
-        --base-paths /root/ws \
-        "$CMAKE_ARGS"
+        $CMAKE_ARGS
+echo ""
+
+source install/setup.bash
+ros2 run micro_ros_setup build_agent.sh
+source install/setup.bash
+echo ""
+
+echo "Creating bags directory"
 mkdir -p bags
 
-if ! grep -Fxq "source $WS_DIR/install/setup.bash" $HOME/.bashrc
-then
-    echo "source $WS_DIR/install/setup.bash" >> $HOME/.bashrc
-fi
+echo "Adding ROS 2 setup to bashrc"
+$SCRIPT_DIR/update_bashrc.sh
+
 popd

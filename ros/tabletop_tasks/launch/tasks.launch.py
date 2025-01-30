@@ -252,7 +252,7 @@ def launch_setup(context):
             "planning.pipeline": planning_pipeline.perform(context).split(","),
             "waypoints.path": waypoints_path.perform(context).split(","),
         }.items()
-        if value not in ["none", ["none"]]
+        if value.lower() not in set(["none", "null", "[none]", "[null]"])
     }
     task_executor_overrides = {
         "/task_executor": {"ros__parameters": task_executor_overrides}
