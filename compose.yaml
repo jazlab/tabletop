@@ -5,6 +5,7 @@ services:
     build:
       context: ./novnc
       pull: true
+    pull_policy: build
     ports:
       - 8080:8080
     networks:
@@ -58,8 +59,9 @@ services:
       novnc:
         condition: service_healthy
     build:
-      context: ./ros/tabletop_server
+      context: ./ros
       pull: true
+    pull_policy: build
     ports:
       - 50001:50001
       - 50002:50002
@@ -78,9 +80,7 @@ services:
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     command: bash -c
-      "/root/ws/src/tabletop/scripts/build.sh
-      && source /opt/ros/jazzy/setup.bash
-      && source /root/ws/install/setup.bash
+      "source /root/ws/src/tabletop/scripts/build.sh
       && $$LAUNCH_COMMAND"
 
   server_x11:
@@ -89,6 +89,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
     environment:
       - DISPLAY=$DISPLAY
+    image: tabletop-server
 
 networks:
   tabletop_net:

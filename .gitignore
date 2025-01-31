@@ -12,10 +12,13 @@
 **install/
 **dist/
 **egg-info/
+**.pio/
 
 # Ignore vscode files
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+ros/tabletop_teensy/.vscode/
 
-# Ignore micro_ros_agent
-**uros/
+# Ignore micro_ros
+ros/uros/
+ros/ros2.repos

@@ -7,7 +7,7 @@ WS_DIR=$(get_parent_dir $SCRIPT_DIR 3)
 _commands=(
     "source /opt/ros/$ROS_DISTRO/setup.bash"
     "source $WS_DIR/install/setup.bash"
-    "PATH=\$PATH:/root/.platformio/penv/bin"
+    "PATH=$HOME/.local/bin:\$PATH"
 )
 
 for _command in "${_commands[@]}"; do

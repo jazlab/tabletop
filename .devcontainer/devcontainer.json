@@ -27,7 +27,8 @@
                 "ms-vscode.cpptools-extension-pack",
                 "ms-vscode.cpptools-themes",
                 "ms-vscode.cmake-tools",
-                "IronGeek.vscode-env"
+                "IronGeek.vscode-env",
+                "platformio.platformio-ide"
             ]
         }
     }
