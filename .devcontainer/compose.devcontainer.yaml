@@ -4,16 +4,22 @@ services:
   devcontainer:
     build:
       context: .
-      pull: true
+    pull_policy: build
+    privileged: true
     volumes:
       - ../../..:/root/ws
       - ./starship.toml:/root/.config/starship.toml
-    devices:
-      - /dev/ttyACM0
+      - /dev:/dev
+    # devices:
+    #   - /dev/ttyACM0
+    #   - /dev/hidraw7
+    ports:
+      - 8008:8008 # PlatformIO HTTP port
     hostname: devcontainer
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.101
+    command: sleep infinity
 
 networks:
   tabletop_net:
