@@ -1,4 +1,4 @@
-float64 data
+uint32 data
 ---
 bool success
 string message

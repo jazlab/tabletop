@@ -11,6 +11,7 @@ RUN apt-get update \
     ros-jazzy-moveit-py \
     ros-jazzy-ros2controlcli \
     ros-jazzy-cv-bridge \
+    ros-jazzy-rmw-fastrtps-cpp \
     ros-jazzy-rmw-cyclonedds-cpp \
     gdb \
     iputils-ping \
@@ -29,7 +30,7 @@ RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platf
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
-RUN echo "PATH=\$PATH:$HOME/.local/bin" >> $HOME/.bashrc
+RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 
-ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED 1

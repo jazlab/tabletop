@@ -5,7 +5,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from std_srvs.srv import SetBool
 from tabletop_msgs.msg import TeensySensor
-from tabletop_msgs.srv import SetFloat
+from tabletop_msgs.srv import SetUint32
 
 pin_states = [bool(random.getrandbits(1)) for _ in range(55)]
 
@@ -49,7 +49,7 @@ class MockTeensy(Node):
         )
 
         self.reward_service = self.create_service(
-            SetFloat,
+            SetUint32,
             "reward",
             self.reward_callback,
             callback_group=self.reentrant_cg,
@@ -77,7 +77,7 @@ class MockTeensy(Node):
         return self.random_response_success(request, response)
 
     def reward_callback(
-        self, request: SetFloat.Request, response: SetFloat.Response
+        self, request: SetUint32.Request, response: SetUint32.Response
     ):
         return self.random_response_success(request, response)
 

@@ -57,9 +57,9 @@ colcon build --symlink-install \
         $_cmake_args
 echo ""
 
+source /opt/ros/$_ros_distro/setup.bash
 source install/setup.bash
 ros2 run micro_ros_setup build_agent.sh
-source install/setup.bash
 echo ""
 
 echo "Creating bags directory"
@@ -67,5 +67,8 @@ mkdir -p bags
 
 echo "Adding ROS 2 setup to bashrc"
 $_script_dir/update_bashrc.sh
+
+source /opt/ros/$_ros_distro/setup.bash
+source install/setup.bash
 
 popd
