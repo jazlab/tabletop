@@ -2,5 +2,5 @@ bool arm_door_laser_state_right
 bool arm_door_laser_state_left
 bool smart_glass_laser_state
 bool fixation_button_state
-float32[5] tactile_glove_states
 bool sync_pulse
+uint8[5] tactile_glove_states

@@ -1,8 +1,8 @@
 #! /bin/bash
 
-SCRIPT_DIR=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $SCRIPT_DIR/utils.sh
-PROJECT_DIR=$(get_parent_dir $SCRIPT_DIR 1)
+_script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $_script_dir/utils.sh
+_project_dir=$(get_parent_dir $_script_dir 1)
 
 # Create a symlink to tabletop_msgs from the tabletop_teensy/extra_packages directory
-ln -s $PROJECT_DIR/ros/tabletop_msgs $PROJECT_DIR/ros/tabletop_teensy/extra_packages/tabletop_msgs
+ln -s $_project_dir/ros/tabletop_msgs $_project_dir/ros/tabletop_teensy/extra_packages/tabletop_msgs

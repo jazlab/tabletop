@@ -10,6 +10,7 @@ services:
       - ../../..:/root/ws
       - ./starship.toml:/root/.config/starship.toml
       - /dev:/dev
+      - /dev/shm:/dev/shm
     # devices:
     #   - /dev/ttyACM0
     #   - /dev/hidraw7
