@@ -1,12 +1,14 @@
 #!/bin/bash
 
-SCRIPT_DIR=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $SCRIPT_DIR/utils.sh
-WS_DIR=$(get_parent_dir $SCRIPT_DIR 3)
+_script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $_script_dir/utils.sh
+_ws_dir=$(get_parent_dir $_script_dir 3)
+
+_ros_distro=${ROS_DISTRO:-"jazzy"}
 
 _commands=(
-    "source /opt/ros/$ROS_DISTRO/setup.bash"
-    "source $WS_DIR/install/setup.bash"
+    "source /opt/ros/$_ros_distro/setup.bash"
+    "source $_ws_dir/install/setup.bash"
     "PATH=$HOME/.local/bin:\$PATH"
 )
 

@@ -7,7 +7,6 @@ _project_dir=$(get_parent_dir $_script_dir 1)
 _clean=false
 while [[ $# -gt 0 ]]; do
     case $1 in
-
         --clean)
             _clean=true
             shift
@@ -21,7 +20,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$_clean" == "true" ]]; then
-    rm -rf $_project_dir/ros/tabletop_teensy/.pio
+    sudo rm -rf $_project_dir/ros/tabletop_teensy/.pio
 fi
 
 pio run --target upload --project-dir $_project_dir/ros/tabletop_teensy
