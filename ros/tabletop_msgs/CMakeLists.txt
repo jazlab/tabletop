@@ -14,8 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Eyelink.msg"
   "msg/Flic.msg"
   "msg/TeensySensor.msg"
-  "srv/SetFloat.srv"
-  DEPENDENCIES geometry_msgs
+  "srv/SetUint32.srv"
 )
 
 # uncomment the following section in order to fill in

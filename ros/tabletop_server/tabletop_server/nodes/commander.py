@@ -17,7 +17,7 @@ from rclpy.task import Future
 from shape_msgs.msg import Plane
 from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.msg import TeensySensors
-from tabletop_msgs.srv import SetFloat
+from tabletop_msgs.srv import SetUint32
 from ur_dashboard_msgs.srv import Load
 
 from tabletop_server.nodes import BaseNode
@@ -136,14 +136,19 @@ class Commander(BaseNode):
 
     def reward(
         self,
-        duration_ms,
+        duration_ms: int,
         blocking: bool = True,
         callback: Optional[Callable] = None,
-    ) -> SetFloat.Response | Callable:
+    ) -> SetUint32.Response | Callable:
+        """
+        Deliver a reward for a given duration.
+        """
+        if duration_ms < 0:
+            raise ValueError("Duration must be greater than 0!")
         return self.service_call(
-            srv_type=SetFloat,
+            srv_type=SetUint32,
             srv_name="/dashboard_client/reward",
-            srv_request=SetFloat.Request(data=duration_ms),
+            srv_request=SetUint32.Request(data=duration_ms),
             blocking=blocking,
             callback=callback,
         )
