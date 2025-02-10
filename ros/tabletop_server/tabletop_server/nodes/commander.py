@@ -514,7 +514,6 @@ async def run(commander: Commander):
                 await asyncio.gather(
                     plan_exec_future, arm_door_future, smartglass_future
                 )
-                raise Exception("Test error")
         except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
             print(
                 f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
@@ -526,31 +525,22 @@ async def run(commander: Commander):
             raise
 
 
-async def _main(args=None):
+def main(args=None):
     rclpy.init(args=args)
     try:
         executor: rclpy.Executor = rclpy.executors.MultiThreadedExecutor()  # type: ignore
         commander = Commander()
         executor.add_node(commander)
 
-        asyncio.get_running_loop().set_default_executor(executor._executor)  # type: ignore
-        spin_coro = asyncio.to_thread(executor.spin)
-        run_coro = run(commander)
-        spin_task = asyncio.create_task(spin_coro)
-        run_task = asyncio.create_task(run_coro)
+        future = commander.create_rclpy_task(asyncio.run, run(commander))
 
         try:
-            await asyncio.gather(spin_task, run_task)
+            executor.spin_until_future_complete(future)
         finally:
             print("Shutting down executor")
             executor.shutdown()
-            await spin_task
             print("Shutting down commander")
             commander.destroy_node()
     finally:
         print("Shutting down rclpy")
         rclpy.shutdown()
-
-
-def main(args=None):
-    asyncio.run(_main(args))
