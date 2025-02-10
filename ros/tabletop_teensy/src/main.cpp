@@ -14,10 +14,102 @@
 #  error This code only supports serial transport.
 #endif
 
+
 // #define DEBUG_LOGGING
+
+// Define pin mappings
+
+#define ARM_DOOR_CONTROL_PIN 1
+#define SMARTGLASS_CONTROL_PIN 2
+#define REWARD_CONTROL_PIN 3
+#define ARM_DOOR_STATE_PIN 4
+#define SMARTGLASS_STATE_PIN 5
+#define REWARD_STATE_PIN 6
+#define HAND_FIXATION_STATE_PIN 7
+#define SYNC_PULSE_PIN 9
+static const uint8_t GLOVE_STATE_PINS[] = {A0, A1, A2, A3, A4};
+
+// Message memory configuration
+
+#define MAX_STRING_CAPACITY 50
+#define MAX_ROS2_TYPE_SEQUENCE_CAPACITY 5
+#define MAX_BASIC_TYPE_SEQUENCE_CAPACITY 5
+static const micro_ros_utilities_memory_conf_t memory_conf = {
+    MAX_STRING_CAPACITY,
+    MAX_ROS2_TYPE_SEQUENCE_CAPACITY,
+    MAX_BASIC_TYPE_SEQUENCE_CAPACITY,
+    NULL,
+    0,
+    NULL};
+  
+
+#define ARM_DOOR_SRV_NAME "/teensy/arm_door"
+#define SMARTGLASS_SRV_NAME "/teensy/smartglass"
+#define REWARD_SRV_NAME "/teensy/reward"
+#define SENSORS_TOPIC "/teensy/sensors"
+
+// Execution parameters
+
+#define AGENT_RECONNECT_PERIOD_MS 100   // Timeout for agent reconnection, in ms
+#define AGENT_RECONNECT_TIMEOUT_MS 50   // Timeout for agent reconnection, in ms
+#define EXECUTOR_SPIN_TIMEOUT_MS 20    // Timeout for executor spin, in ms
+#define AGENT_CHECK_CONNECT_PERIOD_MS 1000 // Period for agent reconnection, in ms
+#define AGENT_CHECK_CONNECT_TIMEOUT_MS 10   // Timeout for agent reconnection, in ms
+#define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
+#define SYNC_PULSE_BASE_PERIOD_MS 1000 // Base period between sync pulses, in ms
+// Range of jitter in the base period, in ms
+#define SYNC_PULSE_DELAY_RANGE_MS 200
+#define SYNC_PULSE_DURATION_MS 100     // Duration of each sync pulse, in ms
+
+// Agent reconnection parameters
+
+// Maximum number of retries for agent reconnect before giving up
+#define AGENT_RECONNECT_MAX_RETRIES 5
+
+// Global variables
+
+rcl_publisher_t sensor_publisher;
+rcl_publisher_t log_publisher;
+
+rcl_service_t arm_door_service;
+rcl_service_t smartglass_service;
+rcl_service_t reward_service;
+
+rcl_timer_t sync_pulse_base_timer;
+rcl_timer_t sync_pulse_start_timer;
+rcl_timer_t sync_pulse_end_timer;
+rcl_timer_t sensor_timer;
+rcl_timer_t reward_timer;
+
+rcl_allocator_t allocator;
+rclc_support_t support;
+rcl_node_t node;
+rclc_executor_t executor;
+
+tabletop_msgs__msg__TeensySensor sensor_msg;
+std_msgs__msg__String log_msg;
+
+std_srvs__srv__SetBool_Request arm_door_request;
+std_srvs__srv__SetBool_Response arm_door_response;
+std_srvs__srv__SetBool_Request smartglass_request;
+std_srvs__srv__SetBool_Response smartglass_response;
+tabletop_msgs__srv__SetUint32_Request reward_request;
+tabletop_msgs__srv__SetUint32_Response reward_response;
+
+static uint8_t agent_reconnect_retries;
+
+bool sync_pulse_state;
+static enum states {
+  WAITING_AGENT,
+  AGENT_AVAILABLE,
+  AGENT_CONNECTED,
+  AGENT_DISCONNECTED,
+  CLIENT_ERROR
+} state;
+
 // Macro definitions
 
-// Check return code from ROS2 function, print error string and return NULL if
+// Check return code from ROS2 function, print error string and return false if
 // error
 #define RCCHECK(fn)                                      \
   {                                                      \
@@ -91,88 +183,6 @@
 #  define DEBUG(...)
 #endif
 
-// Define pin mappings
-
-#define ARM_DOOR_CONTROL_PIN 1
-#define SMARTGLASS_CONTROL_PIN 2
-#define REWARD_CONTROL_PIN 3
-#define ARM_DOOR_STATE_PIN 4
-#define SMARTGLASS_STATE_PIN 5
-#define REWARD_STATE_PIN 6
-#define HAND_FIXATION_STATE_PIN 7
-#define SYNC_PULSE_PIN 9
-static const uint8_t GLOVE_STATE_PINS[] = {A0, A1, A2, A3, A4};
-
-// Message memory configuration
-
-#define MAX_STRING_CAPACITY 50
-#define MAX_ROS2_TYPE_SEQUENCE_CAPACITY 5
-#define MAX_BASIC_TYPE_SEQUENCE_CAPACITY 5
-static const micro_ros_utilities_memory_conf_t memory_conf = {
-    MAX_STRING_CAPACITY,
-    MAX_ROS2_TYPE_SEQUENCE_CAPACITY,
-    MAX_BASIC_TYPE_SEQUENCE_CAPACITY,
-    NULL,
-    0,
-    NULL};
-
-// Execution parameters
-
-#define EXECUTOR_SPIN_TIMEOUT_MS 20    // Timeout for executor spin, in ms
-#define AGENT_RECONNECT_PERIOD_MS 1000 // Period for agent reconnection, in ms
-#define AGENT_RECONNECT_TIMEOUT_MS 5   // Timeout for agent reconnection, in ms
-#define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
-#define SYNC_PULSE_BASE_PERIOD_MS 1000 // Base period between sync pulses, in ms
-#define SYNC_PULSE_DELAY_RANGE_MS \
-  200                              // Range of jitter in the base period, in ms
-#define SYNC_PULSE_DURATION_MS 100 // Duration of each sync pulse, in ms
-
-// Agent reconnection parameters
-
-#define AGENT_RECONNECT_MAX_RETRIES \
-  10 // Maximum number of retries for agent reconnect before giving up
-
-// Global variables
-
-rcl_publisher_t sensor_publisher;
-rcl_publisher_t log_publisher;
-
-rcl_service_t arm_door_service;
-rcl_service_t smartglass_service;
-rcl_service_t reward_service;
-
-rcl_timer_t sync_pulse_base_timer;
-rcl_timer_t sync_pulse_start_timer;
-rcl_timer_t sync_pulse_end_timer;
-rcl_timer_t sensor_timer;
-rcl_timer_t reward_timer;
-
-rcl_allocator_t allocator;
-rclc_support_t support;
-rcl_node_t node;
-rclc_executor_t executor;
-
-tabletop_msgs__msg__TeensySensor sensor_msg;
-std_msgs__msg__String log_msg;
-
-std_srvs__srv__SetBool_Request arm_door_request;
-std_srvs__srv__SetBool_Response arm_door_response;
-std_srvs__srv__SetBool_Request smartglass_request;
-std_srvs__srv__SetBool_Response smartglass_response;
-tabletop_msgs__srv__SetUint32_Request reward_request;
-tabletop_msgs__srv__SetUint32_Response reward_response;
-
-static uint8_t agent_reconnect_retries;
-
-bool sync_pulse_state;
-static enum states {
-  WAITING_AGENT,
-  AGENT_AVAILABLE,
-  AGENT_CONNECTED,
-  AGENT_DISCONNECTED,
-  CLIENT_ERROR
-} state;
-
 // Error handle loop
 void error_loop() {
   while (1) {
@@ -240,9 +250,8 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   if (timer != NULL) {
     DEBUG("Sensor timer callback");
     // Populate sensor message
-    sensor_msg.arm_door_right_state = digitalRead(ARM_DOOR_STATE_PIN);
-    sensor_msg.arm_door_left_state = digitalRead(ARM_DOOR_STATE_PIN);
-    sensor_msg.smart_glass_laser_state = digitalRead(SMARTGLASS_STATE_PIN);
+    sensor_msg.arm_door_state = digitalRead(ARM_DOOR_STATE_PIN);
+    sensor_msg.smartglass_state = digitalRead(SMARTGLASS_STATE_PIN);
     sensor_msg.fixation_button_state = digitalRead(HAND_FIXATION_STATE_PIN);
     for (int i = 0; i < 5; i++) {
       sensor_msg.tactile_glove_states[i] = analogRead(GLOVE_STATE_PINS[i]);
@@ -481,7 +490,7 @@ void loop() {
   switch (state) {
   case WAITING_AGENT:
     EXECUTE_EVERY_N_MS(
-        200, state = (RMW_RET_OK ==
+        AGENT_RECONNECT_PERIOD_MS, state = (RMW_RET_OK ==
                       rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1))
                          ? AGENT_AVAILABLE
                          : WAITING_AGENT;);
@@ -495,9 +504,9 @@ void loop() {
   case AGENT_CONNECTED:
     static bool success = true;
     EXECUTE_EVERY_N_MS(
-        AGENT_RECONNECT_PERIOD_MS,
+        AGENT_CHECK_CONNECT_PERIOD_MS,
         success = (RMW_RET_OK ==
-                   rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1)););
+                   rmw_uros_ping_agent(AGENT_CHECK_CONNECT_TIMEOUT_MS, 1)););
     agent_reconnect_retries = success ? 0 : agent_reconnect_retries + 1;
     if (agent_reconnect_retries < AGENT_RECONNECT_MAX_RETRIES) {
       rclc_executor_spin_some(&executor,

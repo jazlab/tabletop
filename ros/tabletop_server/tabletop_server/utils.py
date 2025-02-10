@@ -1,16 +1,27 @@
+import inspect
 import math
 import os
+from collections.abc import Callable, Coroutine
+from typing import Any, Optional, Protocol
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from rclpy.client import Client
 from rclpy.node import Node
-from rclpy.task import Future
 
 
-class MaxAttemptsReachedError(Exception):
+class SrvType(Protocol):
+    Request: Any
+    Response: Any
+
+
+class SrvTypeRequest(Protocol):
     pass
+
+
+class SrvTypeResponse(Protocol):
+    success: bool
 
 
 def load_yaml(package_name, file_path):
@@ -75,12 +86,40 @@ def pose_stamped_from_params(node: Node, prefix: str):
     return pose_stamped
 
 
-class ClientFuture(Future):
-    def __init__(self, client: Client, future: Future):
-        self.client = client
-        super().__init__(future)
+def validate_service_response(
+    response: Optional[SrvTypeResponse],
+    service_client: Client,
+) -> SrvTypeResponse:
+    if response is None:
+        error_msg = f"{service_client.service_name} service call timed out!"
+        raise TimeoutError(error_msg)
+    elif not response.success:
+        error_msg = f"{service_client.service_name} service call failed!"
+        raise ServiceCallError(error_msg)
+    else:
+        return response
 
-    def destroy(self):
-        if self.client is not None:
-            self.client.destroy()
-            self.client = None
+
+def create_coroutine_wrapper(
+    fn: Callable[..., Any],
+) -> Callable[..., Coroutine[Any, Any, Any]]:
+    """
+    Wrap a function in a coroutine.
+    """
+    if inspect.iscoroutinefunction(fn):
+        raise ValueError("Function is already a coroutine")
+    else:
+
+        async def wrapper(*args, **kwargs):
+            nonlocal fn
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+
+class MaxAttemptsReachedError(Exception):
+    pass
+
+
+class ServiceCallError(Exception):
+    pass

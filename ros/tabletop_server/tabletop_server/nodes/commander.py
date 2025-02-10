@@ -1,30 +1,59 @@
-from threading import Lock
-from typing import Any, Callable, Optional
+import asyncio
+from collections.abc import Awaitable
+from typing import Any, Optional
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
+from moveit.core.controller_manager import ExecutionStatus  # type: ignore
+from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.planning import (
     MoveItPy,
     MultiPipelinePlanRequestParameters,
+    PlanningComponent,
+    PlanningSceneMonitor,
     PlanRequestParameters,
+    TrajectoryExecutionManager,
 )
-from moveit_msgs.msg import CollisionObject, RobotTrajectory
+from moveit_msgs.msg import (
+    CollisionObject,
+    RobotTrajectory,
+)
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
-from rclpy.task import Future
+from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane
 from std_srvs.srv import SetBool, Trigger
-from tabletop_msgs.msg import TeensySensors
 from tabletop_msgs.srv import SetUint32
 from ur_dashboard_msgs.srv import Load
 
 from tabletop_server.nodes import BaseNode
 from tabletop_server.utils import (
     MaxAttemptsReachedError,
+    ServiceCallError,
     pose_stamped_from_params,
 )
+
+
+class PlanAndExecutionStatus:
+    def __init__(
+        self, status: str, success: bool, exception: Optional[Exception] = None
+    ):
+        self._status = status
+        self._success = success
+        self._exception = exception
+
+    @property
+    def status(self):
+        return self._status
+
+    def __bool__(self):
+        return self._success
+
+    @property
+    def exception(self):
+        return self._exception
 
 
 class Commander(BaseNode):
@@ -42,53 +71,42 @@ class Commander(BaseNode):
         "dashboard.connect_timeout",
     }
 
-    def __init__(self, executor):
+    def __init__(self):
         super().__init__(
             "commander",
             automatically_declare_parameters_from_overrides=True,
-            executor=executor,
         )
         # Initialize callback groups
         self.flic_cg = MutuallyExclusiveCallbackGroup()
         self.state_machine_cg = MutuallyExclusiveCallbackGroup()
         self.dashboard_cg = MutuallyExclusiveCallbackGroup()
         self.reentrant_cg = ReentrantCallbackGroup()
-        self._mutex = Lock()
 
         # Initialize MoveItPy
         self.moveit_py = MoveItPy("moveit_py")
 
         # Initialize MoveItPy components
-        self.planning_scene_monitor = (
+        self.planning_scene_monitor: PlanningSceneMonitor = (
             self.moveit_py.get_planning_scene_monitor()
         )
-        self.setup_planning_scene()
 
-        self.planning_component = self.moveit_py.get_planning_component(
-            self.get_parameter("planning.group_name").value
+        self.planning_component: PlanningComponent = (
+            self.moveit_py.get_planning_component(
+                self.get_parameter("planning.group_name").value
+            )
         )
-        self.trajectory_execution_manager = (
+        self.trajectory_execution_manager: TrajectoryExecutionManager = (
             self.moveit_py.get_trajectory_execution_manager()
         )
 
-        self.sensors_sub = self.create_subscription(
-            TeensySensors,
-            "/teensy_sensors",
-            self.sensors_callback,
-            callback_group=self.flic_cg,
-        )
+        self.setup_planning_scene()
 
-        # Initialize waypoints
-        self.waypoints_path = self.get_parameter("waypoints.path").value
-        self.waypoints = {}
-
-        for name in set(self.waypoints_path):
-            prefix = f"waypoints.poses_stamped.{name}"
-            self.waypoints[name] = pose_stamped_from_params(self, prefix)
-
-        if len(self.waypoints) < 1:
-            self.log("No valid waypoints found. Exiting...!", severity="ERROR")
-            exit(1)
+        # self.sensors_sub = self.create_subscription(
+        #     TeensySensors,
+        #     "/teensy_sensors",
+        #     self.sensors_callback,
+        #     callback_group=self.flic_cg,
+        # )
 
         # Initialize state variables
         self.i = 0
@@ -97,151 +115,137 @@ class Commander(BaseNode):
         self.reset_attempts = 0
 
         # Start the state machine timer
-        self.timer = self.create_timer(
-            self.get_parameter("state_machine_period").value,
-            self.state_machine,
-            callback_group=self.state_machine_cg,
-        )
+        # self.timer = self.create_timer(
+        #     self.get_parameter("state_machine_period").value,  # type: ignore
+        #     self.state_machine,
+        #     callback_group=self.state_machine_cg,
+        # )
+
+        # self.reset_future = RclpyFuture()
+        # self.reset_future.set_result(None)
 
         self.log("Commander initialized")
-        self._change_state("RESET")
+        # self._change_state("RESET")
 
-    def smartglass_occlude_async(
+    def dashboard_trigger(self, srv_name: str) -> None:
+        """
+        Trigger a service via the dashboard client.
+        """
+        self.service_call(
+            srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
+        )
+
+    def dashboard_trigger_async(self, srv_name: str) -> Awaitable:
+        """
+        Trigger a service via the dashboard client asynchronously.
+        """
+        return self.service_call_async(
+            srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
+        )
+
+    def dashboard_load(self, srv_name: str, filename: str) -> None:
+        """
+        Load a program or installation via the dashboard client.
+        """
+        self.log(f"Loading {srv_name}: {filename} in UR Dashboard")
+        self.service_call(
+            srv_request=Load.Request(filename=filename),
+            srv_type=Load,
+            srv_name=srv_name,
+        )
+
+    def dashboard_load_async(
         self,
-    ) -> SetBool.Response | Callable:
+        srv_name: str,
+        filename: str,
+    ) -> Awaitable:
+        """
+        Load a program or installation via the dashboard client.
+        """
+        self.log(f"Loading {srv_name}: {filename} in UR Dashboard")
+        return self.service_call_async(
+            srv_request=Load.Request(filename=filename),
+            srv_type=Load,
+            srv_name=srv_name,
+        )
+
+    def reset_robot(self):
+        self.log("Resetting robot")
+        self.wait_for_service(Trigger, "/dashboard_client/close_popup")
+        self.dashboard_trigger("/dashboard_client/close_popup")
+        self.dashboard_trigger("/dashboard_client/close_safety_popup")
+        self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
+        self.dashboard_load(
+            "/dashboard_client/load_program",
+            self.get_parameter("dashboard.program").value,  # type: ignore
+        )
+        self.dashboard_trigger("/dashboard_client/brake_release")
+        self.dashboard_trigger("/dashboard_client/play")
+
+    async def reset_robot_async(self):
+        self.reset_robot()
+
+    def smartglass_reveal_async(self) -> Awaitable:
+        return self.service_call_async(
+            srv_request=SetBool.Request(data=True),
+            srv_type=SetBool,
+            srv_name="/teensy/smartglass",
+        )
+
+    def smartglass_occlude_async(self) -> Awaitable:
         """
         Occlude the smartglass.
         """
         return self.service_call_async(
-            srv_request=SetBool.Request(data=True),
+            srv_request=SetBool.Request(data=False),
             srv_type=SetBool,
-            srv_name="/smartglass_control",
+            srv_name="/teensy/smartglass",
         )
 
-    def smart_glass_reveal_async(
-        self,
-    ) -> SetBool.Response | Callable:
+    def arm_door_open_async(self) -> Awaitable:
         return self.service_call_async(
-            srv_type=SetBool,
-            srv_name="/dashboard_client/smart_glass_reveal",
             srv_request=SetBool.Request(data=True),
-        )
-
-    def arm_door_open(self) -> Future:
-        return self.service_call(
             srv_type=SetBool,
-            srv_name="/dashboard_client/arm_door_open",
-            srv_request=SetBool.Request(data=open),
+            srv_name="/teensy/arm_door",
         )
 
-    def reward(
-        self,
-        duration_ms: int,
-        blocking: bool = True,
-        callback: Optional[Callable] = None,
-    ) -> SetUint32.Response | Callable:
+    def arm_door_close_async(self) -> Awaitable:
+        return self.service_call_async(
+            srv_request=SetBool.Request(data=False),
+            srv_type=SetBool,
+            srv_name="/teensy/arm_door",
+        )
+
+    def reward_start_async(self, duration_ms: int) -> Awaitable:
         """
         Deliver a reward for a given duration.
         """
         if duration_ms < 0:
             raise ValueError("Duration must be greater than 0!")
-        return self.service_call(
-            srv_type=SetUint32,
-            srv_name="/dashboard_client/reward",
-            srv_request=SetUint32.Request(data=duration_ms),
-            blocking=blocking,
-            callback=callback,
-        )
-
-    def start_hand_fixation(
-        self,
-        callback: Optional[Callable] = None,
-    ) -> Trigger.Response | Callable:
         return self.service_call_async(
-            srv_type=Trigger,
-            srv_name="/dashboard_client/reset_hand_fixation",
+            srv_request=SetUint32.Request(data=duration_ms),
+            srv_type=SetUint32,
+            srv_name="/teensy/reward",
+        )
+
+    def start_hand_fixation_async(self) -> Awaitable:
+        return self.service_call_async(
             srv_request=Trigger.Request(),
-            callback=callback,
-        )
-
-    def start_flic_button(self):
-        return self.service_cal_async
-
-    def dashboard_trigger(
-        self, srv_name, wait_timeout=None, call_timeout=None
-    ):
-        """
-        Trigger a service via the dashboard client.
-        """
-        self.service_call(
             srv_type=Trigger,
-            srv_name=srv_name,
+            srv_name="/teensy/hand_fixation",
+        )
+
+    def start_flic_button_async(self) -> Awaitable:
+        return self.service_call_async(
             srv_request=Trigger.Request(),
-            wait_timeout=wait_timeout,
-            call_timeout=call_timeout,
+            srv_type=Trigger,
+            srv_name="/sensor/flic",
         )
 
-    def dashboard_load(
-        self, service_name, filename, wait_timeout=None, call_timeout=None
-    ):
-        """
-        Load a program or installation via the dashboard client.
-        """
-        request = Load.Request()
-        request.filename = filename
-        self.service_wait_and_call(
-            srv_type=Load,
-            srv_name=service_name,
-            srv_request=request,
-            wait_timeout=wait_timeout,
-            call_timeout=call_timeout,
-        )
-
-    def reset_robot(self):
-        self.log("Resetting robot")
-        try:
-            # self.dashboard_trigger(
-            #     "/dashboard_client/connect",
-            #     wait_timeout=self.get_parameter(
-            #         "dashboard.connect_timeout"
-            #     ).value,
-            # )
-            # self.dashboard_load(
-            #     "/dashboard_client/load_installation",
-            #     self.get_parameter("dashboard.installation").value,
-            # )
-            self.dashboard_trigger("/dashboard_client/close_popup")
-            self.dashboard_trigger("/dashboard_client/close_safety_popup")
-            self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
-            self.dashboard_load(
-                "/dashboard_client/load_program",
-                self.get_parameter("dashboard.program").value,
-            )
-            self.dashboard_trigger("/dashboard_client/brake_release")
-            self.dashboard_trigger("/dashboard_client/play")
-
-            self.reset_attempts = 0
-            self._change_state("RUNNING")
-        except Exception as e:
-            self.log(
-                f"Error resetting robot: {type(e).__name__}: {e}!",
-                severity="ERROR",
-            )
-            self.reset_attempts += 1
-            max_reset_attempts = self.get_parameter("max_reset_attempts").value
-            if self.reset_attempts >= max_reset_attempts:
-                self.log(
-                    "Max reset attempts reached, entering ERROR state!",
-                    severity="ERROR",
-                )
-                raise MaxAttemptsReachedError("Max reset attempts reached!")
-            else:
-                self.log(
-                    f"Resetting robot failed, trying again ({self.reset_attempts}/{max_reset_attempts} attempts)...",
-                    severity="WARN",
-                )
-
-    def plan(self, goal: PoseStamped, pose_link: Optional[str] = None):
+    # TODO: Update to include retries
+    def plan(
+        self, goal: PoseStamped, pose_link: Optional[str] = None
+    ) -> MotionPlanResponse:
         """
         Coroutine to plan the trajectory from the current state to the current
         waypoint.
@@ -275,50 +279,54 @@ class Commander(BaseNode):
                     multi_plan_parameters=request_params
                 )
             except Exception as e:
-                self.log(f"Error planning: {e}", level="error")
-                self.change_state("ERROR")
-                return
+                self.log(f"Error planning: {e}", severity="ERROR")
+                raise e
 
     def plan_async(
         self,
         goal: PoseStamped,
         pose_link: Optional[str] = None,
-        done_callback: Optional[Callable] = None,
-    ) -> RobotTrajectory | Callable:
+    ) -> Awaitable[MotionPlanResponse]:
         """
         Plan the trajectory to the current waypoint asynchronously.
         """
 
-        return self.create_future(
+        return self.create_rclpy_task(
             self.plan,
-            done_callback=done_callback,
             goal=goal,
             pose_link=pose_link,
-        )
+        )  # type: ignore
 
-    def execute(self, robot_trajectory) -> Callable:
+    def execute(self, robot_trajectory: RobotTrajectory) -> ExecutionStatus:
         """
         Start the execution of the plan asynchronously and add a callback to
         handle the execution result (non-blocking).
         """
         self.trajectory_execution_manager.push(robot_trajectory)
-        self.trajectory_execution_manager.execute_and_wait()
+        return self.trajectory_execution_manager.execute_and_wait()
 
-    def execute_async(
-        self, robot_trajectory, done_callback: Optional[Callable] = None
-    ) -> Callable:
+    def execute_async(self, robot_trajectory) -> Awaitable[ExecutionStatus]:
+        future = RclpyFuture()
+
+        def done_callback():
+            future.set_result(
+                self.trajectory_execution_manager.get_last_execution_status()
+            )
+
         self.trajectory_execution_manager.push(robot_trajectory)
         self.trajectory_execution_manager.execute(done_callback)
 
-    def _plan_and_execute(
+        return future  # type: ignore
+
+    def plan_and_execute(
         self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
     ):
         # Plan the trajectory
         failure_msgs = []
-        max_plan_attempts = self.get_parameter("max_plan_attempts").value
+        max_plan_attempts: int = self.get_parameter("max_plan_attempts").value  # type: ignore
         for i in range(max_plan_attempts):
             try:
-                plan_result = self._plan(pose_stamped, pose_link)
+                plan_result = self.plan(pose_stamped, pose_link)
                 if plan_result:
                     break
                 else:
@@ -338,17 +346,16 @@ class Commander(BaseNode):
         else:
             error_msg = f"Max planning attempts ({max_plan_attempts}) reached!: {failure_msgs}"
             self.log(error_msg, severity="ERROR")
-            self._change_state("ERROR")
             raise MaxAttemptsReachedError(error_msg)
 
         # Execute the plan
         failure_msgs = []
-        max_execution_attempts = self.get_parameter(
+        max_execution_attempts: int = self.get_parameter(
             "max_execution_attempts"
-        ).value
+        ).value  # type: ignore
         for i in range(max_execution_attempts):
             try:
-                execution_status = self.execute_and_wait(
+                execution_status = self.execute(
                     plan_result.trajectory.get_robot_trajectory_msg()
                 )
                 if execution_status:
@@ -370,27 +377,18 @@ class Commander(BaseNode):
         else:
             error_msg = f"Max execution attempts ({max_execution_attempts}) reached!: {failure_msgs}"
             self.log(error_msg, severity="ERROR")
-            self._change_state("ERROR")
             raise MaxAttemptsReachedError(error_msg)
 
-    def plan_and_execute(
+    def plan_and_execute_async(
         self,
         pose_stamped: PoseStamped,
         pose_link: Optional[str] = None,
-        blocking: bool = True,
-        callback: Optional[Callable] = None,
-    ) -> Callable:
-        future = self.create_future(
-            self._plan_and_execute,
-            callback=callback,
+    ) -> Awaitable:
+        return self.create_rclpy_task(
+            self.plan_and_execute,
             pose_stamped=pose_stamped,
             pose_link=pose_link,
-        )
-        if blocking:
-            future()
-            return future.result()
-        else:
-            return future
+        )  # type: ignore
 
     def setup_planning_scene(self):
         """
@@ -404,7 +402,7 @@ class Commander(BaseNode):
             plane = Plane()
             plane.coef = [0, 0, 1, 0]
 
-            collision_object.planes.append(plane)
+            collision_object.planes.append(plane)  # type: ignore
 
             collision_object.operation = CollisionObject.ADD
 
@@ -416,7 +414,7 @@ class Commander(BaseNode):
             scene.remove_collision_object(object_id)
             scene.current_state.update()
 
-    def _fetch_object(self, object_id, reference_frame_id="world"):
+    def fetch_object(self, object_id, reference_frame_id="world"):
         self.log(f"Fetching object {object_id}")
         with self.planning_scene_monitor.read_only() as scene:
             object_pose = scene.get_frame_transform(object_id)
@@ -424,9 +422,9 @@ class Commander(BaseNode):
             target_pose = PoseStamped()
             target_pose.header.frame_id = reference_frame_id
             target_pose.pose = object_pose.pose
-            target_pose.pose.position.z -= 0.1  # Move 10cm below the object
+            target_pose.pose.position.z -= 0.1  # TODO: Make this a parameter
 
-            self._plan_and_execute(target_pose)
+            self.plan_and_execute(target_pose)
 
             target_pose.header.frame_id = reference_frame_id
 
@@ -444,7 +442,7 @@ class Commander(BaseNode):
             target_pose = PoseStamped()
             target_pose.header = object_pose.header
             target_pose.pose = object_pose.pose
-            target_pose.pose.position.z -= 0.1  # Move 10cm below the object
+            target_pose.pose.position.z -= 0.1  # TODO: Make this a parameter
 
             self.plan_and_execute(target_pose)
 
@@ -452,7 +450,7 @@ class Commander(BaseNode):
     def state(self):
         return self._state
 
-    def _change_state(self, state):
+    def _change_state(self, state: str):
         """
         Change the state of the commander node.
         """
@@ -464,8 +462,8 @@ class Commander(BaseNode):
         State machine for the commander node.
         """
         match self.state:
-            case "RESET":
-                self.reset_robot()
+            case "RESETTING":
+                pass
             case "RUNNING":
                 pass
             case "ERROR":
@@ -473,7 +471,8 @@ class Commander(BaseNode):
                     "Commander entered ERROR state, resetting...!",
                     severity="ERROR",
                 )
-                self.reset_robot()
+                self.reset_future = self.reset_robot_async()
+                self._change_state("RESETTING")
             case _:
                 raise ValueError(f"Invalid state: {self.state}!")
 
@@ -482,17 +481,76 @@ class Commander(BaseNode):
         super().destroy_node()
 
 
-def main(args=None):
+async def run(commander: Commander):
+    # Initialize waypoints
+    waypoints_path: list[int] = commander.get_parameter("waypoints.path").value  # type: ignore
+    waypoints = {}
+
+    for name in waypoints_path:
+        prefix = f"waypoints.poses_stamped.{name}"
+        waypoints[name] = pose_stamped_from_params(commander, prefix)
+
+    if len(waypoints) < 1:
+        raise ValueError("No valid waypoints found in commander parameters!")
+
+    while True:
+        try:
+            commander.reset_robot()
+            print("Robot reset")
+            # for name in waypoints_path:
+            #     await commander.plan_and_execute_async(waypoints[name])
+
+            for i, name in enumerate(waypoints_path):
+                plan_exec_future = commander.plan_and_execute_async(
+                    waypoints[name]
+                )
+                if i % 2 == 0:
+                    arm_door_future = commander.arm_door_open_async()
+                    smartglass_future = commander.smartglass_reveal_async()
+                else:
+                    arm_door_future = commander.arm_door_close_async()
+                    smartglass_future = commander.smartglass_occlude_async()
+
+                await asyncio.gather(
+                    plan_exec_future, arm_door_future, smartglass_future
+                )
+                raise Exception("Test error")
+        except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
+            print(
+                f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
+            )
+        except Exception as e:
+            print(
+                f"Re-raising exception: \n'{type(e).__name__}: {e}' \nfrom run()"
+            )
+            raise
+
+
+async def _main(args=None):
     rclpy.init(args=args)
     try:
-        executor = rclpy.executors.MultiThreadedExecutor()
-        commander = Commander(executor)
+        executor: rclpy.Executor = rclpy.executors.MultiThreadedExecutor()  # type: ignore
+        commander = Commander()
         executor.add_node(commander)
 
+        asyncio.get_running_loop().set_default_executor(executor._executor)  # type: ignore
+        spin_coro = asyncio.to_thread(executor.spin)
+        run_coro = run(commander)
+        spin_task = asyncio.create_task(spin_coro)
+        run_task = asyncio.create_task(run_coro)
+
         try:
-            executor.spin()
+            await asyncio.gather(spin_task, run_task)
         finally:
+            print("Shutting down executor")
             executor.shutdown()
+            await spin_task
+            print("Shutting down commander")
             commander.destroy_node()
     finally:
+        print("Shutting down rclpy")
         rclpy.shutdown()
+
+
+def main(args=None):
+    asyncio.run(_main(args))

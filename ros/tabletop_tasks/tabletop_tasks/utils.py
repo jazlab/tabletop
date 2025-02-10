@@ -1,7 +1,7 @@
 from typing import Hashable, Iterable
 
 
-def without_keys(d, keys: Iterable[Hashable]):
+def without_keys(d, keys: Hashable | Iterable[Hashable]):
     """
     Return a new dictionary with the specified keys removed.
     """

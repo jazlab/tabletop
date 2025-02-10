@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
@@ -7,7 +8,14 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
-from rclpy.task import Future
+from rclpy.task import Task as RclpyTask
+
+from tabletop_server.utils import (
+    SrvType,
+    SrvTypeRequest,
+    SrvTypeResponse,
+    validate_service_response,
+)
 
 
 class BaseNode(Node):
@@ -24,15 +32,21 @@ class BaseNode(Node):
     }
     required_params: set[str] = set()
 
-    def __init__(self, *args, executor=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
         self.log_params()
 
-        self._executor = executor
-
-    def log(self, message, severity="INFO"):
+    def log(
+        self,
+        message: str,
+        severity: str = "INFO",
+    ):
         """
         Log a message with the given severity.
         """
@@ -91,8 +105,8 @@ class BaseNode(Node):
             f"{prefix}." if prefix and not prefix.endswith(".") else prefix
         )
         params = self.get_parameters_by_prefix(prefix)
-        for name, param in params.items():
-            self.log(f"{prefix}{name}: {param.value}", severity=severity)
+        for param in params.values():
+            self.log(f"{param.name}: {param.value}", severity=severity)  # type: ignore
 
     def get_nested_parameters(self, prefix: str = "") -> dict:
         """
@@ -106,7 +120,7 @@ class BaseNode(Node):
         nested_params = {}
 
         for name, param in params.items():
-            value = param.value
+            value = param.value  # type: ignore
             name_parts = name.split(".")
             current_level = nested_params
 
@@ -117,37 +131,37 @@ class BaseNode(Node):
 
         return nested_params
 
-    def create_future(
+    def create_rclpy_task(
         self,
-        function: Callable,
+        handle: Callable | Coroutine,
         *args,
         done_callback: Optional[Callable] = None,
         **kwargs,
-    ) -> Future:
+    ) -> RclpyTask:
         """
         Create a future that will be resolved when the task is finished.
         To wait for the task to finish, await the future.
         """
-        if self._executor is None:
-            raise ValueError("Executor not set")
+        rclpy_task = self.executor.create_task(handle, *args, **kwargs)  # type: ignore
 
-        future = self._executor.create_task(function, *args, **kwargs)
         if done_callback is not None:
-            future.add_done_callback(done_callback)
+            rclpy_task.add_done_callback(done_callback)
 
-        return future
+        return rclpy_task
 
     def wait_for_service(
         self,
-        srv_type,
-        srv_name,
-        wait_timeout=None,
+        srv_type: Optional[type] = None,
+        srv_name: Optional[str] = None,
+        service_client: Optional[Client] = None,
+        destroy_service_client: bool = True,
+        wait_timeout: Optional[float] = None,
     ):
         """
         Wait for a service to be available.
         """
-        service_client = self.create_client(
-            srv_type, srv_name, callback_group=MutuallyExclusiveCallbackGroup()
+        service_client = self._create_client(
+            srv_type, srv_name, service_client, destroy_service_client
         )
         try:
             # Wait for the service to be available
@@ -164,27 +178,68 @@ class BaseNode(Node):
 
             self.log(f"{srv_name} service is available")
         finally:
-            service_client.destroy()
+            if destroy_service_client:
+                self.destroy_client(service_client)
 
-    def service_call(
+    def _create_client(
         self,
-        srv_request: Any,
-        srv_type: type,
+        srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-        call_timeout: Optional[float] = None,
-    ):
+        destroy_service_client: bool = True,
+    ) -> Client:
         """
-        Call a service synchronously, returning the response.
+        Create a client for a service or return the provided client if it
+        is not None.
         """
-        service_client = (
-            self.create_client(
+        if service_client is None:
+            if srv_type is None or srv_name is None:
+                self.log(
+                    "srv_type and srv_name must be provided if service_client is not provided",
+                    severity="ERROR",
+                )
+                raise ValueError(
+                    "srv_type and srv_name must be provided if service_client is not provided"
+                )
+            service_client = self.create_client(
                 srv_type,
                 srv_name,
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
-            if service_client is None
-            else service_client
+        else:
+            if srv_type is not None or srv_name is not None:
+                self.log(
+                    "srv_type and srv_name must not be provided if service_client is provided",
+                    severity="ERROR",
+                )
+                raise ValueError(
+                    "srv_type and srv_name must not be provided if service_client is provided"
+                )
+            if destroy_service_client:
+                self.log(
+                    "destroy_service_client must not be provided if service_client is provided",
+                    severity="ERROR",
+                )
+                raise ValueError(
+                    "destroy_service_client must not be provided if service_client is provided"
+                )
+        return service_client
+
+    def service_call(
+        self,
+        srv_request: SrvTypeRequest,
+        srv_type: Optional[type[SrvType]] = None,
+        srv_name: Optional[str] = None,
+        service_client: Optional[Client] = None,
+        destroy_service_client: bool = True,
+        call_timeout: Optional[float] = None,
+    ) -> SrvTypeResponse | tuple[SrvTypeResponse, Client]:
+        """
+        Call a service synchronously, returning the response and optionally
+        the service client.
+        """
+        service_client = self._create_client(
+            srv_type, srv_name, service_client, destroy_service_client
         )
         try:
             # Call the service
@@ -199,76 +254,34 @@ class BaseNode(Node):
             )
 
             # Check if the service call succeeded
-            if response is None:
-                error_msg = (
-                    f"{service_client.service_name} service call timed out!"
-                )
-                self.log(error_msg, severity="ERROR")
-                raise TimeoutError(error_msg)
-            elif not response.success:
-                error_msg = (
-                    f"{service_client.service_name} service call failed!"
-                )
-                self.log(error_msg, severity="ERROR")
-                raise RuntimeError(error_msg)
-            else:
-                self.log(
-                    f"{service_client.service_name} service call succeeded"
-                )
+            response = validate_service_response(response, service_client)
+            if destroy_service_client:
                 return response
+            else:
+                return response, service_client
         finally:
-            service_client.destroy()
+            if destroy_service_client:
+                self.destroy_client(service_client)
 
-    def service_call_async[T](
+    def service_call_async(
         self,
-        srv_request: T.Request,
-        srv_type: type[T],
+        srv_request: SrvTypeRequest,
+        srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-    ) -> tuple[Future[T.Response], Client]:
+        destroy_service_client: bool = True,
+    ) -> Awaitable:
         """
         Call a service asynchronously, returning a future and the service
         client.
         """
-        service_client = (
-            self.create_client(
-                srv_type,
-                srv_name,
-                callback_group=MutuallyExclusiveCallbackGroup(),
-            )
-            if service_client is None
-            else service_client
+        service_client = self._create_client(
+            srv_type, srv_name, service_client, destroy_service_client=False
         )
         future = service_client.call_async(srv_request)
-        return future, service_client
-
-    async def wait_for_service_future[T](
-        self,
-        future: Future[T.Response],
-        service_client_to_destroy: Optional[
-            Client[T.Request, T.Response]
-        ] = None,
-    ) -> T.Response:
-        """
-        Wait for a service future to be resolved, returning the response and
-        destroying the service client, if provided.
-        """
-        # Check if the service call succeeded
-        try:
-            response = await future
-            if response is None:
-                error_msg = f"{service_client_to_destroy.service_name} service call timed out!"
-                self.log(error_msg, severity="ERROR")
-                raise TimeoutError(error_msg)
-            elif not response.success:
-                error_msg = f"{service_client_to_destroy.service_name} service call failed!"
-                self.log(error_msg, severity="ERROR")
-                raise RuntimeError(error_msg)
-            else:
-                self.log(
-                    f"{service_client_to_destroy.service_name} service call succeeded"
-                )
-                return response
-        finally:
-            if service_client_to_destroy is not None:
-                service_client_to_destroy.destroy()
+        future.add_done_callback(
+            lambda _: self.destroy_client(service_client)
+            if destroy_service_client
+            else None
+        )
+        return future
