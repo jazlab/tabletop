@@ -6,6 +6,7 @@
 # Ignore logs
 **logs/
 **log/
+**bags/
 
 # Ignore build artifacts
 **build/
@@ -18,7 +19,3 @@
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 ros/tabletop_teensy/.vscode/
-
-# Ignore micro_ros
-ros/uros/
-ros/ros2.repos

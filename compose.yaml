@@ -51,9 +51,10 @@ services:
     extends: robot
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
-
+    
   server:
     depends_on:
       novnc:
@@ -67,6 +68,8 @@ services:
       - 50002:50002
       - 50003:50003
       - 50004:50004
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:
@@ -80,13 +83,16 @@ services:
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     command: bash -c
-      "source /root/ws/src/tabletop/scripts/build.sh
+      "/root/ws/src/tabletop/scripts/build.sh
+      && source /opt/ros/jazzy/setup.bash
+      && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
   server_x11:
     extends: server
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
     image: tabletop-server

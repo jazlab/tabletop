@@ -148,25 +148,25 @@ planner_configs:
     multi_query_planning_enabled: 1
     store_planner_data: 1
     load_planner_data: 0
-    planner_data_path: /root/ws/prmstar.graph
+    planner_data_path: /root/ws/src/tabletop/ros/tabletop_moveit_config/prmstar.graph
   PersistentLoadingPRM: # loads roadmap from disk
     type: geometric::PRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 1
-    planner_data_path: /root/ws/prm.graph
+    planner_data_path: /root/ws/src/tabletop/ros/tabletop_moveit_config/prmstar.graph
   PersistentLazyPRMstar: # saves roadmap to disk
     type: geometric::LazyPRMstar
     multi_query_planning_enabled: 1
     store_planner_data: 1
     load_planner_data: 0
-    planner_data_path: /root/ws/lazyprmstar.graph
+    planner_data_path: /root/ws/src/tabletop/ros/tabletop_moveit_config/lazyprmstar.graph
   PersistentLoadingLazyPRM: # loads roadmap from disk
     type: geometric::LazyPRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 1
-    planner_data_path: /root/ws/lazyprm.graph
+    planner_data_path: /root/ws/src/tabletop/ros/tabletop_moveit_config/lazyprmstar.graph
   APS:
     type: geometric::AnytimePathShortening
     shortcut: true # Attempt to shortcut all new solution paths

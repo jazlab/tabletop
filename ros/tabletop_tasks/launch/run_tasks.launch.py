@@ -1,6 +1,4 @@
-"""
-A launch file for running the motion planning python api tutorial
-"""
+from logging import getLevelNamesMapping
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -9,9 +7,15 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
 )
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch.logging import launch_config as launch_logging_config
+from launch.substitutions import (
+    LaunchConfiguration,
+    LaunchLogDir,
+    PathJoinSubstitution,
+)
+from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 from tabletop_server.utils import save_yaml, string_to_bool
@@ -74,9 +78,9 @@ def declare_arguments():
             description="Reverse IP address",
         ),
         DeclareLaunchArgument(
-            "use_mock_hardware",
+            "use_mock_robot",
             default_value="false",
-            description="Use mock hardware",
+            description="Use mock robot",
         ),
         DeclareLaunchArgument(
             "controller_spawner_timeout",
@@ -153,6 +157,32 @@ def declare_arguments():
             default_value="true",
             description="MoveGroup publishes robot description semantic",
         ),
+        # Teensy
+        DeclareLaunchArgument(
+            "micro_ros_transport",
+            default_value="serial",
+            description="Micro ROS Agent transport protocol",
+        ),
+        DeclareLaunchArgument(
+            "micro_ros_device",
+            default_value="/dev/ttyACM0",
+            description="Micro ROS Agent serial device",
+        ),
+        DeclareLaunchArgument(
+            "micro_ros_baudrate",
+            default_value="115200",
+            description="Micro ROS Agent serial baudrate",
+        ),
+        DeclareLaunchArgument(
+            "micro_ros_verbosity",
+            default_value="4",
+            description="Micro ROS Agent verbose level",
+        ),
+        DeclareLaunchArgument(
+            "use_mock_teensy",
+            default_value="false",
+            description="Use mock TeensyBoard",
+        ),
         # Bag
         DeclareLaunchArgument(
             "rosbag_args",
@@ -161,20 +191,26 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "rosbag_dir",
-            default_value="/root/ws/bags",
+            default_value="/root/ws/src/tabletop/bags",
             description="Base directory to save rosbags",
         ),
-        # Debug
+        # Logging
         DeclareLaunchArgument(
-            "debug",
-            default_value="false",
-            description="Debug mode",
+            "log_dir",
+            default_value="/root/ws/src/tabletop/log",
+            description=("Base log directory"),
         ),
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
             description="Log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        # VSCode Debugging
+        DeclareLaunchArgument(
+            "debug",
+            default_value="false",
+            description="Debug mode",
         ),
     ]
 
@@ -196,7 +232,7 @@ def launch_setup(context):
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
-    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
+    use_mock_robot = LaunchConfiguration("use_mock_robot")
 
     # Commander
     planning_group_name = LaunchConfiguration("planning_group_name")
@@ -211,13 +247,30 @@ def launch_setup(context):
         "publish_robot_description_semantic"
     )
 
+    # Teensy
+    micro_ros_transport = LaunchConfiguration("micro_ros_transport")
+    micro_ros_device = LaunchConfiguration("micro_ros_device")
+    micro_ros_baudrate = LaunchConfiguration("micro_ros_baudrate")
+    micro_ros_verbosity = LaunchConfiguration("micro_ros_verbosity")
+    use_mock_teensy = LaunchConfiguration("use_mock_teensy")
+
     # Bag
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
 
+    # Logging
+    log_dir = LaunchConfiguration("log_dir")
+    log_level = LaunchConfiguration("log_level")
+
     # Debug
     debug = LaunchConfiguration("debug")
-    log_level = LaunchConfiguration("log_level")
+
+    # Configure launch logging
+    launch_logging_config.log_dir = log_dir.perform(context)
+    launch_logging_config.level = getLevelNamesMapping()[
+        log_level.perform(context).upper()
+    ]
+    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # Load configs
     moveit_config = (
@@ -234,15 +287,23 @@ def launch_setup(context):
         .to_dict()
     )
 
-    task_executor_yaml = PathJoinSubstitution(
+    commander_yaml = PathJoinSubstitution(
         [
-            FindPackageShare("tabletop_tasks"),
+            FindPackageShare("tabletop_server"),
             "config",
-            "task_executor.yaml",
+            "commander.yaml",
         ]
     )
 
-    task_executor_overrides = {
+    tasks_yaml = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_tasks"),
+            "config",
+            "tasks.yaml",
+        ]
+    )
+
+    commander_overrides = {
         name: value
         for name, value in {
             "dashboard.installation": dashboard_installation.perform(context),
@@ -252,16 +313,16 @@ def launch_setup(context):
             "planning.pipeline": planning_pipeline.perform(context).split(","),
             "waypoints.path": waypoints_path.perform(context).split(","),
         }.items()
-        if value.lower() not in set(["none", "null", "[none]", "[null]"])
+        if value not in ["none", ["none"]]
     }
-    task_executor_overrides = {
-        "/task_executor": {"ros__parameters": task_executor_overrides}
+    commander_overrides = {
+        "/commander": {"ros__parameters": commander_overrides}
     }
 
-    task_executor_overrides_yaml = (
-        f"{tmp_dir.perform(context)}/task_executor_overrides.yaml"
+    commander_overrides_yaml = (
+        f"{tmp_dir.perform(context)}/commander_overrides.yaml"
     )
-    save_yaml(task_executor_overrides_yaml, task_executor_overrides)
+    save_yaml(commander_overrides_yaml, commander_overrides)
 
     # UR Robot Driver
     ur_robot_driver = IncludeLaunchDescription(
@@ -280,7 +341,7 @@ def launch_setup(context):
             "ur_type": ur_type,
             "robot_ip": robot_ip,
             "reverse_ip": reverse_ip,
-            "use_mock_hardware": use_mock_hardware,
+            "use_mock_hardware": use_mock_robot,
             "controller_spawner_timeout": controller_spawner_timeout,
             "launch_rviz": launch_rviz,
             "rviz_config_file": rviz_config_file,
@@ -291,15 +352,14 @@ def launch_setup(context):
         }.items(),
     )
 
-    # Task Executor
-    task_executor = Node(
+    # Task Runner
+    task_runner = Node(
         package="tabletop_tasks",
-        executable="task_executor",
-        output="both",
+        executable="run_tasks",
         parameters=[
             moveit_config,
-            task_executor_yaml,
-            task_executor_overrides_yaml,
+            commander_yaml,
+            commander_overrides_yaml,
             {
                 "publish_robot_description_semantic": publish_robot_description_semantic,
                 "use_sim_time": use_sim_time,
@@ -312,36 +372,64 @@ def launch_setup(context):
         prefix=["gdbserver :3000"]
         if string_to_bool(debug.perform(context))
         else [],
+        output="both",
     )
 
-    # Teensy Controller
-    sensor = Node(
-        name="sensor",
-        package="tabletop_server",
-        executable="sensor",
+    # Micro ROS Agent
+    micro_ros_agent = Node(
+        package="micro_ros_agent",
+        name="micro_ros_agent",
+        executable="micro_ros_agent",
+        output="both",
         parameters=[{"use_sim_time": use_sim_time}],
+        ros_arguments=[
+            "--log-level",
+            log_level,
+        ],
+        arguments=[
+            micro_ros_transport,
+            "--dev",
+            micro_ros_device,
+            "--baudrate",
+            micro_ros_baudrate,
+            "--verbose",
+            micro_ros_verbosity,
+        ],
+        condition=UnlessCondition(use_mock_teensy),
     )
 
-    # Teensy Sensor
-    teensy = Node(
+    # Mock Teensy
+    mock_teensy = Node(
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
+        output="both",
         parameters=[{"use_sim_time": use_sim_time}],
+        ros_arguments=[
+            "--log-level",
+            log_level,
+        ],
+        condition=IfCondition(use_mock_teensy),
     )
 
     # Bag
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
         cwd=rosbag_dir,
-        output="screen",
+        output="both",
     )
 
-    return [ur_robot_driver, task_executor, sensor, teensy, bag]
+    return [
+        set_ros_log_dir,
+        ur_robot_driver,
+        task_runner,
+        micro_ros_agent,
+        mock_teensy,
+        bag,
+    ]
 
 
 def generate_launch_description():
-    # launch.logging.launch_config.level = logging.DEBUG
     return LaunchDescription(
         declare_arguments() + [OpaqueFunction(function=launch_setup)]
     )
