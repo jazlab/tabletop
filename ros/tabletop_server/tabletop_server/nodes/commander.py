@@ -497,23 +497,26 @@ async def run(commander: Commander):
         try:
             commander.reset_robot()
             print("Robot reset")
-            # for name in waypoints_path:
-            #     await commander.plan_and_execute_async(waypoints[name])
-
-            for i, name in enumerate(waypoints_path):
-                plan_exec_future = commander.plan_and_execute_async(
+            for name in waypoints_path:
+                result = await commander.plan_and_execute_async(
                     waypoints[name]
                 )
-                if i % 2 == 0:
-                    arm_door_future = commander.arm_door_open_async()
-                    smartglass_future = commander.smartglass_reveal_async()
-                else:
-                    arm_door_future = commander.arm_door_close_async()
-                    smartglass_future = commander.smartglass_occlude_async()
+                if isinstance(result, Exception):
+                    raise result
+            # for i, name in enumerate(waypoints_path):
+            #     plan_exec_future = commander.plan_and_execute_async(
+            #         waypoints[name]
+            #     )
+            #     if i % 2 == 0:
+            #         arm_door_future = commander.arm_door_open_async()
+            #         smartglass_future = commander.smartglass_reveal_async()
+            #     else:
+            #         arm_door_future = commander.arm_door_close_async()
+            #         smartglass_future = commander.smartglass_occlude_async()
 
-                await asyncio.gather(
-                    plan_exec_future, arm_door_future, smartglass_future
-                )
+            #     await asyncio.gather(
+            #         plan_exec_future, arm_door_future, smartglass_future
+            #     )
         except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
             print(
                 f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
