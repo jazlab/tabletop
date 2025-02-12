@@ -11,12 +11,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/Camera.msg"
   "msg/Eyelink.msg"
   "msg/Flic.msg"
-  "msg/TeensyControl.msg"
   "msg/TeensySensor.msg"
-  DEPENDENCIES geometry_msgs
+  "srv/SetUint32.srv"
 )
 
 # uncomment the following section in order to fill in

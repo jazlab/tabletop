@@ -6,12 +6,16 @@
 # Ignore logs
 **logs/
 **log/
+**bags/
 
 # Ignore build artifacts
 **build/
 **install/
 **dist/
 **egg-info/
+**.pio/
 
 # Ignore vscode files
-.vscode/
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+ros/tabletop_teensy/.vscode/

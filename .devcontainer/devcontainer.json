@@ -3,6 +3,11 @@
     "dockerComposeFile": "compose.devcontainer.yaml",
     "service": "devcontainer",
     "workspaceFolder": "/root/ws/src/tabletop",
+    "postStartCommand": [
+        "bash",
+        "-c",
+        "/root/ws/src/tabletop/scripts/build.sh"
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
@@ -22,7 +27,8 @@
                 "ms-vscode.cpptools-extension-pack",
                 "ms-vscode.cpptools-themes",
                 "ms-vscode.cmake-tools",
-                "IronGeek.vscode-env"
+                "IronGeek.vscode-env",
+                "platformio.platformio-ide"
             ]
         }
     }
