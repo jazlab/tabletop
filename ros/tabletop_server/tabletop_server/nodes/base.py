@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable, Coroutine
+from inspect import iscoroutine
 from typing import Any, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -131,6 +132,32 @@ class BaseNode(Node):
 
         return nested_params
 
+    @staticmethod
+    def rclpy_task_wrapper(
+        handle: Callable | Coroutine,
+        *args,
+        **kwargs,
+    ):
+        try:
+            return handle(*args, **kwargs)
+        except Exception as e:
+            print(f"Error in {handle.__name__} during callback:")
+            print(e)
+            return e
+
+    @staticmethod
+    async def rclpy_task_wrapper_async(
+        handle: Callable | Coroutine,
+        *args,
+        **kwargs,
+    ):
+        try:
+            return await handle(*args, **kwargs)
+        except Exception as e:
+            print(f"Error in {handle.__name__} during callback:")
+            print(e)
+            return e
+
     def create_rclpy_task(
         self,
         handle: Callable | Coroutine,
@@ -142,7 +169,15 @@ class BaseNode(Node):
         Create a future that will be resolved when the task is finished.
         To wait for the task to finish, await the future.
         """
-        rclpy_task = self.executor.create_task(handle, *args, **kwargs)  # type: ignore
+        # TODO: Check for couroutine functions as well
+        if iscoroutine(handle):
+            rclpy_task = self.executor.create_task(
+                self.rclpy_task_wrapper_async, handle, *args, **kwargs
+            )  # type: ignore
+        else:
+            rclpy_task = self.executor.create_task(
+                self.rclpy_task_wrapper, handle, *args, **kwargs
+            )  # type: ignore
 
         if done_callback is not None:
             rclpy_task.add_done_callback(done_callback)

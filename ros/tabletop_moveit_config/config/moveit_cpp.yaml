@@ -15,6 +15,8 @@ plan_request_params:
   planning_pipeline: ompl # Name of the pipeline that is being used
   planner_id: "PersistentPRMstar" # Name of the specific planner to be used by the pipeline
   planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
+  max_velocity_scaling_factor: 0.3
+  max_acceleration_scaling_factor: 0.5
 
 ompl_rrtc:
   plan_request_params:
@@ -22,6 +24,8 @@ ompl_rrtc:
     planning_pipeline: ompl
     planner_id: "RRTConnect"
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
 
 ompl_rrt_star:
   plan_request_params:
@@ -29,6 +33,8 @@ ompl_rrt_star:
     planning_pipeline: ompl
     planner_id: "RRTstar"
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
 
 ompl_prm_star:
   plan_request_params:
@@ -36,6 +42,8 @@ ompl_prm_star:
     planning_pipeline: ompl
     planner_id: "PersistentPRMstar"
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
 
 ompl_loading_prm:
   plan_request_params:
@@ -43,15 +51,21 @@ ompl_loading_prm:
     planning_pipeline: ompl
     planner_id: "PersistentLoadingPRM"
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
 
 chomp_planner:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: chomp
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
 
 stomp_planner:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: stomp
     planning_time: 1.0
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.5
