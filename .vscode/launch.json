@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ROS: Launch",
+            "request": "launch",
+            "type": "ros",
+            "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/server.launch.py",
+            "arguments": [
+                "robot_ip:=192.168.12.10",
+                "reverse_ip:=192.168.12.101"
+            ],
+            "preLaunchTask": "build_debug",
+            "attachDebugger": [
+                "commander"
+            ]
+        },
+    ]
+}

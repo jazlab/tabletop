@@ -5,6 +5,7 @@ services:
     build:
       context: ./novnc
       pull: true
+    pull_policy: build
     ports:
       - 8080:8080
     networks:
@@ -35,9 +36,9 @@ services:
     platform: linux/amd64
     pid: host
     volumes:
-      - ./ursim/urcaps:/urcaps
-      - ./ursim/programs:/ursim/programs
-      - ./ursim/entrypoint.sh:/entrypoint.sh
+      - ./ur_robot/urcaps:/urcaps
+      - ./ur_robot/programs:/ursim/programs
+      - ./ur_robot/entrypoint.sh:/entrypoint.sh
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
@@ -50,21 +51,25 @@ services:
     extends: robot
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
-
-  server:
-    depends_on:
-      novnc:
-        condition: service_healthy
+    
+  server_mac:
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
     build:
-      context: ./ros/tabletop_server
+      context: ./ros
       pull: true
+    pull_policy: build
     ports:
       - 50001:50001
       - 50002:50002
       - 50003:50003
       - 50004:50004
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:
@@ -74,7 +79,7 @@ services:
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py
+        ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     command: bash -c
@@ -83,12 +88,23 @@ services:
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
+  server:
+    extends: server_mac
+    depends_on:
+      novnc:
+        condition: service_healthy
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    
+
   server_x11:
     extends: server
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
+    image: tabletop-server
 
 networks:
   tabletop_net:
