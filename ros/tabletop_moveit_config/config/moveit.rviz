@@ -222,6 +222,11 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
+          eef:
+            Alpha: 0.3
+            Show Axes: true
+            Show Trail: false
+            Value: true
         Robot Alpha: 1
         Show Robot Collision: false
         Show Robot Visual: true

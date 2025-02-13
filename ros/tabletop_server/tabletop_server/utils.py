@@ -1,14 +1,21 @@
 import inspect
-import math
 import os
 from collections.abc import Callable, Coroutine
 from typing import Any, Optional, Protocol
 
+import numpy as np
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from rclpy.client import Client
 from rclpy.node import Node
+from tf_transformations import (
+    quaternion_from_euler as quaternion_from_euler_tf,
+)
+from tf_transformations import (
+    quaternion_from_matrix,
+    translation_from_matrix,
+)
 
 
 class SrvType(Protocol):
@@ -48,24 +55,33 @@ def string_to_bool(value: str) -> bool:
         )
 
 
-def quaternion_from_euler(roll, pitch, yaw):
+def quaternion_from_euler(
+    roll: float, pitch: float, yaw: float, axes: str = "sxyz"
+) -> Quaternion:
     """
-    Convert roll, pitch, yaw angles (in radians) to a quaternion.
+    Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
     """
-    cr = math.cos(roll * 0.5)
-    sr = math.sin(roll * 0.5)
-    cp = math.cos(pitch * 0.5)
-    sp = math.sin(pitch * 0.5)
-    cy = math.cos(yaw * 0.5)
-    sy = math.sin(yaw * 0.5)
+    quaternion = quaternion_from_euler_tf(roll, pitch, yaw, axes)
+    return Quaternion(
+        x=quaternion[0],
+        y=quaternion[1],
+        z=quaternion[2],
+        w=quaternion[3],
+    )
 
-    q = Quaternion()
-    q.w = cr * cp * cy + sr * sp * sy
-    q.x = sr * cp * cy - cr * sp * sy
-    q.y = cr * sp * cy + sr * cp * sy
-    q.z = cr * cp * sy - sr * sp * cy
 
-    return q
+def pose_from_matrix(matrix: np.ndarray) -> Pose:
+    translation = translation_from_matrix(matrix)
+    quaternion = quaternion_from_matrix(matrix)
+    pose = Pose()
+    pose.position.x = translation[0]
+    pose.position.y = translation[1]
+    pose.position.z = translation[2]
+    pose.orientation.x = quaternion[0]
+    pose.orientation.y = quaternion[1]
+    pose.orientation.z = quaternion[2]
+    pose.orientation.w = quaternion[3]
+    return pose
 
 
 def pose_stamped_from_params(node: Node, prefix: str):
@@ -78,9 +94,9 @@ def pose_stamped_from_params(node: Node, prefix: str):
     pose.position.y = node.get_parameter(f"{prefix}.pose.position.y").value
     pose.position.z = node.get_parameter(f"{prefix}.pose.position.z").value
     pose.orientation = quaternion_from_euler(
-        node.get_parameter(f"{prefix}.pose.orientation.roll").value,
-        node.get_parameter(f"{prefix}.pose.orientation.pitch").value,
-        node.get_parameter(f"{prefix}.pose.orientation.yaw").value,
+        node.get_parameter(f"{prefix}.pose.orientation.roll").value,  # type: ignore
+        node.get_parameter(f"{prefix}.pose.orientation.pitch").value,  # type: ignore
+        node.get_parameter(f"{prefix}.pose.orientation.yaw").value,  # type: ignore
     )
     pose_stamped.pose = pose
     return pose_stamped

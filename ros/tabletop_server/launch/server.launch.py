@@ -1,5 +1,3 @@
-from logging import getLevelNamesMapping
-
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -9,7 +7,6 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.logging import launch_config as launch_logging_config
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
@@ -51,11 +48,6 @@ def declare_arguments():
             ],
         ),
         # UR Robot Driver
-        DeclareLaunchArgument(
-            "launch_rviz",
-            default_value="true",
-            description="Launch RViz?",
-        ),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution(
@@ -183,6 +175,19 @@ def declare_arguments():
             default_value="false",
             description="Use mock TeensyBoard",
         ),
+        # RViz
+        DeclareLaunchArgument(
+            "launch_rviz_moveit",
+            default_value="true",
+            description="Launch RViz?",
+        ),
+        DeclareLaunchArgument(
+            "rviz_config_file",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("tabletop_server"), "rviz", "server.rviz"]
+            ),
+            description="RViz config file",
+        ),
         # Bag
         DeclareLaunchArgument(
             "rosbag_args",
@@ -222,8 +227,6 @@ def launch_setup(context):
     ur_type = LaunchConfiguration("ur_type")
 
     # UR Robot Driver
-    launch_rviz = LaunchConfiguration("launch_rviz")
-    rviz_config_file = LaunchConfiguration("rviz_config_file")
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
@@ -254,25 +257,55 @@ def launch_setup(context):
     micro_ros_verbosity = LaunchConfiguration("micro_ros_verbosity")
     use_mock_teensy = LaunchConfiguration("use_mock_teensy")
 
+    # RViz
+    launch_rviz_moveit = LaunchConfiguration("launch_rviz_moveit")
+    rviz_config_file = LaunchConfiguration("rviz_config_file")
+
     # Bag
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
 
     # Logging
-    log_dir = LaunchConfiguration("log_dir")
     log_level = LaunchConfiguration("log_level")
 
     # Debug
     debug = LaunchConfiguration("debug")
 
     # Configure launch logging
-    launch_logging_config.log_dir = log_dir.perform(context)
-    launch_logging_config.level = getLevelNamesMapping()[
-        log_level.perform(context).upper()
-    ]
+    # launch_logging_config.log_dir = log_dir.perform(context)
+    # launch_logging_config.level = getLevelNamesMapping()[
+    #     log_level.perform(context).upper()
+    # ]
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Load configs
+    # UR Robot Driver
+    ur_robot_driver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [
+                PathJoinSubstitution(
+                    [
+                        FindPackageShare("ur_robot_driver"),
+                        "launch",
+                        "ur_control.launch.py",
+                    ]
+                )
+            ]
+        ),
+        launch_arguments={
+            "ur_type": ur_type,
+            "robot_ip": robot_ip,
+            "reverse_ip": reverse_ip,
+            "use_mock_hardware": use_mock_robot,
+            "controller_spawner_timeout": controller_spawner_timeout,
+            "launch_rviz": "false",
+            "kinematics_params_file": kinematics_params_file,
+            "description_launchfile": description_launchfile,
+            "description_file": description_file,
+            "use_sim_time": use_sim_time,
+        }.items(),
+    )
+
+    # Commander
     moveit_config = (
         MoveItConfigsBuilder(
             robot_name="ur", package_name="tabletop_moveit_config"
@@ -284,7 +317,6 @@ def launch_setup(context):
             file_path="config/moveit_cpp.yaml",
         )
         .to_moveit_configs()
-        .to_dict()
     )
 
     commander_yaml = PathJoinSubstitution(
@@ -316,40 +348,11 @@ def launch_setup(context):
     )
     save_yaml(commander_overrides_yaml, commander_overrides)
 
-    # UR Robot Driver
-    ur_robot_driver = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare("ur_robot_driver"),
-                        "launch",
-                        "ur_control.launch.py",
-                    ]
-                )
-            ]
-        ),
-        launch_arguments={
-            "ur_type": ur_type,
-            "robot_ip": robot_ip,
-            "reverse_ip": reverse_ip,
-            "use_mock_hardware": use_mock_robot,
-            "controller_spawner_timeout": controller_spawner_timeout,
-            "launch_rviz": launch_rviz,
-            "rviz_config_file": rviz_config_file,
-            "kinematics_params_file": kinematics_params_file,
-            "description_launchfile": description_launchfile,
-            "description_file": description_file,
-            "use_sim_time": use_sim_time,
-        }.items(),
-    )
-
-    # Commander
     commander = Node(
         package="tabletop_server",
         executable="commander",
         parameters=[
-            moveit_config,
+            moveit_config.to_dict(),
             commander_yaml,
             commander_overrides_yaml,
             {
@@ -404,6 +407,26 @@ def launch_setup(context):
         condition=IfCondition(use_mock_teensy),
     )
 
+    # RViz
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2_moveit",
+        output="both",
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            moveit_config.planning_pipelines,
+            moveit_config.joint_limits,
+            {
+                "use_sim_time": use_sim_time,
+            },
+        ],
+        arguments=["-d", rviz_config_file],
+        condition=IfCondition(launch_rviz_moveit),
+    )
+
     # Bag
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
@@ -417,6 +440,7 @@ def launch_setup(context):
         commander,
         micro_ros_agent,
         mock_teensy,
+        rviz_node,
         bag,
     ]
 

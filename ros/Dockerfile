@@ -13,6 +13,7 @@ RUN apt-get update \
     ros-jazzy-cv-bridge \
     ros-jazzy-rmw-fastrtps-cpp \
     ros-jazzy-rmw-cyclonedds-cpp \
+    vim \
     gdb \
     iputils-ping \
     net-tools \
@@ -33,4 +34,5 @@ RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
