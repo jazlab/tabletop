@@ -52,13 +52,14 @@
     </xacro:eef>
 
     <!-- scene -->
-    <xacro:scene
+    <!-- <xacro:scene
       tf_prefix="${tf_prefix}"
       parent="world"
     >
       <origin xyz="0 0 0" rpy="0 0 0" />
-      <!-- <origin xyz="0.843 -0.891 0.85886" rpy="0 0 0" /> -->
-    </xacro:scene>
+    </xacro:scene> -->
 
+
+    <!-- <origin xyz="0.843 -0.891 0.85886" rpy="0 0 0" /> -->
   </xacro:macro>
 </robot>

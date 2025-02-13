@@ -56,9 +56,6 @@ services:
       - DISPLAY=$DISPLAY
     
   server_mac:
-    # depends_on:
-    #   novnc:
-    #     condition: service_healthy
     build:
       context: ./ros
       pull: true
@@ -68,8 +65,6 @@ services:
       - 50002:50002
       - 50003:50003
       - 50004:50004
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:
@@ -77,6 +72,7 @@ services:
         ipv4_address: 192.168.12.11
     hostname: server
     environment:
+      - ROS_LOG_DIR=/root/ws/src/tabletop/log
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
         ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
@@ -93,6 +89,11 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
+    environment:
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
     

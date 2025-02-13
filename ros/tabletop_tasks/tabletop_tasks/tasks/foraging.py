@@ -1,11 +1,15 @@
 """Foraging task."""
 
-import abc
+import asyncio
 import enum
 import time
+from typing import Any, Optional
 
-from ros.tabletop_tasks.tabletop_tasks.trial_generators.base_trial_generator import (
-    BaseTrialGenerator,
+from tabletop_server.nodes import Commander
+
+from tabletop_tasks.tasks.base_task import BaseTask
+from tabletop_tasks.trial_iterables.base_trial_iterable import (
+    BaseTrialIterable,
 )
 
 
@@ -21,21 +25,21 @@ class ForagingState(enum.Enum):
     RETURN = 6
 
 
-class ForagingTask(abc.ABC):
+class ForagingTask(BaseTask):
     def __init__(
         self,
-        commander,
-        trial_generator_obj: BaseTrialGenerator,
-        fixation_duration=0.5,
-        stimulus_duration=0.5,
-        delay_duration=0.5,
-        response_timeout=10.0,
-        reward_duration_ms=100,
-        reveal_duration=0.5,
-        logger=None,
+        commander: Commander,
+        trial_iterable: BaseTrialIterable,
+        fixation_duration: float = 0.5,
+        stimulus_duration: float = 0.5,
+        delay_duration: float = 0.5,
+        response_timeout: float = 10.0,
+        reward_duration_ms: float = 100,
+        reveal_duration: float = 0.5,
+        logger: Any = None,
     ):
-        self._trial_generators_obj = trial_generator_obj
-        self._commander = commander
+        super().__init__(commander)
+        self._trial_iterable = trial_iterable
         self._fixation_duration = fixation_duration
         self._stimulus_duration = stimulus_duration
         self._delay_duration = delay_duration
@@ -55,19 +59,21 @@ class ForagingTask(abc.ABC):
         print("New trial")
 
         # Make smartglass opaque
-        self._commander.smartglass_occlude()
+        await self.commander.smartglass_occlude_async()
 
         # Fetch object
         object_id = self._trial_spec.object_id
         object_pose = self._trial_spec.object_pose
-        self._commander.fetch_object(object_id, object_pose)
+        await self.commander.fetch_object_async(object_id, object_pose)
 
         # Wait for hand fixation
-        while True:
-            t_hand_off = self._commander.t_hand_fixation_off()
-            if time.time() - t_hand_off > self._fixation_duration:
-                break
-            time.sleep(0.01)
+        try:
+            async with asyncio.timeout(self._fixation_duration):
+                await self.commander.wait_for_hand_fixation_async()
+        except asyncio.TimeoutError:
+            print("Hand fixation timeout")
+            self._trial_feedback["broke_fixation"] = True
+            self._state = ForagingState.RETURN
 
         # Transition to stimulus state
         self._state = ForagingState.STIMULUS
@@ -75,14 +81,14 @@ class ForagingTask(abc.ABC):
     async def _stimulus(self):
         """Present stimulus."""
         # Reveal stimulus
-        self._commander.smartglass_reveal()
+        await self.commander.smartglass_reveal_async()
 
         # Wait for stimulus duration, terminating early if hand fixation is
         # broken
         t_stimulus_start = time.time()
         fixation_start_time = t_stimulus_start - self._fixation_duration
         while time.time() - t_stimulus_start < self._stimulus_duration:
-            t_hand_off = self._commander.t_hand_fixation_off()
+            t_hand_off = self.commander.t_hand_fixation_off()
             if t_hand_off > fixation_start_time:
                 self._trial_feedback["broke_fixation"] = True
                 break
@@ -98,7 +104,7 @@ class ForagingTask(abc.ABC):
         """Delay period."""
         # Occlude smartglass if necessary
         if self._trial_spec.occlude:
-            self._commander.smartglass_occlude()
+            self.commander.smartglass_occlude()
 
         # Wait for delay duration
         time.sleep(self._delay_duration)
@@ -110,7 +116,7 @@ class ForagingTask(abc.ABC):
             t_delay_start - self._fixation_duration - self._stimulus_duration
         )
         while time.time() - t_delay_start < self._delay_duration:
-            t_hand_off = self._commander.t_hand_fixation_off()
+            t_hand_off = self.commander.t_hand_fixation_off()
             if t_hand_off > fixation_start_time:
                 self._trial_feedback["broke_fixation"] = True
                 break
@@ -125,19 +131,19 @@ class ForagingTask(abc.ABC):
     async def _response(self):
         """Response period."""
         # Open arm door
-        self._commander.arm_door_open()
+        await self.commander.arm_door_open_async()
 
         # Wait for response
         response_start_time = time.time()
         timeout = True
         while time.time() < response_start_time + self._response_timeout:
-            t_response = self._commander.t_flic_button()
+            t_response = self.commander.t_flic_button()
             if t_response > response_start_time:
                 timeout = False
                 self._trial_feedback["reaction_time"] = (
                     t_response - response_start_time
                 )
-                self._commander.reward(self._reward_duration_ms)
+                self.commander.reward(self._reward_duration_ms)
                 break
             time.sleep(0.01)
         self._trial_feedback["timeout"] = timeout
@@ -151,7 +157,7 @@ class ForagingTask(abc.ABC):
     async def _reveal(self):
         """Reveal object."""
         # Reveal object
-        self._commander.smartglass_reveal()
+        self.commander.smartglass_reveal()
 
         # Wait for reveal duration
         time.sleep(self._reveal_duration)
@@ -162,30 +168,34 @@ class ForagingTask(abc.ABC):
     async def _return(self):
         """Return object."""
         # Give feedback to trial generator
-        self._trial_generator.send(**self._trial_feedback)
+        self._trial_generator.send(self._trial_feedback)
 
         # Close arm door
-        self._commander.arm_door_close()
+        arm_door_future = self.commander.arm_door_close_async()
 
         # Occlude smartglass
-        self._commander.smartglass_occlude()
+        smartglass_future = self.commander.smartglass_occlude_async()
 
         # Return object
-        self._commander.return_object(self._trial_spec.object_id)
+        return_future = self.commander.return_object_async(
+            self._trial_spec.object_id
+        )
+
+        await asyncio.gather(arm_door_future, smartglass_future, return_future)
 
         # Transition to fetch state
         self._state = ForagingState.FETCH
 
     async def _return_async(self):
-        arm_door_task = self._commander.arm_door_close(blocking=False)
-        smartglass_occlude_task = self._commander.smartglass_occlude(
+        arm_door_task = self.commander.arm_door_close(blocking=False)
+        smartglass_occlude_task = self.commander.smartglass_occlude(
             blocking=False
         )
-        return_object_task = self._commander.return_object(
+        return_object_task = self.commander.return_object(
             self._trial_spec.object_id, blocking=False
         )
 
-        self._trial_generator.send(**self._trial_feedback)
+        self._trial_generator.send(self._trial_feedback)
 
         await arm_door_task
         await smartglass_occlude_task
@@ -193,22 +203,29 @@ class ForagingTask(abc.ABC):
 
         self._state = ForagingState.FETCH
 
-    async def run(self):
+    async def run(self, trial_iterable: Optional[BaseTrialIterable] = None):
         """Run a trial."""
-        self._trial_generator = iter(self._trial_generators_obj)
+        self._trial_generator = iter(
+            trial_iterable
+            if trial_iterable is not None
+            else self._trial_iterable
+        )
         try:
             while True:
-                if self._state == ForagingState.FETCH:
-                    await self._fetch()
-                elif self._state == ForagingState.STIMULUS:
-                    await self._stimulus()
-                elif self._state == ForagingState.DELAY:
-                    await self._delay()
-                elif self._state == ForagingState.RESPONSE:
-                    await self._response()
-                elif self._state == ForagingState.REVEAL:
-                    await self._reveal()
-                elif self._state == ForagingState.RETURN:
-                    await self._return()
+                match self._state:
+                    case ForagingState.FETCH:
+                        await self._fetch()
+                    case ForagingState.STIMULUS:
+                        await self._stimulus()
+                    case ForagingState.DELAY:
+                        await self._delay()
+                    case ForagingState.RESPONSE:
+                        await self._response()
+                    case ForagingState.REVEAL:
+                        await self._reveal()
+                    case ForagingState.RETURN:
+                        await self._return()
+                    case _:
+                        raise ValueError(f"Invalid state: {self._state}")
         except StopIteration:
             print("Trial generator finished")

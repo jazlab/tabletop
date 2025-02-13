@@ -1,4 +1,5 @@
+from .base_task import BaseTask
 from .foraging import ForagingTask
 from .smooth_pursuit import SmoothPursuit
 
-__all__ = ["ForagingTask", "SmoothPursuit"]
+__all__ = ["ForagingTask", "SmoothPursuit", "BaseTask"]

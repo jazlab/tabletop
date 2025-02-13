@@ -1,5 +1,6 @@
-from collections.abc import Awaitable, Callable, Coroutine
-from inspect import iscoroutine
+import asyncio
+from collections.abc import Awaitable, Callable
+from inspect import isawaitable, iscoroutinefunction
 from typing import Any, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -9,7 +10,6 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
-from rclpy.task import Task as RclpyTask
 
 from tabletop_server.utils import (
     SrvType,
@@ -134,7 +134,7 @@ class BaseNode(Node):
 
     @staticmethod
     def rclpy_task_wrapper(
-        handle: Callable | Coroutine,
+        handle: Callable,
         *args,
         **kwargs,
     ):
@@ -146,43 +146,53 @@ class BaseNode(Node):
             return e
 
     @staticmethod
-    async def rclpy_task_wrapper_async(
-        handle: Callable | Coroutine,
-        *args,
-        **kwargs,
-    ):
+    async def rclpy_task_wrapper_awaitable(handle: Awaitable):
         try:
-            return await handle(*args, **kwargs)
+            return await handle
         except Exception as e:
-            print(f"Error in {handle.__name__} during callback:")
+            try:
+                print(f"Error in {handle.__name__} during callback:")  # type: ignore
+            except AttributeError:
+                print(f"Error in {handle} during callback:")
             print(e)
             return e
 
-    def create_rclpy_task(
+    async def create_rclpy_task(
         self,
-        handle: Callable | Coroutine,
+        handle: Callable | Awaitable,
         *args,
         done_callback: Optional[Callable] = None,
         **kwargs,
-    ) -> RclpyTask:
+    ):
         """
-        Create a future that will be resolved when the task is finished.
-        To wait for the task to finish, await the future.
+        Create a coroutine that will be resolved when the task is finished.
+        To wait for the task to finish, await the coroutine.
         """
-        # TODO: Check for couroutine functions as well
-        if iscoroutine(handle):
-            rclpy_task = self.executor.create_task(
-                self.rclpy_task_wrapper_async, handle, *args, **kwargs
-            )  # type: ignore
+        if isawaitable(handle):
+            if args or kwargs:
+                raise ValueError(
+                    "Arguments and keyword arguments are not allowed for awaitable handles"
+                )
+            rclpy_task = self.executor.create_task(  # type: ignore
+                self.rclpy_task_wrapper_awaitable(handle)
+            )
+        elif iscoroutinefunction(handle):
+            rclpy_task = self.executor.create_task(  # type: ignore
+                self.rclpy_task_wrapper_awaitable(handle(*args, **kwargs))
+            )
         else:
-            rclpy_task = self.executor.create_task(
+            rclpy_task = self.executor.create_task(  # type: ignore
                 self.rclpy_task_wrapper, handle, *args, **kwargs
-            )  # type: ignore
+            )
 
         if done_callback is not None:
             rclpy_task.add_done_callback(done_callback)
 
-        return rclpy_task
+        result = await rclpy_task
+        if isinstance(result, Exception):
+            raise result
+        else:
+            return result
 
     def wait_for_service(
         self,
@@ -267,7 +277,7 @@ class BaseNode(Node):
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
         destroy_service_client: bool = True,
-        call_timeout: Optional[float] = None,
+        timeout_sec: Optional[float] = None,
     ) -> SrvTypeResponse | tuple[SrvTypeResponse, Client]:
         """
         Call a service synchronously, returning the response and optionally
@@ -279,13 +289,13 @@ class BaseNode(Node):
         try:
             # Call the service
             self.log(f"Calling {service_client.service_name} service...")
-            call_timeout = (
-                call_timeout
-                if call_timeout is not None
+            timeout_sec = (
+                timeout_sec
+                if timeout_sec is not None
                 else self.get_parameter("default_service_call_timeout").value
             )
             response = service_client.call(
-                srv_request, timeout_sec=call_timeout
+                srv_request, timeout_sec=timeout_sec
             )
 
             # Check if the service call succeeded
@@ -298,25 +308,45 @@ class BaseNode(Node):
             if destroy_service_client:
                 self.destroy_client(service_client)
 
-    def service_call_async(
+    async def service_call_async(
         self,
         srv_request: SrvTypeRequest,
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
         destroy_service_client: bool = True,
-    ) -> Awaitable:
+    ):
         """
         Call a service asynchronously, returning a future and the service
         client.
         """
-        service_client = self._create_client(
-            srv_type, srv_name, service_client, destroy_service_client=False
-        )
-        future = service_client.call_async(srv_request)
-        future.add_done_callback(
-            lambda _: self.destroy_client(service_client)
-            if destroy_service_client
-            else None
-        )
-        return future
+        try:
+            service_client = self._create_client(
+                srv_type,
+                srv_name,
+                service_client,
+                destroy_service_client=False,
+            )
+            future = service_client.call_async(srv_request)
+            future.add_done_callback(
+                lambda _: self.destroy_client(service_client)
+                if destroy_service_client
+                else None
+            )
+            return await future
+        except asyncio.CancelledError as e:
+            future.cancel()
+            # Check if the future was successfully cancelled (avoids race
+            # condition)
+            if future.done():
+                self.log(
+                    f"Service call to {srv_name} finished before cancellation",
+                    severity="WARN",
+                )
+                return future.result()
+            else:
+                self.log(
+                    f"Service call to {srv_name} was cancelled by asyncio",
+                    severity="ERROR",
+                )
+                raise e

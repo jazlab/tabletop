@@ -19,3 +19,6 @@
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 ros/tabletop_teensy/.vscode/
+
+# Ignore meshes
+**mock_rig**

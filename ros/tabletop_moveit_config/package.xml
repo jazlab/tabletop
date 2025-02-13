@@ -22,11 +22,9 @@
   <exec_depend>moveit_configs_utils</exec_depend>
   <exec_depend>moveit_kinematics</exec_depend>
   <exec_depend>moveit_planners</exec_depend>
-  <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_ros_visualization</exec_depend>
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>moveit_simple_controller_manager</exec_depend>
-  <exec_depend>rmw_cyclonedds_cpp</exec_depend>
   <exec_depend>tabletop_description</exec_depend>
   <exec_depend>xacro</exec_depend>
 

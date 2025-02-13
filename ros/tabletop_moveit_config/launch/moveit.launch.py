@@ -29,7 +29,6 @@
 #
 # Author: Felix Exner
 import os
-from pathlib import Path
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -83,11 +82,6 @@ def declare_arguments():
                 description="Path where the warehouse database should be stored",
             ),
             DeclareLaunchArgument(
-                "launch_servo",
-                default_value="false",
-                description="Launch Servo?",
-            ),
-            DeclareLaunchArgument(
                 "use_sim_time",
                 default_value="false",
                 description="Using or not time from simulation",
@@ -105,7 +99,6 @@ def generate_launch_description():
     launch_rviz = LaunchConfiguration("launch_rviz")
     ur_type = LaunchConfiguration("ur_type")
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
-    launch_servo = LaunchConfiguration("launch_servo")
     use_sim_time = LaunchConfiguration("use_sim_time")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
@@ -116,7 +109,7 @@ def generate_launch_description():
             robot_name="ur", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            Path("srdf") / "ur.srdf.xacro", {"name": ur_type}
+            os.path.join("srdf", "tabletop.srdf.xacro"), {"name": ur_type}
         )
         .to_moveit_configs()
     )
@@ -150,19 +143,6 @@ def generate_launch_description():
         ],
     )
 
-    servo_yaml = load_yaml("tabletop_moveit_config", "config/ur_servo.yaml")
-    servo_params = {"moveit_servo": servo_yaml}
-    servo_node = Node(
-        package="moveit_servo",
-        condition=IfCondition(launch_servo),
-        executable="servo_node",
-        parameters=[
-            moveit_config.to_dict(),
-            servo_params,
-        ],
-        output="screen",
-    )
-
     rviz_config_file = PathJoinSubstitution(
         [FindPackageShare("tabletop_moveit_config"), "config", "moveit.rviz"]
     )
@@ -190,7 +170,7 @@ def generate_launch_description():
         RegisterEventHandler(
             OnProcessExit(
                 target_action=wait_robot_description,
-                on_exit=[move_group_node, rviz_node, servo_node],
+                on_exit=[move_group_node, rviz_node],
             )
         ),
     )

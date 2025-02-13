@@ -11,6 +11,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.logging import launch_config as launch_logging_config
 from launch.substitutions import (
+    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -18,7 +19,7 @@ from launch.substitutions import (
 from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-from tabletop_server.utils import save_yaml, string_to_bool
+from tabletop_server.utils import save_yaml
 
 
 def declare_arguments():
@@ -183,6 +184,18 @@ def declare_arguments():
             default_value="false",
             description="Use mock TeensyBoard",
         ),
+        # Task Config
+        DeclareLaunchArgument(
+            "task_config_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_tasks"),
+                    "config",
+                    "tasks.yaml",
+                ]
+            ),
+            description="Path to the YAML config file for running tasks",
+        ),
         # Bag
         DeclareLaunchArgument(
             "rosbag_args",
@@ -242,6 +255,9 @@ def launch_setup(context):
     dashboard_installation = LaunchConfiguration("dashboard_installation")
     waypoints_path = LaunchConfiguration("waypoints_path")
 
+    # Task Config
+    task_config_file = LaunchConfiguration("task_config_file")
+
     # MoveIt
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
@@ -295,14 +311,6 @@ def launch_setup(context):
         ]
     )
 
-    tasks_yaml = PathJoinSubstitution(
-        [
-            FindPackageShare("tabletop_tasks"),
-            "config",
-            "tasks.yaml",
-        ]
-    )
-
     commander_overrides = {
         name: value
         for name, value in {
@@ -352,7 +360,7 @@ def launch_setup(context):
         }.items(),
     )
 
-    # Task Runner
+    # Commander
     task_runner = Node(
         package="tabletop_tasks",
         executable="run_tasks",
@@ -369,9 +377,15 @@ def launch_setup(context):
             "--log-level",
             log_level,
         ],
-        prefix=["gdbserver :3000"]
-        if string_to_bool(debug.perform(context))
-        else [],
+        arguments=[
+            "--task-config-file",
+            task_config_file,
+        ],
+        prefix=IfElseSubstitution(
+            debug,
+            ["gdbserver :3000"],
+            "",
+        ),
         output="both",
     )
 

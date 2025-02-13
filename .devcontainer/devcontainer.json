@@ -6,7 +6,7 @@
     "postStartCommand": [
         "bash",
         "-c",
-        "/root/ws/src/tabletop/scripts/build.sh"
+        "/root/ws/src/tabletop/scripts/build.sh && /root/ws/src/tabletop/scripts/teensy_build.sh --no-upload"
     ],
     "customizations": {
         "vscode": {
