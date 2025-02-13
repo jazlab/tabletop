@@ -16,6 +16,8 @@
   <depend>ur</depend>
   <depend>moveit</depend>
   <depend>moveit_py</depend>
+  <depend>moveit_configs_utils</depend>
+  <depend>moveit_ros_visualization</depend>
   <depend>ros2controlcli</depend>
   <depend>std_msgs</depend>
   <depend>cv_bridge</depend>

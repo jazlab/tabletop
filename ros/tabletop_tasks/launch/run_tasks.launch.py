@@ -378,7 +378,6 @@ def launch_setup(context):
             log_level,
         ],
         arguments=[
-            "--task-config-file",
             task_config_file,
         ],
         prefix=IfElseSubstitution(
