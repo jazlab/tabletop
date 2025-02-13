@@ -618,8 +618,9 @@ async def run(commander: Commander):
             # print("Loaded rig")
 
             # await asyncio.sleep(1000)
-            # for name in waypoints_path:
-            #     await commander.plan_and_execute_async(waypoints[name])
+            for name in waypoints_path:
+                with asyncio.Timeout(10):
+                    await commander.plan_and_execute_async(waypoints[name])
 
             for i, name in enumerate(waypoints_path):
                 plan_exec_future = commander.plan_and_execute_async(
