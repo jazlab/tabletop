@@ -26,15 +26,12 @@ services:
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
-  robot:
-    depends_on:
-      novnc:
-        condition: service_healthy
+  robot_base:
     restart: unless-stopped
-    image: universalrobots/ursim_e-series
+    image: universalrobots/ursim_e-series:latest
     pull_policy: always
     platform: linux/amd64
-    pid: host
+    # pid: host
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -44,22 +41,30 @@ services:
         ipv4_address: 192.168.12.10
     hostname: robot
     environment:
-      - DISPLAY=novnc:0.0
       - ROBOT_MODEL=ur5e
 
-  robot_x11:
-    extends: robot
+  robot_headless:
+    extends: robot_base
+    depends_on:
+      novnc:
+        condition: service_healthy
+    environment:
+      - DISPLAY=novnc:0.0
+
+  robot:
+    extends: robot_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
     
-  server_mac:
+  server_base:
     build:
       context: ./ros
       pull: true
     pull_policy: build
+    image: tabletop-server
     ports:
       - 50001:50001
       - 50002:50002
@@ -73,39 +78,37 @@ services:
     hostname: server
     environment:
       - ROS_LOG_DIR=/root/ws/src/tabletop/log
-      - DISPLAY=novnc:0.0
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
-        robot_ip:=${ROBOT_IP:-192.168.12.10}
-        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     command: bash -c
       "/root/ws/src/tabletop/scripts/build.sh
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
-  server:
-    extends: server_mac
+  server_mac:
+    extends: server_base
     depends_on:
       novnc:
         condition: service_healthy
     environment:
+      - DISPLAY=novnc:0.0
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+
+  server:
+    extends: server_base
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev/dri:/dev/dri
+    environment:
+      - DISPLAY=$DISPLAY
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
         ros2 launch tabletop_server server.launch.py
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
-    
-
-  server_x11:
-    extends: server
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
-    environment:
-      - DISPLAY=$DISPLAY
-    image: tabletop-server
 
 networks:
   tabletop_net:

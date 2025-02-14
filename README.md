@@ -83,10 +83,11 @@ modifications made in the `ursim/` directory and `compose.yaml` file).
 
 ## Requirements
 
-This package requires:
+This package requires the following software to be installed on your system before
+building and running the project:
 
 * [Docker](https://docs.docker.com/get-docker/)
-* [Visual Studio Code](https://code.visualstudio.com/) (optional, for Dev
+* [[Optional] Visual Studio Code](https://code.visualstudio.com/) (for Dev
     Container usage)
 
 Follow the installation instructions in the links above.
@@ -117,11 +118,27 @@ You may experience issues with the Universal Robots Simulator otherwise.
     git clone https://github.com/jazlab/tabletop.git
     ```
 
-3. Upload the Micro-ROS Client software to the Teensy:
+3. [Optional] Install PlatformIO Core:
 
     ```bash
-    ./scripts/upload_teensy.sh
+    ./scripts/install_platformio.sh
     ```
+
+    **Note**: This script will add PlatformIO to your PATH. You may need to
+    restart your shell or open a new terminal session to use it.
+
+    **Note**: This is only required if you want to build and upload the
+    micro-controller firmware. If you are developing in the included dev
+    container, this is not necessary, as the dev container will install
+    PlatformIO Core (the CLI) automatically, as well as the corresponding
+    VSCode extension. The latter option requires you to run the docker
+    container in `--privileged` mode, which may pose security risks. This
+    security risk is not imposed by other containers in the project and is
+    only required for the Teensy upload functionality while developing in the
+    dev container.
+
+    If you plan on only simulating the system, you can skip this step and
+    instead use a "mock Teensy," as described below.
 
 ## Usage
 
@@ -154,17 +171,33 @@ To run the entire software stack using Docker:
 4. Build the Docker containers:
 
     ```bash
-    docker compose build --pull [--no-cache]
+    docker compose build [--no-cache]
     ```
 
     Use `--no-cache` to force a rebuild of the Docker images and install the
     latest versions of the dependencies.
 
-5. Start the Docker containers:
+5. [Optional] Upload the Teensy firmware:   
+    ```bash
+    ./scripts/upload_teensy.sh
+    ```
+
+    **Note**: This requires PlatformIO Core to be installed. See [above](#installation)
+    for more information.
+
+    **Note**: The build may fail with permission errors. If this is the case,
+    you can try the following command:
+    ```bash
+    ./scripts/upload_teensy.sh --clean
+    ```
+    This will clean the build directory and try again. Requires `sudo`
+    permissions.
+
+6. Start the Docker containers:
 
     All at once:
     ```bash
-    docker compose up [--force-recreate] novnc robot server
+    docker compose up [--force-recreate] novnc robot [server | server_mac]
     ```
 
     Individually:
@@ -172,6 +205,7 @@ To run the entire software stack using Docker:
     docker compose up [--force-recreate] novnc
     docker compose up [--force-recreate] robot
     docker compose up [--force-recreate] server
+    docker compose up [--force-recreate] server_mac
     ```
 
     Optionally, you can opt to use your host machine's X server, in which case
@@ -190,20 +224,27 @@ To run the entire software stack using Docker:
     commands to destroy any existing containers.
 
 This will build the Docker images and start the containers. There are 3 primary
-containers:
+containers (and their variants):
 - `novnc`: The noVNC container, which exposes a web interface to interact
     with the GUIs in any of the running docker containers. Includes a dynamic
     window manager ([dwm](https://dwm.suckless.org/)) for multiple GUI windows
     to be displayed at once. A list of commonly used keyboard shortcuts can be
     found [here](https://wiki.gentoo.org/wiki/Dwm#Keys_and_key_functions:~:text=the%20window%20to.-,Default%20shortcuts,-Those%20shortcuts%20are).
-- `server`: The server container for the TableTop project, which
+- `server*`: The server container for the TableTop project, which
     runs all the local ROS 2 nodes (including the Universal Robots driver nodes,
     the MoveIt nodes, and the TableTop nodes). On startup, the `server`
     container will install any dependencies and build the project. It will then
     run the launch file specified in the `LAUNCH_FILE` environment variable or
-    the default in `compose.yaml` if `LAUNCH_FILE` is not set
-- `robot`: The container for the Universal Robots simulator, which simulates the
-    safety constraints of the real robot.
+    the default in `compose.yaml` if `LAUNCH_FILE` is not set. The variants
+    `server_mac` and `server_x11` are the same as `server` but for MacOS and
+    using the host machine's X server, respectively.
+- `robot*`: The container for the Universal Robots simulator, which simulates the
+    safety constraints of the real robot. The `robot_x11` variant uses the host
+    machine's X server to display the simulator GUI.
+
+**Note**: Be careful not to run more than one of each type of container at
+once. This means you cannot use `docker compose up` without any service
+arguments.
 
 Once the containers are started, you can access the web interface at
 http://localhost:8080/vnc.html in your web browser.
@@ -255,22 +296,22 @@ ROS 2 driver.
 
 ### Choosing Launch Command
 
-The default behavior of the `server` container is to source and build the ROS2
-environment (by sourcing `scripts/build.sh`) then launch the `server.launch.py`
-file. To change this default behavior, you can set the `LAUNCH_COMMAND`
-environment variable to your desired bash command.  You can do this by
+The default behavior of the `server` container is to build and source the ROS2
+environment then launch `server.launch.py`. To change this default behavior,
+you can set the `LAUNCH_COMMAND` environment variable to your desired bash command.
+You can do this by:
 * Setting the variable from the command line:
     ```bash
-    LAUNCH_COMMAND="ros2 launch tabletop_moveit_config moveit.launch.py" \
+    LAUNCH_COMMAND="ros2 launch tabletop_tasks run_tasks.launch.py" \
     docker compose up --build --force-recreate
     ```
 * [Preferred] Using an environment file (commonly used such files in
     `env_files/`):
     ```bash
-    docker compose --env-file env_files/sim.env --env-file env_files/launch_moveit.env up ...
+    docker compose --env-file env_files/sim.env --env-file env_files/launch_tasks.env up ...
     ```
     Note that the order of the environment files matters. Here, the `sim.env`
-    file sets variables that are used by the `launch_moveit.env` file.
+    file sets variables that are used by the `launch_tasks.env` file.
 * Editing the `compose.yaml` file (make sure to edit the default value so that
     you can overwrite `LAUNCH_COMMAND` from the command line later):
 
