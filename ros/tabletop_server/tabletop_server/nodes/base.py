@@ -41,7 +41,7 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_params()
+        self.log_params(severity="DEBUG")
 
     def log(
         self,
@@ -163,7 +163,7 @@ class BaseNode(Node):
         *args,
         done_callback: Optional[Callable] = None,
         **kwargs,
-    ):
+    ) -> Any:
         """
         Create a coroutine that will be resolved when the task is finished.
         To wait for the task to finish, await the coroutine.

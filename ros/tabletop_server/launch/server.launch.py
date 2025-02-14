@@ -2,11 +2,13 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
+    GroupAction,
     IncludeLaunchDescription,
-    OpaqueFunction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.launch_service import LaunchService
+from launch.logging import launch_config as launch_logging_config
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
@@ -15,17 +17,11 @@ from launch.substitutions import (
 from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-from tabletop_server.utils import save_yaml, string_to_bool
 
 
 def declare_arguments():
     return [
         # Common
-        DeclareLaunchArgument(
-            "tmp_dir",
-            default_value="/tmp",
-            description="Temporary directory for saving configs as yaml files",
-        ),
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
@@ -48,17 +44,6 @@ def declare_arguments():
             ],
         ),
         # UR Robot Driver
-        DeclareLaunchArgument(
-            "rviz_config_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_description"),
-                    "rviz",
-                    "view_robot.rviz",
-                ]
-            ),
-            description="RViz config file",
-        ),
         DeclareLaunchArgument(
             "robot_ip",
             default_value="192.168.12.10",
@@ -112,38 +97,18 @@ def declare_arguments():
             ),
             description="URDF/XACRO description file with the robot.",
         ),
-        # Commander overrides
+        # Commander
         DeclareLaunchArgument(
-            "planning_group_name",
-            default_value="none",
-            description="MoveIt group name",
+            "commander_config",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_server"),
+                    "config",
+                    "commander.yaml",
+                ]
+            ),
+            description="Commander config file",
         ),
-        DeclareLaunchArgument(
-            "planning_pose_link",
-            default_value="none",
-            description="Pose link",
-        ),
-        DeclareLaunchArgument(
-            "planning_pipeline",
-            default_value="none",
-            description="Planning pipeline",
-        ),
-        DeclareLaunchArgument(
-            "dashboard_program",
-            default_value="none",
-            description="UR program name",
-        ),
-        DeclareLaunchArgument(
-            "dashboard_installation",
-            default_value="none",
-            description="UR installation name",
-        ),
-        DeclareLaunchArgument(
-            "waypoints_path",
-            default_value="none",
-            description="List of waypoint names in order of execution",
-        ),
-        # MoveIt
         DeclareLaunchArgument(
             "publish_robot_description_semantic",
             default_value="true",
@@ -177,14 +142,18 @@ def declare_arguments():
         ),
         # RViz
         DeclareLaunchArgument(
-            "launch_rviz_moveit",
+            "launch_rviz",
             default_value="true",
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution(
-                [FindPackageShare("tabletop_server"), "rviz", "server.rviz"]
+                [
+                    FindPackageShare("tabletop_server"),
+                    "config",
+                    "server.rviz",
+                ]
             ),
             description="RViz config file",
         ),
@@ -198,12 +167,6 @@ def declare_arguments():
             "rosbag_dir",
             default_value="/root/ws/src/tabletop/bags",
             description="Base directory to save rosbags",
-        ),
-        # Logging
-        DeclareLaunchArgument(
-            "log_dir",
-            default_value="/root/ws/src/tabletop/log",
-            description=("Base log directory"),
         ),
         DeclareLaunchArgument(
             "log_level",
@@ -220,9 +183,8 @@ def declare_arguments():
     ]
 
 
-def launch_setup(context):
+def generate_launch_description():
     # Common
-    tmp_dir = LaunchConfiguration("tmp_dir")
     use_sim_time = LaunchConfiguration("use_sim_time")
     ur_type = LaunchConfiguration("ur_type")
 
@@ -238,14 +200,7 @@ def launch_setup(context):
     use_mock_robot = LaunchConfiguration("use_mock_robot")
 
     # Commander
-    planning_group_name = LaunchConfiguration("planning_group_name")
-    planning_pose_link = LaunchConfiguration("planning_pose_link")
-    planning_pipeline = LaunchConfiguration("planning_pipeline")
-    dashboard_program = LaunchConfiguration("dashboard_program")
-    dashboard_installation = LaunchConfiguration("dashboard_installation")
-    waypoints_path = LaunchConfiguration("waypoints_path")
-
-    # MoveIt
+    commander_config = LaunchConfiguration("commander_config")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
     )
@@ -258,7 +213,7 @@ def launch_setup(context):
     use_mock_teensy = LaunchConfiguration("use_mock_teensy")
 
     # RViz
-    launch_rviz_moveit = LaunchConfiguration("launch_rviz_moveit")
+    launch_rviz = LaunchConfiguration("launch_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
 
     # Bag
@@ -268,41 +223,39 @@ def launch_setup(context):
     # Logging
     log_level = LaunchConfiguration("log_level")
 
-    # Debug
-    debug = LaunchConfiguration("debug")
-
-    # Configure launch logging
-    # launch_logging_config.log_dir = log_dir.perform(context)
-    # launch_logging_config.level = getLevelNamesMapping()[
-    #     log_level.perform(context).upper()
-    # ]
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # UR Robot Driver
-    ur_robot_driver = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [
-                PathJoinSubstitution(
+    ur_robot_driver = GroupAction(
+        [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
                     [
-                        FindPackageShare("ur_robot_driver"),
-                        "launch",
-                        "ur_control.launch.py",
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("ur_robot_driver"),
+                                "launch",
+                                "ur_control.launch.py",
+                            ]
+                        )
                     ]
-                )
-            ]
-        ),
-        launch_arguments={
-            "ur_type": ur_type,
-            "robot_ip": robot_ip,
-            "reverse_ip": reverse_ip,
-            "use_mock_hardware": use_mock_robot,
-            "controller_spawner_timeout": controller_spawner_timeout,
-            "launch_rviz": "false",
-            "kinematics_params_file": kinematics_params_file,
-            "description_launchfile": description_launchfile,
-            "description_file": description_file,
-            "use_sim_time": use_sim_time,
-        }.items(),
+                ),
+                launch_arguments={
+                    "ur_type": ur_type,
+                    "robot_ip": robot_ip,
+                    "reverse_ip": reverse_ip,
+                    "use_mock_hardware": use_mock_robot,
+                    "controller_spawner_timeout": controller_spawner_timeout,
+                    "launch_rviz": "false",
+                    "kinematics_params_file": kinematics_params_file,
+                    "description_launchfile": description_launchfile,
+                    "description_file": description_file,
+                    "use_sim_time": use_sim_time,
+                }.items(),
+            )
+        ],
+        scoped=True,
+        forwarding=True,
     )
 
     # Commander
@@ -319,54 +272,18 @@ def launch_setup(context):
         .to_moveit_configs()
     )
 
-    commander_yaml = PathJoinSubstitution(
-        [
-            FindPackageShare("tabletop_server"),
-            "config",
-            "commander.yaml",
-        ]
-    )
-
-    commander_overrides = {
-        name: value
-        for name, value in {
-            "dashboard.installation": dashboard_installation.perform(context),
-            "dashboard.program": dashboard_program.perform(context),
-            "planning.group_name": planning_group_name.perform(context),
-            "planning.pose_link": planning_pose_link.perform(context),
-            "planning.pipeline": planning_pipeline.perform(context).split(","),
-            "waypoints.path": waypoints_path.perform(context).split(","),
-        }.items()
-        if value not in ["none", ["none"]]
-    }
-    commander_overrides = {
-        "/commander": {"ros__parameters": commander_overrides}
-    }
-
-    commander_overrides_yaml = (
-        f"{tmp_dir.perform(context)}/commander_overrides.yaml"
-    )
-    save_yaml(commander_overrides_yaml, commander_overrides)
-
     commander = Node(
         package="tabletop_server",
         executable="commander",
         parameters=[
             moveit_config.to_dict(),
-            commander_yaml,
-            commander_overrides_yaml,
+            commander_config,
             {
                 "publish_robot_description_semantic": publish_robot_description_semantic,
                 "use_sim_time": use_sim_time,
             },
         ],
-        ros_arguments=[
-            "--log-level",
-            log_level,
-        ],
-        prefix=["gdbserver :3000"]
-        if string_to_bool(debug.perform(context))
-        else [],
+        ros_arguments=["--log-level", log_level],
         output="both",
     )
 
@@ -377,10 +294,7 @@ def launch_setup(context):
         executable="micro_ros_agent",
         output="both",
         parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=[
-            "--log-level",
-            log_level,
-        ],
+        ros_arguments=["--log-level", log_level],
         arguments=[
             micro_ros_transport,
             "--dev",
@@ -400,19 +314,18 @@ def launch_setup(context):
         executable="mock_teensy",
         output="both",
         parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=[
-            "--log-level",
-            log_level,
-        ],
+        ros_arguments=["--log-level", log_level],
         condition=IfCondition(use_mock_teensy),
     )
 
     # RViz
     rviz_node = Node(
         package="rviz2",
+        condition=IfCondition(launch_rviz),
         executable="rviz2",
-        name="rviz2_moveit",
+        name="rviz2",
         output="both",
+        arguments=["-d", rviz_config_file],
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -423,8 +336,7 @@ def launch_setup(context):
                 "use_sim_time": use_sim_time,
             },
         ],
-        arguments=["-d", rviz_config_file],
-        condition=IfCondition(launch_rviz_moveit),
+        ros_arguments=["--log-level", log_level],
     )
 
     # Bag
@@ -434,29 +346,27 @@ def launch_setup(context):
         output="both",
     )
 
-    return [
-        set_ros_log_dir,
-        ur_robot_driver,
-        commander,
-        micro_ros_agent,
-        mock_teensy,
-        rviz_node,
-        bag,
-    ]
-
-
-def generate_launch_description():
     return LaunchDescription(
-        declare_arguments() + [OpaqueFunction(function=launch_setup)]
+        declare_arguments()
+        + [
+            set_ros_log_dir,
+            ur_robot_driver,
+            commander,
+            micro_ros_agent,
+            mock_teensy,
+            rviz_node,
+            bag,
+        ]
     )
 
 
-# def main():
-#     ls = LaunchService()
-#     ld = generate_launch_description()
-#     ls.include_launch_description(ld)
-#     return ls.run()
+def main():
+    launch_logging_config.level = "DEBUG"
+    ls = LaunchService()
+    ld = generate_launch_description()
+    ls.include_launch_description(ld)
+    return ls.run()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/bin/bash
 
 _script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
 source $_script_dir/utils.sh

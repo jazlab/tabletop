@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import rclpy
 import trimesh
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import Point, Pose, PoseStamped
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
@@ -42,26 +42,6 @@ from tabletop_server.utils import (
 )
 
 
-class PlanAndExecutionStatus:
-    def __init__(
-        self, status: str, success: bool, exception: Optional[Exception] = None
-    ):
-        self._status = status
-        self._success = success
-        self._exception = exception
-
-    @property
-    def status(self):
-        return self._status
-
-    def __bool__(self):
-        return self._success
-
-    @property
-    def exception(self):
-        return self._exception
-
-
 class Commander(BaseNode):
     default_params: dict[str, Any] = BaseNode.default_params | {}
     required_params: set[str] = BaseNode.required_params | {
@@ -92,10 +72,6 @@ class Commander(BaseNode):
         self.moveit_py = MoveItPy("moveit_py")
 
         # Initialize MoveItPy components
-        self.planning_scene_monitor: PlanningSceneMonitor = (
-            self.moveit_py.get_planning_scene_monitor()
-        )
-
         self.planning_component: PlanningComponent = (
             self.moveit_py.get_planning_component(
                 self.get_parameter("planning.group_name").value
@@ -103,6 +79,9 @@ class Commander(BaseNode):
         )
         self.trajectory_execution_manager: TrajectoryExecutionManager = (
             self.moveit_py.get_trajectory_execution_manager()
+        )
+        self.planning_scene_monitor: PlanningSceneMonitor = (
+            self.moveit_py.get_planning_scene_monitor()
         )
 
         self.setup_planning_scene()
@@ -114,24 +93,7 @@ class Commander(BaseNode):
         #     callback_group=self.flic_cg,
         # )
 
-        # Initialize state variables
-        self.i = 0
-        self.plan_attempts = 0
-        self.execution_attempts = 0
-        self.reset_attempts = 0
-
-        # Start the state machine timer
-        # self.timer = self.create_timer(
-        #     self.get_parameter("state_machine_period").value,  # type: ignore
-        #     self.state_machine,
-        #     callback_group=self.state_machine_cg,
-        # )
-
-        # self.reset_future = RclpyFuture()
-        # self.reset_future.set_result(None)
-
         self.log("Commander initialized")
-        # self._change_state("RESET")
 
     def dashboard_trigger(self, srv_name: str) -> None:
         """
@@ -248,14 +210,6 @@ class Commander(BaseNode):
             srv_name="/teensy/reward",
         )
 
-    def wait_for_hand_fixation(self, timeout_sec: float):
-        return self.service_call(
-            srv_request=Trigger.Request(),
-            srv_type=Trigger,
-            srv_name="/teensy/hand_fixation",
-            timeout_sec=timeout_sec,
-        )
-
     async def wait_for_hand_fixation_async(self):
         return await self.service_call_async(
             srv_request=Trigger.Request(),
@@ -270,7 +224,6 @@ class Commander(BaseNode):
             srv_name="/sensor/flic",
         )
 
-    # TODO: Update to include retries
     def plan(
         self, goal: PoseStamped, pose_link: Optional[str] = None
     ) -> MotionPlanResponse:
@@ -311,10 +264,8 @@ class Commander(BaseNode):
                 raise e
 
     async def plan_async(
-        self,
-        goal: PoseStamped,
-        pose_link: Optional[str] = None,
-    ):
+        self, goal: PoseStamped, pose_link: Optional[str] = None
+    ) -> MotionPlanResponse:
         """
         Plan the trajectory to the current waypoint asynchronously.
         """
@@ -333,7 +284,9 @@ class Commander(BaseNode):
         self.trajectory_execution_manager.push(robot_trajectory)
         return self.trajectory_execution_manager.execute_and_wait()
 
-    async def execute_async(self, robot_trajectory):
+    async def execute_async(
+        self, robot_trajectory: RobotTrajectory
+    ) -> ExecutionStatus:
         future = RclpyFuture()
 
         def done_callback():
@@ -344,11 +297,11 @@ class Commander(BaseNode):
         self.trajectory_execution_manager.push(robot_trajectory)
         self.trajectory_execution_manager.execute(done_callback)
 
-        return await future
+        return await future  # type: ignore
 
     def plan_and_execute(
         self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
-    ):
+    ) -> None:
         # Plan the trajectory
         failure_msgs = []
         max_plan_attempts: int = self.get_parameter("max_plan_attempts").value  # type: ignore
@@ -408,59 +361,46 @@ class Commander(BaseNode):
             raise MaxAttemptsReachedError(error_msg)
 
     async def plan_and_execute_async(
-        self,
-        pose_stamped: PoseStamped,
-        pose_link: Optional[str] = None,
-    ) -> Awaitable:
-        return await self.create_rclpy_task(
+        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
+    ) -> None:
+        await self.create_rclpy_task(
             self.plan_and_execute,
             pose_stamped=pose_stamped,
             pose_link=pose_link,
-        )  # type: ignore
+        )
 
     def setup_planning_scene(self):
         """
         Setup the planning scene by adding a floor collision object.
         """
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = "world"
+        collision_object.id = "floor"
+
+        plane = Plane()
+        plane.coef = [0, 0, 1, 0]
+
+        collision_object.planes.append(plane)  # type: ignore
+        collision_object.operation = CollisionObject.ADD
+
         with self.planning_scene_monitor.read_write() as scene:
-            collision_object = CollisionObject()
-            collision_object.header.frame_id = "world"
-            collision_object.id = "floor"
-
-            plane = Plane()
-            plane.coef = [0, 0, 1, 0]
-
-            collision_object.planes.append(plane)  # type: ignore
-
-            collision_object.operation = CollisionObject.ADD
-
             scene.apply_collision_object(collision_object)
             scene.current_state.update()
 
-    def load_rig(self):
-        """
-        Load collision objects from STL files in the rig directory into planning scene
-        """
-        rig_dir = (
-            "/root/ws/src/tabletop/ros/tabletop_description/meshes/mock_rig"
-        )
+        rig_dir = "/root/ws/src/tabletop/ros/tabletop_description/meshes"
 
-        for i, filename in enumerate(
-            glob.glob(os.path.join(rig_dir, "*.stl"))
-        ):
-            collision_object = CollisionObject()
-            collision_object.header.frame_id = "world"
-            # collision_object.id = os.path.splitext(os.path.basename(filename))[
-            #     0
-            # ]
-            collision_object.id = f"rig_{i}"
-
+        for filename in sorted(glob.glob(os.path.join(rig_dir, "*.stl"))):
             self.log(f"Loading collision object: {collision_object.id}")
 
+            collision_object = CollisionObject()
+            collision_object.header.frame_id = "world"
+            collision_object.id = os.path.splitext(os.path.basename(filename))[
+                0
+            ]
+
             mesh = trimesh.load_mesh(filename)
-
+            mesh = mesh.apply_scale(0.01)
             mesh_msg = Mesh()
-
             mesh_msg.triangles = list(
                 map(
                     lambda t: MeshTriangle(vertex_indices=t),
@@ -473,7 +413,13 @@ class Commander(BaseNode):
                     mesh.vertices,
                 )
             )
+            mesh_pose = Pose()
+            mesh_pose.position.x = 0.0
+            mesh_pose.position.y = 0.0
+            mesh_pose.position.z = 0.0
+
             collision_object.meshes.append(mesh_msg)  # type: ignore
+            collision_object.mesh_poses.append(mesh_pose)  # type: ignore
             collision_object.operation = CollisionObject.ADD
 
             with self.planning_scene_monitor.read_write() as scene:
@@ -506,6 +452,7 @@ class Commander(BaseNode):
         target_pose: PoseStamped,
         reference_frame_id: str = "world",
     ):
+        raise NotImplementedError("Fetch object not implemented")
         self.log(f"Fetching object {object_id}")
         header = Header(frame_id=reference_frame_id)
 
@@ -536,6 +483,7 @@ class Commander(BaseNode):
             scene.current_state.update()
 
     def return_object(self, object_id):
+        raise NotImplementedError("Return object not implemented")
         self.log(f"Returning object {object_id}")
         with self.planning_scene_monitor.read_only() as scene:
             object_pose = scene.get_object_pose(object_id)
@@ -552,36 +500,6 @@ class Commander(BaseNode):
             target_pose.pose.position.z -= 0.1  # TODO: Make this a parameter
 
             self.plan_and_execute(target_pose)
-
-    @property
-    def state(self):
-        return self._state
-
-    def _change_state(self, state: str):
-        """
-        Change the state of the commander node.
-        """
-        self.log(f"Changing state to {state}")
-        self._state = state
-
-    def state_machine(self):
-        """
-        State machine for the commander node.
-        """
-        match self.state:
-            case "RESETTING":
-                pass
-            case "RUNNING":
-                pass
-            case "ERROR":
-                self.log(
-                    "Commander entered ERROR state, resetting...!",
-                    severity="ERROR",
-                )
-                self.reset_future = self.reset_robot_async()
-                self._change_state("RESETTING")
-            case _:
-                raise ValueError(f"Invalid state: {self.state}!")
 
     def destroy_node(self):
         self.moveit_py.shutdown()
@@ -619,7 +537,7 @@ async def run(commander: Commander):
 
             # await asyncio.sleep(1000)
             for name in waypoints_path:
-                with asyncio.Timeout(10):
+                async with asyncio.timeout(10):
                     await commander.plan_and_execute_async(waypoints[name])
 
             for i, name in enumerate(waypoints_path):

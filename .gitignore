@@ -22,3 +22,4 @@ ros/tabletop_teensy/.vscode/
 
 # Ignore meshes
 **mock_rig**
+**rig_mesh*.stl**

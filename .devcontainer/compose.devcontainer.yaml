@@ -2,26 +2,17 @@ name: tabletop
 
 services:
   devcontainer:
-    build:
-      context: .
-    pull_policy: build
+    extends:
+      file: ../compose.yaml
+      service: server_base
     privileged: true
     volumes:
       - ../../..:/root/ws
       - ./starship.toml:/root/.config/starship.toml
       - /dev:/dev
       - /dev/shm:/dev/shm
-    # devices:
-    #   - /dev/ttyACM0
-    #   - /dev/hidraw7
-    environment:
-      - ROS_LOG_DIR=/root/ws/src/tabletop/log
     ports:
       - 8008:8008 # PlatformIO HTTP port
-    hostname: devcontainer
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.101
     command: sleep infinity
 
 networks:

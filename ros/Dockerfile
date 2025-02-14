@@ -14,13 +14,16 @@ RUN apt-get update \
     ros-jazzy-rmw-fastrtps-cpp \
     ros-jazzy-rmw-cyclonedds-cpp \
     vim \
-    gdb \
+    psmisc \
     iputils-ping \
     net-tools \
+    gdb \
     xarclock
 
 WORKDIR $HOME
 SHELL ["/bin/bash", "-c"]
+
+RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
 
 RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py \
     && python3 /tmp/get-platformio.py \
@@ -29,10 +32,16 @@ RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platf
     && ln -s $HOME/.platformio/penv/bin/pio $HOME/.local/bin/pio \
     && ln -s $HOME/.platformio/penv/bin/piodebuggdb $HOME/.local/bin/piodebuggdb
 
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN pip install \
+    trimesh[easy] \
+    ros2-graph
+
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
+RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
