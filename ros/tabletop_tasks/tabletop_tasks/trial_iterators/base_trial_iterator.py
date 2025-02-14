@@ -1,7 +1,7 @@
 """Foraging task."""
 
 from abc import abstractmethod
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterator
 from typing import Any, NamedTuple
 
 from geometry_msgs.msg import Pose
@@ -14,14 +14,14 @@ class TrialSpec(NamedTuple):
     occlude: bool
 
 
-class BaseTrialIterable(Iterable[TrialSpec]):
+class BaseTrialIterator(Iterator[TrialSpec]):
     """
-    Base class for trial iterables.
+    Base class for trial iterators.
 
-    Trial iterables are iterables that generate trial specs.
+    Trial iterators are iterators that generate trial specs.
     """
 
     @abstractmethod
-    def __iter__(self) -> Generator[TrialSpec, Any, None]:
+    def __iter__(self) -> TrialSpec:
         """Generate a new trial."""
         raise NotImplementedError

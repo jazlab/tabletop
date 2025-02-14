@@ -341,3 +341,9 @@ Please follow the coding standards and best practices described in the
 
 ## License
 MIT License
+
+
+
+In dev container:
+# ros2 launch tabletop_tasks run_tasks.launch.py --task_config_file /root/ws/src/tabletop/ros/tabletop_tasks/config/tasks.yaml 
+ros2 launch tabletop_tasks run_tasks.launch.py use_mock_teensy:=true

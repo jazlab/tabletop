@@ -13,20 +13,20 @@ from tabletop_tasks.utils import without_keys
 async def run(commander: Commander, task_config_file: str) -> None:
     print("Running tasks")
     try:
-        config = yaml.safe_load(task_config_file)
-        print('\n\n\ntest\n\n\n')
-        raise ValueError('test')
+        config = yaml.safe_load(open(task_config_file, "r"))
+        commander.log(f"task_config_file: {task_config_file}")
 
-        for task_config in config["tasks"]:
-            task_module = task_config["module"]
-            task_constructor = task_config["constructor"]
-            task_kwargs = without_keys(task_config, ["module", "constructor"])
+        for task_config in config:
+            task_module_name = task_config["module"]
+            task_module = f"tabletop_tasks.tasks.{task_module_name}"
+            task_class = task_config["class"]
+            task_kwargs = task_config["kwargs"]
 
             # Warning: This is a potential security risk, but we trust the task
             # config file
-            task: BaseTask = getattr(
-                importlib.import_module(task_module), task_constructor
-            )(commander=commander, **task_kwargs)
+            # Use importlib to create instance of task class
+            task: BaseTask = getattr(importlib.import_module(task_module), task_class)(
+                commander=commander, **task_kwargs)
 
             await task.run()
     except Exception as e:
