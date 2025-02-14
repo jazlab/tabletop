@@ -1,0 +1,24 @@
+- module: foraging
+  class: ForagingTask
+  kwargs:
+    trial_iterator:
+      module: blocked_cup_drawer
+      class: BlockedCupDrawer
+      kwargs:
+        poses:
+          - x: 0.0
+            y: 0.0
+            z: 0.0
+          - x: 1
+            y: 1
+            z: 1
+          - x: 0
+            y: 1
+            z: 0.5
+        correct_trials_per_block: 10
+    fixation_duration_ms: 500
+    stimulus_duration_ms: 500
+    delay_duration_ms: 500
+    response_timeout_s: 10
+    reward_duration_ms: 100
+    reveal_duration_ms: 500
