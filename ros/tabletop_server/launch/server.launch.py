@@ -142,12 +142,12 @@ def declare_arguments():
         ),
         # RViz
         DeclareLaunchArgument(
-            "launch_rviz",
+            "launch_rviz_server",
             default_value="true",
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
-            "rviz_config_file",
+            "rviz_config_file_server",
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_server"),
@@ -213,8 +213,8 @@ def generate_launch_description():
     use_mock_teensy = LaunchConfiguration("use_mock_teensy")
 
     # RViz
-    launch_rviz = LaunchConfiguration("launch_rviz")
-    rviz_config_file = LaunchConfiguration("rviz_config_file")
+    launch_rviz_server = LaunchConfiguration("launch_rviz_server")
+    rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
 
     # Bag
     rosbag_args = LaunchConfiguration("rosbag_args")
@@ -321,21 +321,11 @@ def generate_launch_description():
     # RViz
     rviz_node = Node(
         package="rviz2",
-        condition=IfCondition(launch_rviz),
+        condition=IfCondition(launch_rviz_server),
         executable="rviz2",
         name="rviz2",
         output="both",
-        arguments=["-d", rviz_config_file],
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
-            moveit_config.planning_pipelines,
-            moveit_config.joint_limits,
-            {
-                "use_sim_time": use_sim_time,
-            },
-        ],
+        arguments=["-d", rviz_config_file_server],
         ros_arguments=["--log-level", log_level],
     )
 
