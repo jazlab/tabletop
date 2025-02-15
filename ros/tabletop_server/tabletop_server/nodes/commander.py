@@ -399,7 +399,7 @@ class Commander(BaseNode):
             ]
 
             mesh = trimesh.load_mesh(filename)
-            mesh = mesh.apply_scale(0.01)
+            mesh = mesh.apply_scale(0.0001)
             mesh_msg = Mesh()
             mesh_msg.triangles = list(
                 map(
