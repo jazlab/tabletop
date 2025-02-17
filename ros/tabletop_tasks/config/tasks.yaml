@@ -1,7 +1,7 @@
 - module: foraging
   class: ForagingTask
   kwargs:
-    trial_iterator:
+    trial_generator:
       module: blocked_cup_drawer
       class: BlockedCupDrawer
       kwargs:
@@ -19,6 +19,6 @@
     fixation_duration_ms: 500
     stimulus_duration_ms: 500
     delay_duration_ms: 500
-    response_timeout_s: 10
+    response_timeout_s: 1
     reward_duration_ms: 100
     reveal_duration_ms: 500

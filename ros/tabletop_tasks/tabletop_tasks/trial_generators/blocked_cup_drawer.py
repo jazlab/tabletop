@@ -1,16 +1,16 @@
-"""Block-structured cup/drawer trial iterator."""
+"""Block-structured cup/drawer trial generator."""
 
 from random import randrange
-from typing import Any, Iterator
+from typing import Any, Generator
 
 import numpy as np
 from geometry_msgs.msg import Point, Pose, Quaternion
 
-from tabletop_tasks.trial_iterators import BaseTrialIterator, TrialSpec
+from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialSpec
 
 
-class BlockedCupDrawer(BaseTrialIterator):
-    """Base class for trial iterators."""
+class BlockedCupDrawer(BaseTrialGenerator):
+    """Base class for trial generators."""
 
     def __init__(
         self,
@@ -29,12 +29,12 @@ class BlockedCupDrawer(BaseTrialIterator):
         # Setup poses. Each trial, a random pose will be sampled from these.
         self._poses = poses
         
-        # Initialize iterator
+        # Initialize generator
         self._num_correct = 0
         self._block_index = randrange(len(self._block_keys))
         
-    def feedback(self, broke_fixaation: bool, timeout: bool, **unused_kwargs: dict) -> None:
-        """Update iterator based on feedback."""
+    def send(self, broke_fixation: bool, timeout: bool, **unused_kwargs: dict) -> None:
+        """Update generator based on feedback."""
         del unused_kwargs
         
         # Increment number of correct trials if necessary
@@ -45,10 +45,6 @@ class BlockedCupDrawer(BaseTrialIterator):
         if self._num_correct >= self._correct_trials_per_block:
             self._num_correct = 0
             self._block_index = (self._block_index + 1) % len(self._block_keys)
-        
-    def __iter__(self) -> Iterator[TrialSpec]:
-        """Return self."""
-        return self
 
     def __next__(self) -> TrialSpec:
         """Return a trial."""
