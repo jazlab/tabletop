@@ -2,6 +2,8 @@ import asyncio
 import glob
 import os
 from collections.abc import Awaitable
+import numpy as np
+import time
 from typing import Any, Optional
 
 import rclpy
@@ -132,6 +134,15 @@ class Commander(BaseNode):
 
         self.log("Commander initialized")
         # self._change_state("RESET")
+        
+        # Dummy variables for fake hand fixation
+        self._last_hand_off = time.time()
+        self._last_hand_query = time.time()
+        # self._frequency_hand_off = 0.3  # Poisson rate for hand off events
+        self._frequency_hand_off = 100.  # Poisson rate for hand off events
+        
+        # Dummy variables for fake flic button press
+        self._mean_reaction_time = 100.  # Mean reaction time for flic button press
 
     def dashboard_trigger(self, srv_name: str) -> None:
         """
@@ -206,47 +217,77 @@ class Commander(BaseNode):
         await self.dashboard_trigger_async("/dashboard_client/play")
 
     async def smartglass_reveal_async(self):
-        return await self.service_call_async(
-            srv_request=SetBool.Request(data=True),
-            srv_type=SetBool,
-            srv_name="/teensy/smartglass",
-        )
+        # return await self.service_call_async(
+        #     srv_request=SetBool.Request(data=True),
+        #     srv_type=SetBool,
+        #     srv_name="/teensy/smartglass",
+        # )
+        
+        self.log("Smartglass Reveal")
+        return True
 
     async def smartglass_occlude_async(self):
         """
         Occlude the smartglass.
         """
-        return await self.service_call_async(
-            srv_request=SetBool.Request(data=False),
-            srv_type=SetBool,
-            srv_name="/teensy/smartglass",
-        )
+        # return await self.service_call_async(
+        #     srv_request=SetBool.Request(data=False),
+        #     srv_type=SetBool,
+        #     srv_name="/teensy/smartglass",
+        # )
+        
+        self.log("Smartglass Occlude")
+        return True
 
     async def arm_door_open_async(self):
-        return await self.service_call_async(
-            srv_request=SetBool.Request(data=True),
-            srv_type=SetBool,
-            srv_name="/teensy/arm_door",
-        )
+        # return await self.service_call_async(
+        #     srv_request=SetBool.Request(data=True),
+        #     srv_type=SetBool,
+        #     srv_name="/teensy/arm_door",
+        # )
+        
+        self.log("Arm Door Open")
+        return True
 
     async def arm_door_close_async(self):
-        return await self.service_call_async(
-            srv_request=SetBool.Request(data=False),
-            srv_type=SetBool,
-            srv_name="/teensy/arm_door",
-        )
+        # return await self.service_call_async(
+        #     srv_request=SetBool.Request(data=False),
+        #     srv_type=SetBool,
+        #     srv_name="/teensy/arm_door",
+        # )
+        
+        self.log("Arm Door Close")
+        return True
 
-    async def reward_start_async(self, duration_ms: int):
+    async def reward_async(self, duration_ms: int):
         """
         Deliver a reward for a given duration.
         """
+        self.log(f"Delivering reward for {duration_ms} ms")
         if duration_ms < 0:
             raise ValueError("Duration must be greater than 0!")
-        return await self.service_call_async(
-            srv_request=SetUint32.Request(data=duration_ms),
-            srv_type=SetUint32,
-            srv_name="/teensy/reward",
-        )
+        # return await self.service_call_async(
+        #     srv_request=SetUint32.Request(data=duration_ms),
+        #     srv_type=SetUint32,
+        #     srv_name="/teensy/reward",
+        # )
+        
+        return True
+        
+    def hand_fixation_duration(self):
+        current_time = time.time()
+        since_last_hand_query = current_time - self._last_hand_query
+        
+        # Get exponential sample of last hand off time
+        last_hand_off_sample = np.random.exponential(self._frequency_hand_off)
+        
+        # Update self._last_hand_off if necessary
+        if last_hand_off_sample < since_last_hand_query:
+            self._last_hand_off = current_time - last_hand_off_sample
+        
+        self._last_hand_query = current_time
+        hand_fixation_duration = current_time - self._last_hand_off
+        return hand_fixation_duration
 
     def wait_for_hand_fixation(self, timeout_sec: float):
         return self.service_call(
@@ -269,6 +310,13 @@ class Commander(BaseNode):
             srv_type=Trigger,
             srv_name="/sensor/flic",
         )
+    
+    async def wait_for_flic_button_async(self):
+        self.log("Waiting for flic button press")
+        reaction_time = np.random.exponential(self._mean_reaction_time)
+        await asyncio.sleep(reaction_time)
+        self.log("Flic button pressed")
+        return True
 
     # TODO: Update to include retries
     def plan(
@@ -499,6 +547,9 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene  # type: ignore
             return scene.planning_frame
+        
+    async def return_object_async(self, object_id):
+        return True
 
     async def fetch_object_async(
         self,
@@ -507,6 +558,9 @@ class Commander(BaseNode):
         reference_frame_id: str = "world",
     ):
         self.log(f"Fetching object {object_id}")
+        self.log("Fetched object")
+        return True
+    
         header = Header(frame_id=reference_frame_id)
 
         with self.planning_scene_monitor.read_only() as scene:
