@@ -10,7 +10,7 @@ services:
       - 8080:8080
     networks:
       tabletop_net:
-        ipv4_address: 192.168.12.12
+        ipv4_address: 192.168.12.100
     restart: on-failure
     healthcheck:
       test: ["CMD", "/app/healthcheck.sh"]
@@ -21,8 +21,8 @@ services:
       start_interval: 2s
     environment:
       # Adjust to your screen size
-      - DISPLAY_WIDTH=1280
-      - DISPLAY_HEIGHT=824
+      - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
+      - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
@@ -43,7 +43,7 @@ services:
     environment:
       - ROBOT_MODEL=ur5e
 
-  robot_headless:
+  robot_novnc:
     extends: robot_base
     depends_on:
       novnc:
@@ -65,11 +65,7 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
+
     volumes:
       - ../..:/root/ws
     networks:
@@ -77,18 +73,23 @@ services:
         ipv4_address: 192.168.12.11
     hostname: server
     environment:
-      - ROS_LOG_DIR=/root/ws/src/tabletop/log
+      - ROS_LOG_DIR=/root/ws/src/tabletop/ros/log
     command: bash -c
       "/root/ws/src/tabletop/scripts/build.sh
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
-  server_mac:
+  server_novnc:
     extends: server_base
     depends_on:
       novnc:
         condition: service_healthy
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
@@ -101,14 +102,19 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /dev/dri:/dev/dri
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     environment:
       - DISPLAY=$DISPLAY
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
         ros2 launch tabletop_server server.launch.py
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
 
 networks:
   tabletop_net:

@@ -159,15 +159,27 @@ def declare_arguments():
         ),
         # Bag
         DeclareLaunchArgument(
+            "rosbag_record",
+            default_value="false",
+            description="Record rosbag?",
+        ),
+        DeclareLaunchArgument(
             "rosbag_args",
             default_value="--all",
             description="'ros2 bag' command line args",
         ),
         DeclareLaunchArgument(
             "rosbag_dir",
-            default_value="/root/ws/src/tabletop/bags",
+            default_value="/root/ws/src/tabletop/ros/bags",
             description="Base directory to save rosbags",
         ),
+        # ROS Warehouse
+        DeclareLaunchArgument(
+            "warehouse_sqlite_path",
+            default_value="/root/ws/src/tabletop/ros/warehouse_ros.sqlite",
+            description="Path where the warehouse database should be stored",
+        ),
+        # Logging
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
@@ -217,15 +229,22 @@ def generate_launch_description():
     rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
 
     # Bag
+    rosbag_record = LaunchConfiguration("rosbag_record")
     rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
+
+    # ROS Warehouse
+    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
 
     # Logging
     log_level = LaunchConfiguration("log_level")
 
+    ################################################
+    # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # UR Robot Driver
+    # Use group action to isolate the launch file
     ur_robot_driver = GroupAction(
         [
             IncludeLaunchDescription(
@@ -271,6 +290,11 @@ def generate_launch_description():
         )
         .to_moveit_configs()
     )
+
+    warehouse_ros_config = {
+        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+        "warehouse_host": warehouse_sqlite_path,
+    }
 
     commander = Node(
         package="tabletop_server",
@@ -323,8 +347,16 @@ def generate_launch_description():
         package="rviz2",
         condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        name="rviz2",
         output="both",
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            moveit_config.planning_pipelines,
+            moveit_config.joint_limits,
+            warehouse_ros_config,
+            {"use_sim_time": use_sim_time},
+        ],
         arguments=["-d", rviz_config_file_server],
         ros_arguments=["--log-level", log_level],
     )
@@ -334,6 +366,7 @@ def generate_launch_description():
         cmd=["ros2", "bag", "record", rosbag_args],
         cwd=rosbag_dir,
         output="both",
+        condition=IfCondition(rosbag_record),
     )
 
     return LaunchDescription(
