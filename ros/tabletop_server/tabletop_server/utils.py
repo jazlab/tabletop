@@ -4,17 +4,21 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Optional, Protocol
 
 import numpy as np
+import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from moveit_msgs.msg import CollisionObject
 from rclpy.client import Client
 from rclpy.node import Node
+from shape_msgs.msg import Mesh, MeshTriangle
 from tf_transformations import (
-    quaternion_from_euler as quaternion_from_euler_tf,
-)
-from tf_transformations import (
+    inverse_matrix,
     quaternion_from_matrix,
     translation_from_matrix,
+)
+from tf_transformations import (
+    quaternion_from_euler as quaternion_from_euler_tf,
 )
 
 
@@ -100,6 +104,56 @@ def pose_stamped_from_params(node: Node, prefix: str):
     )
     pose_stamped.pose = pose
     return pose_stamped
+
+
+def load_mesh(
+    path: str, scale: float = 1.0, max_faces: int = 1000
+) -> trimesh.Trimesh:
+    """
+    Load a mesh from a file and return a trimesh.Trimesh object.
+    If the mesh has more than max_faces, its bounding primitive is used instead
+    """
+    mesh = trimesh.load_mesh(path)
+    mesh = mesh.apply_scale(scale)
+    if len(mesh.faces) > max_faces:
+        mesh = mesh.bounding_primitive.to_mesh()
+    return mesh
+
+
+def collision_object_from_mesh(
+    mesh: trimesh.Trimesh, id: str, base_frame_id: str = "world"
+) -> CollisionObject:
+    """
+    Create a collision object from a mesh. Returns the collision object and the
+    transformation matrix used to reorient the mesh.
+    """
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = base_frame_id
+    collision_object.id = id
+
+    tf = mesh.apply_obb()
+    tf_inv = inverse_matrix(tf)
+
+    mesh_msg = Mesh()
+    mesh_msg.triangles = list(
+        map(
+            lambda t: MeshTriangle(vertex_indices=t),
+            mesh.faces,
+        )
+    )
+    mesh_msg.vertices = list(
+        map(
+            lambda v: Point(x=v[0], y=v[1], z=v[2]),
+            mesh.vertices,
+        )
+    )
+    mesh_pose = pose_from_matrix(tf_inv)
+
+    collision_object.meshes.append(mesh_msg)  # type: ignore
+    collision_object.mesh_poses.append(mesh_pose)  # type: ignore
+    collision_object.operation = CollisionObject.ADD
+
+    return collision_object
 
 
 def validate_service_response(

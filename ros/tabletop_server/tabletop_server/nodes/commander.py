@@ -5,8 +5,7 @@ from collections.abc import Awaitable
 from typing import Any, Optional
 
 import rclpy
-import trimesh
-from geometry_msgs.msg import Point, Pose, PoseStamped
+from geometry_msgs.msg import PoseStamped
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
@@ -28,7 +27,7 @@ from rclpy.callback_groups import (
     ReentrantCallbackGroup,
 )
 from rclpy.task import Future as RclpyFuture
-from shape_msgs.msg import Mesh, MeshTriangle, Plane, SolidPrimitive
+from shape_msgs.msg import Plane, SolidPrimitive
 from std_msgs.msg import Header
 from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.srv import SetUint32
@@ -38,6 +37,8 @@ from tabletop_server.nodes import BaseNode
 from tabletop_server.utils import (
     MaxAttemptsReachedError,
     ServiceCallError,
+    collision_object_from_mesh,
+    load_mesh,
     pose_stamped_from_params,
 )
 
@@ -69,7 +70,7 @@ class Commander(BaseNode):
         self.reentrant_cg = ReentrantCallbackGroup()
 
         # Initialize MoveItPy
-        self.moveit_py = MoveItPy("moveit_py")
+        self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
         # Initialize MoveItPy components
         self.planning_component: PlanningComponent = (
@@ -383,48 +384,41 @@ class Commander(BaseNode):
         collision_object.planes.append(plane)  # type: ignore
         collision_object.operation = CollisionObject.ADD
 
-        with self.planning_scene_monitor.read_write() as scene:
-            scene.apply_collision_object(collision_object)
-            scene.current_state.update()
+        self.planning_scene_monitor.process_collision_object(collision_object)
 
         rig_dir = "/root/ws/src/tabletop/ros/tabletop_description/meshes"
 
-        for filename in sorted(glob.glob(os.path.join(rig_dir, "*.stl"))):
-            self.log(f"Loading collision object: {collision_object.id}")
+        correction = [-0.889, -0.845439, 0.884936]
+        # base_width = 0.047625
+        # correction[2] -= base_width / 2
 
-            collision_object = CollisionObject()
-            collision_object.header.frame_id = "world"
-            collision_object.id = os.path.splitext(os.path.basename(filename))[
-                0
-            ]
-
-            mesh = trimesh.load_mesh(filename)
-            mesh = mesh.apply_scale(0.0001)
-            mesh_msg = Mesh()
-            mesh_msg.triangles = list(
-                map(
-                    lambda t: MeshTriangle(vertex_indices=t),
-                    mesh.faces,
-                )
+        for path in sorted(glob.glob(os.path.join(rig_dir, "*.stl"))):
+            id = os.path.splitext(os.path.basename(path))[0]
+            self.log(f"Loading collision object: {id}")
+            mesh = load_mesh(path, scale=0.001, max_faces=1000)
+            mesh = mesh.apply_translation(correction)
+            collision_object = collision_object_from_mesh(
+                mesh=mesh, id=id, base_frame_id="world"
             )
-            mesh_msg.vertices = list(
-                map(
-                    lambda v: Point(x=v[0], y=v[1], z=v[2]),
-                    mesh.vertices,
-                )
+            self.planning_scene_monitor.process_collision_object(
+                collision_object
             )
-            mesh_pose = Pose()
-            mesh_pose.position.x = 0.0
-            mesh_pose.position.y = 0.0
-            mesh_pose.position.z = 0.0
 
-            collision_object.meshes.append(mesh_msg)  # type: ignore
-            collision_object.mesh_poses.append(mesh_pose)  # type: ignore
-            collision_object.operation = CollisionObject.ADD
+        with self.planning_scene_monitor.read_write() as scene:
+            # scene.apply_collision_object(collision_object)
+            # scene.current_state.update()
+            # TODO: Make this a parameter
+            scene.save_geometry_to_file(
+                "/root/ws/src/tabletop/ros/tabletop_description/meshes/planning_scene.pcd"
+            )
 
-            with self.planning_scene_monitor.read_write() as scene:
-                scene.apply_collision_object(collision_object)
-                scene.current_state.update()
+        # object_transform_matrix = self.get_frame_transform("scene")
+        # object_pose = PoseStamped()
+        # object_pose.header.frame_id = "world"
+        # object_pose.pose = pose_from_matrix(object_transform_matrix)
+        # print(f"Object pose: type {type(object_pose)}, {object_pose}")
+        # planning_frame = self.get_planning_frame()
+        # print(f"Planning frame: {planning_frame}")
 
     def attach_object(self, object_id):
         with self.planning_scene_monitor.read_write() as scene:
@@ -507,16 +501,6 @@ class Commander(BaseNode):
 
 
 async def run(commander: Commander):
-    # object_transform_matrix = commander.get_frame_transform("scene")
-
-    # object_pose = PoseStamped()
-    # object_pose.header.frame_id = "world"
-    # object_pose.pose = pose_from_matrix(object_transform_matrix)
-    # print(f"Object pose: type {type(object_pose)}, {object_pose}")
-
-    # planning_frame = commander.get_planning_frame()
-    # print(f"Planning frame: {planning_frame}")
-
     # Initialize waypoints
     waypoints_path: list[int] = commander.get_parameter("waypoints.path").value  # type: ignore
     waypoints = {}
@@ -532,10 +516,7 @@ async def run(commander: Commander):
         try:
             commander.reset_robot()
             print("Robot reset")
-            # commander.load_rig()
-            # print("Loaded rig")
 
-            # await asyncio.sleep(1000)
             for name in waypoints_path:
                 async with asyncio.timeout(10):
                     await commander.plan_and_execute_async(waypoints[name])

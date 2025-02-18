@@ -43,5 +43,7 @@ RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 
+COPY ./starship.toml $HOME/.config/starship.toml
+
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1

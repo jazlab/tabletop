@@ -2,21 +2,17 @@
 
 set -e
 
-_script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $_script_dir/utils.sh
-_ws_dir=$(get_parent_dir $_script_dir 3)
-
 # Parse arguments
-_cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
-_clean=false
+cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
+clean=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --debug)
-            _cmake_args+=("-DCMAKE_BUILD_TYPE=Debug")
+            cmake_args+=("-DCMAKE_BUILD_TYPE=Debug")
             shift
             ;;
         --clean)
-            _clean=true
+            clean=true
             shift
             ;;
         *)
@@ -27,15 +23,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$_clean" == "true" ]]; then
-    $_script_dir/clean_ws.sh
+if [[ "$clean" == "true" ]]; then
+    $script_dir/clean_ws.sh
 fi
 
-pushd $_ws_dir
+# Get workspace directory
+script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $script_dir/utils.sh
+ws_dir=$(get_parent_dir $script_dir 3)
+
+pushd $ws_dir
 
 echo "Installing ROS 2 dependencies"
-_ros_distro=${ROS_DISTRO:-"jazzy"}
-source /opt/ros/$_ros_distro/setup.bash
+ros_distro=${ROS_DISTRO:-"jazzy"}
+source /opt/ros/$ros_distro/setup.bash
 rosdep update
 rosdep install --from-paths src --ignore-src -y
 echo ""
@@ -43,13 +44,13 @@ echo ""
 echo "Building ROS 2 packages"
 colcon build --symlink-install \
         --event-handlers console_cohesion+ \
-        --cmake-args ${_cmake_args[@]} 
+        --cmake-args ${cmake_args[@]}
 echo ""
 
 echo "Creating bags directory"
 mkdir -p bags
 
 echo "Adding ROS 2 setup to bashrc"
-$_script_dir/bashrc_update.sh
+$script_dir/bashrc_update.sh
 
 popd

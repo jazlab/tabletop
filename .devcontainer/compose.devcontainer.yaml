@@ -7,10 +7,11 @@ services:
       service: server_base
     privileged: true
     volumes:
-      - ../../..:/root/ws
-      - ./starship.toml:/root/.config/starship.toml
       - /dev:/dev
       - /dev/shm:/dev/shm
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.12
     ports:
       - 8008:8008 # PlatformIO HTTP port
     command: sleep infinity
