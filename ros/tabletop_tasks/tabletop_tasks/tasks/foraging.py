@@ -114,13 +114,11 @@ class ForagingTask(BaseTask):
         await self.commander.wait_for_hand_fixation_on_async(self._fixation_timeout_s)
         
         # Wait for hand fixation duration
-        try:
-            async with asyncio.timeout(self._fixation_duration_s):
-                await self.commander.wait_for_hand_fixation_off_async()
-            self._state = ForagingState.FIXATION
-        except asyncio.TimeoutError:
+        if self.commander.wait_for_hand_fixation_off_async(self._fixation_duration_s):
             self.log("Hand fixation acquired")
             self._state = ForagingState.STIMULUS
+        else:
+            self._state = ForagingState.FIXATION
         
         return
 
@@ -130,19 +128,12 @@ class ForagingTask(BaseTask):
         
         # Reveal stimulus
         await self.commander.smartglass_reveal_async()
-        
-        # Check hand fixation is on
-        if not self.commander.hand_fixation_on():
-            self.broke_fixation()
-            return
 
         # Wait for stimulus duration, terminating if hand fixation is broken
-        try:
-            async with asyncio.timeout(self._stimulus_duration_s):
-                await self.commander.wait_for_hand_fixation_off_async()
-            self.broke_fixation()
-        except asyncio.TimeoutError:
+        if self.commander.wait_for_hand_fixation_off_async(self._stimulus_duration_s):
             self._state = ForagingState.DELAY
+        else:
+            self.broke_fixation()
         
         return
 
@@ -153,19 +144,12 @@ class ForagingTask(BaseTask):
         # Occlude smartglass if necessary
         if self._trial_spec.occlude:
             await self.commander.smartglass_occlude_async()
-            
-        # Check hand fixation is on
-        if not self.commander.hand_fixation_on():
-            self.broke_fixation()
-            return
 
         # Wait for delay duration, terminating if hand fixation is broken
-        try:
-            async with asyncio.timeout(self._delay_duration_s):
-                await self.commander.wait_for_hand_fixation_off_async()
-            self.broke_fixation()
-        except asyncio.TimeoutError:
+        if self.commander.wait_for_hand_fixation_off_async(self._delay_duration_s):
             self._state = ForagingState.RESPONSE
+        else:
+            self.broke_fixation()
             
         return
 
