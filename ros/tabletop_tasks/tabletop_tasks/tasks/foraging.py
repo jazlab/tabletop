@@ -19,12 +19,13 @@ class ForagingState(enum.Enum):
 
     IDLE = 0
     FETCH = 1
-    STIMULUS = 2
-    DELAY = 3
-    RESPONSE = 4
-    REVEAL = 5
-    RETURN = 6
-    FINISHED = 7
+    FIXATION = 2
+    STIMULUS = 3
+    DELAY = 4
+    RESPONSE = 5
+    REVEAL = 6
+    RETURN = 7
+    FINISHED = 8
 
 
 class ForagingTask(BaseTask):
@@ -36,6 +37,7 @@ class ForagingTask(BaseTask):
         stimulus_duration_ms: float = 500,
         delay_duration_ms: float = 500,
         response_timeout_s: float = 10.0,
+        fixation_timeout_s: float = 100.0,
         reward_duration_ms: float = 100,
         reveal_duration_ms: float = 500,
         
@@ -50,6 +52,7 @@ class ForagingTask(BaseTask):
             f"  stimulus_duration_ms={stimulus_duration_ms},\n"
             f"  delay_duration_ms={delay_duration_ms},\n"
             f"  response_timeout_s={response_timeout_s},\n"
+            f"  fixation_timeout_s={fixation_timeout_s},\n"
             f"  reward_duration_ms={reward_duration_ms},\n"
             f"  reveal_duration_ms={reveal_duration_ms},\n"
             ")"
@@ -69,18 +72,15 @@ class ForagingTask(BaseTask):
         self._stimulus_duration_s = stimulus_duration_ms / 1000
         self._delay_duration_s = delay_duration_ms / 1000
         self._response_timeout_s = response_timeout_s
+        self._fixation_timeout_s = fixation_timeout_s
         self._reward_duration_ms = reward_duration_ms
         self._reveal_duration_s = reveal_duration_ms / 1000
         self._state = ForagingState.IDLE
         
-    async def maintain_hand_fixation(self, duration: float) -> None:
-        t_start = time.time()
-        while time.time() - t_start < duration:
-            hand_fixation_duration = self.commander.hand_fixation_duration()
-            if hand_fixation_duration < time.time() - t_start:
-                return False
-            await asyncio.sleep(0.01)
-        return True
+    def broke_fixation(self):
+        self._trial_feedback["broke_fixation"] = True
+        self.log("Hand fixation broken")
+        self._state = ForagingState.RETURN
 
     async def _fetch(self):
         """Fetch object for trial."""
@@ -102,20 +102,27 @@ class ForagingTask(BaseTask):
         object_id = self._trial_spec.object_id
         object_pose = self._trial_spec.object_pose
         await self.commander.fetch_object_async(object_id, object_pose)
-
-        # Wait for hand fixation
-        self.log("Waiting for hand fixation")
-        hand_fixated = False
-        while not hand_fixated:
-            hand_fixation_duration = self.commander.hand_fixation_duration()
-            if hand_fixation_duration > self._fixation_duration_s:
-                hand_fixated = True
-            else:
-                await asyncio.sleep(0.01)
-        self.log("Hand fixation acquired")
+    
+        # Transition to fixation state
+        self._state = ForagingState.FIXATION
+    
+    async def _fixation(self):
+        """Wait for hand fixation."""
+        self.log("Fixation phase")
         
-        # Transition to stimulus state
-        self._state = ForagingState.STIMULUS
+        # Wait for hand fixation onset
+        await self.commander.wait_for_hand_fixation_on_async(self._fixation_timeout_s)
+        
+        # Wait for hand fixation duration
+        try:
+            async with asyncio.timeout(self._fixation_duration_s):
+                await self.commander.wait_for_hand_fixation_off_async()
+            self._state = ForagingState.FIXATION
+        except asyncio.TimeoutError:
+            self.log("Hand fixation acquired")
+            self._state = ForagingState.STIMULUS
+        
+        return
 
     async def _stimulus(self):
         """Present stimulus."""
@@ -123,18 +130,21 @@ class ForagingTask(BaseTask):
         
         # Reveal stimulus
         await self.commander.smartglass_reveal_async()
+        
+        # Check hand fixation is on
+        if not self.commander.hand_fixation_on():
+            self.broke_fixation()
+            return
 
-        # Wait for stimulus duration, terminating early if hand fixation is
-        # broken
-        maintained_hand_fixation = await self.maintain_hand_fixation(
-            self._stimulus_duration_s
-        )
-        if maintained_hand_fixation:
+        # Wait for stimulus duration, terminating if hand fixation is broken
+        try:
+            async with asyncio.timeout(self._stimulus_duration_s):
+                await self.commander.wait_for_hand_fixation_off_async()
+            self.broke_fixation()
+        except asyncio.TimeoutError:
             self._state = ForagingState.DELAY
-        else:
-            self._trial_feedback["broke_fixation"] = True
-            self.log("Hand fixation broken")
-            self._state = ForagingState.RETURN
+        
+        return
 
     async def _delay(self):
         """Delay phase."""
@@ -143,17 +153,21 @@ class ForagingTask(BaseTask):
         # Occlude smartglass if necessary
         if self._trial_spec.occlude:
             await self.commander.smartglass_occlude_async()
+            
+        # Check hand fixation is on
+        if not self.commander.hand_fixation_on():
+            self.broke_fixation()
+            return
 
-        # Wait for delay duration, terminating early if hand fixation is broken
-        maintained_hand_fixation = await self.maintain_hand_fixation(
-            self._delay_duration_s
-        )
-        if maintained_hand_fixation:
+        # Wait for delay duration, terminating if hand fixation is broken
+        try:
+            async with asyncio.timeout(self._delay_duration_s):
+                await self.commander.wait_for_hand_fixation_off_async()
+            self.broke_fixation()
+        except asyncio.TimeoutError:
             self._state = ForagingState.RESPONSE
-        else:
-            self._trial_feedback["broke_fixation"] = True
-            self.log("Hand fixation broken")
-            self._state = ForagingState.RETURN
+            
+        return
 
     async def _response(self):
         """Response phase."""
@@ -167,12 +181,15 @@ class ForagingTask(BaseTask):
         try:
             async with asyncio.timeout(self._response_timeout_s):
                 await self.commander.wait_for_flic_button_async()
+            
+            # Response received
             reaction_time = time.time() - response_start_time
             self._trial_feedback["reaction_time"] = reaction_time
             self.log(f"Reaction time: {reaction_time}")
             await self.commander.reward_async(self._reward_duration_ms)
             self._state = ForagingState.REVEAL
         except asyncio.TimeoutError:
+            # Response not received
             self.log("Response timeout")
             self._trial_feedback["timeout"] = True
             self._state = ForagingState.RETURN
@@ -222,6 +239,8 @@ class ForagingTask(BaseTask):
                     self._state = ForagingState.FETCH
                 case ForagingState.FETCH:
                     await self._fetch()
+                case ForagingState.FIXATION:
+                    await self._fixation()
                 case ForagingState.STIMULUS:
                     await self._stimulus()
                 case ForagingState.DELAY:
