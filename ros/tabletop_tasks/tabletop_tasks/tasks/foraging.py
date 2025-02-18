@@ -38,7 +38,7 @@ class ForagingTask(BaseTask):
         response_timeout_s: float = 10.0,
         reward_duration_ms: float = 100,
         reveal_duration_ms: float = 500,
-        logger: Any = None,
+        
     ):
         super().__init__(commander)
         
@@ -64,11 +64,7 @@ class ForagingTask(BaseTask):
             trial_generator = getattr(importlib.import_module(trial_generator_module), trial_generator_class)(
                 **trial_generator_kwargs)
         
-        # print("\n\n\n\n\n\n\n\n\n\n")
-        # raise Exception("test")
-        
         self._trial_generator = trial_generator
-        print("trial_generator: ", trial_generator)
         self._fixation_duration_s = fixation_duration_ms / 1000
         self._stimulus_duration_s = stimulus_duration_ms / 1000
         self._delay_duration_s = delay_duration_ms / 1000
@@ -186,7 +182,7 @@ class ForagingTask(BaseTask):
         self.log("Reveal phase")
         
         # Reveal object
-        self.commander.smartglass_reveal()
+        await self.commander.smartglass_reveal_async()
 
         # Wait for reveal duration
         await asyncio.sleep(self._reveal_duration_s)

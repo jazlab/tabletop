@@ -138,11 +138,10 @@ class Commander(BaseNode):
         # Dummy variables for fake hand fixation
         self._last_hand_off = time.time()
         self._last_hand_query = time.time()
-        # self._frequency_hand_off = 0.3  # Poisson rate for hand off events
-        self._frequency_hand_off = 100.  # Poisson rate for hand off events
+        self._frequency_hand_off = 10.  # Poisson rate for hand off events
         
         # Dummy variables for fake flic button press
-        self._mean_reaction_time = 100.  # Mean reaction time for flic button press
+        self._mean_reaction_time = 10.  # Mean reaction time for flic button press
 
     def dashboard_trigger(self, srv_name: str) -> None:
         """
@@ -217,47 +216,39 @@ class Commander(BaseNode):
         await self.dashboard_trigger_async("/dashboard_client/play")
 
     async def smartglass_reveal_async(self):
-        # return await self.service_call_async(
-        #     srv_request=SetBool.Request(data=True),
-        #     srv_type=SetBool,
-        #     srv_name="/teensy/smartglass",
-        # )
-        
         self.log("Smartglass Reveal")
-        return True
+        return await self.service_call_async(
+            srv_request=SetBool.Request(data=True),
+            srv_type=SetBool,
+            srv_name="/teensy/smartglass",
+        )
 
     async def smartglass_occlude_async(self):
         """
         Occlude the smartglass.
         """
-        # return await self.service_call_async(
-        #     srv_request=SetBool.Request(data=False),
-        #     srv_type=SetBool,
-        #     srv_name="/teensy/smartglass",
-        # )
-        
         self.log("Smartglass Occlude")
-        return True
+        return await self.service_call_async(
+            srv_request=SetBool.Request(data=False),
+            srv_type=SetBool,
+            srv_name="/teensy/smartglass",
+        )
 
     async def arm_door_open_async(self):
-        # return await self.service_call_async(
-        #     srv_request=SetBool.Request(data=True),
-        #     srv_type=SetBool,
-        #     srv_name="/teensy/arm_door",
-        # )
-        
         self.log("Arm Door Open")
-        return True
+        return await self.service_call_async(
+            srv_request=SetBool.Request(data=True),
+            srv_type=SetBool,
+            srv_name="/teensy/arm_door",
+        )
 
     async def arm_door_close_async(self):
-        # return await self.service_call_async(
-        #     srv_request=SetBool.Request(data=False),
-        #     srv_type=SetBool,
-        #     srv_name="/teensy/arm_door",
-        # )
-        
         self.log("Arm Door Close")
-        return True
+        return await self.service_call_async(
+            srv_request=SetBool.Request(data=False),
+            srv_type=SetBool,
+            srv_name="/teensy/arm_door",
+        )
 
     async def reward_async(self, duration_ms: int):
         """
@@ -266,13 +257,11 @@ class Commander(BaseNode):
         self.log(f"Delivering reward for {duration_ms} ms")
         if duration_ms < 0:
             raise ValueError("Duration must be greater than 0!")
-        # return await self.service_call_async(
-        #     srv_request=SetUint32.Request(data=duration_ms),
-        #     srv_type=SetUint32,
-        #     srv_name="/teensy/reward",
-        # )
-        
-        return True
+        return await self.service_call_async(
+            srv_request=SetUint32.Request(data=duration_ms),
+            srv_type=SetUint32,
+            srv_name="/teensy/reward",
+        )
         
     def hand_fixation_duration(self):
         current_time = time.time()

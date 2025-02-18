@@ -45,19 +45,19 @@ class MockTeensy(Node):
         # Create services
         self.arm_door_service = self.create_service(
             SetBool,
-            "arm_door",
+            "/teensy/arm_door",
             self.arm_door_callback,
         )
 
         self.smartglass_service = self.create_service(
             SetBool,
-            "smartglass",
+            "/teensy/smartglass",
             self.smartglass_callback,
         )
 
         self.reward_service = self.create_service(
             SetUint32,
-            "reward",
+            "/teensy/reward",
             self.reward_callback,
         )
 
