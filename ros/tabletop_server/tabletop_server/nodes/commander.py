@@ -262,36 +262,42 @@ class Commander(BaseNode):
             srv_type=SetUint32,
             srv_name="/teensy/reward",
         )
-        
-    def hand_fixation_duration(self):
-        current_time = time.time()
-        since_last_hand_query = current_time - self._last_hand_query
-        
-        # Get exponential sample of last hand off time
-        last_hand_off_sample = np.random.exponential(self._frequency_hand_off)
-        
-        # Update self._last_hand_off if necessary
-        if last_hand_off_sample < since_last_hand_query:
-            self._last_hand_off = current_time - last_hand_off_sample
-        
-        self._last_hand_query = current_time
-        hand_fixation_duration = current_time - self._last_hand_off
-        return hand_fixation_duration
-
-    def wait_for_hand_fixation(self, timeout_sec: float):
+    
+    def hand_fixation_state(self):
+        """Get current hand fixation state."""
         return self.service_call(
             srv_request=Trigger.Request(),
             srv_type=Trigger,
-            srv_name="/teensy/hand_fixation",
-            timeout_sec=timeout_sec,
+            srv_name="/sensors/hand_fixation",
         )
-
-    async def wait_for_hand_fixation_async(self):
-        return await self.service_call_async(
-            srv_request=Trigger.Request(),
-            srv_type=Trigger,
-            srv_name="/teensy/hand_fixation",
-        )
+    
+    async def wait_for_hand_fixation_on_async(self, timeout_sec: float):
+        """Wait for hand fixation state to turn on, then return True.
+        
+        If already on, return True immediately. If timeout_sec is reached,
+        return False.
+        """
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while not self.hand_fixation_state():
+                    await asyncio.sleep(0.001)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        
+    async def wait_for_hand_fixation_off_async(self, timeout_sec: float):
+        """Wait for hand fixation state to turn off, then return True.
+        
+        If already off, return True immediately. If timeout_sec is reached,
+        return False.
+        """
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while self.hand_fixation_state():
+                    await asyncio.sleep(0.001)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def start_flic_button_async(self):
         return await self.service_call_async(
