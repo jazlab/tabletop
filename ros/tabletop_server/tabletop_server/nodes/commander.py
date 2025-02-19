@@ -4,6 +4,7 @@ import os
 from collections.abc import Awaitable
 from typing import Any, Optional
 
+import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
@@ -26,6 +27,7 @@ from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane, SolidPrimitive
 from std_msgs.msg import Header
@@ -37,9 +39,12 @@ from tabletop_server.nodes import BaseNode
 from tabletop_server.utils import (
     MaxAttemptsReachedError,
     ServiceCallError,
-    collision_object_from_mesh,
-    load_mesh,
-    pose_stamped_from_params,
+    collision_object_from_geometry,
+    load_geometry,
+    matrix_from_pose_msg,
+    pose_msg_from_params,
+    pose_stamped_msg_from_params,
+    simplify_bounding_primitive,
 )
 
 
@@ -56,6 +61,12 @@ class Commander(BaseNode):
         "dashboard.installation",
         "dashboard.program",
         "dashboard.connect_timeout",
+        "planning_scene.static_meshes.path",
+        "planning_scene.static_meshes.scale",
+        "planning_scene.static_meshes.poses",
+        "planning_scene.dynamic_meshes.path",
+        "planning_scene.dynamic_meshes.scale",
+        "planning_scene.dynamic_meshes.poses",
     }
 
     def __init__(self):
@@ -361,6 +372,14 @@ class Commander(BaseNode):
             self.log(error_msg, severity="ERROR")
             raise MaxAttemptsReachedError(error_msg)
 
+    def get_frame_transform(self, object_id) -> np.ndarray:
+        with self.planning_scene_monitor.read_only() as scene:
+            return scene.get_frame_transform(object_id)
+
+    def get_planning_frame(self) -> str:
+        with self.planning_scene_monitor.read_only() as scene:
+            return scene.planning_frame
+
     async def plan_and_execute_async(
         self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
     ) -> None:
@@ -370,10 +389,12 @@ class Commander(BaseNode):
             pose_link=pose_link,
         )
 
-    def setup_planning_scene(self):
+    def process_floor_collision_object(self):
         """
-        Setup the planning scene by adding a floor collision object.
+        Process the floor collision object.
         """
+        self.log("Processing floor collision object")
+
         collision_object = CollisionObject()
         collision_object.header.frame_id = "world"
         collision_object.id = "floor"
@@ -386,31 +407,83 @@ class Commander(BaseNode):
 
         self.planning_scene_monitor.process_collision_object(collision_object)
 
-        rig_dir = "/root/ws/src/tabletop/ros/tabletop_description/meshes"
+    def process_mesh_collision_object_from_path(
+        self,
+        path: str,
+        scale: float = 1.0,
+        base_frame_id: Optional[str] = None,
+        tf: Optional[np.ndarray] = None,
+    ):
+        """
+        Process a mesh collision object from a path.
+        """
+        self.log(f"Processing mesh collision object from path: {path}")
 
-        correction = [-0.889, -0.845439, 0.884936]
+        if base_frame_id is None:
+            base_frame_id = self.get_planning_frame()
+
+        geometry = load_geometry(path, scale=scale)
+        geometry = simplify_bounding_primitive(geometry)
+
+        try:
+            pose = pose_msg_from_params(
+                self,
+                f"planning_scene.dynamic_meshes.poses.{os.path.splitext(os.path.basename(path))[0]}",
+            )
+        except ParameterNotDeclaredException:
+            tf = None
+        else:
+            tf = matrix_from_pose_msg(pose)
+            geometry = geometry.apply_transform(tf)
+
+        collision_object = collision_object_from_geometry(
+            geometry=geometry,
+            id=os.path.splitext(os.path.basename(path))[0],
+            base_frame_id=base_frame_id,
+        )
+        self.planning_scene_monitor.process_collision_object(collision_object)
+
+    def setup_planning_scene(self):
+        """
+        Setup the planning scene by adding a floor collision object.
+        """
+        self.process_floor_collision_object()
+
+        # Add collision objects
+        for prefix in ["static_meshes", "dynamic_meshes"]:
+            meshes_path: str = self.get_parameter(
+                f"planning_scene.{prefix}.path"
+            ).value  # type: ignore
+            meshes_scale: float = self.get_parameter(
+                f"planning_scene.{prefix}.scale"
+            ).value  # type: ignore
+            if os.path.isdir(meshes_path):
+                for path in sorted(
+                    glob.glob(os.path.join(meshes_path, "*.stl"))
+                ):
+                    self.process_mesh_collision_object_from_path(
+                        path, scale=meshes_scale
+                    )
+            else:
+                self.process_mesh_collision_object_from_path(
+                    meshes_path, scale=meshes_scale
+                )
+
+        # correction = [-0.889, -0.845439, 0.884936]
         # base_width = 0.047625
         # correction[2] -= base_width / 2
 
-        for path in sorted(glob.glob(os.path.join(rig_dir, "*.stl"))):
-            id = os.path.splitext(os.path.basename(path))[0]
-            self.log(f"Loading collision object: {id}")
-            mesh = load_mesh(path, scale=0.001, max_faces=1000)
-            mesh = mesh.apply_translation(correction)
-            collision_object = collision_object_from_mesh(
-                mesh=mesh, id=id, base_frame_id="world"
-            )
-            self.planning_scene_monitor.process_collision_object(
-                collision_object
-            )
-
-        with self.planning_scene_monitor.read_write() as scene:
-            # scene.apply_collision_object(collision_object)
-            # scene.current_state.update()
-            # TODO: Make this a parameter
-            scene.save_geometry_to_file(
-                "/root/ws/src/tabletop/ros/tabletop_description/meshes/planning_scene.pcd"
-            )
+        # for path in sorted(glob.glob(os.path.join(meshes_dir, "*.stl"))):
+        #     id = os.path.splitext(os.path.basename(path))[0]
+        #     self.log(f"Loading collision object: {id}")
+        #     mesh = load_geometry(path, scale=0.001)
+        #     mesh = mesh.apply_translation(correction)
+        #     collision_object = collision_object_from_geometry(
+        #         geometry=mesh, id=id, base_frame_id="world"
+        #     )
+        #     self.planning_scene_monitor.process_collision_object(
+        #         collision_object
+        #     )
 
         # object_transform_matrix = self.get_frame_transform("scene")
         # object_pose = PoseStamped()
@@ -429,16 +502,6 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene  # type: ignore
             self.log(f"Planning scene: {scene.planning_scene_message}")
-
-    def get_frame_transform(self, object_id):
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene  # type: ignore
-            return scene.get_frame_transform(object_id)
-
-    def get_planning_frame(self):
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene  # type: ignore
-            return scene.planning_frame
 
     async def fetch_object_async(
         self,
@@ -507,7 +570,7 @@ async def run(commander: Commander):
 
     for name in waypoints_path:
         prefix = f"waypoints.poses_stamped.{name}"
-        waypoints[name] = pose_stamped_from_params(commander, prefix)
+        waypoints[name] = pose_stamped_msg_from_params(commander, prefix)
 
     if len(waypoints) < 1:
         raise ValueError("No valid waypoints found in commander parameters!")

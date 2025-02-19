@@ -15,6 +15,7 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node, SetROSLogDir
+from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -301,7 +302,7 @@ def generate_launch_description():
         executable="commander",
         parameters=[
             moveit_config.to_dict(),
-            commander_config,
+            ParameterFile(commander_config, allow_substs=True),
             {
                 "publish_robot_description_semantic": publish_robot_description_semantic,
                 "use_sim_time": use_sim_time,

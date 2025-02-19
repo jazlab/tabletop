@@ -9,7 +9,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            shift
+            echo "Unknown argument: $1"
+            echo "Usage: $0 [--display_novnc]"
+            exit 1
             ;;
     esac
 done
@@ -24,7 +26,7 @@ ros_distro=${ROS_DISTRO:-"jazzy"}
 commands=(
     "source /opt/ros/$ros_distro/setup.bash"
     "source $ws_dir/install/setup.bash"
-    "PATH=$HOME/.local/bin:\$PATH"
+    "export PATH=$HOME/.local/bin:\$PATH"
 )
 
 if [[ "$display_novnc" == "true" ]]; then

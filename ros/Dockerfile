@@ -35,7 +35,9 @@ RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platf
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN pip install \
-    trimesh[easy] \
+    trimesh \
+    pyfqmr \
+    "pyglet<2" \
     ros2-graph
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
@@ -43,7 +45,9 @@ RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 
+RUN mkdir -p $HOME/.config
 COPY ./starship.toml $HOME/.config/starship.toml
 
+ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/log
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1
