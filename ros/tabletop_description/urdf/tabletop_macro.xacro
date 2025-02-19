@@ -38,7 +38,7 @@
       safety_k_position="${safety_k_position}"
       force_abs_paths="${force_abs_paths}"
     >
-      <origin xyz="0 0 0" rpy="0 0 ${pi/2.0}" />
+      <origin xyz="0 0 0.05" rpy="0 0 ${pi/2.0}" />
     </xacro:ur_robot>
 
     <!-- end effector -->

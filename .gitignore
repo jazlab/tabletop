@@ -1,25 +1,24 @@
 # Ignore caches
-**__pycache__/
-**.ruff_cache/
-**.DS_Store
+**/__pycache__/
+**/.ruff_cache/
+**/.DS_Store
 
 # Ignore logs
-**logs/
-**log/
-**bags/
+**/logs/
+**/log/
+**/bags/
 
 # Ignore build artifacts
-**build/
-**install/
-**dist/
-**egg-info/
-**.pio/
+**/build/
+**/install/
+**/dist/
+**/egg-info/
+**/.pio/
 
 # Ignore vscode files
-.vscode/c_cpp_properties.json
-.vscode/settings.json
-ros/tabletop_teensy/.vscode/
+**/.vscode/c_cpp_properties.json
+**/.vscode/settings.json
+**/tabletop_teensy/.vscode/
 
 # Ignore meshes
-**mock_rig**
-**rig_mesh*.stl**
+**/tabletop_description/meshes/**/decomposed_*
