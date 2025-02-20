@@ -13,10 +13,10 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit_msgs.msg import CollisionObject
 from rclpy.client import Client
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.node import Node
 from shape_msgs.msg import Mesh, MeshTriangle
 from tf_transformations import (
-    inverse_matrix,
     quaternion_from_euler,
     quaternion_from_matrix,
     quaternion_matrix,
@@ -126,7 +126,7 @@ def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
     translation = translation_matrix(
         [pose.position.x, pose.position.y, pose.position.z]
     )
-    quaternion = quaternion_matrix(
+    rotation = quaternion_matrix(
         [
             pose.orientation.x,
             pose.orientation.y,
@@ -134,23 +134,113 @@ def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
             pose.orientation.w,
         ]
     )
-    return translation @ quaternion
+    return translation @ rotation
 
 
-def pose_msg_from_params(node: Node, prefix: str):
+def pose_msg_from_node_params(node: Node, prefix: str):
     pose = Pose()
-    pose.position.x = node.get_parameter(f"{prefix}.position.x").value
-    pose.position.y = node.get_parameter(f"{prefix}.position.y").value
-    pose.position.z = node.get_parameter(f"{prefix}.position.z").value
+    position_declared = True
+    orientation_declared = True
+    try:
+        position_array: list[float] = node.get_parameter(
+            f"{prefix}.position"
+        ).value  # type: ignore
+        if len(position_array) == 3:
+            pose.position.x = position_array[0]
+            pose.position.y = position_array[1]
+            pose.position.z = position_array[2]
+        else:
+            raise ValueError(
+                f"Invalid position array length: {len(position_array)}"
+            )
+    except ParameterNotDeclaredException:
+        try:
+            pose.position.x = node.get_parameter(f"{prefix}.position.x").value
+            pose.position.y = node.get_parameter(f"{prefix}.position.y").value
+            pose.position.z = node.get_parameter(f"{prefix}.position.z").value
+        except ParameterNotDeclaredException:
+            position_declared = False
+
+    # Orientation
+    try:
+        # RPY Array
+        orientation_array: list[float] = node.get_parameter(
+            f"{prefix}.rpy"
+        ).value  # type: ignore
+        if len(orientation_array) == 3:
+            pose.orientation = quaternion_msg_from_euler(
+                orientation_array[0],  # type: ignore
+                orientation_array[1],  # type: ignore
+                orientation_array[2],  # type: ignore
+            )
+        else:
+            raise ValueError(
+                f"Invalid rpy array length: expected 3, got {len(orientation_array)}"
+            )
+    except ParameterNotDeclaredException:
+        try:
+            # RPY Parameters
+            pose.orientation = quaternion_msg_from_euler(
+                node.get_parameter(f"{prefix}.rpy.roll").value,  # type: ignore
+                node.get_parameter(f"{prefix}.rpy.pitch").value,  # type: ignore
+                node.get_parameter(f"{prefix}.rpy.yaw").value,  # type: ignore
+            )
+        except ParameterNotDeclaredException:
+            try:
+                # Quaternion array
+                orientation_array: list[float] = node.get_parameter(
+                    f"{prefix}.orientation"
+                ).value  # type: ignore
+                if len(orientation_array) == 4:
+                    pose.orientation = Quaternion(
+                        x=orientation_array[0],
+                        y=orientation_array[1],
+                        z=orientation_array[2],
+                        w=orientation_array[3],
+                    )
+                else:
+                    raise ValueError(
+                        f"Invalid orientation array length: expected 4, got {len(orientation_array)}"
+                    )
+            except ParameterNotDeclaredException:
+                try:
+                    # Quaternion parameters
+                    pose.orientation.x = node.get_parameter(
+                        f"{prefix}.orientation.x"
+                    ).value
+                    pose.orientation.z = node.get_parameter(
+                        f"{prefix}.orientation.z"
+                    ).value
+                    pose.orientation.w = node.get_parameter(
+                        f"{prefix}.orientation.w"
+                    ).value
+                except ParameterNotDeclaredException:
+                    orientation_declared = False
+
+    if not position_declared and not orientation_declared:
+        raise ParameterNotDeclaredException(
+            f"No position or orientation parameters found for {prefix}"
+        )
+    elif not position_declared:
+        node.get_logger().warning(f"No position parameters found for {prefix}")
+        node.get_logger().warning("Using default position (0, 0, 0)")
+    elif not orientation_declared:
+        node.get_logger().warning(
+            f"No orientation parameters found for {prefix}"
+        )
+        node.get_logger().warning(
+            "Using default orientation quaternion (0, 0, 0, 1)"
+        )
+
     return pose
 
 
-def pose_stamped_msg_from_params(node: Node, prefix: str):
+def pose_stamped_msg_from_node_params(node: Node, prefix: str):
     pose_stamped = PoseStamped()
     pose_stamped.header.frame_id = node.get_parameter(
         f"{prefix}.header.frame_id"
     ).value
-    pose_stamped.pose = pose_msg_from_params(node, f"{prefix}.pose")
+    pose_stamped.pose = pose_msg_from_node_params(node, f"{prefix}.pose")
     return pose_stamped
 
 
@@ -265,7 +355,10 @@ def visualize_geometry(geometry: trimesh.Trimesh | trimesh.Scene):
 def collision_object_from_geometry(
     geometry: trimesh.Trimesh | trimesh.Scene,
     id: str,
+    pose: Optional[Pose] = None,
     base_frame_id: str = "world",
+    subframe_names: list[str] = [],
+    subframe_poses: list[Optional[Pose]] = [],
 ) -> CollisionObject:
     """
     Create a collision object from a mesh. Returns the collision object and the
@@ -280,23 +373,32 @@ def collision_object_from_geometry(
     collision_object.header.frame_id = base_frame_id
     collision_object.id = id
 
-    tf = mesh.apply_obb()
-    tf_inv = inverse_matrix(tf)
+    if pose is None:
+        pose = Pose()
+    else:
+        tf = matrix_from_pose_msg(pose)
+        mesh = mesh.apply_transform(tf)
 
-    mesh_msg = Mesh()
-    mesh_msg.triangles = list(
+    msg = Mesh()
+    msg.triangles = list(
         map(lambda t: MeshTriangle(vertex_indices=t), mesh.faces)  # type: ignore
     )
-    mesh_msg.vertices = list(
+    msg.vertices = list(
         map(
             lambda v: Point(x=v[0], y=v[1], z=v[2]),
             mesh.vertices,  # type: ignore
         )
     )
-    mesh_pose = pose_msg_from_matrix(tf_inv)
 
-    collision_object.meshes.append(mesh_msg)  # type: ignore
-    collision_object.mesh_poses.append(mesh_pose)  # type: ignore
+    collision_object.meshes.append(msg)  # type: ignore
+    collision_object.mesh_poses.append(pose)  # type: ignore
+
+    for subframe_name, subframe_pose in zip(subframe_names, subframe_poses):
+        collision_object.subframe_names.append(subframe_name)  # type: ignore
+        collision_object.subframe_poses.append(  # type: ignore
+            subframe_pose if subframe_pose is not None else Pose()
+        )
+
     collision_object.operation = CollisionObject.ADD
 
     return collision_object
