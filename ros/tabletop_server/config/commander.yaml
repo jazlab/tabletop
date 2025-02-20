@@ -20,30 +20,19 @@
 
     planning_scene:
       static_meshes:
-        - path: $(find-pkg-share tabletop_description)/meshes/static/rig.dae
-          scale: 1.0
+        path: $(find-pkg-share tabletop_description)/meshes/static/rig.dae
+        scale: 1.0
+        simplification: convex_hull
+        correction: [0.0, 0.0, 1.0]
       dynamic_meshes:
-        - path: $(find-pkg-share tabletop_description)/meshes/dynamic/
-          scale: 0.001
-          poses:
-            complex_object:
-              - position:
-                  x: 0.1
-                  y: 0.4
-                  z: 0.5
-                orientation:
-                  roll: 0.0
-                  pitch: 0.0
-                  yaw: 0.0
-            simple_object:
-              - position:
-                  x: 0.2
-                  y: 0.4
-                  z: 0.5
-                orientation:
-                  roll: 0.0
-                  pitch: 0.0
-                  yaw: 0.0
+        path: $(find-pkg-share tabletop_description)/meshes/dynamic/
+        scale: 0.001
+        simplification: null
+        poses:
+          complex_object:
+            position: [0.1, 0.1, 1.0]
+          simple_object:
+            position: [0.2, -0.1, 1.0]
     waypoints:
       path:
         - object_area
@@ -63,7 +52,7 @@
               x: 0.1
               y: 0.1
               z: 0.8
-            orientation:
+            rpy:
               roll: 0.0
               pitch: 0.0
               yaw: 1.5707
@@ -76,7 +65,7 @@
               x: 0.3
               y: 0.6
               z: 0.6
-            orientation:
+            rpy:
               roll: 0.0
               pitch: 0.0
               yaw: 1.5707
@@ -89,7 +78,7 @@
               x: 0.3
               y: 0.65
               z: 0.6
-            orientation:
+            rpy:
               roll: 0.0
               pitch: 0.0
               yaw: 1.5707
@@ -102,7 +91,7 @@
               x: -0.2
               y: -0.5
               z: 0.8
-            orientation:
+            rpy:
               roll: 0.4
               pitch: -0.1
               yaw: -1.5707
@@ -115,7 +104,7 @@
               x: 0.2
               y: -0.5
               z: 0.7
-            orientation:
+            rpy:
               roll: -0.4
               pitch: 0.1
               yaw: -1.5707

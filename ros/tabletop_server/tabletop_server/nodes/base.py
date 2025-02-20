@@ -41,7 +41,7 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_params(severity="DEBUG")
+        self.log_params(severity="INFO")
 
     def log(
         self,
@@ -114,10 +114,11 @@ class BaseNode(Node):
         Retrieves all parameters from a ROS2 node and structures them into a nested dictionary.
         Namespaces are represented as nested dictionaries.
         """
-        prefix = (
-            f"{prefix}." if prefix and not prefix.endswith(".") else prefix
-        )
         params = self.get_parameters_by_prefix(prefix)
+        if len(params) == 0:
+            raise ParameterNotDeclaredException(
+                f"No parameters found for prefix {prefix}"
+            )
         nested_params = {}
 
         for name, param in params.items():
@@ -131,6 +132,19 @@ class BaseNode(Node):
             current_level[name_parts[-1]] = value
 
         return nested_params
+
+    def get_parameter_wrapper(self, name: str) -> Any:
+        """
+        Get a parameter from the node.
+        """
+        try:
+            value = self.get_parameter(name).value
+            if value == "null":
+                return None
+            else:
+                return value
+        except ParameterNotDeclaredException:
+            return self.get_nested_parameters(name)
 
     @staticmethod
     def rclpy_task_wrapper(
