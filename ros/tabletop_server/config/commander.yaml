@@ -3,10 +3,10 @@
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    state_machine_period: 1.0
     max_plan_attempts: 5
     max_execution_attempts: 3
     max_reset_attempts: 3
+    plan_and_execute_timeout: 20
 
     dashboard:
       installation: default.installation
@@ -23,15 +23,18 @@
         path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
         scale: 1.0
         simplification: bounding_primitive
+        correction:
+          position: [0.0, 0.0, -0.02]
+          rpy: [0.0, 0.0, 1.5707]
       dynamic_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic_dae/
         scale: 0.001
-        simplification: null
+        simplification: convex_hull
         poses: # In meters
           complex_object:
-            position: [0.4, 0.1, 0.8]
+            position: [-0.1, 0.4, 0.8]
           simple_object:
-            position: [0.3, -0.1, 0.8]
+            position: [0.1, 0.3, 0.8]
 
     waypoints:
       path:

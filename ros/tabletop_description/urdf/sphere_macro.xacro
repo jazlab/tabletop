@@ -1,16 +1,17 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
-  <xacro:macro name="eef"
+  <xacro:macro name="sphere"
     params="
     tf_prefix
+    name
     parent
     *origin
     radius
     mass
     ">
 
-    <link name="${tf_prefix}eef">
+    <link name="${tf_prefix}${name}">
       <visual>
         <geometry>
           <sphere radius="${radius}" />
@@ -32,10 +33,10 @@
       </inertial>
     </link>
 
-    <joint name="${parent}-eef" type="fixed">
+    <joint name="${parent}-${name}" type="fixed">
       <xacro:insert_block name="origin" />
       <parent link="${parent}" />
-      <child link="${tf_prefix}eef" />
+      <child link="${tf_prefix}${name}" />
     </joint>
 
   </xacro:macro>

@@ -18,6 +18,8 @@ from tabletop_server.utils import (
     validate_service_response,
 )
 
+DEFAULT_LOG_SEVERITY = "INFO"
+
 
 class BaseNode(Node):
     """
@@ -46,7 +48,7 @@ class BaseNode(Node):
     def log(
         self,
         message: str,
-        severity: str = "INFO",
+        severity: str = DEFAULT_LOG_SEVERITY,
     ):
         """
         Log a message with the given severity.

@@ -8,7 +8,6 @@ services:
     privileged: true
     volumes:
       - /dev:/dev
-      - /dev/shm:/dev/shm # TODO: Check if this is needed
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.12
