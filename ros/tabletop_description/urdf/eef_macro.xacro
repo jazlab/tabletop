@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
-
   <xacro:macro name="eef"
     params="
     tf_prefix
@@ -13,22 +12,23 @@
     <link name="${tf_prefix}eef">
       <visual>
         <geometry>
-          <sphere radius="${radius}" />
+          <mesh filename="package://tabletop_description/meshes/visual/eef.stl"
+            scale="0.001 0.001 0.001" />
         </geometry>
         <origin rpy="0 0 0" xyz="0 0 0" />
       </visual>
       <collision>
         <geometry>
-          <sphere radius="${radius}" />
+          <mesh filename="package://tabletop_description/meshes/collision/eef.stl" />
         </geometry>
         <origin rpy="0 0 0" xyz="0 0 0" />
       </collision>
       <inertial>
         <mass value="${mass}" />
         <origin xyz="0 0 0" rpy="0 0 0" />
-        <inertia ixx="${(2/5) * mass * radius * radius}" ixy="0" ixz="0"
-          iyy="${(2/5) * mass * radius * radius}" iyz="0"
-          izz="${(2/5) * mass * radius * radius}" />
+        <inertia ixx="${(1/12) * mass * (3 * radius * radius)}" ixy="0" ixz="0"
+          iyy="${(1/12) * mass * (3 * radius * radius)}" iyz="0"
+          izz="${(1/2) * mass * radius * radius}" />
       </inertial>
     </link>
 

@@ -21,4 +21,4 @@
 **/tabletop_teensy/.vscode/
 
 # Ignore meshes
-**/tabletop_description/meshes/**/decomposed_*
+**/meshes/**/decomposed_*

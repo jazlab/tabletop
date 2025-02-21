@@ -24,6 +24,33 @@
 				"kind": "build",
 				"isDefault": true
 			}
+		},
+		{
+			"type": "shell",
+			"label": "launch_server",
+			"command": "ros2 launch tabletop_server server.launch.py",
+			"problemMatcher": [],
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+		},
+		{
+			"type": "shell",
+			"label": "view_mesh",
+			"command": "./scripts/view_mesh.py",
+			"args": [
+				"${file}"
+			],
+			"problemMatcher": [],
+			"group": "none"
+		},
+		{
+			"type": "shell",
+			"label": "clean_ws",
+			"command": "./scripts/clean_ws.sh",
+			"problemMatcher": [],
+			"group": "none"
 		}
-	]
+	],
 }

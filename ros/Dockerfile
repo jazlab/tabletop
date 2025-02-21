@@ -25,7 +25,8 @@ SHELL ["/bin/bash", "-c"]
 
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
 
-RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py \
+RUN curl -fsSL -o /tmp/get-platformio.py \
+    https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py \
     && python3 /tmp/get-platformio.py \
     && mkdir -p $HOME/.local/bin \
     && ln -s $HOME/.platformio/penv/bin/platformio $HOME/.local/bin/platformio \
@@ -35,7 +36,7 @@ RUN curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platf
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN pip install \
-    trimesh \
+    trimesh[easy] \
     pyfqmr \
     "pyglet<2" \
     ros2-graph
@@ -45,8 +46,9 @@ RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
 RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 
-RUN mkdir -p $HOME/.config
-COPY ./starship.toml $HOME/.config/starship.toml
+COPY ./starship.toml /tmp/starship.toml
+RUN mkdir -p $HOME/.config \
+    && mv /tmp/starship.toml $HOME/.config/starship.toml
 
 ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/log
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp

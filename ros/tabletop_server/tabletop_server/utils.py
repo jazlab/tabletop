@@ -11,10 +11,8 @@ import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from moveit_msgs.msg import CollisionObject
+from moveit_msgs.msg import AttachedCollisionObject, CollisionObject
 from rclpy.client import Client
-from rclpy.exceptions import ParameterNotDeclaredException
-from rclpy.node import Node
 from shape_msgs.msg import Mesh, MeshTriangle
 from tf_transformations import (
     quaternion_from_euler,
@@ -94,7 +92,7 @@ def create_coroutine_wrapper(
 
 
 def quaternion_msg_from_euler(
-    roll: float, pitch: float, yaw: float, axes: str = "sxyz"
+    roll: float, pitch: float, yaw: float, *, axes: str = "sxyz"
 ) -> Quaternion:
     """
     Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
@@ -137,110 +135,84 @@ def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
     return translation @ rotation
 
 
-def pose_msg_from_node_params(node: Node, prefix: str):
+def is_list_like(obj: Any) -> bool:
+    if isinstance(obj, str):
+        return False
+    try:
+        iter(obj)
+    except Exception:
+        return False
+    return True
+
+
+def pose_msg_from_dict(params: dict) -> Pose:
+    """
+    Convert a dictionary of parameters to a geometry_msgs/Pose message.
+    """
     pose = Pose()
-    position_declared = True
-    orientation_declared = True
-    try:
-        position_array: list[float] = node.get_parameter(
-            f"{prefix}.position"
-        ).value  # type: ignore
-        if len(position_array) == 3:
-            pose.position.x = position_array[0]
-            pose.position.y = position_array[1]
-            pose.position.z = position_array[2]
+    if "position" not in params and not (
+        "orientation" in params or "rpy" in params
+    ):
+        raise ValueError(
+            "No position or orientation parameters found in input dictionary"
+        )
+
+    # Position extraction
+    if "position" in params:
+        position = params["position"]
+        if is_list_like(position):
+            pose.position.x, pose.position.y, pose.position.z = position
+        elif isinstance(position, dict):
+            pose.position.x = position["x"]
+            pose.position.y = position["y"]
+            pose.position.z = position["z"]
         else:
             raise ValueError(
-                f"Invalid position array length: {len(position_array)}"
+                f"Invalid position type: expected Sequence or dict, got {type(position)}"
             )
-    except ParameterNotDeclaredException:
-        try:
-            pose.position.x = node.get_parameter(f"{prefix}.position.x").value
-            pose.position.y = node.get_parameter(f"{prefix}.position.y").value
-            pose.position.z = node.get_parameter(f"{prefix}.position.z").value
-        except ParameterNotDeclaredException:
-            position_declared = False
 
-    # Orientation
-    try:
-        # RPY Array
-        orientation_array: list[float] = node.get_parameter(
-            f"{prefix}.rpy"
-        ).value  # type: ignore
-        if len(orientation_array) == 3:
+    # Orientation extraction
+    if "rpy" in params:
+        rpy = params["rpy"]
+        if is_list_like(rpy):
+            pose.orientation = quaternion_msg_from_euler(*rpy)
+        elif isinstance(rpy, dict):
             pose.orientation = quaternion_msg_from_euler(
-                orientation_array[0],  # type: ignore
-                orientation_array[1],  # type: ignore
-                orientation_array[2],  # type: ignore
+                rpy["roll"],
+                rpy["pitch"],
+                rpy["yaw"],
             )
         else:
             raise ValueError(
-                f"Invalid rpy array length: expected 3, got {len(orientation_array)}"
+                f"Invalid rpy array length: expected 3, got {len(rpy)}"
             )
-    except ParameterNotDeclaredException:
-        try:
-            # RPY Parameters
-            pose.orientation = quaternion_msg_from_euler(
-                node.get_parameter(f"{prefix}.rpy.roll").value,  # type: ignore
-                node.get_parameter(f"{prefix}.rpy.pitch").value,  # type: ignore
-                node.get_parameter(f"{prefix}.rpy.yaw").value,  # type: ignore
+    elif "orientation" in params:
+        orientation = params["orientation"]
+        if is_list_like(orientation):
+            x, y, z, w = orientation
+            pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
+        elif isinstance(orientation, dict):
+            pose.orientation = Quaternion(
+                x=orientation["x"],
+                y=orientation["y"],
+                z=orientation["z"],
+                w=orientation["w"],
             )
-        except ParameterNotDeclaredException:
-            try:
-                # Quaternion array
-                orientation_array: list[float] = node.get_parameter(
-                    f"{prefix}.orientation"
-                ).value  # type: ignore
-                if len(orientation_array) == 4:
-                    pose.orientation = Quaternion(
-                        x=orientation_array[0],
-                        y=orientation_array[1],
-                        z=orientation_array[2],
-                        w=orientation_array[3],
-                    )
-                else:
-                    raise ValueError(
-                        f"Invalid orientation array length: expected 4, got {len(orientation_array)}"
-                    )
-            except ParameterNotDeclaredException:
-                try:
-                    # Quaternion parameters
-                    pose.orientation.x = node.get_parameter(
-                        f"{prefix}.orientation.x"
-                    ).value
-                    pose.orientation.z = node.get_parameter(
-                        f"{prefix}.orientation.z"
-                    ).value
-                    pose.orientation.w = node.get_parameter(
-                        f"{prefix}.orientation.w"
-                    ).value
-                except ParameterNotDeclaredException:
-                    orientation_declared = False
-
-    if not position_declared and not orientation_declared:
-        raise ParameterNotDeclaredException(
-            f"No position or orientation parameters found for {prefix}"
-        )
-    elif not position_declared:
-        node.get_logger().warning(f"No position parameters found for {prefix}")
-        node.get_logger().warning("Using default position (0, 0, 0)")
-    elif not orientation_declared:
-        node.get_logger().warning(
-            f"No orientation parameters found for {prefix}"
-        )
-        node.get_logger().warning(
-            "Using default orientation quaternion (0, 0, 0, 1)"
-        )
+        else:
+            raise ValueError(
+                f"Invalid orientation type: expected Sequence or dict, got {type(orientation)}"
+            )
 
     return pose
 
 
-def pose_stamped_msg_from_node_params(node: Node, prefix: str):
+def pose_stamped_msg_from_dict(params: dict) -> PoseStamped:
+    """
+    Convert a dictionary of parameters to a geometry_msgs/PoseStamped message.
+    """
     pose_stamped = PoseStamped()
-    pose_stamped.header.frame_id = node.get_parameter(
-        f"{prefix}.header.frame_id"
-    ).value
-    pose_stamped.pose = pose_msg_from_node_params(node, f"{prefix}.pose")
+    pose_stamped.header.frame_id = params["header"]["frame_id"]
+    pose_stamped.pose = pose_msg_from_dict(params["pose"])
     return pose_stamped
 
 
@@ -354,11 +326,12 @@ def visualize_geometry(geometry: trimesh.Trimesh | trimesh.Scene):
 
 def collision_object_from_geometry(
     geometry: trimesh.Trimesh | trimesh.Scene,
-    id: str,
+    object_id: str,
     pose: Optional[Pose] = None,
-    base_frame_id: str = "world",
+    reference_frame_id: str = "world",
     subframe_names: list[str] = [],
     subframe_poses: list[Optional[Pose]] = [],
+    operation: str = "add",
 ) -> CollisionObject:
     """
     Create a collision object from a mesh. Returns the collision object and the
@@ -370,14 +343,11 @@ def collision_object_from_geometry(
         mesh = geometry
 
     collision_object = CollisionObject()
-    collision_object.header.frame_id = base_frame_id
-    collision_object.id = id
+    collision_object.header.frame_id = reference_frame_id
+    collision_object.id = object_id
 
     if pose is None:
         pose = Pose()
-    else:
-        tf = matrix_from_pose_msg(pose)
-        mesh = mesh.apply_transform(tf)
 
     msg = Mesh()
     msg.triangles = list(
@@ -398,7 +368,41 @@ def collision_object_from_geometry(
         collision_object.subframe_poses.append(  # type: ignore
             subframe_pose if subframe_pose is not None else Pose()
         )
-
-    collision_object.operation = CollisionObject.ADD
+    match operation:
+        case "add":
+            collision_object.operation = CollisionObject.ADD
+        case "remove":
+            collision_object.operation = CollisionObject.REMOVE
+        case "append":
+            collision_object.operation = CollisionObject.APPEND
+        case "move":
+            collision_object.operation = CollisionObject.MOVE
+        case _:
+            raise ValueError(f"Invalid operation: {operation}")
 
     return collision_object
+
+
+def attached_collision_object_from_geometry(
+    geometry: trimesh.Trimesh | trimesh.Scene,
+    object_id: str,
+    link_name: str,
+    touch_links: list[str] = [],
+    pose: Optional[Pose] = None,
+    base_frame_id: str = "world",
+    subframe_names: list[str] = [],
+    subframe_poses: list[Optional[Pose]] = [],
+) -> AttachedCollisionObject:
+    collision_object = collision_object_from_geometry(
+        geometry,
+        object_id,
+        pose,
+        base_frame_id,
+        subframe_names,
+        subframe_poses,
+    )
+    attached_collision_object = AttachedCollisionObject()
+    attached_collision_object.object = collision_object
+    attached_collision_object.link_name = link_name
+    attached_collision_object.touch_links = touch_links
+    return attached_collision_object

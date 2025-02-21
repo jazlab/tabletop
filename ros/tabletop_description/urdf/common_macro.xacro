@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+    <!-- Simplification of getting meshes. Available types can be seen in the visual_parameters.yaml
+    (At the time of writing: visual, collision) -->
+    <xacro:macro name="get_mesh_path" params="name:=^ type:=^">
+        <xacro:property name="mesh"
+            value="package://tabletop_description/meshes/${type}/${name}.stl"
+            scope="parent" />
+    </xacro:macro>
+
+    <xacro:macro name="get_mesh" params="name type">
+        <xacro:get_mesh_path />
+        <mesh filename="${mesh}" />
+    </xacro:macro>
+</robot>

@@ -16,6 +16,4 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-_containers_to_kill=$(docker container ls -a --format "{{.Names}}" | grep -i tabletop | tr '\n' ' ')
-docker container kill $_containers_to_kill
 docker system prune -f $_all_arg --filter "label=com.docker.compose.project=tabletop"
