@@ -2,6 +2,13 @@
 
 set -e
 
+# Get workspace directory
+script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $script_dir/utils.sh
+ws_dir=$(get_parent_dir $script_dir 3)
+
+pushd $ws_dir
+
 # Parse arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
 clean=false
@@ -17,7 +24,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--debug]"
+            echo "Usage: $0 [--debug] [--clean]"
             exit 1
             ;;
     esac
@@ -26,13 +33,6 @@ done
 if [[ "$clean" == "true" ]]; then
     $script_dir/clean_ws.sh
 fi
-
-# Get workspace directory
-script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $script_dir/utils.sh
-ws_dir=$(get_parent_dir $script_dir 3)
-
-pushd $ws_dir
 
 echo "Installing ROS 2 dependencies"
 ros_distro=${ROS_DISTRO:-"jazzy"}

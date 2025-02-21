@@ -41,7 +41,7 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_params(severity="INFO")
+        self.log_params(severity="DEBUG")
 
     def log(
         self,
@@ -228,7 +228,7 @@ class BaseNode(Node):
             wait_timeout = (
                 wait_timeout
                 if wait_timeout is not None
-                else self.get_parameter("default_service_wait_timeout").value
+                else self.get_parameter_wrapper("default_service_wait_timeout")
             )
             if not service_client.wait_for_service(timeout_sec=wait_timeout):
                 error_msg = f"{srv_name} not available!"
@@ -306,7 +306,7 @@ class BaseNode(Node):
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter("default_service_call_timeout").value
+                else self.get_parameter_wrapper("default_service_call_timeout")
             )
             response = service_client.call(
                 srv_request, timeout_sec=timeout_sec

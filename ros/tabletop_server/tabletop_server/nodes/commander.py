@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Pose, PoseStamped
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
@@ -21,8 +21,10 @@ from moveit.planning import (
 )
 from moveit_msgs.msg import (
     CollisionObject,
-    PositionConstraint,
     RobotTrajectory,
+)
+from moveit_msgs.msg import (
+    PlanningScene as PlanningSceneMsg,
 )
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
@@ -30,7 +32,7 @@ from rclpy.callback_groups import (
 )
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.task import Future as RclpyFuture
-from shape_msgs.msg import Plane, SolidPrimitive
+from shape_msgs.msg import Plane
 from std_msgs.msg import Header
 from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.srv import SetUint32
@@ -43,8 +45,8 @@ from tabletop_server.utils import (
     collision_object_from_geometry,
     load_geometry,
     matrix_from_pose_msg,
-    pose_msg_from_node_params,
-    pose_stamped_msg_from_node_params,
+    pose_msg_from_dict,
+    pose_stamped_msg_from_dict,
     simplify_bounding_primitive,
     simplify_convex_hull,
     simplify_quadratic_decimation,
@@ -98,11 +100,17 @@ class Commander(BaseNode):
             self.moveit_py.get_trajectory_execution_manager()
         )
         self.robot_model: RobotModel = self.moveit_py.get_robot_model()
+
+        self.log(
+            f"Robot model: {self.robot_model.get_model_info()}",
+            severity="DEBUG",
+        )
+
         self.planning_scene_monitor: PlanningSceneMonitor = (
             self.moveit_py.get_planning_scene_monitor()
         )
 
-        self.setup_planning_scene()
+        # self.setup_planning_scene()
 
         # self.sensors_sub = self.create_subscription(
         #     TeensySensors,
@@ -518,31 +526,31 @@ class Commander(BaseNode):
 
         self.planning_scene_monitor.process_collision_object(collision_object)
 
-    def process_mesh_collision_object(
+    def add_mesh_collision_object(
         self,
+        *,
         path: str,
-        prefix: str,
+        object_id: str,
         scale: float = 1.0,
         simplification: Optional[str] = None,
+        pose: Optional[Pose] = None,
         add_bottom_subframe: bool = False,
-        base_frame_id: Optional[str] = None,
         correction_tf: Optional[np.ndarray] = None,
+        reference_frame_id: Optional[str] = None,
     ):
         """
         Add a mesh collision object at a given path to the planning scene.
 
         Args:
             path (str): The path to the mesh file.
-            prefix (str): The prefix for the collision object.
+            object_id (str): The id for the collision object.
             scale (float, optional): The scale of the mesh.
+            pose (dict, optional): The pose of the collision object.
             simplification (str, optional): The simplification method to use.
         """
-        # Get id from path
-        id = os.path.splitext(os.path.basename(path))[0]
-
         # Get base frame id from argument or planning frame
-        if base_frame_id is None:
-            base_frame_id = self.get_planning_frame()
+        if reference_frame_id is None:
+            reference_frame_id = self.get_planning_frame()
 
         # Load geometry
         geometry = load_geometry(path, scale=scale)
@@ -566,27 +574,34 @@ class Commander(BaseNode):
         if correction_tf is not None:
             geometry = geometry.apply_transform(correction_tf)
 
-        # Get pose from parameter
-        try:
-            pose = pose_msg_from_node_params(self, f"{prefix}.pose")
-        except ParameterNotDeclaredException:
-            try:
-                pose = pose_msg_from_node_params(self, f"{prefix}.poses.{id}")
-            except ParameterNotDeclaredException:
-                pose = None
-
         # Create collision object
         collision_object = collision_object_from_geometry(
             geometry=geometry,
-            id=id,
+            object_id=object_id,
             pose=pose,
-            base_frame_id=base_frame_id,
+            reference_frame_id=reference_frame_id,
             subframe_names=["bottom"] if add_bottom_subframe else [],
             subframe_poses=[pose] if add_bottom_subframe else [],
+            operation="add",
         )
 
         # Add collision object to planning scene
         self.planning_scene_monitor.process_collision_object(collision_object)
+
+    def attach_collision_object(
+        self,
+        *,
+        collision_object: Optional[CollisionObject] = None,
+        object_id: Optional[str] = None,
+        link_name: str,
+    ):
+        """
+        Attach an object to the robot.
+        """
+        self.log(f"Attaching object {object_id}")
+        self.planning_scene_monitor.process_attached_collision_object(
+            object_id
+        )
 
     def setup_planning_scene(self):
         """
@@ -608,84 +623,106 @@ class Commander(BaseNode):
                 f"{prefix}.simplification"
             )
             try:
-                meshes_correction = pose_msg_from_node_params(
-                    self, f"{prefix}.correction"
+                meshes_correction = self.get_parameter_wrapper(
+                    f"{prefix}.correction"
                 )
+                meshes_correction = pose_msg_from_dict(meshes_correction)
                 meshes_correction_tf = matrix_from_pose_msg(meshes_correction)
             except ParameterNotDeclaredException:
                 meshes_correction_tf = None
 
+            if not os.path.exists(meshes_path):
+                raise FileNotFoundError(
+                    f"Mesh path {meshes_path} does not exist"
+                )
+
+            # Process individual .stl files from directory
             if os.path.isdir(meshes_path):
-                # Process individual .stl files from directory
-                for path in glob.glob(os.path.join(meshes_path, "*.stl")):
+                for path in glob.glob(
+                    os.path.join(meshes_path, "*.stl")
+                ) + glob.glob(os.path.join(meshes_path, "*.dae")):
                     self.log(
                         f"Processing mesh collision object from path: {path}"
                     )
-                    self.process_mesh_collision_object(
+                    object_id = os.path.splitext(os.path.basename(path))[0]
+                    try:
+                        pose = self.get_parameter_wrapper(
+                            f"{prefix}.poses.{object_id}"
+                        )
+                        pose = pose_msg_from_dict(pose)
+                    except ParameterNotDeclaredException:
+                        pose = None
+
+                    self.add_mesh_collision_object(
                         path=path,
-                        prefix=prefix,
+                        object_id=object_id,
                         scale=meshes_scale,
                         simplification=meshes_simplification,
+                        pose=pose,
                         add_bottom_subframe=mesh_type == "dynamic_meshes",
                         correction_tf=meshes_correction_tf,
                     )
+            # Process single .stl or .dae file
             else:
-                # Process single .stl or .dae file
                 self.log(
                     f"Processing mesh collision object from path: {meshes_path}"
                 )
-                self.process_mesh_collision_object(
+                object_id = os.path.splitext(os.path.basename(meshes_path))[0]
+                try:
+                    pose = self.get_parameter_wrapper(
+                        f"{prefix}.poses.{object_id}"
+                    )
+                    pose = pose_msg_from_dict(pose)
+                except ParameterNotDeclaredException:
+                    pose = None
+
+                self.add_mesh_collision_object(
                     path=meshes_path,
-                    prefix=prefix,
+                    object_id=object_id,
                     scale=meshes_scale,
                     simplification=meshes_simplification,
+                    pose=pose,
                     add_bottom_subframe=mesh_type == "dynamic_meshes",
                     correction_tf=meshes_correction_tf,
                 )
 
-        # correction =
-        # base_width = 0.047625
-        # correction[2] -= base_width / 2
+        # Update planning scene
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
+            scene.allowed_collision_matrix.set_entry("", "monkey", True)
+            self.log(
+                f"Allowed collision matrix: {planning_scene_msg.allowed_collision_matrix}",
+                severity="DEBUG",
+            )
+            scene.current_state.update()
 
-        # for path in sorted(glob.glob(os.path.join(meshes_dir, "*.stl"))):
-        #     id = os.path.splitext(os.path.basename(path))[0]
-        #     self.log(f"Loading collision object: {id}")
-        #     mesh = load_geometry(path, scale=0.001)
-        #     mesh = mesh.apply_translation(correction)
-        #     collision_object = collision_object_from_geometry(
-        #         geometry=mesh, id=id, base_frame_id="world"
-        #     )
-        #     self.planning_scene_monitor.process_collision_object(
-        #         collision_object
-        #     )
+        # Log planning scene
+        self.log_planning_scene(severity="DEBUG")
 
-        # object_transform_matrix = self.get_frame_transform("scene")
-        # object_pose = PoseStamped()
-        # object_pose.header.frame_id = "world"
-        # object_pose.pose = pose_from_matrix(object_transform_matrix)
-        # print(f"Object pose: type {type(object_pose)}, {object_pose}")
-        # planning_frame = self.get_planning_frame()
-        # print(f"Planning frame: {planning_frame}")
+    def log_planning_scene(self, severity: str = "INFO"):
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
+            planning_scene_msg.robot_state.attached_collision_objects = []
+            planning_scene_msg.world.collision_objects = []
+            self.log(
+                f"Planning scene: {planning_scene_msg}", severity=severity
+            )
 
-    def attach_object(self, object_id):
+    def remove_collision_object(self, object_id: str):
         with self.planning_scene_monitor.read_write() as scene:
             scene.remove_collision_object(object_id)
             scene.current_state.update()
-
-    def log_planning_scene(self):
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            self.log(f"Planning scene: {scene.planning_scene_message}")
 
     async def fetch_object_async(
         self,
         object_id: str,
         target_pose: PoseStamped,
-        reference_frame_id: str = "world",
     ):
-        raise NotImplementedError("Fetch object not implemented")
+        # raise NotImplementedError("Fetch object not implemented")
         self.log(f"Fetching object {object_id}")
-        header = Header(frame_id=reference_frame_id)
+        header = Header(frame_id=self.get_planning_frame())
 
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
@@ -698,20 +735,20 @@ class Commander(BaseNode):
 
         await self.plan_and_execute_async(fetch_pose)
 
-        line_constraint = PositionConstraint()
-        line_constraint.header.frame_id = reference_frame_id
-        line_constraint.link_name = self.get_parameter_wrapper(
-            "planning.pose_link"
-        )
-        line = SolidPrimitive()
-        line.type = SolidPrimitive.BOX
-        line.dimensions = {0.0005, 0.0005, 1.0}
-        line_constraint.constraint_region.primitives.append(line)
+        # line_constraint = PositionConstraint()
+        # line_constraint.header.frame_id = reference_frame_id
+        # line_constraint.link_name = self.get_parameter_wrapper(
+        #     "planning.pose_link"
+        # )
+        # line = SolidPrimitive()
+        # line.type = SolidPrimitive.BOX
+        # line.dimensions = {0.0005, 0.0005, 1.0}
+        # line_constraint.constraint_region.primitives.append(line)
 
-        with self.planning_scene_monitor.read_write() as scene:
-            scene: PlanningScene = scene
-            scene.apply_collision_object(object_id)
-            scene.current_state.update()
+        # with self.planning_scene_monitor.read_write() as scene:
+        #     scene: PlanningScene = scene
+        #     scene.apply_collision_object(object_id)
+        #     scene.current_state.update()
 
     def return_object(self, object_id):
         raise NotImplementedError("Return object not implemented")
@@ -746,10 +783,16 @@ async def run(commander: Commander):
 
     for name in waypoints_path:
         prefix = f"waypoints.poses_stamped.{name}"
-        waypoints[name] = pose_stamped_msg_from_node_params(commander, prefix)
+        print(f"prefix: {prefix}")
+        print(f"pose_stamped dict: {commander.get_parameter_wrapper(prefix)}")
+        waypoints[name] = pose_stamped_msg_from_dict(
+            commander.get_parameter_wrapper(prefix)
+        )
 
     if len(waypoints) < 1:
         raise ValueError("No valid waypoints found in commander parameters!")
+
+    commander.setup_planning_scene()
 
     while True:
         try:

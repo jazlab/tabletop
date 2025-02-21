@@ -69,7 +69,7 @@ def declare_arguments():
             "kinematics_params_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_description"),
                     "config",
                     "ursim_calibration.yaml",
                 ]
@@ -152,7 +152,7 @@ def declare_arguments():
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_server"),
-                    "config",
+                    "rviz",
                     "server.rviz",
                 ]
             ),
@@ -185,6 +185,12 @@ def declare_arguments():
             "log_level",
             default_value="INFO",
             description="Log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "commander_log_level",
+            default_value="INFO",
+            description="Commander log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         # VSCode Debugging
@@ -239,7 +245,7 @@ def generate_launch_description():
 
     # Logging
     log_level = LaunchConfiguration("log_level")
-
+    commander_log_level = LaunchConfiguration("commander_log_level")
     ################################################
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
@@ -296,7 +302,8 @@ def generate_launch_description():
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
         "warehouse_host": warehouse_sqlite_path,
     }
-
+    # TODO: Add node-specific params/remappings a la
+    # https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html#logger-configuration
     commander = Node(
         package="tabletop_server",
         executable="commander",
@@ -308,7 +315,7 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
             },
         ],
-        ros_arguments=["--log-level", log_level],
+        ros_arguments=["--log-level", ["commander:=", commander_log_level]],
         output="both",
     )
 

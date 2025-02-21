@@ -20,7 +20,6 @@ services:
       start_period: 10s
       start_interval: 2s
     environment:
-      # Adjust to your screen size
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
       - RUN_XTERM=no
@@ -31,11 +30,11 @@ services:
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
     platform: linux/amd64
-    # pid: host
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
       - ./ur_robot/entrypoint.sh:/entrypoint.sh
+    entrypoint: ["/entrypoint.sh"]
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
@@ -55,7 +54,6 @@ services:
     extends: robot_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
     
@@ -65,14 +63,13 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
-
     volumes:
       - ../..:/root/ws
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
     hostname: server
-    command: bash -c
+    command: bash -c 
       "/root/ws/src/tabletop/scripts/build.sh
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash

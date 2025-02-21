@@ -20,19 +20,19 @@
 
     planning_scene:
       static_meshes:
-        path: $(find-pkg-share tabletop_description)/meshes/static/rig.dae
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
         scale: 1.0
-        simplification: convex_hull
-        correction: [0.0, 0.0, 1.0]
+        simplification: bounding_primitive
       dynamic_meshes:
-        path: $(find-pkg-share tabletop_description)/meshes/dynamic/
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic_dae/
         scale: 0.001
         simplification: null
-        poses:
+        poses: # In meters
           complex_object:
-            position: [0.1, 0.1, 1.0]
+            position: [0.4, 0.1, 0.8]
           simple_object:
-            position: [0.2, -0.1, 1.0]
+            position: [0.3, -0.1, 0.8]
+
     waypoints:
       path:
         - object_area
