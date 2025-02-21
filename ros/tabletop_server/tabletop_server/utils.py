@@ -2,16 +2,21 @@ import inspect
 import logging
 import os
 from collections import OrderedDict
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, Optional, Protocol
 
 import numpy as np
 import pyfqmr
+import pyglet
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from moveit_msgs.msg import AttachedCollisionObject, CollisionObject
+from moveit_msgs.msg import (
+    AttachedCollisionObject,
+    CollisionObject,
+    MoveItErrorCodes,
+)
 from rclpy.client import Client
 from shape_msgs.msg import Mesh, MeshTriangle
 from tf_transformations import (
@@ -21,6 +26,40 @@ from tf_transformations import (
     translation_from_matrix,
     translation_matrix,
 )
+
+moveit_error_code_to_str = {
+    MoveItErrorCodes.SUCCESS: "SUCCESS",
+    MoveItErrorCodes.UNDEFINED: "UNDEFINED",
+    MoveItErrorCodes.FAILURE: "FAILURE",
+    MoveItErrorCodes.PLANNING_FAILED: "PLANNING_FAILED",
+    MoveItErrorCodes.INVALID_MOTION_PLAN: "INVALID_MOTION_PLAN",
+    MoveItErrorCodes.MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE: "MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE",
+    MoveItErrorCodes.CONTROL_FAILED: "CONTROL_FAILED",
+    MoveItErrorCodes.UNABLE_TO_AQUIRE_SENSOR_DATA: "UNABLE_TO_AQUIRE_SENSOR_DATA",
+    MoveItErrorCodes.TIMED_OUT: "TIMED_OUT",
+    MoveItErrorCodes.PREEMPTED: "PREEMPTED",
+    MoveItErrorCodes.START_STATE_IN_COLLISION: "START_STATE_IN_COLLISION",
+    MoveItErrorCodes.START_STATE_VIOLATES_PATH_CONSTRAINTS: "START_STATE_VIOLATES_PATH_CONSTRAINTS",
+    MoveItErrorCodes.START_STATE_INVALID: "START_STATE_INVALID",
+    MoveItErrorCodes.GOAL_IN_COLLISION: "GOAL_IN_COLLISION",
+    MoveItErrorCodes.GOAL_VIOLATES_PATH_CONSTRAINTS: "GOAL_VIOLATES_PATH_CONSTRAINTS",
+    MoveItErrorCodes.GOAL_CONSTRAINTS_VIOLATED: "GOAL_CONSTRAINTS_VIOLATED",
+    MoveItErrorCodes.GOAL_STATE_INVALID: "GOAL_STATE_INVALID",
+    MoveItErrorCodes.UNRECOGNIZED_GOAL_TYPE: "UNRECOGNIZED_GOAL_TYPE",
+    MoveItErrorCodes.INVALID_GROUP_NAME: "INVALID_GROUP_NAME",
+    MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS: "INVALID_GOAL_CONSTRAINTS",
+    MoveItErrorCodes.INVALID_ROBOT_STATE: "INVALID_ROBOT_STATE",
+    MoveItErrorCodes.INVALID_LINK_NAME: "INVALID_LINK_NAME",
+    MoveItErrorCodes.INVALID_OBJECT_NAME: "INVALID_OBJECT_NAME",
+    MoveItErrorCodes.FRAME_TRANSFORM_FAILURE: "FRAME_TRANSFORM_FAILURE",
+    MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE: "COLLISION_CHECKING_UNAVAILABLE",
+    MoveItErrorCodes.ROBOT_STATE_STALE: "ROBOT_STATE_STALE",
+    MoveItErrorCodes.SENSOR_INFO_STALE: "SENSOR_INFO_STALE",
+    MoveItErrorCodes.COMMUNICATION_FAILURE: "COMMUNICATION_FAILURE",
+    MoveItErrorCodes.CRASH: "CRASH",
+    MoveItErrorCodes.ABORT: "ABORT",
+    MoveItErrorCodes.NO_IK_SOLUTION: "NO_IK_SOLUTION",
+}
 
 
 # Protocol definitions
@@ -136,7 +175,7 @@ def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
 
 
 def is_list_like(obj: Any) -> bool:
-    if isinstance(obj, str):
+    if isinstance(obj, (str, Mapping)):
         return False
     try:
         iter(obj)
@@ -174,14 +213,10 @@ def pose_msg_from_dict(params: dict) -> Pose:
     # Orientation extraction
     if "rpy" in params:
         rpy = params["rpy"]
-        if is_list_like(rpy):
+        if isinstance(rpy, Mapping):
+            pose.orientation = quaternion_msg_from_euler(**rpy)
+        elif is_list_like(rpy):
             pose.orientation = quaternion_msg_from_euler(*rpy)
-        elif isinstance(rpy, dict):
-            pose.orientation = quaternion_msg_from_euler(
-                rpy["roll"],
-                rpy["pitch"],
-                rpy["yaw"],
-            )
         else:
             raise ValueError(
                 f"Invalid rpy array length: expected 3, got {len(rpy)}"
@@ -317,11 +352,15 @@ def simplify_convex_hull(
 
 
 def visualize_geometry(geometry: trimesh.Trimesh | trimesh.Scene):
-    if hasattr(geometry, "lights"):
-        geometry.lights = []  # type: ignore
-        geometry.show()
-    else:
-        geometry.show()
+    try:
+        if hasattr(geometry, "lights"):
+            geometry.lights = []  # type: ignore
+
+        window = geometry.show(start_loop=False)
+        pyglet.app.run()
+    except KeyboardInterrupt:
+        if window is not None:
+            window.close()
 
 
 def collision_object_from_geometry(

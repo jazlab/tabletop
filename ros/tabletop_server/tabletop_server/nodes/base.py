@@ -122,16 +122,14 @@ class BaseNode(Node):
         nested_params = {}
 
         for name, param in params.items():
-            print(f"name: {name}, param: {param}")
             value = param.value  # type: ignore
-            name_parts = name.split(".")
+            keys = name.split(".")
             current_level = nested_params
 
-            for part in name_parts[:-1]:
-                print(f"part: {part}, current_level: {current_level}")
-                current_level = current_level.setdefault(part, {})
+            for key in keys[:-1]:
+                current_level = current_level.setdefault(key, {})
 
-            current_level[name_parts[-1]] = value
+            current_level[keys[-1]] = value
 
         return nested_params
 
