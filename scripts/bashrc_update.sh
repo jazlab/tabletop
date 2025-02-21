@@ -37,7 +37,7 @@ if [ "$display" == "novnc" ]; then
     fi
 elif [ "$display" == "x11" ]; then
     sed -i '/^export DISPLAY/d' "$HOME/.bashrc"
-else
+elif [ -n "$display" ]; then
     echo "Error: Invalid display argument: $display"
     exit 1
 fi

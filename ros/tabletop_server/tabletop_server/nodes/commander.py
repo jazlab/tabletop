@@ -718,7 +718,6 @@ class Commander(BaseNode):
     async def fetch_object_async(
         self,
         object_id: str,
-        target_pose: PoseStamped,
     ):
         # raise NotImplementedError("Fetch object not implemented")
         self.log(f"Fetching object {object_id}")
