@@ -8,13 +8,15 @@ services:
     privileged: true
     volumes:
       - /dev:/dev
-      - /dev/shm:/dev/shm
+      - /dev/shm:/dev/shm # TODO: Check if this is needed
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.12
+    hostname: devcontainer
     ports:
       - 8008:8008 # PlatformIO HTTP port
     command: sleep infinity
+    
 
 networks:
   tabletop_net:

@@ -9,11 +9,10 @@
     mass
     ">
 
-    <link name="${tf_prefix}eef">
+    <link name="${tf_prefix}eef_link">
       <visual>
         <geometry>
-          <mesh filename="package://tabletop_description/meshes/visual/eef.stl"
-            scale="0.001 0.001 0.001" />
+          <mesh filename="package://tabletop_description/meshes/visual/eef.stl" />
         </geometry>
         <origin rpy="0 0 0" xyz="0 0 0" />
       </visual>
@@ -32,9 +31,17 @@
       </inertial>
     </link>
 
-    <joint name="${parent}-eef" type="fixed">
+    <joint name="${parent}-eef_link" type="fixed">
       <xacro:insert_block name="origin" />
       <parent link="${parent}" />
+      <child link="${tf_prefix}eef_link" />
+    </joint>
+
+    <!-- eef -->
+    <link name="${tf_prefix}eef" />
+    <joint name="${tf_prefix}eef_link-eef" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${tf_prefix}eef_link" />
       <child link="${tf_prefix}eef" />
     </joint>
 

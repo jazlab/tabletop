@@ -2,11 +2,6 @@ Panels:
   - Class: rviz_common/Displays
     Help Height: 70
     Name: Displays
-    Property Tree Widget:
-      Expanded:
-        - /Global Options1
-        - /Status1
-      Splitter Ratio: 0.5
     Tree Height: 764
 Visualization Manager:
   Class: ""
@@ -175,10 +170,10 @@ Visualization Manager:
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: false
+    collapsed: true
   Height: 979
-  Hide Left Dock: false
-  Hide Right Dock: false
+  Hide Left Dock: true
+  Hide Right Dock: true
   QMainWindow State: 000000ff00000000fd0000000100000000000001560000037dfc0200000001fb000000100044006900730070006c006100790073010000003b0000037d000000c700ffffff0000024c0000037d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Width: 936
   X: 968

@@ -28,8 +28,11 @@
 #
 # Author: Denis Stogl
 
+import math
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch.substitutions import (
     LaunchConfiguration,
@@ -39,10 +42,8 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-def generate_launch_description():
-    declared_arguments = []
-    # UR specific arguments
-    declared_arguments.append(
+def declare_arguments():
+    return [
         DeclareLaunchArgument(
             "ur_type",
             default_value="ur5e",
@@ -58,16 +59,12 @@ def generate_launch_description():
                 "ur20",
                 "ur30",
             ],
-        )
-    )
-    declared_arguments.append(
+        ),
         DeclareLaunchArgument(
             "robot_ip",
             default_value="192.168.12.11",
             description="The IP address of the robot",
-        )
-    )
-    declared_arguments.append(
+        ),
         DeclareLaunchArgument(
             "description_launchfile",
             default_value=PathJoinSubstitution(
@@ -78,9 +75,7 @@ def generate_launch_description():
                 ]
             ),
             description="URDF/XACRO description file (absolute path) with the robot.",
-        )
-    )
-    declared_arguments.append(
+        ),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution(
@@ -91,18 +86,58 @@ def generate_launch_description():
                 ]
             ),
             description="RViz config file (absolute path) to use when launching rviz.",
-        )
-    )
+        ),
+        DeclareLaunchArgument(
+            "joint_state_publisher_gui",
+            default_value="false",
+            description="Whether to launch the joint state publisher GUI.",
+        ),
+        DeclareLaunchArgument(
+            "initial_joint_state",
+            default_value="[-1.5707, 1.5707, 0, 0, 0, 0]",
+            description="The initial joint state to set.",
+        ),
+    ]
 
+
+def generate_launch_description():
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
     robot_ip = LaunchConfiguration("robot_ip")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
 
+    joint_state_publisher_params = {
+        "zeros": {
+            "shoulder_pan_joint": 0,
+            "shoulder_lift_joint": -math.pi / 2,
+            "elbow_joint": math.pi / 2,
+            "wrist_1_joint": 0,
+            "wrist_2_joint": 0,
+            "wrist_3_joint": 0,
+        },
+    }
+
     joint_state_publisher_node = Node(
+        package="joint_state_publisher",
+        executable="joint_state_publisher",
+        name="joint_state_publisher",
+        output="log",
+        parameters=[joint_state_publisher_params],
+        condition=UnlessCondition(
+            LaunchConfiguration("joint_state_publisher_gui")
+        ),
+    )
+
+    joint_state_publisher_gui_node = Node(
         package="joint_state_publisher_gui",
         executable="joint_state_publisher_gui",
+        name="joint_state_publisher_gui",
+        parameters=[joint_state_publisher_params],
+        output="log",
+        condition=IfCondition(
+            LaunchConfiguration("joint_state_publisher_gui")
+        ),
     )
 
     robot_state_publisher_node = IncludeLaunchDescription(
@@ -112,6 +147,7 @@ def generate_launch_description():
             "ur_type": ur_type,
         }.items(),
     )
+
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -122,8 +158,9 @@ def generate_launch_description():
 
     nodes_to_start = [
         joint_state_publisher_node,
+        joint_state_publisher_gui_node,
         robot_state_publisher_node,
         rviz_node,
     ]
 
-    return LaunchDescription(declared_arguments + nodes_to_start)
+    return LaunchDescription(declare_arguments() + nodes_to_start)

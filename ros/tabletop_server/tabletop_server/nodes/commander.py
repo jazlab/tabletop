@@ -1,6 +1,8 @@
 import asyncio
 import glob
+import logging
 import os
+import traceback
 from collections.abc import Awaitable
 from typing import Any, Optional
 
@@ -125,6 +127,7 @@ class Commander(BaseNode):
         """
         Call a dashboard client Trigger service.
         """
+        self.log(f"Triggering {srv_name} in UR Dashboard")
         self.service_call(
             srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
         )
@@ -133,6 +136,7 @@ class Commander(BaseNode):
         """
         Coroutine to call a dashboard client Trigger service asynchronously.
         """
+        self.log(f"Triggering {srv_name} in UR Dashboard asynchronously")
         return self.service_call_async(
             srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
         )
@@ -158,7 +162,9 @@ class Commander(BaseNode):
         Coroutine to load a program or installation on the robot dashboard
         by calling a dashboard client Load service asynchronously.
         """
-        self.log(f"Loading {srv_name}: {filename} in UR Dashboard")
+        self.log(
+            f"Loading {srv_name}: {filename} in UR Dashboard asynchronously"
+        )
         return await self.service_call_async(
             srv_request=Load.Request(filename=filename),
             srv_type=Load,
@@ -416,6 +422,22 @@ class Commander(BaseNode):
         for i in range(max_plan_attempts):
             try:
                 plan_result = self.plan(pose_stamped, pose_link)
+                self.log(
+                    f"Plan result error code: {plan_result.error_code}",
+                    severity="DEBUG",
+                )
+                self.log(
+                    f"Plan result planner id: {plan_result.planner_id}",
+                    severity="DEBUG",
+                )
+                self.log(
+                    f"Plan result planning time: {plan_result.planning_time}",
+                    severity="DEBUG",
+                )
+                self.log(
+                    f"Plan result trajectory: {plan_result.trajectory}",
+                    severity="DEBUG",
+                )
                 if plan_result:
                     self.log(
                         f"Planning attempt {i + 1}/{max_plan_attempts} succeeded"
@@ -775,57 +797,67 @@ class Commander(BaseNode):
 
 async def run(commander: Commander):
     # Initialize waypoints
-    waypoints_path: list[int] = commander.get_parameter_wrapper(
-        "waypoints.path"
-    )
-    waypoints = {}
-
-    for name in waypoints_path:
-        prefix = f"waypoints.poses_stamped.{name}"
-        print(f"prefix: {prefix}")
-        print(f"pose_stamped dict: {commander.get_parameter_wrapper(prefix)}")
-        waypoints[name] = pose_stamped_msg_from_dict(
-            commander.get_parameter_wrapper(prefix)
+    try:
+        waypoints_path: list[int] = commander.get_parameter_wrapper(
+            "waypoints.path"
         )
+        waypoints = {}
 
-    if len(waypoints) < 1:
-        raise ValueError("No valid waypoints found in commander parameters!")
+        for name in waypoints_path:
+            prefix = f"waypoints.poses_stamped.{name}"
+            pose_stamped_dict = commander.get_parameter_wrapper(prefix)
+            # print(f"pose_stamped dict: {pose_stamped_dict}")
+            waypoints[name] = pose_stamped_msg_from_dict(pose_stamped_dict)
 
-    commander.setup_planning_scene()
-
-    while True:
-        try:
-            commander.reset_robot()
-            print("Robot reset")
-
-            for name in waypoints_path:
-                async with asyncio.timeout(10):
-                    await commander.plan_and_execute_async(waypoints[name])
-
-            for i, name in enumerate(waypoints_path):
-                plan_exec_future = commander.plan_and_execute_async(
-                    waypoints[name]
-                )
-                if i % 2 == 0:
-                    arm_door_future = commander.arm_door_open_async()
-                    smartglass_future = commander.smartglass_reveal_async()
-                else:
-                    arm_door_future = commander.arm_door_close_async()
-                    smartglass_future = commander.smartglass_occlude_async()
-
-                await asyncio.gather(
-                    plan_exec_future, arm_door_future, smartglass_future
-                )
-
-        except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
-            print(
-                f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
+        if len(waypoints) < 1:
+            raise ValueError(
+                "No valid waypoints found in commander parameters!"
             )
-        except Exception as e:
-            print(
-                f"Re-raising exception: \n'{type(e).__name__}: {e}' \nfrom run()"
-            )
-            raise e
+
+        commander.setup_planning_scene()
+
+        while True:
+            try:
+                await commander.reset_robot_async()
+                print("Robot reset")
+
+                for name in waypoints_path:
+                    async with asyncio.timeout(10):
+                        await commander.plan_and_execute_async(waypoints[name])
+
+                for i, name in enumerate(waypoints_path):
+                    plan_exec_future = commander.plan_and_execute_async(
+                        waypoints[name]
+                    )
+                    if i % 2 == 0:
+                        arm_door_future = commander.arm_door_open_async()
+                        smartglass_future = commander.smartglass_reveal_async()
+                    else:
+                        arm_door_future = commander.arm_door_close_async()
+                        smartglass_future = (
+                            commander.smartglass_occlude_async()
+                        )
+
+                    await asyncio.gather(
+                        plan_exec_future, arm_door_future, smartglass_future
+                    )
+            except (
+                TimeoutError,
+                MaxAttemptsReachedError,
+                ServiceCallError,
+            ) as e:
+                print(
+                    f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
+                )
+                traceback.print_exc()
+                await asyncio.sleep(1)
+    except Exception as e:
+        print(
+            f"Re-raising exception: \n'{type(e).__name__}: {e}' \nfrom run()"
+        )
+        if commander.get_logger().get_effective_level() == logging.DEBUG:
+            traceback.print_exc()
+        raise e
 
 
 def main(args=None):
