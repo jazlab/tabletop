@@ -23,6 +23,7 @@ from moveit.planning import (
 )
 from moveit_msgs.msg import (
     CollisionObject,
+    MoveItErrorCodes,
     RobotTrajectory,
 )
 from moveit_msgs.msg import (
@@ -40,13 +41,14 @@ from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.srv import SetUint32
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.nodes import BaseNode
+from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
 from tabletop_server.utils import (
     MaxAttemptsReachedError,
     ServiceCallError,
     collision_object_from_geometry,
     load_geometry,
     matrix_from_pose_msg,
+    moveit_error_code_to_str,
     pose_msg_from_dict,
     pose_stamped_msg_from_dict,
     simplify_bounding_primitive,
@@ -60,12 +62,11 @@ type PathType = str | os.PathLike
 class Commander(BaseNode):
     default_params: dict[str, Any] = BaseNode.default_params | {}
     required_params: set[str] = BaseNode.required_params | {
-        "state_machine_period",
         "max_plan_attempts",
         "max_execution_attempts",
         "max_reset_attempts",
+        "plan_and_execute_timeout",
         "planning.group_name",
-        "planning.pose_link",
         "planning.pipeline",
         "dashboard.installation",
         "dashboard.program",
@@ -112,7 +113,7 @@ class Commander(BaseNode):
             self.moveit_py.get_planning_scene_monitor()
         )
 
-        # self.setup_planning_scene()
+        self.setup_planning_scene()
 
         # self.sensors_sub = self.create_subscription(
         #     TeensySensors,
@@ -304,10 +305,11 @@ class Commander(BaseNode):
         self.log(f"Planning trajectory to waypoint: {goal}")
 
         self.planning_component.set_start_state_to_current_state()
+
+        if pose_link is None:
+            pose_link = self.get_parameter_wrapper("planning.pose_link")
         self.planning_component.set_goal_state(
-            pose_stamped_msg=goal,
-            pose_link=pose_link
-            or self.get_parameter_wrapper("planning.pose_link"),
+            pose_stamped_msg=goal, pose_link=pose_link
         )
 
         if self.get_parameter_wrapper("planning.pipeline") == "default":
@@ -349,6 +351,30 @@ class Commander(BaseNode):
             goal=goal,
             pose_link=pose_link,
         )
+
+    def log_plan_response(
+        self,
+        plan_response: MotionPlanResponse,
+        severity: str = DEFAULT_LOG_SEVERITY,
+    ) -> str:
+        """
+        Log the result of a plan.
+        """
+        full_msg = []
+        if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
+            msg = "Plan succeeded"
+            self.log(msg, severity=severity)
+            full_msg.append(msg)
+        else:
+            msg = f"Plan failed with error code: {moveit_error_code_to_str[plan_response.error_code.val]}"
+            self.log(msg, severity=severity)
+            full_msg.append(msg)
+        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
+        full_msg.append(
+            f"Plan result planning time: {plan_response.planning_time}"
+        )
+        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
+        return "\n".join(full_msg)
 
     def execute(self, robot_trajectory: RobotTrajectory) -> ExecutionStatus:
         """
@@ -421,30 +447,15 @@ class Commander(BaseNode):
         )
         for i in range(max_plan_attempts):
             try:
-                plan_result = self.plan(pose_stamped, pose_link)
-                self.log(
-                    f"Plan result error code: {plan_result.error_code}",
-                    severity="DEBUG",
-                )
-                self.log(
-                    f"Plan result planner id: {plan_result.planner_id}",
-                    severity="DEBUG",
-                )
-                self.log(
-                    f"Plan result planning time: {plan_result.planning_time}",
-                    severity="DEBUG",
-                )
-                self.log(
-                    f"Plan result trajectory: {plan_result.trajectory}",
-                    severity="DEBUG",
-                )
-                if plan_result:
+                plan_response = self.plan(pose_stamped, pose_link)
+                self.log_plan_response(plan_response, severity="DEBUG")
+                if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
                     self.log(
                         f"Planning attempt {i + 1}/{max_plan_attempts} succeeded"
                     )
                     break
                 else:
-                    error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} failed with error code {plan_result.error_code}"
+                    error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} failed with error code {moveit_error_code_to_str[plan_response.error_code.val]}"
                     failure_msgs.append(error_msg)
                     self.log(
                         error_msg,
@@ -470,7 +481,7 @@ class Commander(BaseNode):
         for i in range(max_execution_attempts):
             try:
                 execution_status = self.execute(
-                    plan_result.trajectory.get_robot_trajectory_msg()
+                    plan_response.trajectory.get_robot_trajectory_msg()
                 )
                 if execution_status:
                     self.log(
@@ -625,6 +636,16 @@ class Commander(BaseNode):
             object_id
         )
 
+    def log_planning_scene(self, severity: str = "INFO"):
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
+            planning_scene_msg.robot_state.attached_collision_objects = []
+            planning_scene_msg.world.collision_objects = []
+            self.log(
+                f"Planning scene: {planning_scene_msg}", severity=severity
+            )
+
     def setup_planning_scene(self):
         """
         Setup the planning scene by adding a floor collision object and
@@ -636,6 +657,7 @@ class Commander(BaseNode):
         self.process_floor_collision_object()
 
         # Add collision objects
+        static_object_id = None
         for mesh_type in ["static_meshes", "dynamic_meshes"]:
             # Get parameters
             prefix = f"planning_scene.{mesh_type}"
@@ -667,6 +689,9 @@ class Commander(BaseNode):
                         f"Processing mesh collision object from path: {path}"
                     )
                     object_id = os.path.splitext(os.path.basename(path))[0]
+                    if mesh_type == "static_meshes":
+                        static_object_id = object_id
+
                     try:
                         pose = self.get_parameter_wrapper(
                             f"{prefix}.poses.{object_id}"
@@ -690,6 +715,9 @@ class Commander(BaseNode):
                     f"Processing mesh collision object from path: {meshes_path}"
                 )
                 object_id = os.path.splitext(os.path.basename(meshes_path))[0]
+                if mesh_type == "static_meshes":
+                    static_object_id = object_id
+
                 try:
                     pose = self.get_parameter_wrapper(
                         f"{prefix}.poses.{object_id}"
@@ -712,7 +740,9 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
-            scene.allowed_collision_matrix.set_entry("", "monkey", True)
+            scene.allowed_collision_matrix.set_entry(
+                "base_link_inertial", static_object_id, True
+            )
             self.log(
                 f"Allowed collision matrix: {planning_scene_msg.allowed_collision_matrix}",
                 severity="DEBUG",
@@ -721,16 +751,6 @@ class Commander(BaseNode):
 
         # Log planning scene
         self.log_planning_scene(severity="DEBUG")
-
-    def log_planning_scene(self, severity: str = "INFO"):
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
-            planning_scene_msg.robot_state.attached_collision_objects = []
-            planning_scene_msg.world.collision_objects = []
-            self.log(
-                f"Planning scene: {planning_scene_msg}", severity=severity
-            )
 
     def remove_collision_object(self, object_id: str):
         with self.planning_scene_monitor.read_write() as scene:
@@ -806,7 +826,6 @@ async def run(commander: Commander):
         for name in waypoints_path:
             prefix = f"waypoints.poses_stamped.{name}"
             pose_stamped_dict = commander.get_parameter_wrapper(prefix)
-            # print(f"pose_stamped dict: {pose_stamped_dict}")
             waypoints[name] = pose_stamped_msg_from_dict(pose_stamped_dict)
 
         if len(waypoints) < 1:
@@ -818,11 +837,15 @@ async def run(commander: Commander):
 
         while True:
             try:
-                await commander.reset_robot_async()
+                commander.reset_robot()
                 print("Robot reset")
 
                 for name in waypoints_path:
-                    async with asyncio.timeout(10):
+                    async with asyncio.timeout(
+                        commander.get_parameter_wrapper(
+                            "plan_and_execute_timeout"
+                        )
+                    ):
                         await commander.plan_and_execute_async(waypoints[name])
 
                 for i, name in enumerate(waypoints_path):

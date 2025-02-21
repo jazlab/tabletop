@@ -1,6 +1,7 @@
 import cv2
 import rclpy
 from cv_bridge import CvBridge
+from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import Image
 
 from tabletop_server.nodes import BaseNode
@@ -21,7 +22,7 @@ class Camera(BaseNode):
         self.bridge = CvBridge()
         self.cap = cv2.VideoCapture(0)
 
-        timer_period = 1 / (2 * self.get_parameter("camera_fps").value)
+        timer_period = 1 / (2 * self.get_parameter_wrapper("camera_fps"))
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def timer_callback(self):
@@ -37,8 +38,8 @@ class Camera(BaseNode):
 def main(args=None):
     rclpy.init(args=args)
     try:
-        executor = rclpy.executors.MultiThreadedExecutor()
-        camera = Camera(executor)
+        executor = MultiThreadedExecutor()
+        camera = Camera()
         executor.add_node(camera)
 
         try:

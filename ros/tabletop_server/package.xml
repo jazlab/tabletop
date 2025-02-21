@@ -23,9 +23,7 @@
   <depend>cv_bridge</depend>
   <depend>sensor_msgs</depend>
   <depend>rosbag2</depend>
-  <depend>rosbag2_py</depend>
   <depend>shape_msgs</depend>
-  <!-- <depend>python3-trimesh-pip</depend> -->
 
   <depend>tabletop_moveit_config</depend>
   <depend>tabletop_msgs</depend>

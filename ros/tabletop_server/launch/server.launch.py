@@ -4,11 +4,10 @@ from launch.actions import (
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
+    Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.launch_service import LaunchService
-from launch.logging import launch_config as launch_logging_config
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
@@ -317,6 +316,7 @@ def generate_launch_description():
         ],
         ros_arguments=["--log-level", ["commander:=", commander_log_level]],
         output="both",
+        on_exit=[Shutdown()],
     )
 
     # Micro ROS Agent
@@ -355,7 +355,7 @@ def generate_launch_description():
         package="rviz2",
         condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        output="both",
+        output="log",
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -391,13 +391,13 @@ def generate_launch_description():
     )
 
 
-def main():
-    launch_logging_config.level = "DEBUG"
-    ls = LaunchService()
-    ld = generate_launch_description()
-    ls.include_launch_description(ld)
-    return ls.run()
+# def main():
+#     launch_logging_config.level = "DEBUG"
+#     ls = LaunchService()
+#     ld = generate_launch_description()
+#     ls.include_launch_description(ld)
+#     return ls.run()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
