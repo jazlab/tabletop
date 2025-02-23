@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import importlib
 
@@ -14,8 +13,8 @@ async def run(commander: Commander, task_config_file: str) -> None:
     print("Running tasks")
     try:
         config = yaml.safe_load(task_config_file)
-        print('\n\n\ntest\n\n\n')
-        raise ValueError('test')
+        print("\n\n\ntest\n\n\n")
+        raise ValueError("test")
 
         for task_config in config["tasks"]:
             task_module = task_config["module"]
@@ -53,7 +52,9 @@ def main(args=None) -> None:
         commander = Commander()
         executor.add_node(commander)
 
-        future = executor.create_task(asyncio.run, run(commander, task_config_file))
+        future = executor.create_task(
+            asyncio.run, run(commander, task_config_file)
+        )
 
         try:
             executor.spin_until_future_complete(future)

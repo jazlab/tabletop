@@ -28,6 +28,6 @@ endif()
 ament_package()
 
 install(
-  DIRECTORY config launch rviz meshes srdf
+  DIRECTORY config launch meshes srdf
   DESTINATION share/${PROJECT_NAME}
 )

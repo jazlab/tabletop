@@ -79,7 +79,7 @@ class BaseNode(Node):
         # Check for required parameters
         for name in self.required_params:
             try:
-                self.get_parameter(name)
+                self.get_parameter_wrapper(name)
             except ParameterNotDeclaredException:
                 self.log(
                     f"Required parameter {name} not declared", severity="ERROR"
