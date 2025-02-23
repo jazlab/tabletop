@@ -90,7 +90,8 @@ services:
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
+        ros2 launch tabletop_server server.launch.py 
+        use_mock_teensy:=true
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
 

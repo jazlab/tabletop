@@ -2,6 +2,7 @@ import asyncio
 import glob
 import logging
 import os
+import time
 import traceback
 from collections.abc import Awaitable, Iterable, Mapping
 from typing import Any, Optional
@@ -127,6 +128,17 @@ class Commander(BaseNode):
         # )
 
         self.log("Commander initialized")
+        # self._change_state("RESET")
+
+        # Dummy variables for fake hand fixation
+        self._last_hand_off = time.time()
+        self._last_hand_query = time.time()
+        self._frequency_hand_off = 10.0  # Poisson rate for hand off events
+
+        # Dummy variables for fake flic button press
+        self._mean_reaction_time = (
+            10.0  # Mean reaction time for flic button press
+        )
 
     def dashboard_trigger(self, srv_name: str) -> None:
         """
@@ -218,6 +230,7 @@ class Commander(BaseNode):
         Coroutine to call the smartglass service to reveal the smartglass
         asynchronously.
         """
+        self.log("Smartglass Reveal")
         return await self.service_call_async(
             srv_request=SetBool.Request(data=True),
             srv_type=SetBool,
@@ -229,6 +242,7 @@ class Commander(BaseNode):
         Coroutine to call the smartglass service to occlude the smartglass
         asynchronously.
         """
+        self.log("Smartglass Occlude")
         return await self.service_call_async(
             srv_request=SetBool.Request(data=False),
             srv_type=SetBool,
@@ -240,6 +254,7 @@ class Commander(BaseNode):
         Coroutine to call the arm door service to open the arm door
         asynchronously.
         """
+        self.log("Arm Door Open")
         return await self.service_call_async(
             srv_request=SetBool.Request(data=True),
             srv_type=SetBool,
@@ -251,17 +266,19 @@ class Commander(BaseNode):
         Coroutine to call the arm door service to close the arm door
         asynchronously.
         """
+        self.log("Arm Door Close")
         return await self.service_call_async(
             srv_request=SetBool.Request(data=False),
             srv_type=SetBool,
             srv_name="/teensy/arm_door",
         )
 
-    async def reward_start_async(self, duration_ms: int):
+    async def reward_async(self, duration_ms: int):
         """
         Coroutine to call the reward service to deliver a reward for a given
         duration.
         """
+        self.log(f"Delivering reward for {duration_ms} ms")
         if duration_ms < 0:
             raise ValueError("Duration must be greater than 0!")
         return await self.service_call_async(
@@ -281,6 +298,42 @@ class Commander(BaseNode):
             srv_name="/teensy/hand_fixation",
         )
 
+    def hand_fixation_state(self):
+        """Get current hand fixation state."""
+        return self.service_call(
+            srv_request=Trigger.Request(),
+            srv_type=Trigger,
+            srv_name="/sensors/hand_fixation",
+        )
+
+    async def wait_for_hand_fixation_on_async(self, timeout_sec: float):
+        """Wait for hand fixation state to turn on, then return True.
+
+        If already on, return True immediately. If timeout_sec is reached,
+        return False.
+        """
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while not self.hand_fixation_state():
+                    await asyncio.sleep(0.001)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def wait_for_hand_fixation_off_async(self, timeout_sec: float):
+        """Wait for hand fixation state to turn off, then return True.
+
+        If already off, return True immediately. If timeout_sec is reached,
+        return False.
+        """
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while self.hand_fixation_state():
+                    await asyncio.sleep(0.001)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def start_flic_button_async(self):
         """
         Coroutine to call the Flic button service to start the Flic button
@@ -291,6 +344,13 @@ class Commander(BaseNode):
             srv_type=Trigger,
             srv_name="/sensor/flic",
         )
+
+    async def wait_for_flic_button_async(self):
+        self.log("Waiting for flic button press")
+        reaction_time = np.random.exponential(self._mean_reaction_time)
+        await asyncio.sleep(reaction_time)
+        self.log("Flic button pressed")
+        return True
 
     def plan(
         self, goal: PoseStamped, pose_link: Optional[str] = None
