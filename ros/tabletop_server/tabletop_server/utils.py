@@ -2,7 +2,7 @@ import inspect
 import logging
 import os
 from collections import OrderedDict
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Iterable, Mapping
 from typing import Any, Optional, Protocol
 
 import numpy as np
@@ -16,9 +16,11 @@ from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
     MoveItErrorCodes,
+    ObjectColor,
 )
 from rclpy.client import Client
 from shape_msgs.msg import Mesh, MeshTriangle
+from std_msgs.msg import ColorRGBA
 from tf_transformations import (
     quaternion_from_euler,
     quaternion_from_matrix,
@@ -59,6 +61,28 @@ moveit_error_code_to_str = {
     MoveItErrorCodes.CRASH: "CRASH",
     MoveItErrorCodes.ABORT: "ABORT",
     MoveItErrorCodes.NO_IK_SOLUTION: "NO_IK_SOLUTION",
+}
+
+color_name_to_rgba = {
+    "red": (1.0, 0.0, 0.0, 1.0),
+    "green": (0.0, 1.0, 0.0, 1.0),
+    "blue": (0.0, 0.0, 1.0, 1.0),
+    "yellow": (1.0, 1.0, 0.0, 1.0),
+    "cyan": (0.0, 1.0, 1.0, 1.0),
+    "magenta": (1.0, 0.0, 1.0, 1.0),
+    "white": (1.0, 1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0, 1.0),
+    "gray": (0.5, 0.5, 0.5, 1.0),
+    "orange": (1.0, 0.5, 0.0, 1.0),
+    "purple": (0.5, 0.0, 0.5, 1.0),
+    "pink": (1.0, 0.75, 0.8, 1.0),
+    "brown": (0.6, 0.4, 0.2, 1.0),
+    "teal": (0.0, 0.5, 0.5, 1.0),
+    "olive": (0.5, 0.5, 0.0, 1.0),
+    "navy": (0.0, 0.0, 0.5, 1.0),
+    "maroon": (0.5, 0.0, 0.0, 1.0),
+    "lime": (0.75, 1.0, 0.0, 1.0),
+    "coral": (1.0, 0.5, 0.31, 1.0),
 }
 
 
@@ -174,7 +198,7 @@ def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
     return translation @ rotation
 
 
-def is_list_like(obj: Any) -> bool:
+def is_iterable(obj: Any) -> bool:
     if isinstance(obj, (str, Mapping)):
         return False
     try:
@@ -184,7 +208,7 @@ def is_list_like(obj: Any) -> bool:
     return True
 
 
-def pose_msg_from_dict(params: dict) -> Pose:
+def pose_msg_from_dict(params: dict[str, Any]) -> Pose:
     """
     Convert a dictionary of parameters to a geometry_msgs/Pose message.
     """
@@ -199,7 +223,7 @@ def pose_msg_from_dict(params: dict) -> Pose:
     # Position extraction
     if "position" in params:
         position = params["position"]
-        if is_list_like(position):
+        if is_iterable(position):
             pose.position.x, pose.position.y, pose.position.z = position
         elif isinstance(position, dict):
             pose.position.x = position["x"]
@@ -215,7 +239,7 @@ def pose_msg_from_dict(params: dict) -> Pose:
         rpy = params["rpy"]
         if isinstance(rpy, Mapping):
             pose.orientation = quaternion_msg_from_euler(**rpy)
-        elif is_list_like(rpy):
+        elif is_iterable(rpy):
             pose.orientation = quaternion_msg_from_euler(*rpy)
         else:
             raise ValueError(
@@ -223,7 +247,7 @@ def pose_msg_from_dict(params: dict) -> Pose:
             )
     elif "orientation" in params:
         orientation = params["orientation"]
-        if is_list_like(orientation):
+        if is_iterable(orientation):
             x, y, z, w = orientation
             pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
         elif isinstance(orientation, dict):
@@ -241,7 +265,7 @@ def pose_msg_from_dict(params: dict) -> Pose:
     return pose
 
 
-def pose_stamped_msg_from_dict(params: dict) -> PoseStamped:
+def pose_stamped_msg_from_dict(params: dict[str, Any]) -> PoseStamped:
     """
     Convert a dictionary of parameters to a geometry_msgs/PoseStamped message.
     """
@@ -249,6 +273,31 @@ def pose_stamped_msg_from_dict(params: dict) -> PoseStamped:
     pose_stamped.header.frame_id = params["header"]["frame_id"]
     pose_stamped.pose = pose_msg_from_dict(params["pose"])
     return pose_stamped
+
+
+def create_object_color_msg(
+    object_id: str, color: str | Iterable[float] | Mapping[str, float]
+) -> ObjectColor:
+    object_color = ObjectColor()
+    object_color.id = object_id
+    if isinstance(color, str):
+        try:
+            rgba = color_name_to_rgba[color]
+        except KeyError:
+            raise ValueError(f"Invalid color: {color}")
+    elif isinstance(color, Mapping):
+        rgba = list(color.values())
+    elif is_iterable(color):
+        rgba = list(color)
+        if len(rgba) != 4:
+            raise ValueError(
+                f"Color must be a list of 4 floats, got {len(rgba)}"
+            )
+    else:
+        raise ValueError(f"Invalid color type: {type(color)}")
+
+    object_color.color = ColorRGBA(r=rgba[0], g=rgba[1], b=rgba[2], a=rgba[3])
+    return object_color
 
 
 # Mesh utility functions

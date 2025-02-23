@@ -23,13 +23,15 @@
         path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
         scale: 1.0
         simplification: bounding_primitive
+        color: pink
         correction:
-          position: [0.0, 0.0, -0.02]
+          position: [0.0, 0.0, 0.0]
           rpy: [0.0, 0.0, 1.5707]
       dynamic_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic_dae/
         scale: 0.001
         simplification: convex_hull
+        color: orange
         poses: # In meters
           complex_object:
             position: [-0.1, 0.4, 0.8]
@@ -51,63 +53,33 @@
           header:
             frame_id: world
           pose:
-            position:
-              x: 0.1
-              y: 0.1
-              z: 0.8
-            rpy:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
+            position: [0.1, 0.1, 0.8]
+            rpy: [0.0, 0.0, 1.5707]
 
         object_area:
           header:
             frame_id: world
           pose:
-            position:
-              x: 0.3
-              y: 0.6
-              z: 0.6
-            rpy:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
+            position: [0.3, 0.6, 0.6]
+            rpy: [0.0, 0.0, 1.5707]
 
         object_grab:
           header:
             frame_id: world
           pose:
-            position:
-              x: 0.3
-              y: 0.65
-              z: 0.6
-            rpy:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
+            position: [0.3, 0.65, 0.6]
+            rpy: [0.0, 0.0, 1.5707]
 
         monkey_area_1:
           header:
             frame_id: world
           pose:
-            position:
-              x: -0.2
-              y: -0.5
-              z: 0.8
-            rpy:
-              roll: 0.4
-              pitch: -0.1
-              yaw: -1.5707
+            position: [-0.2, -0.5, 0.8]
+            rpy: [0.4, -0.1, -1.5707]
 
         monkey_area_2:
           header:
             frame_id: world
           pose:
-            position:
-              x: 0.2
-              y: -0.5
-              z: 0.7
-            rpy:
-              roll: -0.4
-              pitch: 0.1
-              yaw: -1.5707
+            position: [0.2, -0.5, 0.7]
+            rpy: [-0.4, 0.1, -1.5707]

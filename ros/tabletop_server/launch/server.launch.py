@@ -365,7 +365,7 @@ def generate_launch_description():
             warehouse_ros_config,
             {"use_sim_time": use_sim_time},
         ],
-        arguments=["-d", rviz_config_file_server],
+        arguments=["-d", rviz_config_file_server, "-l"],
         ros_arguments=["--log-level", log_level],
     )
 

@@ -3,7 +3,7 @@ import glob
 import logging
 import os
 import traceback
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterable, Mapping
 from typing import Any, Optional
 
 import numpy as np
@@ -22,6 +22,7 @@ from moveit.planning import (
     TrajectoryExecutionManager,
 )
 from moveit_msgs.msg import (
+    AttachedCollisionObject,
     CollisionObject,
     MoveItErrorCodes,
     RobotTrajectory,
@@ -36,7 +37,6 @@ from rclpy.callback_groups import (
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane
-from std_msgs.msg import Header
 from std_srvs.srv import SetBool, Trigger
 from tabletop_msgs.srv import SetUint32
 from ur_dashboard_msgs.srv import Load
@@ -46,10 +46,12 @@ from tabletop_server.utils import (
     MaxAttemptsReachedError,
     ServiceCallError,
     collision_object_from_geometry,
+    create_object_color_msg,
     load_geometry,
     matrix_from_pose_msg,
     moveit_error_code_to_str,
     pose_msg_from_dict,
+    pose_msg_from_matrix,
     pose_stamped_msg_from_dict,
     simplify_bounding_primitive,
     simplify_convex_hull,
@@ -74,9 +76,11 @@ class Commander(BaseNode):
         "planning_scene.static_meshes.path",
         "planning_scene.static_meshes.scale",
         "planning_scene.static_meshes.simplification",
+        "planning_scene.static_meshes.color",
         "planning_scene.dynamic_meshes.path",
         "planning_scene.dynamic_meshes.scale",
         "planning_scene.dynamic_meshes.simplification",
+        "planning_scene.dynamic_meshes.poses",
     }
 
     def __init__(self):
@@ -533,6 +537,13 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_only() as scene:
             return scene.get_frame_transform(frame_id)
 
+    def get_frame_pose(self, frame_id: str) -> Pose:
+        """
+        Get the frame pose for a given frame id from the planning scene.
+        """
+        tf = self.get_frame_transform(frame_id)
+        return pose_msg_from_matrix(tf)
+
     def get_planning_frame(self) -> str:
         """
         Get the planning frame from the planning scene.
@@ -570,6 +581,7 @@ class Commander(BaseNode):
         add_bottom_subframe: bool = False,
         correction_tf: Optional[np.ndarray] = None,
         reference_frame_id: Optional[str] = None,
+        color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
     ):
         """
         Add a mesh collision object at a given path to the planning scene.
@@ -618,13 +630,19 @@ class Commander(BaseNode):
             operation="add",
         )
 
+        if color is not None:
+            color_msg = create_object_color_msg(object_id, color)
+        else:
+            color_msg = None
+
         # Add collision object to planning scene
-        self.planning_scene_monitor.process_collision_object(collision_object)
+        self.planning_scene_monitor.process_collision_object(
+            collision_object, color_msg
+        )
 
     def attach_collision_object(
         self,
         *,
-        collision_object: Optional[CollisionObject] = None,
         object_id: Optional[str] = None,
         link_name: str,
     ):
@@ -632,9 +650,28 @@ class Commander(BaseNode):
         Attach an object to the robot.
         """
         self.log(f"Attaching object {object_id}")
+        attached_collision_object = AttachedCollisionObject()
+        attached_collision_object.object.id = object_id
+        attached_collision_object.link_name = link_name
+        attached_collision_object.object.operation = CollisionObject.ADD
         self.planning_scene_monitor.process_attached_collision_object(
-            object_id
+            attached_collision_object
         )
+
+    def detach_collision_object(self, object_id: str):
+        self.log(f"Detaching object {object_id}")
+        attached_collision_object = AttachedCollisionObject()
+        attached_collision_object.object.id = object_id
+        attached_collision_object.object.operation = CollisionObject.REMOVE
+        self.planning_scene_monitor.process_attached_collision_object(
+            attached_collision_object
+        )
+
+    def allow_collision(self, id_1: str, id_2: str):
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            scene.allowed_collision_matrix.set_entry(id_1, id_2, True)
+            scene.current_state.update()
 
     def log_planning_scene(self, severity: str = "INFO"):
         with self.planning_scene_monitor.read_only() as scene:
@@ -657,7 +694,7 @@ class Commander(BaseNode):
         self.process_floor_collision_object()
 
         # Add collision objects
-        static_object_id = None
+        static_object_ids = []
         for mesh_type in ["static_meshes", "dynamic_meshes"]:
             # Get parameters
             prefix = f"planning_scene.{mesh_type}"
@@ -675,6 +712,10 @@ class Commander(BaseNode):
             except ParameterNotDeclaredException:
                 meshes_correction_tf = None
 
+            meshes_color: list[float] = self.get_parameter_wrapper(
+                f"{prefix}.color"
+            )
+
             if not os.path.exists(meshes_path):
                 raise FileNotFoundError(
                     f"Mesh path {meshes_path} does not exist"
@@ -690,7 +731,7 @@ class Commander(BaseNode):
                     )
                     object_id = os.path.splitext(os.path.basename(path))[0]
                     if mesh_type == "static_meshes":
-                        static_object_id = object_id
+                        static_object_ids.append(object_id)
 
                     try:
                         pose = self.get_parameter_wrapper(
@@ -708,6 +749,7 @@ class Commander(BaseNode):
                         pose=pose,
                         add_bottom_subframe=mesh_type == "dynamic_meshes",
                         correction_tf=meshes_correction_tf,
+                        color=meshes_color,
                     )
             # Process single .stl or .dae file
             else:
@@ -716,7 +758,7 @@ class Commander(BaseNode):
                 )
                 object_id = os.path.splitext(os.path.basename(meshes_path))[0]
                 if mesh_type == "static_meshes":
-                    static_object_id = object_id
+                    static_object_ids.append(object_id)
 
                 try:
                     pose = self.get_parameter_wrapper(
@@ -734,20 +776,12 @@ class Commander(BaseNode):
                     pose=pose,
                     add_bottom_subframe=mesh_type == "dynamic_meshes",
                     correction_tf=meshes_correction_tf,
+                    color=meshes_color,
                 )
 
         # Update planning scene
-        with self.planning_scene_monitor.read_write() as scene:
-            scene: PlanningScene = scene
-            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
-            scene.allowed_collision_matrix.set_entry(
-                "base_link_inertial", static_object_id, True
-            )
-            self.log(
-                f"Allowed collision matrix: {planning_scene_msg.allowed_collision_matrix}",
-                severity="DEBUG",
-            )
-            scene.current_state.update()
+        for static_object_id in static_object_ids:
+            self.allow_collision("base_link_inertial", static_object_id)
 
         # Log planning scene
         self.log_planning_scene(severity="DEBUG")
@@ -760,21 +794,31 @@ class Commander(BaseNode):
     async def fetch_object_async(
         self,
         object_id: str,
-    ):
-        # raise NotImplementedError("Fetch object not implemented")
+        target_pose: PoseStamped,
+    ) -> Pose:
         self.log(f"Fetching object {object_id}")
-        header = Header(frame_id=self.get_planning_frame())
 
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            object_pose = scene.get_frame_transform(object_id)
+        pose_link: str = self.get_parameter_wrapper("planning.pose_link")
+        object_frame_id: str = object_id + "/bottom"
 
-        self.log(f"Object pose type: {type(object_pose)}, {object_pose}")
-
-        fetch_pose = PoseStamped(header=header, pose=object_pose)
+        fetch_pose = PoseStamped()
+        fetch_pose.header.frame_id = object_frame_id
+        fetch_pose.pose.position.x -= 0.1  # TODO: Make this a parameter
         fetch_pose.pose.position.z -= 0.1  # TODO: Make this a parameter
 
-        await self.plan_and_execute_async(fetch_pose)
+        await self.plan_and_execute_async(fetch_pose, pose_link)
+
+        self.allow_collision(pose_link, object_id)
+
+        fetch_pose = PoseStamped(header=fetch_pose.header)
+
+        await self.plan_and_execute_async(fetch_pose, pose_link)
+
+        self.attach_collision_object(object_id=object_id, link_name=pose_link)
+
+        await self.plan_and_execute_async(target_pose, pose_link)
+
+        return self.get_frame_pose(object_frame_id)
 
         # line_constraint = PositionConstraint()
         # line_constraint.header.frame_id = reference_frame_id
@@ -816,7 +860,8 @@ class Commander(BaseNode):
 
 
 async def run(commander: Commander):
-    # Initialize waypoints
+    i = 0
+
     try:
         waypoints_path: list[int] = commander.get_parameter_wrapper(
             "waypoints.path"
@@ -840,30 +885,37 @@ async def run(commander: Commander):
                 commander.reset_robot()
                 print("Robot reset")
 
-                for name in waypoints_path:
+                while True:
                     async with asyncio.timeout(
                         commander.get_parameter_wrapper(
                             "plan_and_execute_timeout"
                         )
                     ):
-                        await commander.plan_and_execute_async(waypoints[name])
+                        name = waypoints_path[i]
 
-                for i, name in enumerate(waypoints_path):
-                    plan_exec_future = commander.plan_and_execute_async(
-                        waypoints[name]
-                    )
-                    if i % 2 == 0:
-                        arm_door_future = commander.arm_door_open_async()
-                        smartglass_future = commander.smartglass_reveal_async()
-                    else:
-                        arm_door_future = commander.arm_door_close_async()
-                        smartglass_future = (
-                            commander.smartglass_occlude_async()
+                        plan_exec_future = commander.plan_and_execute_async(
+                            waypoints[name]
+                        )
+                        if i % 2 == 0:
+                            arm_door_future = commander.arm_door_open_async()
+                            smartglass_future = (
+                                commander.smartglass_reveal_async()
+                            )
+                        else:
+                            arm_door_future = commander.arm_door_close_async()
+                            smartglass_future = (
+                                commander.smartglass_occlude_async()
+                            )
+
+                        await asyncio.gather(
+                            plan_exec_future,
+                            arm_door_future,
+                            smartglass_future,
                         )
 
-                    await asyncio.gather(
-                        plan_exec_future, arm_door_future, smartglass_future
-                    )
+                        i += 1
+                        if i >= len(waypoints_path):
+                            i = 0
             except (
                 TimeoutError,
                 MaxAttemptsReachedError,
@@ -872,7 +924,6 @@ async def run(commander: Commander):
                 print(
                     f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
                 )
-                traceback.print_exc()
                 await asyncio.sleep(1)
     except Exception as e:
         print(
