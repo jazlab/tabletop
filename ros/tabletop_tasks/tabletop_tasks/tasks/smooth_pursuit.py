@@ -20,14 +20,14 @@ class SmoothPursuit(BaseTask):
         center_pose: Pose,
         radius: float,
         total_time: float,
-        reward_period: float = 1.0,
-        reward_duration: float = 0.1,
+        reward_period_s: float = 1.0,
+        reward_duration_s: float = 0.1,
         loop_period: float = 0.01,
     ):
         super().__init__(commander)
         self._total_time = total_time
-        self._reward_period = reward_period
-        self._reward_duration = reward_duration
+        self._reward_period_s = reward_period_s
+        self._reward_duration_s = reward_duration_s
         self._loop_period = loop_period
 
         # Make circular path
@@ -55,7 +55,7 @@ class SmoothPursuit(BaseTask):
         last_reward_time = start_time
 
         try:
-            plan_result = self._commander.plan(self._path)
+            plan_result = self._commander.plan(self._path[0])
         except Exception as e:
             self._commander.log(f"Failed to plan path: {e}", severity="ERROR")
 
@@ -71,8 +71,8 @@ class SmoothPursuit(BaseTask):
                     self._commander.execute_async(plan_result.trajectory)
                 )
             else:
-                if time.time() - last_reward_time > self._reward_period:
-                    self._commander.reward(self._reward_duration)
+                if time.time() - last_reward_time > self._reward_period_s:
+                    await self._commander.reward_async(self._reward_duration_s)
                     last_reward_time = time.time()
 
             await asyncio.sleep(self._loop_period)

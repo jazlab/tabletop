@@ -1,7 +1,6 @@
 """Block-structured cup/drawer trial generator."""
 
 from random import randrange
-from typing import Any, Generator
 
 import numpy as np
 from geometry_msgs.msg import Point, Pose, Quaternion
@@ -28,15 +27,17 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         # Setup poses. Each trial, a random pose will be sampled from these.
         self._poses = poses
-        
+
         # Initialize generator
         self._num_correct = 0
         self._block_index = randrange(len(self._block_keys))
-        
-    def send(self, broke_fixation: bool, timeout: bool, **unused_kwargs: dict) -> None:
+
+    def send(
+        self, broke_fixation: bool, timeout: bool, **unused_kwargs: dict
+    ) -> None:
         """Update generator based on feedback."""
         del unused_kwargs
-        
+
         # Increment number of correct trials if necessary
         if not broke_fixation and not timeout:
             self._num_correct += 1
@@ -49,7 +50,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
     def __next__(self) -> TrialSpec:
         """Return a trial."""
         # Sample object pose
-        object_pose = np.random.choice(self._poses)
+        object_pose = np.random.choice(self._poses)  # type: ignore
         object_pose = Pose(
             position=Point(
                 x=object_pose["x"], y=object_pose["y"], z=object_pose["z"]
@@ -67,5 +68,5 @@ class BlockedCupDrawer(BaseTrialGenerator):
             object_pose=object_pose,
             occlude=True,
         )
-        
+
         return trial_spec

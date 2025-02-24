@@ -4,7 +4,6 @@ from launch.actions import (
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
-    SetEnvironmentVariable,
     Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
@@ -98,7 +97,7 @@ def declare_arguments():
             ),
             description="URDF/XACRO description file with the robot.",
         ),
-        # Commander
+        # Tasks
         DeclareLaunchArgument(
             "commander_config",
             default_value=PathJoinSubstitution(
@@ -111,15 +110,15 @@ def declare_arguments():
             description="Commander config file",
         ),
         DeclareLaunchArgument(
-            "run_config",
+            "tasks_config",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_tasks"),
                     "config",
-                    "sample_run.yaml",
+                    "tasks.yaml",
                 ]
             ),
-            description="Run config",
+            description="Tasks config file",
         ),
         DeclareLaunchArgument(
             "publish_robot_description_semantic",
@@ -231,7 +230,7 @@ def generate_launch_description():
 
     # Commander
     commander_config = LaunchConfiguration("commander_config")
-    run_config = LaunchConfiguration("run_config")
+    tasks_config = LaunchConfiguration("tasks_config")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
     )
@@ -266,10 +265,6 @@ def generate_launch_description():
     # Use group action to isolate the launch file
     ur_robot_driver = GroupAction(
         [
-            SetEnvironmentVariable(
-                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value="own_log",
-            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [
@@ -294,7 +289,7 @@ def generate_launch_description():
                     "description_file": description_file,
                     "use_sim_time": use_sim_time,
                 }.items(),
-            ),
+            )
         ],
         scoped=True,
         forwarding=True,
@@ -318,11 +313,12 @@ def generate_launch_description():
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
         "warehouse_host": warehouse_sqlite_path,
     }
+
     # TODO: Add node-specific params/remappings a la
     # https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html#logger-configuration
-    commander = Node(
-        package="tabletop_server",
-        executable="commander",
+    run_tasks = Node(
+        package="tabletop_tasks",
+        executable="run_tasks",
         parameters=[
             moveit_config.to_dict(),
             ParameterFile(commander_config, allow_substs=True),
@@ -332,7 +328,7 @@ def generate_launch_description():
             },
         ],
         ros_arguments=["--log-level", ["commander:=", commander_log_level]],
-        arguments=[run_config],
+        arguments=[tasks_config],
         output="both",
         on_exit=[Shutdown()],
     )
@@ -369,11 +365,11 @@ def generate_launch_description():
     )
 
     # RViz
-    rviz_node = Node(
+    rviz = Node(
         package="rviz2",
         condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        output="own_log",
+        output="log",
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -400,10 +396,10 @@ def generate_launch_description():
         + [
             set_ros_log_dir,
             ur_robot_driver,
-            commander,
+            run_tasks,
             micro_ros_agent,
             mock_teensy,
-            rviz_node,
+            rviz,
             bag,
         ]
     )
