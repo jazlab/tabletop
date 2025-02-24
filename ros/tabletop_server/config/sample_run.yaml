@@ -1,0 +1,66 @@
+plan_and_execute_timeout: 20.0
+
+object_ids:
+  - simple_object
+  - complex_object
+
+waypoints:
+  path:
+    - object_area
+    - object_grab
+    - object_area
+    - monkey_area_1
+    - monkey_area_2
+    - object_area
+    - object_grab
+    - object_area
+
+  poses_stamped:
+    init:
+      header:
+        frame_id: world
+      pose:
+        position: [0.1, 0.1, 0.8]
+        rpy: [0.0, 0.0, 1.5707]
+
+    object_area:
+      header:
+        frame_id: world
+      pose:
+        position: [0.3, 0.6, 0.6]
+        rpy: [0.0, 0.0, 1.5707]
+
+    object_grab:
+      header:
+        frame_id: world
+      pose:
+        position: [0.3, 0.65, 0.6]
+        rpy: [0.0, 0.0, 1.5707]
+
+    monkey_area_1:
+      header:
+        frame_id: world
+      pose:
+        position: [-0.2, -0.5, 0.8]
+        rpy: [0.4, -0.1, -1.5707]
+
+    monkey_area_2:
+      header:
+        frame_id: world
+      pose:
+        position: [0.2, -0.5, 0.7]
+        rpy: [-0.4, 0.1, -1.5707]
+
+    simple_object:
+      header:
+        frame_id: world
+      pose:
+        position: [-0.2, -0.5, 0.8]
+        rpy: [0.4, -0.1, -1.5707]
+
+    complex_object:
+      header:
+        frame_id: world
+      pose:
+        position: [0.2, -0.5, 0.7]
+        rpy: [-0.4, 0.1, -1.5707]

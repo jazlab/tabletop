@@ -27,7 +27,7 @@ class BaseTask(ABC):
     async def run(self) -> None:
         """Run the task to completion."""
         raise NotImplementedError("Tasks must implement run() method")
-    
-    def log(self, message: str) -> None:
+
+    def log(self, message: str, severity: str = "INFO") -> None:
         """Log a message."""
-        self.commander.log(message)
+        self.commander.log(message, severity)

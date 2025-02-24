@@ -26,7 +26,7 @@ ompl_rrtc:
     planning_attempts: 8
     planning_pipeline: ompl
     planner_id: RRTConnect
-    planning_time: 1.0
+    planning_time: 3.0
     max_velocity_scaling_factor: 0.3
     max_acceleration_scaling_factor: 0.5
 
@@ -35,7 +35,7 @@ ompl_rrt_star:
     planning_attempts: 8
     planning_pipeline: ompl
     planner_id: RRTstar
-    planning_time: 1.0
+    planning_time: 3.0
     max_velocity_scaling_factor: 0.3
     max_acceleration_scaling_factor: 0.5
 
