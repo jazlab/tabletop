@@ -3,9 +3,8 @@
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    max_plan_attempts: 5
+    max_plan_attempts: 10
     max_execution_attempts: 3
-    max_reset_attempts: 3
 
     dashboard:
       installation: default.installation
@@ -18,9 +17,11 @@
 
     planning:
       group_name: ur_manipulator
-      pipeline: ["ompl_rrt_star", "ompl_rrtc"]
+      pipeline: [ompl_rrt_star, ompl_rrtc]
       pose_link: eef
       eef_link: eef_link
+      object_touch_links:
+        - eef_link
       pre_object_offset: [-0.05, 0.0, -0.005]
 
     planning_scene:

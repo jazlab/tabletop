@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from inspect import isawaitable, iscoroutinefunction
 from typing import Any, Optional
 
+import yaml
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.exceptions import (
@@ -10,15 +11,38 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
-
-from tabletop_server.utils import (
+from tabletop_utils.ros import (
     SrvType,
     SrvTypeRequest,
     SrvTypeResponse,
+    msg_to_dict,
     validate_service_response,
 )
 
 DEFAULT_LOG_SEVERITY = "INFO"
+
+
+class BracketedListDumper(yaml.Dumper):
+    """
+    Custom YAML Dumper that formats scalar sequences as bracketed lists.
+    """
+
+    def represent_sequence(self, tag, sequence, flow_style=None):
+        """
+        Overrides the default represent_sequence to use flow style (bracketed)
+        for sequences containing only scalar values.
+        """
+        if all(
+            isinstance(item, (str, int, float, bool, type(None)))
+            for item in sequence
+        ):
+            return yaml.Dumper.represent_sequence(
+                self, tag, sequence, flow_style=True
+            )
+        else:
+            return yaml.Dumper.represent_sequence(
+                self, tag, sequence, flow_style=flow_style
+            )
 
 
 class BaseNode(Node):
@@ -32,6 +56,7 @@ class BaseNode(Node):
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
+        "yaml_width": 120,
     }
     required_params: set[str] = set()
 
@@ -47,7 +72,7 @@ class BaseNode(Node):
 
     def log(
         self,
-        message: str,
+        message: Any,
         severity: str = DEFAULT_LOG_SEVERITY,
     ):
         """
@@ -147,6 +172,21 @@ class BaseNode(Node):
                 return value
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
+
+    def log_ros_msg(
+        self,
+        msg: Any,
+        title: Optional[str] = None,
+        severity: str = DEFAULT_LOG_SEVERITY,
+    ):
+        string = yaml.dump(
+            msg_to_dict(msg),
+            Dumper=BracketedListDumper,
+            width=self.get_parameter_wrapper("yaml_width"),
+        )
+        if title is not None:
+            string = f"{title}\n{string}"
+        self.log(string, severity=severity)
 
     @staticmethod
     def rclpy_task_wrapper(

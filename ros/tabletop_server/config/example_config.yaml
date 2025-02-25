@@ -1,4 +1,4 @@
-plan_and_execute_timeout: 20.0
+plan_and_execute_timeout: null
 
 object_ids:
   - simple_object
@@ -41,26 +41,26 @@ waypoints:
       header:
         frame_id: world
       pose:
-        position: [-0.2, -0.5, 0.8]
+        position: [-0.2, -0.5, 0.9]
         rpy: [0.4, -0.1, -1.5707]
 
     monkey_area_2:
       header:
         frame_id: world
       pose:
-        position: [0.2, -0.5, 0.7]
+        position: [0.2, -0.5, 0.9]
         rpy: [-0.4, 0.1, -1.5707]
 
     simple_object:
       header:
         frame_id: world
       pose:
-        position: [-0.2, -0.5, 0.8]
+        position: [-0.2, -0.5, 0.9]
         rpy: [0.4, -0.1, -1.5707]
 
     complex_object:
       header:
         frame_id: world
       pose:
-        position: [0.2, -0.5, 0.7]
+        position: [0.2, -0.5, 0.9]
         rpy: [-0.4, 0.1, -1.5707]

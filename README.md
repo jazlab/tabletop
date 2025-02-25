@@ -342,6 +342,11 @@ Container extension. To open VSCode in the development container:
 VSCode will build the Dev Container and provide you with a fully configured
 development environment.
 
+**Note**: In order to command the robot from the Dev Container, you will need
+to set the host IP and host name in the UR Dashboard to the Dev Container's
+IP address. This setting can be found in *Installation->URCaps->External
+Control->Host IP* and *Installation->URCaps->External Control->Host Name*.
+
 ## Project Structure
 
 The TableTop meta-package consists of the following ROS 2 packages, located in
@@ -369,12 +374,13 @@ Contributions are welcome! To contribute, follow these steps:
     button.
 2. Clone the forked repository to your local machine using the command
     `git clone <url>`.
-3. Create a new branch for your changes using the command
+3. Install the dependencies using the command `pip install -r requirements-dev.txt`.
+4. Create a new branch for your changes using the command
     `git checkout -b <branch-name>`.
-4. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
+5. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
     and push them to your forked repository using the command
     `git push origin <branch-name>`.
-5. Create a pull request to the original repository by clicking the
+6. Create a pull request to the original repository by clicking the
     "New pull request" button.
 
 Please follow the coding standards and best practices described in the

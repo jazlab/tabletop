@@ -52,7 +52,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "reverse_ip",
-            default_value="192.168.12.11",
+            default_value="192.168.12.12",
             description="Reverse IP address",
         ),
         DeclareLaunchArgument(
@@ -111,20 +111,26 @@ def declare_arguments():
             description="Commander config file",
         ),
         DeclareLaunchArgument(
-            "run_config",
+            "script_package",
+            default_value="tabletop_server",
+            description="Script package",
+        ),
+        DeclareLaunchArgument(
+            "script_executable",
+            default_value="example_commander",
+            description="Script executable",
+            choices=["example_commander", "commander"],
+        ),
+        DeclareLaunchArgument(
+            "script_config",
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_server"),
                     "config",
-                    "sample_run.yaml",
+                    "example_config.yaml",
                 ]
             ),
             description="Run config",
-        ),
-        DeclareLaunchArgument(
-            "publish_robot_description_semantic",
-            default_value="true",
-            description="MoveGroup publishes robot description semantic",
         ),
         # Teensy
         DeclareLaunchArgument(
@@ -231,10 +237,9 @@ def generate_launch_description():
 
     # Commander
     commander_config = LaunchConfiguration("commander_config")
-    run_config = LaunchConfiguration("run_config")
-    publish_robot_description_semantic = LaunchConfiguration(
-        "publish_robot_description_semantic"
-    )
+    script_package = LaunchConfiguration("script_package")
+    script_executable = LaunchConfiguration("script_executable")
+    script_config = LaunchConfiguration("script_config")
 
     # Teensy
     micro_ros_transport = LaunchConfiguration("micro_ros_transport")
@@ -300,6 +305,16 @@ def generate_launch_description():
         forwarding=True,
     )
 
+    # Mock Dashboard
+    mock_dashboard = Node(
+        package="tabletop_server",
+        executable="mock_dashboard",
+        output="log",
+        parameters=[{"use_sim_time": use_sim_time}],
+        ros_arguments=["--log-level", log_level],
+        condition=IfCondition(use_mock_robot),
+    )
+
     # Commander
     moveit_config = (
         MoveItConfigsBuilder(
@@ -321,18 +336,18 @@ def generate_launch_description():
     # TODO: Add node-specific params/remappings a la
     # https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html#logger-configuration
     commander = Node(
-        package="tabletop_server",
-        executable="commander",
+        package=script_package,
+        executable=script_executable,
         parameters=[
             moveit_config.to_dict(),
             ParameterFile(commander_config, allow_substs=True),
             {
-                "publish_robot_description_semantic": publish_robot_description_semantic,
+                "publish_robot_description_semantic": True,
                 "use_sim_time": use_sim_time,
             },
         ],
         ros_arguments=["--log-level", ["commander:=", commander_log_level]],
-        arguments=[run_config],
+        arguments=[script_config],
         output="both",
         on_exit=[Shutdown()],
     )
@@ -400,6 +415,7 @@ def generate_launch_description():
         + [
             set_ros_log_dir,
             ur_robot_driver,
+            mock_dashboard,
             commander,
             micro_ros_agent,
             mock_teensy,

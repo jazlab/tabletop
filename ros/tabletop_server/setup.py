@@ -37,10 +37,11 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "commander = tabletop_server.nodes.commander:main",
+            "example_commander = tabletop_server.nodes.commander:main",
             "sensor = tabletop_server.nodes.sensor:main",
             "camera = tabletop_server.nodes.camera:main",
             "mock_teensy = tabletop_server.nodes.mock_teensy:main",
+            "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
         ],
     },
 )
