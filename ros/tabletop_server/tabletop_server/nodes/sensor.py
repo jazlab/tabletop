@@ -11,6 +11,7 @@ class Sensor(BaseNode):
         self.sensor_sub = self.create_subscription(
             TeensySensor, "teensy_sensor", self.sensor_callback, 1000
         )
+        self.sensor_data: list[TeensySensor] = []
 
     def sensor_callback(self, msg: TeensySensor):
         self.sensor_data.append(msg)
@@ -19,7 +20,7 @@ class Sensor(BaseNode):
 def main(args=None):
     rclpy.init(args=args)
 
-    executor = rclpy.executors.MultiThreadedExecutor()
+    executor = rclpy.executors.MultiThreadedExecutor()  # type: ignore
     sensor = Sensor()
     executor.add_node(sensor)
 

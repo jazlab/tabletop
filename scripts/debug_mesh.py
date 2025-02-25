@@ -1,10 +1,10 @@
-from tabletop_server.utils import (
+from tabletop_utils.mesh import (
     load_geometry,
-    pose_from_matrix,
     simplify_bounding_primitive,
     simplify_convex_hull,
     visualize_geometry,
 )
+from tabletop_utils.ros import pose_msg_from_matrix
 from tf_transformations import inverse_matrix
 
 
@@ -23,7 +23,7 @@ def main_mesh():
 
     tf = mesh.bounding_box_oriented.transform
     tf_inv = inverse_matrix(tf)
-    mesh_pose = pose_from_matrix(tf_inv)
+    mesh_pose = pose_msg_from_matrix(tf_inv)
     print(mesh_pose)
     mesh_primitive = simplify_bounding_primitive(mesh)
     print(mesh_primitive)

@@ -4,7 +4,7 @@ import argparse
 import os
 
 import trimesh
-from tabletop_server.utils import visualize_geometry
+from tabletop_utils.mesh import visualize_geometry
 
 
 def main():

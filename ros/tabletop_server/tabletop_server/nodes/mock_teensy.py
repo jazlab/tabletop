@@ -193,19 +193,19 @@ class MockTeensy(Node):
 
 def main(args=None):
     rclpy.init(args=args)
+
     try:
-        executor = rclpy.executors.SingleThreadedExecutor()
+        executor: rclpy.Executor = rclpy.executors.SingleThreadedExecutor()  # type: ignore
         mock_teensy = MockTeensy()
         executor.add_node(mock_teensy)
 
         try:
             executor.spin()
         finally:
+            print("Shutting down executor")
             executor.shutdown()
+            print("Shutting down mock teensy")
             mock_teensy.destroy_node()
     finally:
+        print("Shutting down rclpy")
         rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()

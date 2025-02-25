@@ -29,7 +29,7 @@ def generate_launch_description():
             "launch_rviz": "false",
             "kinematics_params_file": PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_description"),
                     "config",
                     "ursim_calibration.yaml",
                 ]

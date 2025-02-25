@@ -3,7 +3,11 @@ Panels:
     Help Height: 70
     Name: Displays
     Property Tree Widget:
-      Expanded: ~
+      Expanded:
+        - /PlanningScene1
+        - /PlanningScene1/Scene Geometry1
+        - /PlanningScene1/Scene Robot1
+        - /PlanningScene1/Scene Robot1/Links1
       Splitter Ratio: 0.5
     Tree Height: 764
 Visualization Manager:
@@ -36,14 +40,14 @@ Visualization Manager:
       Scene Geometry:
         Scene Alpha: 0.8999999761581421
         Scene Color: 50; 230; 50
-        Scene Display Time: 0.009999999776482582
+        Scene Display Time: 0.0010000000474974513
         Show Scene Geometry: true
         Voxel Coloring: Z-Axis
         Voxel Rendering: Occupied Voxels
       Scene Robot:
         Attached Body Color: 150; 50; 150
         Links:
-          All Links Enabled: true
+          All Links Enabled: false
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
@@ -92,7 +96,7 @@ Visualization Manager:
             Alpha: 1
             Show Axes: false
             Show Trail: false
-            Value: true
+            Value: false
           tool0:
             Alpha: 1
             Show Axes: false

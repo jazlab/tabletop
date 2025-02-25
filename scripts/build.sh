@@ -41,6 +41,9 @@ rosdep update
 rosdep install --from-paths src --ignore-src -y
 echo ""
 
+echo "Manually installing Python dependencies"
+pip install -r src/tabletop/ros/requirements.txt
+
 echo "Building ROS 2 packages"
 colcon build --symlink-install \
         --event-handlers console_cohesion+ \
