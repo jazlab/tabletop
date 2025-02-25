@@ -51,8 +51,8 @@
       <child link="${tf_prefix}eef_link" />
     </joint>
 
-    <!-- eef frame, X+ direction to move to attach object, 
-         Y+ left, 
+    <!-- eef frame, X+ direction to move to attach object,
+         Y+ left,
          Z+ up / outward from eef -->
     <link name="${tf_prefix}eef" />
     <joint name="${tf_prefix}eef_link-eef" type="fixed">

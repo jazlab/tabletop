@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,

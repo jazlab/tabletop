@@ -11,3 +11,19 @@ repos:
       - id: ruff-format
         types_or: [python, pyi, jupyter]
         args: [--line-length=79]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: name-tests-test
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-json
+      - id: check-xml
+      - id: check-merge-conflict
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: requirements-txt-fixer

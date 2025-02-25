@@ -177,7 +177,7 @@ To run the entire software stack using Docker:
     Use `--no-cache` to force a rebuild of the Docker images and install the
     latest versions of the dependencies.
 
-5. [Optional] Upload the Teensy firmware:   
+5. [Optional] Upload the Teensy firmware:
     ```bash
     ./scripts/upload_teensy.sh
     ```
@@ -398,6 +398,6 @@ In particular, we use meters for length, seconds for time, and radians for angle
 ### How do I run commands in the Dev Container?
 The following is an example of how to run a command in the dev container:
 ```bash
-ros2 launch tabletop_tasks run_tasks.launch.py --task_config_file /root/ws/src/tabletop/ros/tabletop_tasks/config/tasks.yaml 
+ros2 launch tabletop_tasks run_tasks.launch.py --task_config_file /root/ws/src/tabletop/ros/tabletop_tasks/config/tasks.yaml
 ros2 launch tabletop_tasks run_tasks.launch.py use_mock_teensy:=true
 ```
