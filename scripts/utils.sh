@@ -24,4 +24,3 @@ get_parent_dir() {
 
     echo $abs_path
 }
-

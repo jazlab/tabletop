@@ -33,7 +33,7 @@
 			"group": {
 				"kind": "test",
 				"isDefault": true
-			},
+			}
 		},
 		{
 			"type": "shell",
@@ -52,5 +52,5 @@
 			"problemMatcher": [],
 			"group": "none"
 		}
-	],
+	]
 }

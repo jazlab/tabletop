@@ -1,0 +1,21 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-python.debugpy",
+        "mechatroner.rainbow-csv",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-xml",
+        "bierner.markdown-mermaid",
+        "ms-iot.vscode-ros",
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cpptools-themes",
+        "ms-vscode.cmake-tools",
+        "IronGeek.vscode-env",
+        "platformio.platformio-ide"
+    ]
+}

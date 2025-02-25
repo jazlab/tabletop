@@ -15,7 +15,7 @@ services:
     ports:
       - 8008:8008 # PlatformIO HTTP port
     command: sleep infinity
-    
+
 
 networks:
   tabletop_net:

@@ -41,7 +41,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
     NULL,
     0,
     NULL};
-  
+
 
 #define ARM_DOOR_SRV_NAME "/teensy/arm_door"
 #define SMARTGLASS_SRV_NAME "/teensy/smartglass"

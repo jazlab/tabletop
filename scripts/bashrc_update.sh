@@ -47,4 +47,3 @@ for command in "${commands[@]}"; do
         echo "$command" >> "$HOME/.bashrc"
     fi
 done
-

@@ -56,7 +56,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
     environment:
       - DISPLAY=$DISPLAY
-    
+
   server_base:
     build:
       context: ./ros
@@ -71,7 +71,28 @@ services:
     hostname: server
     environment:
       - BUILD_COMMAND=${BUILD_COMMAND:-/root/ws/src/tabletop/scripts/build.sh}
-    command: bash -c 
+    command: bash -c
+      "$$BUILD_COMMAND
+      && source /opt/ros/jazzy/setup.bash
+      && source /root/ws/install/setup.bash
+      && $$LAUNCH_COMMAND"
+
+  server_user:
+    build:
+      context: ./ros
+      dockerfile: user.Dockerfile
+      pull: true
+    pull_policy: build
+    image: tabletop-server-user
+    volumes:
+      - ../..:/root/ws
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.11
+    hostname: server
+    environment:
+      - BUILD_COMMAND=${BUILD_COMMAND:-/root/ws/src/tabletop/scripts/build.sh}
+    command: bash -c
       "$$BUILD_COMMAND
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
@@ -90,7 +111,7 @@ services:
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py 
+        ros2 launch tabletop_server server.launch.py
         use_mock_teensy:=true
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
