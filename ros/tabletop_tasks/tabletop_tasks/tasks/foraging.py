@@ -104,7 +104,9 @@ class ForagingTask(BaseTask):
         # Fetch object
         object_id = self._trial_spec.object_id
         object_pose = self._trial_spec.object_pose
-        await self.commander.fetch_object_async(object_id, object_pose)
+        self._return_pose = await self.commander.fetch_object_async(
+            object_id, object_pose
+        )
 
         # Transition to fixation state
         self._state = ForagingState.FIXATION
@@ -218,7 +220,7 @@ class ForagingTask(BaseTask):
 
         # Return object
         return_future = self.commander.return_object_async(
-            self._trial_spec.object_id
+            self._trial_spec.object_id, self._return_pose
         )
 
         await asyncio.gather(arm_door_future, smartglass_future, return_future)

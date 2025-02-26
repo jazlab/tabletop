@@ -1,0 +1,24 @@
+- module: present_object
+  class: PresentObjectTask
+  kwargs:
+    trial_generator:
+      module: random_choice
+      class: RandomChoice
+      kwargs:
+        object_ids:
+          - simple_object
+          - complex_object
+        poses:
+          - header:
+              frame_id: world
+            pose:
+              position: [-0.2, -0.5, 0.9]
+              rpy: [0.4, -0.1, -1.5707]
+          - header:
+              frame_id: world
+            pose:
+              position: [0.2, -0.5, 0.9]
+              rpy: [-0.4, 0.1, -1.5707]
+        num_trials: 10
+    delay_duration_s: 0.5
+    stimulus_duration_s: 0.5

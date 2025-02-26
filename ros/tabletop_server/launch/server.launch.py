@@ -119,7 +119,6 @@ def declare_arguments():
             "script_executable",
             default_value="example_commander",
             description="Script executable",
-            choices=["example_commander", "commander"],
         ),
         DeclareLaunchArgument(
             "script_config",
@@ -130,7 +129,7 @@ def declare_arguments():
                     "example_config.yaml",
                 ]
             ),
-            description="Run config",
+            description="Script config",
         ),
         # Teensy
         DeclareLaunchArgument(
@@ -251,7 +250,6 @@ def generate_launch_description():
     # RViz
     launch_rviz_server = LaunchConfiguration("launch_rviz_server")
     rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
-
     # Bag
     rosbag_record = LaunchConfiguration("rosbag_record")
     rosbag_args = LaunchConfiguration("rosbag_args")
@@ -335,6 +333,7 @@ def generate_launch_description():
     }
     # TODO: Add node-specific params/remappings a la
     # https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html#logger-configuration
+    # Probably will need to use ExecuteProcess for the script and manually provide the ros arguments
     commander = Node(
         package=script_package,
         executable=script_executable,
@@ -398,7 +397,7 @@ def generate_launch_description():
             warehouse_ros_config,
             {"use_sim_time": use_sim_time},
         ],
-        arguments=["-d", rviz_config_file_server, "-l"],
+        arguments=["-d", rviz_config_file_server],  # -l for ogre log
         ros_arguments=["--log-level", log_level],
     )
 
@@ -410,19 +409,18 @@ def generate_launch_description():
         condition=IfCondition(rosbag_record),
     )
 
-    return LaunchDescription(
-        declare_arguments()
-        + [
-            set_ros_log_dir,
-            ur_robot_driver,
-            mock_dashboard,
-            commander,
-            micro_ros_agent,
-            mock_teensy,
-            rviz_node,
-            bag,
-        ]
-    )
+    launch_actions = [
+        set_ros_log_dir,
+        ur_robot_driver,
+        mock_dashboard,
+        commander,
+        micro_ros_agent,
+        mock_teensy,
+        rviz_node,
+        bag,
+    ]
+
+    return LaunchDescription(declare_arguments() + launch_actions)
 
 
 # def main():

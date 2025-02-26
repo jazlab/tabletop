@@ -3,13 +3,22 @@
 from typing import Any
 
 import numpy as np
-from tabletop_server.utils import pose_stamped_msg_from_dict
+from tabletop_utils.ros import pose_stamped_msg
 
 from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialSpec
 
 
-class RandomObject(BaseTrialGenerator):
-    """Random object trial generator."""
+class RandomChoice(BaseTrialGenerator):
+    """
+    Random choice trial generator.
+
+    Randomly chooses an object from a list of objects and a pose from a list of poses.
+
+    Args:
+        object_ids: List of object ids to choose from.
+        poses: List of poses to choose from.
+        num_trials: Number of trials to generate.
+    """
 
     def __init__(
         self,
@@ -18,7 +27,7 @@ class RandomObject(BaseTrialGenerator):
         num_trials: int,
     ):
         self._object_ids = object_ids
-        self._poses = [pose_stamped_msg_from_dict(pose) for pose in poses]
+        self._poses = [pose_stamped_msg(**pose) for pose in poses]
         self._num_trials = num_trials
         self._trial_counter = 0
 

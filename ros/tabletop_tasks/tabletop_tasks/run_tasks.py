@@ -11,10 +11,15 @@ from tabletop_tasks.tasks.base_task import BaseTask
 async def run(commander: Commander, task_config_file: str) -> None:
     print("Running tasks")
     try:
+        commander.log(f"Loading task config from: {task_config_file}")
+
         with open(task_config_file, "r") as f:
             config = yaml.safe_load(f)
 
-        commander.log(f"task_config_file: {task_config_file}")
+        commander.reset_robot()
+
+        if commander.is_state_colliding(commander.get_planning_group_name()):
+            await commander.move_out_of_collision_async("idle")
 
         for task_config in config:
             task_module_name = task_config["module"]

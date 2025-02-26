@@ -371,17 +371,14 @@ class BaseNode(Node):
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
         destroy_service_client: bool = True,
-    ):
+    ) -> SrvTypeResponse:
         """
         Call a service asynchronously, returning a future and the service
         client.
         """
         try:
             service_client = self._create_client(
-                srv_type,
-                srv_name,
-                service_client,
-                destroy_service_client=False,
+                srv_type, srv_name, service_client, destroy_service_client
             )
             future = service_client.call_async(srv_request)
             future.add_done_callback(
@@ -389,7 +386,7 @@ class BaseNode(Node):
                 if destroy_service_client
                 else None
             )
-            return await future
+            return await future  # type: ignore
         except asyncio.CancelledError as e:
             future.cancel()
             # Check if the future was successfully cancelled (avoids race
@@ -399,7 +396,7 @@ class BaseNode(Node):
                     f"Service call to {srv_name} finished before cancellation",
                     severity="WARN",
                 )
-                return future.result()
+                return future.result()  # type: ignore
             else:
                 self.log(
                     f"Service call to {srv_name} was cancelled by asyncio",

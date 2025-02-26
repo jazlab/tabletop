@@ -11,9 +11,8 @@
       program: external_control.urp
       connect_timeout: 5.0
 
-    idle_pose:
-      position: [0.3, 0.6, 0.6]
-      rpy: [0.0, 0.0, 1.5707]
+    teensy:
+      hand_fixation_spin_period_s: 0.1
 
     planning:
       group_name: ur_manipulator
@@ -22,7 +21,12 @@
       eef_link: eef_link
       object_touch_links:
         - eef_link
-      pre_object_offset: [-0.05, 0.0, -0.005]
+      idle_pose:
+        position: [0.3, 0.6, 0.6]
+        rpy: [0.0, 0.0, 1.5707]
+      pre_fetch_offset: [-0.05, 0.0, -0.01]
+      pre_attach_offset: [-0.05, 0.0, 0.0]
+      post_attach_offset: [0.05, 0.0, 0.0]
 
     planning_scene:
       static_meshes:
