@@ -1,9 +1,10 @@
 """Block-structured cup/drawer trial generator."""
 
 from random import randrange
+from typing import Any
 
 import numpy as np
-from geometry_msgs.msg import Point, Pose, Quaternion
+from tabletop_utils.ros import pose_stamped_msg
 
 from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialSpec
 
@@ -13,7 +14,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
     def __init__(
         self,
-        poses: list[dict[str, float]],
+        poses: list[dict[str, Any]],
         correct_trials_per_block: int = 10,
     ):
         self._correct_trials_per_block = correct_trials_per_block
@@ -26,7 +27,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self._block_keys = list(self._object_ids.keys())
 
         # Setup poses. Each trial, a random pose will be sampled from these.
-        self._poses = poses
+        self._poses = [pose_stamped_msg(**pose) for pose in poses]
 
         # Initialize generator
         self._num_correct = 0
@@ -51,12 +52,6 @@ class BlockedCupDrawer(BaseTrialGenerator):
         """Return a trial."""
         # Sample object pose
         object_pose = np.random.choice(self._poses)  # type: ignore
-        object_pose = Pose(
-            position=Point(
-                x=object_pose["x"], y=object_pose["y"], z=object_pose["z"]
-            ),
-            orientation=Quaternion(x=0, y=0, z=0, w=1),
-        )
 
         # Sample object id
         block_key = self._block_keys[self._block_index]

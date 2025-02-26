@@ -177,11 +177,11 @@ planner_configs:
     # A comma-separated list of planner types (e.g., "PRM,EST,RRTConnect")
     # Optionally, planner parameters can be passed to change the default:
     # "PRM[max_nearest_neighbors=5],EST[goal_bias=.5],RRT[range=10. goal_bias=.1]"
-    planners: RRTConnect,RRTstar[range=0.0 goal_bias=0.05],BFMT,TRRT
+    planners: RRTConnect,RRTstar[range=0.0 goal_bias=0.05],TRRT
   APSPersistent:
     type: geometric::AnytimePathShortening
-    shortcut: true # Attempt to shortcut all new solution paths
-    hybridize: true # Compute hybrid solution trajectories
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 36 # Number of hybrid paths generated per iteration
     num_planners: 4 # The number of default planners to use for planning
     termination_condition: CostConvergence[10,0.1]

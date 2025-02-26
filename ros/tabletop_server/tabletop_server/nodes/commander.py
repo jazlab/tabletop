@@ -34,6 +34,7 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane
 from std_msgs.msg import Header
@@ -71,12 +72,15 @@ class Commander(BaseNode):
         "dashboard.installation",
         "dashboard.program",
         "dashboard.connect_timeout",
-        "idle_pose",
+        "teensy.hand_fixation_spin_period_s",
         "planning.group_name",
         "planning.pipeline",
         "planning.pose_link",
         "planning.eef_link",
-        "planning.pre_object_offset",
+        "planning.idle_pose",
+        "planning.pre_fetch_offset",
+        "planning.pre_attach_offset",
+        "planning.post_attach_offset",
         "planning_scene.static_meshes.path",
         "planning_scene.static_meshes.scale",
         "planning_scene.static_meshes.simplification",
@@ -286,24 +290,13 @@ class Commander(BaseNode):
             srv_name="/teensy/reward",
         )
 
-    async def wait_for_hand_fixation_async(self):
-        """
-        Coroutine to call the hand fixation service to wait for the hand
-        fixation asynchronously.
-        """
+    async def get_hand_fixation_state_async(self) -> Trigger.Response:
+        """Get current hand fixation state."""
         return await self.service_call_async(
             srv_request=Trigger.Request(),
             srv_type=Trigger,
-            srv_name="/teensy/hand_fixation",
-        )
-
-    def hand_fixation_state(self):
-        """Get current hand fixation state."""
-        return self.service_call(
-            srv_request=Trigger.Request(),
-            srv_type=Trigger,
             srv_name="/sensors/hand_fixation",
-        )
+        )  # type: ignore
 
     async def wait_for_hand_fixation_on_async(self, timeout_sec: float):
         """Wait for hand fixation state to turn on, then return True.
@@ -313,8 +306,12 @@ class Commander(BaseNode):
         """
         try:
             async with asyncio.timeout(timeout_sec):
-                while not self.hand_fixation_state():
-                    await asyncio.sleep(0.001)
+                while not (await self.get_hand_fixation_state_async()).success:
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper(
+                            "teensy.hand_fixation_spin_period_s"
+                        )
+                    )
             return True
         except asyncio.TimeoutError:
             return False
@@ -327,8 +324,12 @@ class Commander(BaseNode):
         """
         try:
             async with asyncio.timeout(timeout_sec):
-                while self.hand_fixation_state():
-                    await asyncio.sleep(0.001)
+                while not (await self.get_hand_fixation_state_async()).success:
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper(
+                            "teensy.hand_fixation_spin_period_s"
+                        )
+                    )
             return True
         except asyncio.TimeoutError:
             return False
@@ -515,11 +516,11 @@ class Commander(BaseNode):
         for i in range(max_plan_attempts):
             try:
                 plan_response = self.plan(pose_stamped, pose_link)
-                self.log_plan_response(plan_response, severity="DEBUG")
                 if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
                     self.log(
                         f"Planning attempt {i + 1}/{max_plan_attempts} succeeded"
                     )
+                    self.log_plan_response(plan_response)
                     break
                 else:
                     error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} failed with error code {moveit_error_code_map[plan_response.error_code.val]}"
@@ -528,6 +529,7 @@ class Commander(BaseNode):
                         error_msg,
                         severity="WARN",
                     )
+                    self.log_plan_response(plan_response, severity="DEBUG")
             except Exception as e:
                 error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} raised exception {type(e).__name__}: {e}"
                 failure_msgs.append(error_msg)
@@ -637,6 +639,18 @@ class Commander(BaseNode):
         """
         return self.planning_component.planning_group_name
 
+    def get_idle_pose_stamped(self) -> PoseStamped:
+        """
+        Get the idle pose from the planning scene.
+        """
+        idle_pose = self.get_parameter_wrapper("planning.idle_pose")
+        idle_pose = pose_msg(**idle_pose)
+
+        idle_pose_stamped = PoseStamped()
+        idle_pose_stamped.header.frame_id = self.get_planning_frame()
+        idle_pose_stamped.pose = idle_pose
+        return idle_pose_stamped
+
     def get_collision_object_ids(self) -> list[str]:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
@@ -677,7 +691,13 @@ class Commander(BaseNode):
 
             return matrix_df
 
-    def is_state_colliding(self, group_name: str) -> bool:
+    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
+        """
+        Check if the current state of the planning scene is colliding.
+        """
+        if group_name is None:
+            group_name = self.get_planning_group_name()
+
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             return scene.is_state_colliding(group_name)
@@ -855,12 +875,18 @@ class Commander(BaseNode):
                 )
                 self.log("=" * 80, severity=severity)
 
-    def update_collision_matrix(self, id_1: str, id_2: str, allow: bool):
-        self.log(f"Updating collision matrix for {id_1} and {id_2} to {allow}")
+    def allow_collision(self, id_1: str, id_2: str):
+        self.log(f"Allowing collision between {id_1} and {id_2}")
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
-            scene.allowed_collision_matrix.set_entry(id_1, id_2, allow)
+            scene.allowed_collision_matrix.set_entry(id_1, id_2, True)
             scene.current_state.update()
+
+    def disallow_collision(self, id_1: str, id_2: str):
+        self.log(f"Disallowing collision between {id_1} and {id_2}")
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            scene.allowed_collision_matrix.set_entry(id_1, id_2, False)
 
     def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
         self.log(
@@ -988,18 +1014,42 @@ class Commander(BaseNode):
 
         # Update planning scene
         for static_object_id in static_object_ids:
-            self.update_collision_matrix(
-                "base_link_inertia", static_object_id, True
-            )
-            self.update_collision_matrix("sphere", static_object_id, True)
+            self.allow_collision("base_link_inertia", static_object_id)
+            self.allow_collision("sphere", static_object_id)
 
         for dynamic_object_id in dynamic_object_ids:
-            self.update_collision_matrix("sphere", dynamic_object_id, True)
+            self.allow_collision("sphere", dynamic_object_id)
 
         # Log planning scene
         self.log_planning_scene(severity="DEBUG")
         self.log_collision_objects(severity="DEBUG")
         self.log_collision_matrix(severity="DEBUG")
+
+    async def move_out_of_collision_async(
+        self, target_pose: PoseStamped | str
+    ):
+        """
+        Move the robot out of collision with the scene asynchronously.
+
+        Using this function will remove all collision objects from the
+        planning scene and move the robot to the target pose, then add the
+        collision objects back to the planning scene. To be used only with
+        ursim. With the real robot, the user should manually (via the teach
+        pendant) move the robot away from the collision objects.
+        """
+        self.log("Moving out of collision with the sphere")
+
+        self.remove_all_collision_objects()
+
+        if isinstance(target_pose, str):
+            if target_pose == "idle":
+                target_pose = self.get_idle_pose_stamped()
+            else:
+                raise ValueError(f"Invalid target pose: {target_pose}")
+
+        await self.plan_and_execute_async(target_pose)
+
+        self.setup_planning_scene()
 
     async def fetch_object_async(
         self,
@@ -1009,7 +1059,7 @@ class Commander(BaseNode):
     ) -> PoseStamped:
         self.log(f"Fetching object {object_id}")
 
-        object_frame_id: str = object_id + f"/{subframe_name}"
+        object_frame_id = object_id + f"/{subframe_name}"
         return_pose = self.get_frame_pose_stamped(object_frame_id)
 
         self.log(
@@ -1021,39 +1071,71 @@ class Commander(BaseNode):
             severity="DEBUG",
         )
 
-        pre_fetch_pose = PoseStamped()
-        pre_fetch_pose.header.frame_id = object_frame_id
-        pre_fetch_offset = self.get_parameter_wrapper(
-            "planning.pre_object_offset"
+        # Pre-fetch pose
+        pre_fetch_pose = pose_stamped_msg(
+            header={"frame_id": object_frame_id},
+            pose={
+                "position": self.get_parameter_wrapper(
+                    "planning.pre_fetch_offset"
+                )
+            },
         )
-        pre_fetch_pose.pose.position.x += pre_fetch_offset[0]
-        pre_fetch_pose.pose.position.y += pre_fetch_offset[1]
-        pre_fetch_pose.pose.position.z += pre_fetch_offset[2]
-
         await self.plan_and_execute_async(pre_fetch_pose)
 
+        # Allow collision between touch links and object
         touch_links: list[str] = self.get_parameter_wrapper(
             "planning.object_touch_links"
         )
         for touch_link in touch_links:
-            self.update_collision_matrix(touch_link, object_id, True)
+            self.allow_collision(touch_link, object_id)
 
-        fetch_pose = PoseStamped()
-        fetch_pose.header.frame_id = object_frame_id
+        # Pre-attach pose
+        pre_attach_pose = pose_stamped_msg(
+            header={"frame_id": object_frame_id},
+            pose={
+                "position": self.get_parameter_wrapper(
+                    "planning.pre_attach_offset"
+                )
+            },
+        )
+        await self.plan_and_execute_async(pre_attach_pose)
 
-        await self.plan_and_execute_async(fetch_pose)
+        # Attach pose (no offset with respect to object frame)
+        attach_pose = PoseStamped()
+        attach_pose.header.frame_id = object_frame_id
+        await self.plan_and_execute_async(attach_pose)
 
-        pose_link: str = self.get_parameter_wrapper("planning.pose_link")
+        # Disallow collision between touch links and object
+        touch_links: list[str] = self.get_parameter_wrapper(
+            "planning.object_touch_links"
+        )
+        for touch_link in touch_links:
+            self.disallow_collision(touch_link, object_id)
+
+        # Attach object
         self.attach_collision_object(
             object_id=object_id,
-            link_name=pose_link,
+            link_name=self.get_parameter_wrapper("planning.pose_link"),
             touch_links=touch_links,
         )
 
+        # Post-attach pose
+        post_attach_pose = pose_stamped_msg(
+            header={"frame_id": object_frame_id},
+            pose={
+                "position": self.get_parameter_wrapper(
+                    "planning.post_attach_offset"
+                )
+            },
+        )
+        await self.plan_and_execute_async(post_attach_pose)
+
+        # Move to target pose
         await self.plan_and_execute_async(target_pose)
 
         return return_pose
 
+        # TODO: add line constraint for linear cartesian path
         # line_constraint = PositionConstraint()
         # line_constraint.header.frame_id = reference_frame_id
         # line_constraint.link_name = self.get_parameter_wrapper(
@@ -1064,43 +1146,94 @@ class Commander(BaseNode):
         # line.dimensions = {0.0005, 0.0005, 1.0}
         # line_constraint.constraint_region.primitives.append(line)
 
-        # with self.planning_scene_monitor.read_write() as scene:
-        #     scene: PlanningScene = scene
-        #     scene.apply_collision_object(object_id)
-        #     scene.current_state.update()
-
+    # TODO: Test this
     async def return_object_async(
         self,
         object_id: str,
         return_pose: PoseStamped,
-        end_pose: Optional[PoseStamped] = None,
+        subframe_name: str = "default",
+        end_pose: Optional[PoseStamped | str] = None,
     ) -> None:
-        pose_link: str = self.get_parameter_wrapper("planning.pose_link")
+        """Return an object to its original position.
 
+        This method is the reverse of fetch_object_async.
+
+        Args:
+            object_id: The ID of the object to return
+            return_pose: The pose to return the object to
+            subframe_name: The subframe name of the object (default: "default")
+            end_pose: Optional pose to move to after returning the object
+        """
+        self.log(f"Returning object {object_id}")
+
+        # First move to the pre-return (post-attach) pose
         pre_return_pose = deepcopy(return_pose)
         pre_return_offset = self.get_parameter_wrapper(
-            "planning.pre_object_offset"
+            "planning.post_attach_offset"
         )
-        pre_return_pose.pose.position.x -= pre_return_offset[0]
-        pre_return_pose.pose.position.y -= pre_return_offset[1]
-        pre_return_pose.pose.position.z -= pre_return_offset[2]
+        pre_return_pose.pose.position.x += pre_return_offset[0]
+        pre_return_pose.pose.position.y += pre_return_offset[1]
+        pre_return_pose.pose.position.z += pre_return_offset[2]
 
-        await self.plan_and_execute_async(pre_return_pose, pose_link)
+        await self.plan_and_execute_async(pre_return_pose)
 
-        await self.plan_and_execute_async(return_pose, pose_link)
+        # Move to the return pose
+        await self.plan_and_execute_async(return_pose)
 
+        # Detach the object
         self.detach_collision_object(object_id=object_id)
 
-        self.update_collision_matrix(pose_link, object_id, False)
+        # Allow collision between robot and object
+        touch_links: list[str] = self.get_parameter_wrapper(
+            "planning.object_touch_links"
+        )
+        for touch_link in touch_links:
+            self.allow_collision(touch_link, object_id)
 
-        if end_pose is None:
-            idle_pose_config = self.get_parameter_wrapper("idle_pose")
-            idle_pose = PoseStamped()
-            idle_pose.header.frame_id = self.get_planning_frame()
-            idle_pose.pose = pose_msg(**idle_pose_config)
-            await self.plan_and_execute_async(idle_pose, pose_link)
-        else:
-            await self.plan_and_execute_async(end_pose, pose_link)
+        # Get object frame ID
+        object_frame_id = object_id + f"/{subframe_name}"
+
+        # Move to the post-detach (pre-attach) pose
+        post_detach_pose = pose_stamped_msg(
+            header={"frame_id": object_frame_id},
+            pose={
+                "position": [
+                    -offset
+                    for offset in self.get_parameter_wrapper(
+                        "planning.pre_attach_offset"
+                    )
+                ]
+            },
+        )
+        await self.plan_and_execute_async(post_detach_pose)
+
+        # Move to the post-return (pre-fetch) pose
+        post_return_pose = pose_stamped_msg(
+            header={"frame_id": object_frame_id},
+            pose={
+                "position": self.get_parameter_wrapper(
+                    "planning.pre_fetch_offset"
+                )
+            },
+        )
+        await self.plan_and_execute_async(post_return_pose)
+
+        # Disallow collision between touch links and object
+        touch_links: list[str] = self.get_parameter_wrapper(
+            "planning.object_touch_links"
+        )
+        for touch_link in touch_links:
+            self.disallow_collision(touch_link, object_id)
+
+        # Move to end pose if specified
+        if isinstance(end_pose, str):
+            if end_pose == "idle":
+                idle_pose = self.get_idle_pose_stamped()
+                await self.plan_and_execute_async(idle_pose)
+            else:
+                raise ValueError(f"Invalid end pose: {end_pose}")
+        elif isinstance(end_pose, PoseStamped):
+            await self.plan_and_execute_async(end_pose)
 
     def destroy_node(self):
         self.moveit_py.shutdown()
@@ -1298,7 +1431,7 @@ def main(args=None):
     run_config = non_ros_args[1]
 
     try:
-        executor: rclpy.Executor = rclpy.executors.MultiThreadedExecutor()  # type: ignore
+        executor = MultiThreadedExecutor()
         commander = Commander()
         executor.add_node(commander)
 

@@ -12,8 +12,8 @@ from tabletop_tasks.trial_generators.base_trial_generator import (
 )
 
 
-class RetrieveObjectState(enum.Enum):
-    """RetrieveObject state."""
+class PresentObjectState(enum.Enum):
+    """PresentObject state."""
 
     IDLE = 0
     FETCH = 1
@@ -23,7 +23,7 @@ class RetrieveObjectState(enum.Enum):
     FINISHED = 5
 
 
-class RetrieveObjectTask(BaseTask):
+class PresentObjectTask(BaseTask):
     def __init__(
         self,
         commander: Commander,
@@ -58,7 +58,7 @@ class RetrieveObjectTask(BaseTask):
         self._trial_generator = trial_generator_tmp
         self._stimulus_duration_s = stimulus_duration_s
         self._delay_duration_s = delay_duration_s
-        self._state = RetrieveObjectState.IDLE
+        self._state = PresentObjectState.IDLE
 
     async def _fetch(self):
         """Fetch object for trial."""
@@ -74,7 +74,7 @@ class RetrieveObjectTask(BaseTask):
             object_id, object_pose
         )
 
-        self._state = RetrieveObjectState.STIMULUS
+        self._state = PresentObjectState.STIMULUS
 
     async def _stimulus(self):
         """Present stimulus."""
@@ -82,7 +82,7 @@ class RetrieveObjectTask(BaseTask):
 
         await asyncio.sleep(self._stimulus_duration_s)
 
-        self._state = RetrieveObjectState.RETURN
+        self._state = PresentObjectState.RETURN
 
     async def _delay(self):
         """Delay phase."""
@@ -90,7 +90,7 @@ class RetrieveObjectTask(BaseTask):
 
         await asyncio.sleep(self._delay_duration_s)
 
-        self._state = RetrieveObjectState.RETURN
+        self._state = PresentObjectState.RETURN
 
     async def _return(self):
         """Return object."""
@@ -105,23 +105,23 @@ class RetrieveObjectTask(BaseTask):
         )
 
         # Transition to fetch state
-        self._state = RetrieveObjectState.IDLE
+        self._state = PresentObjectState.IDLE
 
     async def run(self):
         """Run a trial."""
         while True:
             match self._state:
-                case RetrieveObjectState.IDLE:
-                    self._state = RetrieveObjectState.FETCH
-                case RetrieveObjectState.FETCH:
+                case PresentObjectState.IDLE:
+                    self._state = PresentObjectState.FETCH
+                case PresentObjectState.FETCH:
                     await self._fetch()
-                case RetrieveObjectState.STIMULUS:
+                case PresentObjectState.STIMULUS:
                     await self._stimulus()
-                case RetrieveObjectState.RETURN:
+                case PresentObjectState.RETURN:
                     await self._return()
-                case RetrieveObjectState.DELAY:
+                case PresentObjectState.DELAY:
                     await self._delay()
-                case RetrieveObjectState.FINISHED:
+                case PresentObjectState.FINISHED:
                     self.log("RetrieveObjectTask finished")
                     return
                 case _:

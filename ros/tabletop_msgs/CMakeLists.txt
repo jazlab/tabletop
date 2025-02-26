@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Flic.msg"
   "msg/TeensySensor.msg"
   "srv/SetUint32.srv"
+  "srv/GetFloat.srv"
 )
 
 # uncomment the following section in order to fill in
