@@ -1,14 +1,15 @@
 #!/bin/bash
 
 script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $_script_dir/utils.sh
-_project_dir=$(get_parent_dir $_script_dir 1)
+source $script_dir/utils.sh
+project_dir=$(get_parent_dir $script_dir 1)
 
 target_arg="--target upload"
+clean=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
-            _clean=true
+            clean=true
             shift
             ;;
         --no-upload)
@@ -23,8 +24,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -n "$_clean" ]; then
-    sudo rm -rf $_project_dir/ros/tabletop_teensy/.pio
+if [ "$clean" = "true" ]; then
+    sudo rm -rf $project_dir/ros/tabletop_teensy/.pio
 fi
 
-pio run $target_arg --project-dir $_project_dir/ros/tabletop_teensy
+pio run $target_arg --project-dir $project_dir/ros/tabletop_teensy

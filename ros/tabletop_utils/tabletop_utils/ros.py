@@ -100,18 +100,18 @@ collision_object_operation_map = {
 }
 
 
-# Protocol definitions
-class SrvType(Protocol):
-    Request: Any
-    Response: Any
-
-
 class SrvTypeRequest(Protocol):
     pass
 
 
 class SrvTypeResponse(Protocol):
     success: bool
+
+
+# Protocol definitions
+class SrvType(Protocol):
+    Request: Any
+    Response: Any
 
 
 # Exception definitions
@@ -140,7 +140,7 @@ def load_yaml_from_package(
 def validate_service_response(
     response: Optional[SrvTypeResponse],
     service_client: Client,
-) -> SrvTypeResponse:
+) -> None:
     """
     Validate the response from a service call.
 
@@ -158,11 +158,9 @@ def validate_service_response(
     if response is None:
         error_msg = f"{service_client.service_name} service call timed out!"
         raise TimeoutError(error_msg)
-    elif not response.success:
+    elif hasattr(response, "success") and not response.success:  # type: ignore
         error_msg = f"{service_client.service_name} service call failed!"
         raise ServiceCallError(error_msg)
-    else:
-        return response
 
 
 def msg_to_dict(msg: Any):

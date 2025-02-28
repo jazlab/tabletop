@@ -110,19 +110,20 @@ class PresentObjectTask(BaseTask):
     async def run(self):
         """Run a trial."""
         while True:
-            match self._state:
-                case PresentObjectState.IDLE:
-                    self._state = PresentObjectState.FETCH
-                case PresentObjectState.FETCH:
-                    await self._fetch()
-                case PresentObjectState.STIMULUS:
-                    await self._stimulus()
-                case PresentObjectState.RETURN:
-                    await self._return()
-                case PresentObjectState.DELAY:
-                    await self._delay()
-                case PresentObjectState.FINISHED:
-                    self.log("RetrieveObjectTask finished")
-                    return
-                case _:
-                    raise ValueError(f"Invalid state: {self._state}")
+            async with self.commander.planning_context_manager_async():
+                match self._state:
+                    case PresentObjectState.IDLE:
+                        self._state = PresentObjectState.FETCH
+                    case PresentObjectState.FETCH:
+                        await self._fetch()
+                    case PresentObjectState.STIMULUS:
+                        await self._stimulus()
+                    case PresentObjectState.RETURN:
+                        await self._return()
+                    case PresentObjectState.DELAY:
+                        await self._delay()
+                    case PresentObjectState.FINISHED:
+                        self.log("RetrieveObjectTask finished")
+                        return
+                    case _:
+                        raise ValueError(f"Invalid state: {self._state}")

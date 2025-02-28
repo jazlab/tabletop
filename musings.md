@@ -16,3 +16,13 @@ or
 cursor <path>
 ```
 simply open a new terminal and run the command again.
+
+2. If you want to visualize the urdf, you can run:
+```bash
+ros2 launch tabletop_description view_robot.launch.py
+```
+
+3. If you want to run the demo, you can run:
+```bash
+ros2 launch tabletop_tasks run_tasks.launch.py
+```
