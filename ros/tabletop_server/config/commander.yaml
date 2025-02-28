@@ -9,10 +9,11 @@
     dashboard:
       installation: default.installation
       program: external_control.urp
-      connect_timeout: 5.0
+      init_timeout: 5.0
 
     teensy:
       hand_fixation_spin_period_s: 0.1
+      flic_spin_period_s: 0.1
 
     planning:
       group_name: ur_manipulator
@@ -29,6 +30,7 @@
       post_attach_offset: [0.05, 0.0, 0.0]
 
     planning_scene:
+      # TODO: Maybe combine static and dynamic meshes
       static_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
         scale: 1.0
@@ -47,3 +49,4 @@
             position: [-0.1, 0.4, 0.8]
           simple_object:
             position: [0.1, 0.3, 0.8]
+    # - [simple_object, ...]

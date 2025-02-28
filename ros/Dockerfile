@@ -2,25 +2,13 @@ FROM ros:jazzy AS server
 
 SHELL ["/bin/bash", "-c"]
 
+COPY ./packages.txt /tmp/packages.txt
+
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y \
-    python3-pip \
-    python3-venv \
-    python-is-python3 \
-    ros-jazzy-ur \
-    ros-jazzy-moveit \
-    ros-jazzy-moveit-py \
-    ros-jazzy-ros2controlcli \
-    ros-jazzy-cv-bridge \
-    ros-jazzy-rmw-fastrtps-cpp \
-    ros-jazzy-rmw-cyclonedds-cpp \
-    vim \
-    psmisc \
-    iputils-ping \
-    net-tools \
-    gdb \
-    xarclock
+    $(cat /tmp/packages.txt) \
+    && rm /tmp/packages.txt
 
 WORKDIR $HOME
 
@@ -47,7 +35,7 @@ COPY ./starship.toml /tmp/starship.toml
 RUN mkdir -p $HOME/.config \
     && mv /tmp/starship.toml $HOME/.config/starship.toml
 
-ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/log
+ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/logs
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1
 ENV XDG_RUNTIME_DIR=/tmp/runtime-root

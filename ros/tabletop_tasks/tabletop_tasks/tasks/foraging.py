@@ -105,7 +105,7 @@ class ForagingTask(BaseTask):
         object_id = self._trial_spec.object_id
         object_pose = self._trial_spec.object_pose
         self._return_pose = await self.commander.fetch_object_async(
-            object_id, object_pose
+            object_id=object_id, end_goal=object_pose
         )
 
         # Transition to fixation state
@@ -142,9 +142,9 @@ class ForagingTask(BaseTask):
         if self.commander.wait_for_hand_fixation_off_async(
             self._stimulus_duration_s
         ):
-            self._state = ForagingState.DELAY
-        else:
             self.broke_fixation()
+        else:
+            self._state = ForagingState.DELAY
 
         return
 
@@ -160,9 +160,9 @@ class ForagingTask(BaseTask):
         if self.commander.wait_for_hand_fixation_off_async(
             self._delay_duration_s
         ):
-            self._state = ForagingState.RESPONSE
-        else:
             self.broke_fixation()
+        else:
+            self._state = ForagingState.RESPONSE
 
         return
 
@@ -175,17 +175,16 @@ class ForagingTask(BaseTask):
 
         # Wait for response
         response_start_time = time.time()
-        try:
-            async with asyncio.timeout(self._response_timeout_s):
-                await self.commander.wait_for_flic_button_async()
-
+        if await self.commander.wait_for_flic_press_async(
+            self._response_timeout_s
+        ):
             # Response received
             reaction_time = time.time() - response_start_time
             self._trial_feedback["reaction_time"] = reaction_time
             self.log(f"Reaction time: {reaction_time}")
             await self.commander.reward_async(self._reward_duration_s)
             self._state = ForagingState.REVEAL
-        except asyncio.TimeoutError:
+        else:
             # Response not received
             self.log("Response timeout")
             self._trial_feedback["timeout"] = True
@@ -220,7 +219,7 @@ class ForagingTask(BaseTask):
 
         # Return object
         return_future = self.commander.return_object_async(
-            self._trial_spec.object_id, self._return_pose
+            self._trial_spec.object_id
         )
 
         await asyncio.gather(arm_door_future, smartglass_future, return_future)

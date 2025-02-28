@@ -1,4 +1,4 @@
-uint32 data
+bool is_open
 ---
 bool success
 string message

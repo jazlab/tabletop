@@ -14,7 +14,6 @@
 #  error This code only supports serial transport.
 #endif
 
-
 // #define DEBUG_LOGGING
 
 // Define pin mappings
@@ -24,8 +23,7 @@
 #define REWARD_CONTROL_PIN 3
 #define ARM_DOOR_STATE_PIN 4
 #define SMARTGLASS_STATE_PIN 5
-#define REWARD_STATE_PIN 6
-#define HAND_FIXATION_STATE_PIN 7
+#define HAND_FIXATION_STATE_PIN 6
 #define SYNC_PULSE_PIN 9
 static const uint8_t GLOVE_STATE_PINS[] = {A0, A1, A2, A3, A4};
 
@@ -42,7 +40,6 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
     0,
     NULL};
 
-
 #define ARM_DOOR_SRV_NAME "/teensy/arm_door"
 #define SMARTGLASS_SRV_NAME "/teensy/smartglass"
 #define REWARD_SRV_NAME "/teensy/reward"
@@ -50,16 +47,18 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 
 // Execution parameters
 
-#define AGENT_RECONNECT_PERIOD_MS 100   // Timeout for agent reconnection, in ms
-#define AGENT_RECONNECT_TIMEOUT_MS 50   // Timeout for agent reconnection, in ms
-#define EXECUTOR_SPIN_TIMEOUT_MS 20    // Timeout for executor spin, in ms
-#define AGENT_CHECK_CONNECT_PERIOD_MS 1000 // Period for agent reconnection, in ms
-#define AGENT_CHECK_CONNECT_TIMEOUT_MS 10   // Timeout for agent reconnection, in ms
+#define AGENT_RECONNECT_PERIOD_MS 100 // Timeout for agent reconnection, in ms
+#define AGENT_RECONNECT_TIMEOUT_MS 50 // Timeout for agent reconnection, in ms
+#define EXECUTOR_SPIN_TIMEOUT_MS 20   // Timeout for executor spin, in ms
+#define AGENT_CHECK_CONNECT_PERIOD_MS \
+  1000 // Period for agent reconnection, in ms
+#define AGENT_CHECK_CONNECT_TIMEOUT_MS \
+  10                                   // Timeout for agent reconnection, in ms
 #define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
 #define SYNC_PULSE_BASE_PERIOD_MS 1000 // Base period between sync pulses, in ms
 // Range of jitter in the base period, in ms
 #define SYNC_PULSE_DELAY_RANGE_MS 200
-#define SYNC_PULSE_DURATION_MS 100     // Duration of each sync pulse, in ms
+#define SYNC_PULSE_DURATION_MS 100 // Duration of each sync pulse, in ms
 
 // Agent reconnection parameters
 
@@ -490,10 +489,11 @@ void loop() {
   switch (state) {
   case WAITING_AGENT:
     EXECUTE_EVERY_N_MS(
-        AGENT_RECONNECT_PERIOD_MS, state = (RMW_RET_OK ==
-                      rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1))
-                         ? AGENT_AVAILABLE
-                         : WAITING_AGENT;);
+        AGENT_RECONNECT_PERIOD_MS,
+        state =
+            (RMW_RET_OK == rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1))
+                ? AGENT_AVAILABLE
+                : WAITING_AGENT;);
     break;
   case AGENT_AVAILABLE:
     state = create_entities() ? AGENT_CONNECTED : WAITING_AGENT;

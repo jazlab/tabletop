@@ -1,0 +1,6 @@
+---
+bool success
+bool is_pressed
+uint64 last_time_pressed
+uint64 last_time_released
+string message

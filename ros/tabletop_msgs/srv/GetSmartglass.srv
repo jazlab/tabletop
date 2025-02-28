@@ -1,0 +1,4 @@
+---
+bool success
+bool is_revealed
+string message

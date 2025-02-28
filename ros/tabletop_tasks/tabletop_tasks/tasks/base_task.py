@@ -18,16 +18,18 @@ class BaseTask(ABC):
         """
         self._commander = commander
 
+        self._commander.reset_dashboard()
+
     @property
     def commander(self) -> Commander:
         """Get the commander instance."""
         return self._commander
 
+    def log(self, message: str, severity: str = "INFO") -> None:
+        """Log a message."""
+        self.commander.log(message, severity)
+
     @abstractmethod
     async def run(self) -> None:
         """Run the task to completion."""
         raise NotImplementedError("Tasks must implement run() method")
-
-    def log(self, message: str, severity: str = "INFO") -> None:
-        """Log a message."""
-        self.commander.log(message, severity)

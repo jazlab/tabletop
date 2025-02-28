@@ -4,7 +4,6 @@
         "ms-python.debugpy",
         "mechatroner.rainbow-csv",
         "charliermarsh.ruff",
-        "ms-toolsai.jupyter",
         "tamasfe.even-better-toml",
         "redhat.vscode-yaml",
         "ms-azuretools.vscode-docker",
@@ -16,6 +15,7 @@
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
         "IronGeek.vscode-env",
-        "platformio.platformio-ide"
+        "platformio.platformio-ide",
+        "twxs.cmake"
     ]
 }

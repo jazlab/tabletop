@@ -2,9 +2,10 @@ import asyncio
 import glob
 import logging
 import os
+import time
 import traceback
-from collections.abc import Awaitable, Iterable, Mapping
-from copy import deepcopy
+from collections.abc import AsyncGenerator, Iterable, Mapping
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import numpy as np
@@ -16,6 +17,7 @@ from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_model import RobotModel  # type: ignore
+from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit.planning import (
     MoveItPy,
     MultiPipelinePlanRequestParameters,
@@ -26,20 +28,26 @@ from moveit.planning import (
 )
 from moveit_msgs.msg import (
     AllowedCollisionMatrix,
+    AttachedCollisionObject,
     CollisionObject,
     MoveItErrorCodes,
-    RobotTrajectory,
 )
 from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
-from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane
 from std_msgs.msg import Header
 from std_srvs.srv import SetBool, Trigger
-from tabletop_msgs.srv import SetUint32
+from tabletop_msgs.srv import (
+    GetArmDoor,
+    GetFlic,
+    GetHandFixation,
+    GetReward,
+    GetSmartglass,
+    SetReward,
+)
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,
@@ -71,12 +79,14 @@ class Commander(BaseNode):
         "max_execution_attempts",
         "dashboard.installation",
         "dashboard.program",
-        "dashboard.connect_timeout",
+        "dashboard.init_timeout",
         "teensy.hand_fixation_spin_period_s",
+        "teensy.flic_spin_period_s",
         "planning.group_name",
         "planning.pipeline",
         "planning.pose_link",
         "planning.eef_link",
+        "planning.object_touch_links",
         "planning.idle_pose",
         "planning.pre_fetch_offset",
         "planning.pre_attach_offset",
@@ -143,6 +153,33 @@ class Commander(BaseNode):
     # def robot_model(self) -> RobotModel:
     #     return self.moveit_py.get_robot_model()
 
+    # Logging
+    def log_plan_response(
+        self,
+        plan_response: MotionPlanResponse,
+        severity: str = DEFAULT_LOG_SEVERITY,
+    ) -> str:
+        """
+        Log the result of a plan.
+        """
+        full_msg = []
+        if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
+            msg = "Plan succeeded"
+            self.log(msg, severity=severity)
+            full_msg.append(msg)
+        else:
+            msg = f"Plan failed with error code: {moveit_error_code_map[plan_response.error_code.val]}"
+            self.log(msg, severity=severity)
+            full_msg.append(msg)
+        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
+        full_msg.append(
+            f"Plan result planning time: {plan_response.planning_time}"
+        )
+        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
+        return "\n".join(full_msg)
+
+    # Dashboard interface
+
     def dashboard_trigger(self, srv_name: str) -> None:
         """
         Call a dashboard client Trigger service.
@@ -152,14 +189,14 @@ class Commander(BaseNode):
             srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
         )
 
-    def dashboard_trigger_async(self, srv_name: str) -> Awaitable:
+    async def dashboard_trigger_async(self, srv_name: str) -> Trigger.Response:
         """
         Coroutine to call a dashboard client Trigger service asynchronously.
         """
         self.log(f"Triggering {srv_name} in UR Dashboard asynchronously")
-        return self.service_call_async(
+        return await self.service_call_async(
             srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
-        )
+        )  # type: ignore
 
     def dashboard_load(self, srv_name: str, filename: str) -> None:
         """
@@ -191,12 +228,11 @@ class Commander(BaseNode):
             srv_name=srv_name,
         )
 
-    def reset_robot(self):
+    def reset_dashboard(self):
         """
-        Call a sequence of dashboard client services to reset the robot.
+        Call a sequence of dashboard client services to reset dashboard.
         """
-        self.log("Resetting robot")
-        self.wait_for_service(Trigger, "/dashboard_client/close_popup")
+        self.log("Resetting dashboard")
         self.dashboard_trigger("/dashboard_client/close_popup")
         self.dashboard_trigger("/dashboard_client/close_safety_popup")
         self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
@@ -207,13 +243,12 @@ class Commander(BaseNode):
         self.dashboard_trigger("/dashboard_client/brake_release")
         self.dashboard_trigger("/dashboard_client/play")
 
-    async def reset_robot_async(self):
+    async def reset_dashboard_async(self):
         """
         Coroutine to call a sequence of dashboard client services to reset the
-        robot asynchronously.
+        dashboard asynchronously.
         """
-        self.log("Resetting robot")
-        self.wait_for_service(Trigger, "/dashboard_client/close_popup")
+        self.log("Resetting dashboard")
         await self.dashboard_trigger_async("/dashboard_client/close_popup")
         await self.dashboard_trigger_async(
             "/dashboard_client/close_safety_popup"
@@ -228,7 +263,69 @@ class Commander(BaseNode):
         await self.dashboard_trigger_async("/dashboard_client/brake_release")
         await self.dashboard_trigger_async("/dashboard_client/play")
 
-    async def smartglass_reveal_async(self):
+    async def init_dashboard(self, timeout_s: Optional[float] = None):
+        """
+        Initialize the robot dashboard.
+        """
+        self.log("Initializing dashboard")
+        if timeout_s is None:
+            timeout_s = self.get_parameter_wrapper("dashboard.init_timeout")
+
+        start_time = time.time()
+        while True:
+            try:
+                self.wait_for_service(Trigger, "/dashboard_client/close_popup")
+                self.reset_dashboard()
+                break
+            except (TimeoutError, ServiceCallError):
+                self.log("Error initializing dashboard", severity="ERROR")
+
+                if time.time() - start_time > timeout_s:  # type: ignore
+                    raise TimeoutError("Dashboard initialization timed out")
+                await asyncio.sleep(1)
+
+    # Teensy interface
+    async def get_smartglass_async(self) -> GetSmartglass.Response:
+        """Get the smartglass state."""
+        return await self.service_call_async(
+            srv_request=GetSmartglass.Request(),
+            srv_type=GetSmartglass,
+            srv_name="/teensy/smartglass",
+        )  # type: ignore
+
+    async def get_arm_door_async(self) -> GetArmDoor.Response:
+        """Get the arm door state."""
+        return await self.service_call_async(
+            srv_request=GetArmDoor.Request(),
+            srv_type=GetArmDoor,
+            srv_name="/teensy/arm_door",
+        )  # type: ignore
+
+    async def get_reward_async(self) -> GetReward.Response:
+        """Get the reward state."""
+        return await self.service_call_async(
+            srv_request=GetReward.Request(),
+            srv_type=GetReward,
+            srv_name="/teensy/reward",
+        )  # type: ignore
+
+    async def get_hand_fixation_async(self) -> GetHandFixation.Response:
+        """Get the hand fixation state."""
+        return await self.service_call_async(
+            srv_request=GetHandFixation.Request(),
+            srv_type=GetHandFixation,
+            srv_name="/teensy/hand_fixation",
+        )  # type: ignore
+
+    async def get_flic_async(self) -> GetFlic.Response:
+        """Get the flic state."""
+        return await self.service_call_async(
+            srv_request=GetFlic.Request(),
+            srv_type=GetFlic,
+            srv_name="/teensy/flic",
+        )  # type: ignore
+
+    async def start_smartglass_reveal_async(self):
         """
         Coroutine to call the smartglass service to reveal the smartglass
         asynchronously.
@@ -240,7 +337,7 @@ class Commander(BaseNode):
             srv_name="/teensy/smartglass",
         )
 
-    async def smartglass_occlude_async(self):
+    async def start_smartglass_occlude_async(self):
         """
         Coroutine to call the smartglass service to occlude the smartglass
         asynchronously.
@@ -252,7 +349,7 @@ class Commander(BaseNode):
             srv_name="/teensy/smartglass",
         )
 
-    async def arm_door_open_async(self):
+    async def start_arm_door_open_async(self):
         """
         Coroutine to call the arm door service to open the arm door
         asynchronously.
@@ -264,7 +361,7 @@ class Commander(BaseNode):
             srv_name="/teensy/arm_door",
         )
 
-    async def arm_door_close_async(self):
+    async def start_arm_door_close_async(self):
         """
         Coroutine to call the arm door service to close the arm door
         asynchronously.
@@ -276,7 +373,7 @@ class Commander(BaseNode):
             srv_name="/teensy/arm_door",
         )
 
-    async def reward_async(self, duration_s: float):
+    async def start_reward_async(self, duration_s: float):
         """
         Coroutine to call the reward service to deliver a reward for a given
         duration.
@@ -285,101 +382,239 @@ class Commander(BaseNode):
         if duration_s < 0:
             raise ValueError("Duration must be greater than 0!")
         return await self.service_call_async(
-            srv_request=SetUint32.Request(data=int(duration_s * 1000)),
-            srv_type=SetUint32,
+            srv_request=SetReward.Request(duration_ms=int(duration_s * 1000)),
+            srv_type=SetReward,
             srv_name="/teensy/reward",
         )
 
-    async def get_hand_fixation_state_async(self) -> Trigger.Response:
-        """Get current hand fixation state."""
-        return await self.service_call_async(
-            srv_request=Trigger.Request(),
-            srv_type=Trigger,
-            srv_name="/sensors/hand_fixation",
-        )  # type: ignore
-
-    async def wait_for_hand_fixation_on_async(self, timeout_sec: float):
-        """Wait for hand fixation state to turn on, then return True.
-
-        If already on, return True immediately. If timeout_sec is reached,
-        return False.
-        """
+    async def wait_for_smartglass_reveal_async(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Wait for smartglass reveal, then return True."""
+        smartglass_state = await self.get_smartglass_async()
+        if smartglass_state.is_revealed:
+            return True
         try:
-            async with asyncio.timeout(timeout_sec):
-                while not (await self.get_hand_fixation_state_async()).success:
+            async with asyncio.timeout(timeout_s):
+                while not smartglass_state.is_revealed:
+                    smartglass_state = await self.get_smartglass_async()
                     await asyncio.sleep(
-                        self.get_parameter_wrapper(
-                            "teensy.hand_fixation_spin_period_s"
-                        )
+                        self.get_parameter_wrapper("teensy.spin_period_s")
                     )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
-    async def wait_for_hand_fixation_off_async(self, timeout_sec: float):
-        """Wait for hand fixation state to turn off, then return True.
-
-        If already off, return True immediately. If timeout_sec is reached,
-        return False.
-        """
+    async def wait_for_smartglass_occlude_async(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Wait for smartglass occlusion, then return True."""
+        smartglass_state = await self.get_smartglass_async()
+        if not smartglass_state.is_revealed:
+            return True
         try:
-            async with asyncio.timeout(timeout_sec):
-                while not (await self.get_hand_fixation_state_async()).success:
+            async with asyncio.timeout(timeout_s):
+                while smartglass_state.is_revealed:
+                    smartglass_state = await self.get_smartglass_async()
                     await asyncio.sleep(
-                        self.get_parameter_wrapper(
-                            "teensy.hand_fixation_spin_period_s"
-                        )
+                        self.get_parameter_wrapper("teensy.spin_period_s")
                     )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
-    async def start_flic_button_async(self):
-        """
-        Coroutine to call the Flic button service to start the Flic button
-        asynchronously.
-        """
-        return await self.service_call_async(
-            srv_request=Trigger.Request(),
-            srv_type=Trigger,
-            srv_name="/sensor/flic",
-        )
+    async def wait_for_arm_door_open_async(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Wait for arm door to open, then return True."""
+        arm_door_state = await self.get_arm_door_async()
+        if arm_door_state.is_open:
+            return True
+        try:
+            async with asyncio.timeout(timeout_s):
+                while not arm_door_state.is_open:
+                    arm_door_state = await self.get_arm_door_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
 
-    # TODO: Remove this
-    async def wait_for_flic_button_async(self):
-        """
-        Coroutine to simulate a flic button press asynchronously.
-        """
-        self.log("Waiting for flic button press")
-        reaction_time = np.random.exponential(10.0)
-        await asyncio.sleep(reaction_time)
-        self.log("Flic button pressed")
-        return True
+    async def wait_for_arm_door_close_async(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Wait for arm door to close, then return True."""
+        arm_door_state = await self.get_arm_door_async()
+        if not arm_door_state.is_open:
+            return True
+        try:
+            async with asyncio.timeout(timeout_s):
+                while arm_door_state.is_open:
+                    arm_door_state = await self.get_arm_door_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
 
-    def plan(
-        self, goal: PoseStamped, pose_link: Optional[str] = None
+    async def wait_for_reward_async(self, timeout_s: Optional[float] = None):
+        """Wait for reward to start, then return True."""
+        reward_state = await self.get_reward_async()
+        if reward_state.is_active:
+            return True
+        try:
+            async with asyncio.timeout(timeout_s):
+                while not reward_state.is_active:
+                    reward_state = await self.get_reward_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
+
+    async def wait_for_hand_fixation_press_async(
+        self, timeout_sec: Optional[float] = None
+    ):
+        """Wait for hand fixation state to turn on, then return True."""
+        initial_fixation = await self.get_hand_fixation_async()
+        if initial_fixation.is_pressed:
+            return True
+        fixation = initial_fixation
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while (
+                    fixation.last_time_pressed
+                    == initial_fixation.last_time_pressed
+                ):
+                    fixation = await self.get_hand_fixation_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
+
+    async def wait_for_hand_fixation_release_async(
+        self, timeout_sec: Optional[float] = None
+    ):
+        """Wait for hand fixation state to turn off, then return True."""
+        initial_fixation = await self.get_hand_fixation_async()
+        if not initial_fixation.is_pressed:
+            return True
+        fixation = initial_fixation
+        try:
+            async with asyncio.timeout(timeout_sec):
+                while (
+                    fixation.last_time_released
+                    == initial_fixation.last_time_released
+                ):
+                    fixation = await self.get_hand_fixation_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
+
+    # TODO: Potential race condition (between monkey and get_flic_async lol)
+    async def wait_for_flic_press_async(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Wait for flic button press, then return True."""
+        initial_flic = await self.get_flic_async()
+        flic = initial_flic
+        try:
+            async with asyncio.timeout(timeout_s):
+                while flic.last_time_pressed == initial_flic.last_time_pressed:
+                    flic = await self.get_flic_async()
+                    await asyncio.sleep(
+                        self.get_parameter_wrapper("teensy.spin_period_s")
+                    )
+            return True
+        except TimeoutError:
+            return False
+
+    async def smartglass_reveal_and_wait(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Reveal smartglass and wait for it to be revealed."""
+        await self.start_smartglass_reveal_async()
+        return await self.wait_for_smartglass_reveal_async(timeout_s)
+
+    async def smartglass_occlude_and_wait(
+        self, timeout_s: Optional[float] = None
+    ):
+        """Occlude smartglass and wait for it to be occluded."""
+        await self.start_smartglass_occlude_async()
+        return await self.wait_for_smartglass_occlude_async(timeout_s)
+
+    async def arm_door_open_and_wait(self, timeout_s: Optional[float] = None):
+        """Open arm door and wait for it to be open."""
+        await self.start_arm_door_open_async()
+        return await self.wait_for_arm_door_open_async(timeout_s)
+
+    async def arm_door_close_and_wait(self, timeout_s: Optional[float] = None):
+        """Close arm door and wait for it to be closed."""
+        await self.start_arm_door_close_async()
+        return await self.wait_for_arm_door_close_async(timeout_s)
+
+    async def reward_and_wait(
+        self, duration_s: float, timeout_s: Optional[float] = None
+    ):
+        """Start reward and wait for it to be active."""
+        await self.start_reward_async(duration_s)
+        # Default timeout is duration plus spin period if not specified
+        if timeout_s is None:
+            timeout_s = duration_s + self.get_parameter_wrapper(
+                "teensy.spin_period_s"
+            )
+        if await self.wait_for_reward_async(timeout_s):
+            return True
+        else:
+            raise RuntimeError("Reward took longer than expected timeout")
+
+    def plan_once(
+        self,
+        goal: PoseStamped | str,
+        pose_link: Optional[str] = None,
     ) -> MotionPlanResponse:
         """
-        Plan a trajectory to the given waypoint.
+        Plan a trajectory to the given waypoint once.
 
         Args:
             goal (PoseStamped): The goal pose in a stamped coordinate frame.
             pose_link (str, optional): The link name to use for the goal pose.
                 Defaults to parameter "planning.pose_link" if not provided.
-
+            max_attempts (int, optional): The maximum number of planning attempts.
         Returns:
             MotionPlanResponse: The planned trajectory.
         """
-        self.log(f"Planning trajectory to waypoint: {goal}")
+        self.log("Planning trajectory once:", severity="DEBUG")
 
-        self.planning_component.set_start_state_to_current_state()
-
+        # Set goal state from pose or configuration name
         if pose_link is None:
             pose_link = self.get_parameter_wrapper("planning.pose_link")
-        self.planning_component.set_goal_state(
-            pose_stamped_msg=goal, pose_link=pose_link
-        )
 
+        if goal == "idle":
+            goal = self.get_idle_pose_stamped()
+
+        plan_kwargs = {}
+        if isinstance(goal, PoseStamped):
+            plan_kwargs["pose_stamped_msg"] = goal
+            plan_kwargs["pose_link"] = pose_link
+        elif isinstance(goal, str):
+            plan_kwargs["configuration_name"] = goal
+
+        if not self.planning_component.set_goal_state(**plan_kwargs):
+            raise ValueError(f"Invalid goal: {goal}")
+
+        # Set start state to current state
+        self.planning_component.set_start_state_to_current_state()
+
+        # Plan
         if self.get_parameter_wrapper("planning.pipeline") == "default":
             return self.planning_component.plan()
         else:
@@ -403,8 +638,65 @@ class Commander(BaseNode):
                 self.log(f"Error planning: {e}", severity="ERROR")
                 raise e
 
+    def plan(
+        self,
+        goal: PoseStamped | str,
+        pose_link: Optional[str] = None,
+        max_attempts: Optional[int] = None,
+    ) -> MotionPlanResponse:
+        """
+        Plan a trajectory to the given waypoint, retrying up to max_attempts
+        times until successful.
+
+        Args:
+            goal (PoseStamped | str): The goal pose in a stamped coordinate frame.
+            pose_link (str, optional): The link name to use for the goal pose.
+                Defaults to parameter "planning.pose_link" if not provided.
+            max_attempts (int, optional): The maximum number of planning attempts.
+        Returns:
+            MotionPlanResponse: The planned trajectory.
+        """
+
+        if max_attempts is None:
+            max_attempts = self.get_parameter_wrapper("max_plan_attempts")
+
+        failure_msgs = []
+        for i in range(max_attempts):  # type: ignore
+            try:
+                plan_response = self.plan_once(goal, pose_link)
+                if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
+                    self.log(
+                        f"Planning attempt {i + 1}/{max_attempts} succeeded"
+                    )
+                    self.log_plan_response(plan_response)
+                    break
+                else:
+                    error_msg = f"Planning attempt {i + 1}/{max_attempts} failed with error code {moveit_error_code_map[plan_response.error_code.val]}"
+                    failure_msgs.append(error_msg)
+                    self.log(
+                        error_msg,
+                        severity="WARN",
+                    )
+                    self.log_plan_response(plan_response, severity="DEBUG")
+            except Exception as e:
+                error_msg = f"Planning attempt {i + 1}/{max_attempts} raised exception {type(e).__name__}: {e}"
+                failure_msgs.append(error_msg)
+                self.log(
+                    error_msg,
+                    severity="WARN",
+                )
+        else:
+            error_msg = f"Max planning attempts ({max_attempts}) reached!: {failure_msgs}"
+            self.log(error_msg, severity="ERROR")
+            raise MaxAttemptsReachedError(error_msg)
+
+        return plan_response
+
     async def plan_async(
-        self, goal: PoseStamped, pose_link: Optional[str] = None
+        self,
+        goal: PoseStamped | str,
+        pose_link: Optional[str] = None,
+        max_attempts: Optional[int] = None,
     ) -> MotionPlanResponse:
         """
         Asynchronous coroutine wrapper for `plan()` method.
@@ -418,33 +710,38 @@ class Commander(BaseNode):
             self.plan,
             goal=goal,
             pose_link=pose_link,
+            max_attempts=max_attempts,
         )
 
-    def log_plan_response(
+    async def plan_generator_async(
         self,
-        plan_response: MotionPlanResponse,
-        severity: str = DEFAULT_LOG_SEVERITY,
-    ) -> str:
+        goals: list[PoseStamped | str],
+        pose_link: Optional[str] = None,
+        max_attempts_per_goal: Optional[int] = None,
+    ) -> AsyncGenerator[MotionPlanResponse, None]:
         """
-        Log the result of a plan.
-        """
-        full_msg = []
-        if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
-            msg = "Plan succeeded"
-            self.log(msg, severity=severity)
-            full_msg.append(msg)
-        else:
-            msg = f"Plan failed with error code: {moveit_error_code_map[plan_response.error_code.val]}"
-            self.log(msg, severity=severity)
-            full_msg.append(msg)
-        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
-        full_msg.append(
-            f"Plan result planning time: {plan_response.planning_time}"
-        )
-        full_msg.append(f"Plan result planner id: {plan_response.planner_id}")
-        return "\n".join(full_msg)
+        Asynchronous coroutine generator that plans a trajectory for each goal
+        in the list.
 
-    def execute(self, robot_trajectory: RobotTrajectory) -> ExecutionStatus:
+        Args:
+            goals (list[PoseStamped | str]): The list of goals to plan
+                trajectories for.
+
+        Returns:
+            AsyncGenerator[MotionPlanResponse, None]: An asynchronous generator
+                that yields the planned trajectory for each goal.
+        """
+        while goals:
+            goal = goals.pop(0)
+            new_goals = yield await self.plan_async(
+                goal, pose_link, max_attempts=max_attempts_per_goal
+            )
+            if new_goals:
+                goals.extend(new_goals)
+
+    def execute_once(
+        self, robot_trajectory: RobotTrajectory
+    ) -> ExecutionStatus:
         """
         Execute the given robot trajectory.
 
@@ -454,10 +751,58 @@ class Commander(BaseNode):
         Returns:
             ExecutionStatus: The status of the execution.
         """
-        self.trajectory_execution_manager.push(robot_trajectory)
+        self.trajectory_execution_manager.push(
+            robot_trajectory.get_robot_trajectory_msg()
+        )
         return self.trajectory_execution_manager.execute_and_wait()
 
-    async def execute_async(
+    def execute(
+        self,
+        robot_trajectory: RobotTrajectory,
+        max_attempts: Optional[int] = None,
+    ) -> None:
+        """
+        Execute the given robot trajectory, retrying up to max_attempts times
+        until successful.
+
+        Args:
+            robot_trajectory (RobotTrajectory): The robot trajectory to execute.
+            max_attempts (int, optional): The maximum number of execution attempts.
+        Returns:
+            ExecutionStatus: The status of the execution.
+        """
+        if max_attempts is None:
+            max_attempts = self.get_parameter_wrapper("max_execution_attempts")
+
+        failure_msgs = []
+        for i in range(max_attempts):  # type: ignore
+            try:
+                execution_status = self.execute_once(robot_trajectory)
+                if execution_status:
+                    self.log(
+                        f"Execution attempt {i + 1}/{max_attempts} succeeded"
+                    )
+                    break
+                else:
+                    error_msg = f"Execution attempt {i + 1}/{max_attempts} failed with status {execution_status.status}"
+                    failure_msgs.append(error_msg)
+                    self.log(
+                        error_msg,
+                        severity="WARN",
+                    )
+            except Exception as e:
+                error_msg = f"Execution attempt {i + 1}/{max_attempts} raised exception {type(e).__name__}: {e}"
+                failure_msgs.append(error_msg)
+                self.log(
+                    error_msg,
+                    severity="WARN",
+                )
+        else:
+            error_msg = f"Max execution attempts ({max_attempts}) reached!: {failure_msgs}"
+            self.log(error_msg, severity="ERROR")
+            raise MaxAttemptsReachedError(error_msg)
+
+    async def execute_once_async(
         self, robot_trajectory: RobotTrajectory
     ) -> ExecutionStatus:
         """
@@ -484,8 +829,58 @@ class Commander(BaseNode):
 
         return await future  # type: ignore
 
+    async def execute_async(
+        self,
+        robot_trajectory: RobotTrajectory,
+        max_attempts: Optional[int] = None,
+    ) -> None:
+        """
+        Execute the given robot trajectory, retrying up to max_attempts times
+        until successful.
+
+        Args:
+            robot_trajectory (RobotTrajectory): The robot trajectory to execute.
+            max_attempts (int, optional): The maximum number of execution attempts.
+        Returns:
+            ExecutionStatus: The status of the execution.
+        """
+        if max_attempts is None:
+            max_attempts = self.get_parameter_wrapper("max_execution_attempts")
+
+        failure_msgs = []
+        for i in range(max_attempts):  # type: ignore
+            try:
+                execution_status = await self.execute_once_async(
+                    robot_trajectory
+                )
+                if execution_status:
+                    self.log(
+                        f"Execution attempt {i + 1}/{max_attempts} succeeded"
+                    )
+                    break
+                else:
+                    error_msg = f"Execution attempt {i + 1}/{max_attempts} failed with status {execution_status.status}"
+                    failure_msgs.append(error_msg)
+                    self.log(
+                        error_msg,
+                        severity="WARN",
+                    )
+            except Exception as e:
+                error_msg = f"Execution attempt {i + 1}/{max_attempts} raised exception {type(e).__name__}: {e}"
+                failure_msgs.append(error_msg)
+                self.log(
+                    error_msg,
+                    severity="WARN",
+                )
+        else:
+            error_msg = f"Max execution attempts ({max_attempts}) reached!: {failure_msgs}"
+            self.log(error_msg, severity="ERROR")
+            raise MaxAttemptsReachedError(error_msg)
+
     def plan_and_execute(
-        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
+        self,
+        goal: PoseStamped | str,
+        pose_link: Optional[str] = None,
     ) -> None:
         """
         Plan and execute a trajectory.
@@ -509,75 +904,12 @@ class Commander(BaseNode):
                 max_execution_attempts) are reached
         """
         # Plan the trajectory
-        failure_msgs = []
-        max_plan_attempts: int = self.get_parameter_wrapper(
-            "max_plan_attempts"
-        )
-        for i in range(max_plan_attempts):
-            try:
-                plan_response = self.plan(pose_stamped, pose_link)
-                if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
-                    self.log(
-                        f"Planning attempt {i + 1}/{max_plan_attempts} succeeded"
-                    )
-                    self.log_plan_response(plan_response)
-                    break
-                else:
-                    error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} failed with error code {moveit_error_code_map[plan_response.error_code.val]}"
-                    failure_msgs.append(error_msg)
-                    self.log(
-                        error_msg,
-                        severity="WARN",
-                    )
-                    self.log_plan_response(plan_response, severity="DEBUG")
-            except Exception as e:
-                error_msg = f"Planning attempt {i + 1}/{max_plan_attempts} raised exception {type(e).__name__}: {e}"
-                failure_msgs.append(error_msg)
-                self.log(
-                    error_msg,
-                    severity="WARN",
-                )
-        else:
-            error_msg = f"Max planning attempts ({max_plan_attempts}) reached!: {failure_msgs}"
-            self.log(error_msg, severity="ERROR")
-            raise MaxAttemptsReachedError(error_msg)
-
+        plan_response = self.plan(goal, pose_link)
         # Execute the plan
-        failure_msgs = []
-        max_execution_attempts: int = self.get_parameter_wrapper(
-            "max_execution_attempts"
-        )
-        for i in range(max_execution_attempts):
-            try:
-                execution_status = self.execute(
-                    plan_response.trajectory.get_robot_trajectory_msg()
-                )
-                if execution_status:
-                    self.log(
-                        f"Execution attempt {i + 1}/{max_execution_attempts} succeeded"
-                    )
-                    break
-                else:
-                    error_msg = f"Execution attempt {i + 1}/{max_execution_attempts} failed with status {execution_status.status}"
-                    failure_msgs.append(error_msg)
-                    self.log(
-                        error_msg,
-                        severity="WARN",
-                    )
-            except Exception as e:
-                error_msg = f"Execution attempt {i + 1}/{max_execution_attempts} raised exception {type(e).__name__}: {e}"
-                failure_msgs.append(error_msg)
-                self.log(
-                    error_msg,
-                    severity="WARN",
-                )
-        else:
-            error_msg = f"Max execution attempts ({max_execution_attempts}) reached!: {failure_msgs}"
-            self.log(error_msg, severity="ERROR")
-            raise MaxAttemptsReachedError(error_msg)
+        self.execute(plan_response.trajectory)
 
     async def plan_and_execute_async(
-        self, pose_stamped: PoseStamped, pose_link: Optional[str] = None
+        self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ) -> None:
         """
         Asynchronous coroutine wrapper for `plan_and_execute()` method.
@@ -591,12 +923,9 @@ class Commander(BaseNode):
         """
         await self.create_rclpy_task(
             self.plan_and_execute,
-            pose_stamped=pose_stamped,
+            goal=goal,
             pose_link=pose_link,
         )
-
-    async def plan_and_execute_to_idle_async(self):
-        raise NotImplementedError("Not implemented")
 
     def get_frame_transform(self, frame_id: str) -> np.ndarray:
         """
@@ -631,6 +960,7 @@ class Commander(BaseNode):
         Get the planning frame from the planning scene.
         """
         with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
             return scene.planning_frame
 
     def get_planning_group_name(self) -> str:
@@ -651,14 +981,29 @@ class Commander(BaseNode):
         idle_pose_stamped.pose = idle_pose
         return idle_pose_stamped
 
-    def get_collision_object_ids(self) -> list[str]:
+    def get_collision_objects(self) -> list[CollisionObject]:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
-            return [
-                collision_object.id
-                for collision_object in planning_scene_msg.world.collision_objects
-            ]
+            return planning_scene_msg.world.collision_objects  # type: ignore
+
+    def get_collision_object_ids(self) -> list[str]:
+        return [
+            collision_object.id
+            for collision_object in self.get_collision_objects()
+        ]
+
+    def get_attached_collision_objects(self) -> list[AttachedCollisionObject]:
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
+            return planning_scene_msg.robot_state.attached_collision_objects  # type: ignore
+
+    def get_attached_collision_object_ids(self) -> list[str]:
+        return [
+            attached_collision_object.object.id
+            for attached_collision_object in self.get_attached_collision_objects()
+        ]
 
     def get_collision_matrix_df(self) -> pd.DataFrame:
         with self.planning_scene_monitor.read_only() as scene:
@@ -808,6 +1153,7 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
             scene.remove_all_collision_objects()
+            scene.current_state.update()
 
     def attach_collision_object(
         self,
@@ -887,6 +1233,7 @@ class Commander(BaseNode):
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
             scene.allowed_collision_matrix.set_entry(id_1, id_2, False)
+            scene.current_state.update()
 
     def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
         self.log(
@@ -899,16 +1246,18 @@ class Commander(BaseNode):
             scene: PlanningScene = scene
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
 
-        for collision_object in planning_scene_msg.world.collision_objects:
-            collision_object.meshes = []
-        for (
-            attached_collision_object
-        ) in planning_scene_msg.robot_state.attached_collision_objects:
-            attached_collision_object.object.meshes = []
+            for collision_object in planning_scene_msg.world.collision_objects:
+                collision_object.meshes = []
+            for (
+                attached_collision_object
+            ) in planning_scene_msg.robot_state.attached_collision_objects:
+                attached_collision_object.object.meshes = []
 
-        self.log_ros_msg(
-            planning_scene_msg, title="Planning Scene Msg:", severity=severity
-        )
+            self.log_ros_msg(
+                planning_scene_msg,
+                title="Planning Scene Msg:",
+                severity=severity,
+            )
 
     def setup_planning_scene(self):
         """
@@ -926,87 +1275,55 @@ class Commander(BaseNode):
         for mesh_type in ["static_meshes", "dynamic_meshes"]:
             # Get parameters
             prefix = f"planning_scene.{mesh_type}"
-            # TODO: Change to dictionary lookup
-            meshes_path: str = self.get_parameter_wrapper(f"{prefix}.path")
-            meshes_scale: float = self.get_parameter_wrapper(f"{prefix}.scale")
-            meshes_simplification: str = self.get_parameter_wrapper(
-                f"{prefix}.simplification"
-            )
-            try:
-                meshes_correction = self.get_parameter_wrapper(
-                    f"{prefix}.correction"
-                )
-                meshes_correction = pose_msg(**meshes_correction)
-                meshes_correction_tf = matrix_from_pose_msg(meshes_correction)
-            except ParameterNotDeclaredException:
-                meshes_correction_tf = None
-
-            meshes_color: list[float] = self.get_parameter_wrapper(
-                f"{prefix}.color"
-            )
-
+            meshes_config = self.get_parameter_wrapper(prefix)
+            meshes_path: str = meshes_config["path"]
             if not os.path.exists(meshes_path):
                 raise FileNotFoundError(
                     f"Mesh path {meshes_path} does not exist"
                 )
+            meshes_scale: float = meshes_config["scale"]
+            meshes_simplification: str = meshes_config["simplification"]
+            meshes_color = meshes_config["color"]
+            try:
+                meshes_correction = meshes_config["correction"]
+                meshes_correction = pose_msg(**meshes_correction)
+                meshes_correction_tf = matrix_from_pose_msg(meshes_correction)
+            except KeyError:
+                meshes_correction_tf = None
 
             # Process individual .stl files from directory
             if os.path.isdir(meshes_path):
-                for path in glob.glob(
+                paths = glob.glob(
                     os.path.join(meshes_path, "*.stl")
-                ) + glob.glob(os.path.join(meshes_path, "*.dae")):
-                    self.log(
-                        f"Processing mesh collision object from path: {path}"
-                    )
-                    object_id = os.path.splitext(os.path.basename(path))[0]
-                    if mesh_type == "static_meshes":
-                        static_object_ids.append(object_id)
-                    else:
-                        dynamic_object_ids.append(object_id)
-
-                    try:
-                        pose = self.get_parameter_wrapper(
-                            f"{prefix}.poses.{object_id}"
-                        )
-                        pose = pose_msg(**pose)
-                    except ParameterNotDeclaredException:
-                        pose = Pose()
-
-                    self.add_mesh_collision_object(
-                        path=path,
-                        object_id=object_id,
-                        scale=meshes_scale,
-                        simplification=meshes_simplification,
-                        pose=pose,
-                        add_default_subframe=mesh_type == "dynamic_meshes",
-                        correction_tf=meshes_correction_tf,
-                        color=meshes_color,
-                    )
-            # Process single .stl or .dae file
+                ) + glob.glob(os.path.join(meshes_path, "*.dae"))
             else:
-                self.log(
-                    f"Processing mesh collision object from path: {meshes_path}"
-                )
-                object_id = os.path.splitext(os.path.basename(meshes_path))[0]
+                paths = [meshes_path]
+
+            for path in paths:
+                self.log(f"Processing mesh collision object from path: {path}")
+                object_id = os.path.splitext(os.path.basename(path))[0]
                 if mesh_type == "static_meshes":
                     static_object_ids.append(object_id)
                 else:
+                    if object_id in self.get_collision_object_ids():
+                        self.log(
+                            f"Skipping dynamic mesh {object_id} because it already exists in the planning scene",
+                            severity="INFO",
+                        )
+                        continue
                     dynamic_object_ids.append(object_id)
-
                 try:
-                    pose = self.get_parameter_wrapper(
-                        f"{prefix}.poses.{object_id}"
-                    )
+                    pose = meshes_config["poses"][object_id]
                     pose = pose_msg(**pose)
-                except ParameterNotDeclaredException:
+                except KeyError:
                     pose = Pose()
 
                 self.add_mesh_collision_object(
-                    path=meshes_path,
+                    path=path,
                     object_id=object_id,
-                    pose=pose,
                     scale=meshes_scale,
                     simplification=meshes_simplification,
+                    pose=pose,
                     add_default_subframe=mesh_type == "dynamic_meshes",
                     correction_tf=meshes_correction_tf,
                     color=meshes_color,
@@ -1026,7 +1343,7 @@ class Commander(BaseNode):
         self.log_collision_matrix(severity="DEBUG")
 
     async def move_out_of_collision_async(
-        self, target_pose: PoseStamped | str
+        self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ):
         """
         Move the robot out of collision with the scene asynchronously.
@@ -1041,99 +1358,154 @@ class Commander(BaseNode):
 
         self.remove_all_collision_objects()
 
-        if isinstance(target_pose, str):
-            if target_pose == "idle":
-                target_pose = self.get_idle_pose_stamped()
-            else:
-                raise ValueError(f"Invalid target pose: {target_pose}")
-
-        await self.plan_and_execute_async(target_pose)
+        await self.plan_and_execute_async(goal, pose_link)
 
         self.setup_planning_scene()
 
-    async def fetch_object_async(
-        self,
-        object_id: str,
-        target_pose: PoseStamped,
-        subframe_name: str = "default",
+    def object_init_pose(self, object_id: str) -> PoseStamped:
+        """
+        Get the initial pose of an object from the parameters.
+        """
+        return pose_stamped_msg(
+            header={"frame_id": self.get_planning_frame()},
+            pose=self.get_parameter_wrapper(
+                f"planning_scene.dynamic_meshes.poses.{object_id}"
+            ),
+        )
+
+    # Fetch poses
+
+    def pre_fetch_pose(
+        self, object_id: str, subframe_name: str
     ) -> PoseStamped:
-        self.log(f"Fetching object {object_id}")
-
-        object_frame_id = object_id + f"/{subframe_name}"
-        return_pose = self.get_frame_pose_stamped(object_frame_id)
-
-        self.log(
-            f"Fetching object {object_id} from frame {object_frame_id}",
-            severity="DEBUG",
-        )
-        self.log(
-            f"{object_frame_id}: {return_pose.pose}",
-            severity="DEBUG",
-        )
-
-        # Pre-fetch pose
-        pre_fetch_pose = pose_stamped_msg(
-            header={"frame_id": object_frame_id},
+        return pose_stamped_msg(
+            header={"frame_id": object_id + f"/{subframe_name}"},
             pose={
                 "position": self.get_parameter_wrapper(
                     "planning.pre_fetch_offset"
                 )
             },
         )
-        await self.plan_and_execute_async(pre_fetch_pose)
 
-        # Allow collision between touch links and object
-        touch_links: list[str] = self.get_parameter_wrapper(
-            "planning.object_touch_links"
-        )
-        for touch_link in touch_links:
-            self.allow_collision(touch_link, object_id)
-
-        # Pre-attach pose
-        pre_attach_pose = pose_stamped_msg(
-            header={"frame_id": object_frame_id},
+    def pre_attach_pose(
+        self, object_id: str, subframe_name: str
+    ) -> PoseStamped:
+        return pose_stamped_msg(
+            header={"frame_id": object_id + f"/{subframe_name}"},
             pose={
                 "position": self.get_parameter_wrapper(
                     "planning.pre_attach_offset"
                 )
             },
         )
-        await self.plan_and_execute_async(pre_attach_pose)
+
+    def attach_pose(self, object_id: str, subframe_name: str) -> PoseStamped:
+        attach_pose = PoseStamped()
+        attach_pose.header.frame_id = object_id + f"/{subframe_name}"
+        return attach_pose
+
+    def post_attach_pose(
+        self, object_id: str, subframe_name: str
+    ) -> PoseStamped:
+        post_attach_pose = self.object_init_pose(object_id)
+        post_attach_offset = self.get_parameter_wrapper(
+            "planning.post_attach_offset"
+        )
+        post_attach_pose.pose.position.x += post_attach_offset[0]
+        post_attach_pose.pose.position.y += post_attach_offset[1]
+        post_attach_pose.pose.position.z += post_attach_offset[2]
+
+        return post_attach_pose
+
+    # Return poses
+    def pre_detach_pose(
+        self, object_id: str, subframe_name: str
+    ) -> PoseStamped:
+        return self.post_attach_pose(object_id, subframe_name)
+
+    def detach_pose(self, object_id: str) -> PoseStamped:
+        return self.object_init_pose(object_id)
+
+    def post_detach_pose(
+        self, object_id: str, subframe_name: str
+    ) -> PoseStamped:
+        return self.pre_attach_pose(object_id, subframe_name)
+
+    def post_return_pose(
+        self, object_id: str, subframe_name: str
+    ) -> PoseStamped:
+        return self.pre_fetch_pose(object_id, subframe_name)
+
+    @property
+    def touch_links(self) -> list[str]:
+        return self.get_parameter_wrapper("planning.object_touch_links")
+
+    async def fetch_object_async(
+        self,
+        object_id: str,
+        end_goal: PoseStamped | str,
+        subframe_name: str = "default",
+    ):
+        self.log(f"Fetching object {object_id} from subframe {subframe_name}")
+
+        # Pre-fetch pose
+        self.log(
+            f"Moving to pre-fetch pose {self.pre_fetch_pose(object_id, subframe_name)}"
+        )
+        await self.plan_and_execute_async(
+            goal=self.pre_fetch_pose(object_id, subframe_name)
+        )
+
+        self.log(
+            f"Allowed collision matrix before fetching: \n"
+            f"{self.get_collision_matrix_df().to_string()}",
+            severity="DEBUG",
+        )
+
+        # Allow collision between touch links and object
+        for touch_link in self.touch_links:
+            self.allow_collision(touch_link, object_id)
+
+        # Pre-attach pose
+        self.log(
+            f"Moving to pre-attach pose {self.pre_attach_pose(object_id, subframe_name)}"
+        )
+        await self.plan_and_execute_async(
+            goal=self.pre_attach_pose(object_id, subframe_name)
+        )
 
         # Attach pose (no offset with respect to object frame)
-        attach_pose = PoseStamped()
-        attach_pose.header.frame_id = object_frame_id
-        await self.plan_and_execute_async(attach_pose)
-
-        # Disallow collision between touch links and object
-        touch_links: list[str] = self.get_parameter_wrapper(
-            "planning.object_touch_links"
+        self.log(
+            f"Moving to attach pose {self.attach_pose(object_id, subframe_name)}"
         )
-        for touch_link in touch_links:
-            self.disallow_collision(touch_link, object_id)
+        await self.plan_and_execute_async(
+            goal=self.attach_pose(object_id, subframe_name)
+        )
 
         # Attach object
         self.attach_collision_object(
             object_id=object_id,
             link_name=self.get_parameter_wrapper("planning.pose_link"),
-            touch_links=touch_links,
+            touch_links=self.touch_links,
+        )
+
+        self.log(
+            f"Allowed collision matrix after attaching: \n"
+            f"{self.get_collision_matrix_df().to_string()}",
+            severity="DEBUG",
         )
 
         # Post-attach pose
-        post_attach_pose = pose_stamped_msg(
-            header={"frame_id": object_frame_id},
-            pose={
-                "position": self.get_parameter_wrapper(
-                    "planning.post_attach_offset"
-                )
-            },
+        self.log(
+            f"Moving to post-attach pose {self.post_attach_pose(object_id, subframe_name)}"
         )
-        await self.plan_and_execute_async(post_attach_pose)
+        await self.plan_and_execute_async(
+            goal=self.post_attach_pose(object_id, subframe_name)
+        )
 
         # Move to target pose
-        await self.plan_and_execute_async(target_pose)
-
-        return return_pose
+        self.log(f"Moving to end goal {end_goal}")
+        await self.plan_and_execute_async(goal=end_goal)
 
         # TODO: add line constraint for linear cartesian path
         # line_constraint = PositionConstraint()
@@ -1149,10 +1521,8 @@ class Commander(BaseNode):
     # TODO: Test this
     async def return_object_async(
         self,
-        object_id: str,
-        return_pose: PoseStamped,
         subframe_name: str = "default",
-        end_pose: Optional[PoseStamped | str] = None,
+        end_goal: Optional[PoseStamped | str] = None,
     ) -> None:
         """Return an object to its original position.
 
@@ -1164,76 +1534,124 @@ class Commander(BaseNode):
             subframe_name: The subframe name of the object (default: "default")
             end_pose: Optional pose to move to after returning the object
         """
-        self.log(f"Returning object {object_id}")
+        self.log("Returning object")
 
-        # First move to the pre-return (post-attach) pose
-        pre_return_pose = deepcopy(return_pose)
-        pre_return_offset = self.get_parameter_wrapper(
-            "planning.post_attach_offset"
+        # Get object ID from planning scene and check that there is exactly one
+        # attached collision object
+        attached_collision_object_ids = (
+            self.get_attached_collision_object_ids()
         )
-        pre_return_pose.pose.position.x += pre_return_offset[0]
-        pre_return_pose.pose.position.y += pre_return_offset[1]
-        pre_return_pose.pose.position.z += pre_return_offset[2]
+        if len(attached_collision_object_ids) != 1:
+            raise RuntimeError(
+                f"Expected exactly one attached collision object, "
+                f"but got {len(attached_collision_object_ids)}"
+            )
 
-        await self.plan_and_execute_async(pre_return_pose)
+        object_id = attached_collision_object_ids[0]
 
-        # Move to the return pose
-        await self.plan_and_execute_async(return_pose)
+        # Move to the pre-detach pose
+        self.log(
+            f"Moving to pre-detach pose {self.pre_detach_pose(object_id, subframe_name)}"
+        )
+        await self.plan_and_execute_async(
+            goal=self.pre_detach_pose(object_id, subframe_name)
+        )
+
+        # Move to the detach pose
+        self.log(f"Moving to detach pose {self.detach_pose(object_id)}")
+        await self.plan_and_execute_async(goal=self.detach_pose(object_id))
 
         # Detach the object
         self.detach_collision_object(object_id=object_id)
 
         # Allow collision between robot and object
-        touch_links: list[str] = self.get_parameter_wrapper(
-            "planning.object_touch_links"
-        )
-        for touch_link in touch_links:
+        for touch_link in self.touch_links:
             self.allow_collision(touch_link, object_id)
 
-        # Get object frame ID
-        object_frame_id = object_id + f"/{subframe_name}"
-
-        # Move to the post-detach (pre-attach) pose
-        post_detach_pose = pose_stamped_msg(
-            header={"frame_id": object_frame_id},
-            pose={
-                "position": [
-                    -offset
-                    for offset in self.get_parameter_wrapper(
-                        "planning.pre_attach_offset"
-                    )
-                ]
-            },
+        # Move to the post-detach pose
+        self.log(
+            f"Moving to post-detach pose {self.post_detach_pose(object_id, subframe_name)}"
         )
-        await self.plan_and_execute_async(post_detach_pose)
+        await self.plan_and_execute_async(
+            goal=self.post_detach_pose(object_id, subframe_name)
+        )
 
         # Move to the post-return (pre-fetch) pose
-        post_return_pose = pose_stamped_msg(
-            header={"frame_id": object_frame_id},
-            pose={
-                "position": self.get_parameter_wrapper(
-                    "planning.pre_fetch_offset"
-                )
-            },
+        self.log(
+            f"Moving to post-return pose {self.post_return_pose(object_id, subframe_name)}"
         )
-        await self.plan_and_execute_async(post_return_pose)
+        await self.plan_and_execute_async(
+            goal=self.post_return_pose(object_id, subframe_name)
+        )
 
         # Disallow collision between touch links and object
-        touch_links: list[str] = self.get_parameter_wrapper(
-            "planning.object_touch_links"
-        )
-        for touch_link in touch_links:
+        for touch_link in self.touch_links:
             self.disallow_collision(touch_link, object_id)
 
         # Move to end pose if specified
-        if isinstance(end_pose, str):
-            if end_pose == "idle":
-                idle_pose = self.get_idle_pose_stamped()
-                await self.plan_and_execute_async(idle_pose)
-            else:
-                raise ValueError(f"Invalid end pose: {end_pose}")
-        elif isinstance(end_pose, PoseStamped):
-            await self.plan_and_execute_async(end_pose)
+        if end_goal is not None:
+            self.log(f"Moving to end goal {end_goal}")
+            await self.plan_and_execute_async(goal=end_goal)
+
+    async def reset_rig_async(
+        self, end_goal: Optional[PoseStamped | str] = None
+    ):
+        """
+        Move the robot out of collision if necessary and return any attached
+        objects to their original positions.
+        """
+        self.log("Resetting robot")
+        if self.is_state_colliding(self.get_planning_group_name()):
+            await self.move_out_of_collision_async(goal="idle")
+        if len(self.get_attached_collision_object_ids()) > 0:
+            await self.return_object_async(end_goal=end_goal)
+
+    @asynccontextmanager
+    async def planning_context_manager_async(self):
+        """
+        Context manager for planning and executing actions.
+
+        This context manager handles exceptions that occur during planning and
+        executing actions, and automatically resets the robot and moves it out
+        of collision if necessary.
+        """
+        await self.reset_rig_async()
+
+        try:
+            yield
+        except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
+            self.log(
+                "Caught exception while running commander:",
+                severity="WARN",
+            )
+            self.log(f"{type(e).__name__}: {e}")
+
+            # TODO: This is a hack to ensure the robot is reset and moved out of
+            # collision before the context manager is entered. Only works for
+            # ursim. Need to return object to original pose if object is attached.
+            while True:
+                try:
+                    await self.reset_dashboard_async()
+                    await self.reset_rig_async()
+                    break
+                except (
+                    TimeoutError,
+                    MaxAttemptsReachedError,
+                    ServiceCallError,
+                ) as e:
+                    self.log(
+                        "Caught exception while resetting robot:",
+                        severity="WARN",
+                    )
+                    self.log(f"{type(e).__name__}: {e}", severity="WARN")
+                    self.log(
+                        f"Traceback: {traceback.format_exc()}",
+                        severity="DEBUG",
+                    )
+                    self.log(
+                        "Trying again after 5 seconds...", severity="WARN"
+                    )
+                    await asyncio.sleep(5)
 
     def destroy_node(self):
         self.moveit_py.shutdown()
@@ -1243,11 +1661,8 @@ class Commander(BaseNode):
 # Example script using the commander node
 
 
-async def fetch(commander: Commander, run_config: str):
+async def fetch(commander: Commander, config: Mapping[str, Any]):
     try:
-        with open(run_config, "r") as f:
-            config = yaml.safe_load(f)
-
         waypoints: dict[str, PoseStamped] = {}
         for waypoint_name, waypoint_config in config["waypoints"][
             "poses_stamped"
@@ -1262,96 +1677,37 @@ async def fetch(commander: Commander, run_config: str):
 
         object_ids: list[str] = config["object_ids"]
 
-        reset = False
-        removed_collisions = False
-        while not reset:
-            try:
-                commander.reset_robot()
-
-                if commander.is_state_colliding(
-                    commander.get_planning_group_name()
-                ):
-                    commander.remove_all_collision_objects()
-                    removed_collisions = True
-
-                await commander.plan_and_execute_async(
-                    waypoints["object_area"]
-                )
-
-                if removed_collisions:
-                    commander.setup_planning_scene()
-                    removed_collisions = False
-
-                reset = True
-            except (
-                TimeoutError,
-                MaxAttemptsReachedError,
-                ServiceCallError,
-            ) as e:
-                print(
-                    f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile resetting robot"
-                )
-                await asyncio.sleep(1)
-
+        commander.reset_dashboard()
         i = 0
         while True:
-            try:
-                commander.reset_robot()
-                print("Robot reset")
+            async with commander.planning_context_manager_async():
+                async with asyncio.timeout(config["plan_and_execute_timeout"]):
+                    object_id = object_ids[i]
+                    end_goal = waypoints[object_id]
 
-                while True:
-                    async with asyncio.timeout(
-                        config["plan_and_execute_timeout"]
-                    ):
-                        object_id = object_ids[i]
+                    await commander.fetch_object_async(object_id, end_goal)
 
-                        current_pose = commander.get_frame_pose_stamped(
-                            f"{object_id}/default"
-                        )
-                        print(f"Current pose: {current_pose}")
+                    await asyncio.sleep(1)
 
-                        target_pose = waypoints[object_id]
-                        return_pose = await commander.fetch_object_async(
-                            object_id, target_pose
-                        )
+                    await commander.return_object_async(end_goal="idle")
 
-                        await asyncio.sleep(1)
+                    await asyncio.sleep(1)
 
-                        await commander.return_object_async(
-                            object_id, return_pose
-                        )
+                    i += 1
+                    if i >= len(object_ids):
+                        i = 0
 
-                        await asyncio.sleep(1)
-
-                        i += 1
-                        if i >= len(object_ids):
-                            i = 0
-            except (
-                TimeoutError,
-                MaxAttemptsReachedError,
-                ServiceCallError,
-            ) as e:
-                print(
-                    f"Caught exception: \n'{type(e).__name__}: {e}' \nwhile running commander"
-                )
-                await asyncio.sleep(1)
     except Exception as e:
-        print(
-            f"Re-raising exception: \n'{type(e).__name__}: {e}' \nfrom run()"
-        )
+        print("Re-raising exception from run():")
+        print(f"{type(e).__name__}: {e}")
         traceback.print_exc()
         raise e
 
 
-async def run(commander: Commander, run_config: str):
+async def move(commander: Commander, config: Mapping[str, Any]):
     i = 0
 
     try:
-        with open(run_config, "r") as f:
-            config = yaml.safe_load(f)
-
-        print(config)
-
         waypoints_path: list[int] = config["waypoints"]["path"]
         waypoints = {}
 
@@ -1366,11 +1722,10 @@ async def run(commander: Commander, run_config: str):
                 "No valid waypoints found in commander parameters!"
             )
 
-        commander.setup_planning_scene()
+        commander.reset_dashboard()
 
         while True:
             try:
-                commander.reset_robot()
                 print("Robot reset")
 
                 while True:
@@ -1383,14 +1738,18 @@ async def run(commander: Commander, run_config: str):
                             waypoints[name]
                         )
                         if i % 2 == 0:
-                            arm_door_future = commander.arm_door_open_async()
+                            arm_door_future = (
+                                commander.arm_door_open_and_wait()
+                            )
                             smartglass_future = (
-                                commander.smartglass_reveal_async()
+                                commander.smartglass_reveal_and_wait()
                             )
                         else:
-                            arm_door_future = commander.arm_door_close_async()
+                            arm_door_future = (
+                                commander.arm_door_close_and_wait()
+                            )
                             smartglass_future = (
-                                commander.smartglass_occlude_async()
+                                commander.smartglass_occlude_and_wait()
                             )
 
                         await asyncio.gather(
@@ -1417,9 +1776,8 @@ async def run(commander: Commander, run_config: str):
                     traceback.print_exc()
                 await asyncio.sleep(10)
     except Exception as e:
-        print(
-            f"Re-raising exception: \n'{type(e).__name__}: {e}' \nfrom run()"
-        )
+        print("Re-raising exception from run():")
+        print(f"{type(e).__name__}: {e}")
         traceback.print_exc()
         raise e
 
@@ -1428,16 +1786,19 @@ def main(args=None):
     rclpy.init(args=args)
 
     non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
-    run_config = non_ros_args[1]
+    config_file = non_ros_args[1]
+
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    print(f"Config: {config}")
 
     try:
         executor = MultiThreadedExecutor()
         commander = Commander()
         executor.add_node(commander)
 
-        future = executor.create_task(
-            asyncio.run, fetch(commander, run_config)
-        )
+        future = executor.create_task(asyncio.run, fetch(commander, config))
 
         try:
             executor.spin_until_future_complete(future)

@@ -1,0 +1,4 @@
+uint32 duration_ms
+---
+bool success
+string message

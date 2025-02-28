@@ -14,8 +14,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Eyelink.msg"
   "msg/Flic.msg"
   "msg/TeensySensor.msg"
-  "srv/SetUint32.srv"
-  "srv/GetFloat.srv"
+  "srv/GetHandFixation.srv"
+  "srv/GetFlic.srv"
+  "srv/GetSmartglass.srv"
+  "srv/GetArmDoor.srv"
+  "srv/GetReward.srv"
+  "srv/SetArmDoor.srv"
+  "srv/SetSmartglass.srv"
+  "srv/SetReward.srv"
 )
 
 # uncomment the following section in order to fill in

@@ -3,7 +3,7 @@
 	"tasks": [
 		{
 			"type": "shell",
-			"label": "build_debug",
+			"label": "tabletop_build_debug",
 			"command": "./scripts/build.sh --debug",
 			"problemMatcher": [
 				"$catkin-gcc"
@@ -15,7 +15,7 @@
 		},
 		{
 			"type": "shell",
-			"label": "build_release",
+			"label": "tabletop_build_release",
 			"command": "./scripts/build.sh",
 			"problemMatcher": [
 				"$catkin-gcc"
@@ -47,8 +47,8 @@
 		},
 		{
 			"type": "shell",
-			"label": "clean_ws",
-			"command": "./scripts/clean_ws.sh",
+			"label": "clean_build_artifacts",
+			"command": "./scripts/clean_build_artifacts.sh",
 			"problemMatcher": [],
 			"group": "none"
 		}
