@@ -1,7 +1,6 @@
 """Base task module."""
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 from tabletop_server.nodes import Commander
 
@@ -9,7 +8,7 @@ from tabletop_server.nodes import Commander
 class BaseTask(ABC):
     """Abstract base class for all tasks."""
 
-    def __init__(self, commander: Commander, **kwargs: Any) -> None:
+    def __init__(self, commander: Commander) -> None:
         """Initialize base task.
 
         Args:
@@ -18,7 +17,7 @@ class BaseTask(ABC):
         """
         self._commander = commander
 
-        self._commander.reset_dashboard()
+        self._commander.init_commander()
 
     @property
     def commander(self) -> Commander:

@@ -65,39 +65,18 @@ services:
     image: tabletop-server
     volumes:
       - ../..:/root/ws
-      - ${MOVEIT_WS_DIR:-$HOME/moveit_ws}:/root/ws/src/moveit
+      - ${MOVEIT_WS_DIR:-$HOME/moveit_ws}:/root/moveit_ws
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
     hostname: server
     environment:
-      - BUILD_COMMAND=${BUILD_COMMAND:-/root/ws/src/tabletop/scripts/build.sh}
+      - BUILD_COMMAND=${BUILD_COMMAND:-:}
     command: bash -c
       "$$BUILD_COMMAND
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
-
-  # server_user:
-  #   build:
-  #     context: ./ros
-  #     dockerfile: user.Dockerfile
-  #     pull: true
-  #   pull_policy: build
-  #   image: tabletop-server-user
-  #   volumes:
-  #     - ../..:/root/ws
-  #   networks:
-  #     tabletop_net:
-  #       ipv4_address: 192.168.12.11
-  #   hostname: server
-  #   environment:
-  #     - BUILD_COMMAND=${BUILD_COMMAND:-/root/ws/src/tabletop/scripts/build.sh}
-  #   command: bash -c
-  #     "$$BUILD_COMMAND
-  #     && source /opt/ros/jazzy/setup.bash
-  #     && source /root/ws/install/setup.bash
-  #     && $$LAUNCH_COMMAND"
 
   server_novnc:
     extends: server_base

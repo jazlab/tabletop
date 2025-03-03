@@ -4,6 +4,7 @@ from abc import abstractmethod
 from typing import NamedTuple
 
 from geometry_msgs.msg import PoseStamped
+from tabletop_server.nodes import Commander
 
 
 # TrialSpec contains the specification for a foraging task trial
@@ -19,6 +20,13 @@ class BaseTrialGenerator:
 
     Trial generators are generators that generate trial specs.
     """
+
+    def __init__(self, commander: Commander):
+        self._commander = commander
+
+    @property
+    def commander(self) -> Commander:
+        return self._commander
 
     @abstractmethod
     def __next__(self) -> TrialSpec:

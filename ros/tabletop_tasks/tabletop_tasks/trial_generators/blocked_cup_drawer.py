@@ -1,10 +1,11 @@
 """Block-structured cup/drawer trial generator."""
 
+from collections.abc import Mapping
 from random import randrange
 from typing import Any
 
 import numpy as np
-from tabletop_utils.ros import pose_stamped_msg
+from tabletop_server.nodes import Commander
 
 from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialSpec
 
@@ -14,9 +15,11 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
     def __init__(
         self,
-        poses: list[dict[str, Any]],
+        commander: Commander,
+        poses: list[Mapping[str, Any]],
         correct_trials_per_block: int = 10,
     ):
+        super().__init__(commander)
         self._correct_trials_per_block = correct_trials_per_block
 
         # Setup cup and drawer object ids
@@ -27,7 +30,9 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self._block_keys = list(self._object_ids.keys())
 
         # Setup poses. Each trial, a random pose will be sampled from these.
-        self._poses = [pose_stamped_msg(**pose) for pose in poses]
+        self._poses = [
+            self._commander.create_pose_stamped(**pose) for pose in poses
+        ]
 
         # Initialize generator
         self._num_correct = 0
@@ -37,7 +42,6 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self, broke_fixation: bool, timeout: bool, **unused_kwargs: dict
     ) -> None:
         """Update generator based on feedback."""
-        del unused_kwargs
 
         # Increment number of correct trials if necessary
         if not broke_fixation and not timeout:

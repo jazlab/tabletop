@@ -16,18 +16,12 @@ async def run(commander: Commander, config: Mapping[str, Any]) -> None:
     try:
         commander.log(f"Loading task config from: {config}")
 
+        # Use importlib to create instances of task class
         for task_config in config["tasks"]:
-            task_module_name = task_config["module"]
-            task_module = f"tabletop_tasks.tasks.{task_module_name}"
-            task_class = task_config["class"]
-            task_kwargs = task_config["kwargs"]
-
-            # Warning: This is a potential security risk, but we trust the task
-            # config file
-            # Use importlib to create instance of task class
             task: BaseTask = getattr(
-                importlib.import_module(task_module), task_class
-            )(commander=commander, **task_kwargs)
+                importlib.import_module("tabletop_tasks.tasks"),
+                task_config["class"],
+            )(commander=commander, **task_config["kwargs"])
 
             await task.run()
     except Exception as e:

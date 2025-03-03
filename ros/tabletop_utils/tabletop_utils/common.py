@@ -1,6 +1,30 @@
-from collections.abc import Callable, Coroutine, Hashable, Iterable, Mapping
-from inspect import iscoroutinefunction
+from collections.abc import Hashable, Iterable, Mapping
 from typing import Any
+
+import yaml
+
+
+class BracketedListDumper(yaml.Dumper):
+    """
+    Custom YAML Dumper that formats scalar sequences as bracketed lists.
+    """
+
+    def represent_sequence(self, tag, sequence, flow_style=None):
+        """
+        Overrides the default represent_sequence to use flow style (bracketed)
+        for sequences containing only scalar values.
+        """
+        if all(
+            isinstance(item, (str, int, float, bool, type(None)))
+            for item in sequence
+        ):
+            return yaml.Dumper.represent_sequence(
+                self, tag, sequence, flow_style=True
+            )
+        else:
+            return yaml.Dumper.represent_sequence(
+                self, tag, sequence, flow_style=flow_style
+            )
 
 
 def is_iterable(obj: Any) -> bool:
@@ -25,20 +49,3 @@ def without_keys(d, keys: Hashable | Iterable[Hashable]):
         return {x: d[x] for x in d if x not in keys_set}
     else:
         raise ValueError(f"Keys {keys} not found in dictionary {d}")
-
-
-def create_coroutine_wrapper(
-    fn: Callable[..., Any],
-) -> Callable[..., Coroutine[Any, Any, Any]]:
-    """
-    Wrap a function in a coroutine.
-    """
-    if iscoroutinefunction(fn):
-        raise ValueError("Function is already a coroutine")
-    else:
-
-        async def wrapper(*args, **kwargs):
-            nonlocal fn
-            return fn(*args, **kwargs)
-
-        return wrapper

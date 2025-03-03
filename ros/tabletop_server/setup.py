@@ -40,6 +40,7 @@ setup(
             "example_commander = tabletop_server.nodes.commander:main",
             "mock_teensy = tabletop_server.nodes.mock_teensy:main",
             "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
+            "flic = tabletop_server.nodes.flic:main",
         ],
     },
 )

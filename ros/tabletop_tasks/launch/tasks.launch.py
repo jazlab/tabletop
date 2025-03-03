@@ -24,7 +24,7 @@ def declare_arguments():
                 [
                     FindPackageShare("tabletop_tasks"),
                     "config",
-                    "tasks.yaml",
+                    "foraging_random.yaml",
                 ]
             ),
             description="Path to the task configuration file",
