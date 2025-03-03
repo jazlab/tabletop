@@ -44,7 +44,7 @@ ompl_aps_rrtc:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnect
-    planning_time: 20.0
+    planning_time: 0.5
     max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 

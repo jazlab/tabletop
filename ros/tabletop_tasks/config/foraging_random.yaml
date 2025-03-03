@@ -1,0 +1,21 @@
+tasks:
+  - class: ForagingTask
+    kwargs:
+      fixation_duration_s: 0.5
+      stimulus_duration_s: 0.5
+      delay_duration_s: 0.5
+      response_timeout_s: 5.0
+      reward_duration_s: 0.1
+      reveal_duration_s: 0.5
+      trial_generator:
+        class: RandomChoice
+        kwargs:
+          object_ids:
+            - simple_object
+            - complex_object
+          poses:
+            - position: [-0.2, -0.5, 0.9]
+              rpy: [0.4, -0.1, -1.5707]
+            - position: [0.2, -0.5, 0.9]
+              rpy: [-0.4, 0.1, -1.5707]
+          num_trials: 10

@@ -28,7 +28,7 @@ RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> $HOME/.bashrc
 RUN echo "source $HOME/ws/install/setup.bash" >> $HOME/.bashrc
-RUN echo "PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
+RUN echo "export PATH=$HOME/.local/bin:\$PATH" >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 
 COPY ./starship.toml /tmp/starship.toml

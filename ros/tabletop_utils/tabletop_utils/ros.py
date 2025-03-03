@@ -244,15 +244,73 @@ def pose_msg(
 
 
 def pose_stamped_msg(
-    header: Mapping[str, Any],
-    pose: Mapping[str, Any],
+    *,
+    header: Optional[Header | Mapping[str, Any]] = None,
+    frame_id: Optional[str] = None,
+    timestamp: Optional[float] = None,
+    pose: Optional[Pose | Mapping[str, Any]] = None,
+    position: Optional[Iterable[float] | Mapping[str, float]] = None,
+    rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
+    orientation: Optional[Iterable[float] | Mapping[str, float]] = None,
 ) -> PoseStamped:
     """
-    Convert a dictionary of parameters to a geometry_msgs/PoseStamped message.
+    Create a PoseStamped message from:
+    - a header or frame_id, but not both
+    - a pose or at least one of position, rpy, or orientation, but not both
+
+    Args:
+        position (Iterable[float] | Mapping[str, float], optional): The
+            position of the pose.
+        header (Header | Mapping[str, Any], optional): The header of the
+            pose.
+        frame_id (str, optional): The frame id of the pose.
+        pose (Pose | Mapping[str, Any], optional): The pose of the pose.
+        rpy (Iterable[float] | Mapping[str, float], optional): The roll,
+            pitch, and yaw of the pose.
+        orientation (Iterable[float] | Mapping[str, float], optional): The
+            orientation of the pose.
+
+    Returns:
+        PoseStamped: The PoseStamped message.
     """
+
     pose_stamped = PoseStamped()
-    pose_stamped.header = Header(**header)  # type: ignore
-    pose_stamped.pose = pose_msg(**pose)  # type: ignore
+    if header is not None:
+        if frame_id is not None or timestamp is not None:
+            raise ValueError(
+                "Either header or (at least one of frame_id and timestamp) "
+                "must be provided, but not both"
+            )
+        if isinstance(header, Header):
+            pose_stamped.header = header
+        else:
+            pose_stamped.header = Header(**header)
+    else:
+        if frame_id is not None:
+            pose_stamped.header.frame_id = frame_id
+        if timestamp is not None:
+            pose_stamped.header.stamp = timestamp
+
+    if pose is not None:
+        if position is not None or rpy is not None or orientation is not None:
+            raise ValueError(
+                "Either pose or position/rpy/orientation must be provided, "
+                "but not both"
+            )
+        if isinstance(pose, Pose):
+            pose_stamped.pose = pose
+        else:
+            pose_stamped.pose = pose_msg(**pose)
+    elif position is not None or rpy is not None or orientation is not None:
+        pose_stamped.pose = pose_msg(
+            position=position, rpy=rpy, orientation=orientation
+        )
+    else:
+        raise ValueError(
+            "Either pose or at least one of position, rpy, or orientation "
+            "must be provided, but not both"
+        )
+
     return pose_stamped
 
 
@@ -289,8 +347,7 @@ def mesh_collision_object_msg(
     geometry: trimesh.Trimesh | trimesh.Scene,
     object_id: str,
     operation: str,
-    header_frame_id: str,
-    pose: Pose,
+    pose_stamped: PoseStamped,
     subframe_names: list[str] = [],
     subframe_poses: list[Pose] = [],
 ) -> CollisionObject:
@@ -301,10 +358,9 @@ def mesh_collision_object_msg(
         geometry (trimesh.Trimesh | trimesh.Scene): The trimesh geometry to create the collision object from.
         object_id (str): The ID of the object.
         operation (str): The operation to perform on the collision object.
-        header_frame_id (str): The ID of the reference frame.
-        pose (Pose): The pose of the collision object (defined relative to `header_frame_id`).
+        pose_stamped (PoseStamped): The pose of the collision object.
         subframe_names (list[str]): The names of the subframes.
-        subframe_poses (list[Pose]): The poses of the subframes (defined relative to `pose`).
+        subframe_poses (list[Pose]): The poses of the subframes (defined relative to `pose_stamped`).
     """
     if hasattr(geometry, "to_mesh"):
         mesh = geometry.to_mesh()  # type: ignore
@@ -312,7 +368,7 @@ def mesh_collision_object_msg(
         mesh = geometry
 
     collision_object = CollisionObject()
-    collision_object.header.frame_id = header_frame_id
+    collision_object.header.frame_id = pose_stamped.header.frame_id
     collision_object.id = object_id
 
     msg = Mesh()
@@ -327,7 +383,7 @@ def mesh_collision_object_msg(
     )
 
     collision_object.meshes.append(msg)  # type: ignore
-    collision_object.mesh_poses.append(pose)  # type: ignore
+    collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
 
     for subframe_name, subframe_pose in zip(subframe_names, subframe_poses):
         collision_object.subframe_names.append(subframe_name)  # type: ignore

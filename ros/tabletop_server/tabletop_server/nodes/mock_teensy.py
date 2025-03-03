@@ -14,7 +14,9 @@ from tabletop_msgs.srv import (
     SetSmartglass,
 )
 
-from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
+from tabletop_server.nodes.base import BaseNode
+
+DEFAULT_LOG_SEVERITY = "INFO"
 
 # Define constants for digital pin states
 HIGH = True
@@ -67,52 +69,51 @@ def analog_read(pin) -> int:
 class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": True,
-        "simulate_smartglass_max_delay": 0.1,
-        "simulate_arm_door_max_delay": 1.0,
-        "simulate_hand_fixation_max_delay": 5.0,
+        "simulate_smartglass_max_delay_sec": 0.1,
+        "simulate_arm_door_max_delay_sec": 0.5,
+        "simulate_hand_fixation_max_delay_sec": 0.6,
     }
 
     def __init__(self):
+        # Initialize base node
+
+        self.log_pub = None
         super().__init__("teensy")
 
-        # Simulation parameters
-        self.simulate: bool = self.get_parameter_wrapper("simulate")
-        self.smartglass_max_delay: float = self.get_parameter_wrapper(
-            "simulate_smartglass_max_delay"
-        )
-        self.arm_door_max_delay: float = self.get_parameter_wrapper(
-            "simulate_arm_door_max_delay"
-        )
-        self.hand_fixation_max_delay: float = self.get_parameter_wrapper(
-            "simulate_hand_fixation_max_delay"
-        )
+        # Log publisher
 
-        # One-shot timers for delayed state updates
-        self.simulate_arm_door_delay_timer = None
-        self.simulate_smartglass_delay_timer = None
-        self.reward_duration_timer = None
-        self.sync_start_timer = None
-        self.sync_end_timer = None
+        self.log_pub = self.create_publisher(String, "teensy/log", 10)
+
+        # Simulation parameters
+
+        self.simulate: bool = self.get_parameter_wrapper("simulate")
+        self.simulate_smartglass_max_delay_sec: float = (
+            self.get_parameter_wrapper("simulate_smartglass_max_delay_sec")
+        )
+        self.simulate_arm_door_max_delay_sec: float = (
+            self.get_parameter_wrapper("simulate_arm_door_max_delay_sec")
+        )
+        self.simulate_hand_fixation_max_delay_sec: float = (
+            self.get_parameter_wrapper("simulate_hand_fixation_max_delay_sec")
+        )
 
         # State variables
 
-        # Timestamps for hand fixation button presses and releases
-        self.hand_fixation_last_time_pressed = int(time.time() * 1000)
-        self.hand_fixation_last_time_released = int(time.time() * 1000)
+        ## Timestamps for hand fixation button presses and releases
+        self.hand_fixation_last_time_pressed_ms = int(time.time() * 1000)
+        self.hand_fixation_last_time_released_ms = int(time.time() * 1000)
 
-        # Last sensor message
-        self.last_sensor_msg = self.read_sensors()
-
-        # Sync pulse state
+        ## Sync pulse state
         self.sync_pulse_state = False
 
-        # Create publishers
+        # Publishers
+
         self.sensor_pub = self.create_publisher(
             TeensySensor, "teensy/sensors", 10
         )
-        self.log_pub = self.create_publisher(String, "teensy/log", 10)
 
-        # Create services
+        # Services
+
         self.set_arm_door_service = self.create_service(
             SetArmDoor,
             "teensy/set_arm_door",
@@ -152,20 +153,29 @@ class MockTeensy(BaseNode):
             self.get_hand_fixation_callback,
         )
 
-        # Create timers
-        # Sensor update timer (simulate sensor_timer_callback from main.cpp)
+        # Periodic timers
+
         self.sensor_timer = self.create_timer(
             0.05, self.sensor_timer_callback
         )  # 50 ms period
 
-        # Sync pulse base timer (simulate sync_pulse_base_timer from main.cpp)
         self.sync_base_timer = self.create_timer(
             1.0, self.sync_pulse_base_timer_callback
         )  # 1 second period
 
+        # One-shot timers for delayed state updates
+
+        self.simulate_arm_door_delay_timer = None
+        self.simulate_smartglass_delay_timer = None
+        self.simulate_hand_fixation_delay_timer = None
+        self.reward_duration_timer = None
+        self.sync_start_timer = None
+        self.sync_end_timer = None
+
     def log(self, message: str, severity: str = DEFAULT_LOG_SEVERITY):
         super().log(message, severity)
-        self.log_pub.publish(String(data=message))
+        if self.log_pub is not None:
+            self.log_pub.publish(String(data=message))
 
     def get_smartglass_callback(
         self, request: GetSmartglass.Request, response: GetSmartglass.Response
@@ -173,6 +183,7 @@ class MockTeensy(BaseNode):
         response.is_revealed = digital_read(SMARTGLASS_STATE_PIN)
         response.success = True
         response.message = f"Smartglass is {'revealed' if response.is_revealed else 'occluded'}"
+        self.log(response.message)
         return response
 
     def get_arm_door_callback(
@@ -183,16 +194,18 @@ class MockTeensy(BaseNode):
         response.message = (
             f"Arm door is {'open' if response.is_open else 'closed'}"
         )
+        self.log(response.message)
         return response
 
     def get_reward_callback(
         self, request: GetReward.Request, response: GetReward.Response
     ):
-        response.is_active = digital_read(REWARD_STATE_PIN)
         response.success = True
+        response.is_active = digital_read(REWARD_STATE_PIN)
         response.message = (
             f"Reward is {'active' if response.is_active else 'inactive'}"
         )
+        self.log(response.message)
         return response
 
     def get_hand_fixation_callback(
@@ -200,80 +213,101 @@ class MockTeensy(BaseNode):
         request: GetHandFixation.Request,
         response: GetHandFixation.Response,
     ):
-        response.is_pressed = digital_read(HAND_FIXATION_STATE_PIN)
-        response.last_time_pressed = self.hand_fixation_last_time_pressed
-        response.last_time_released = self.hand_fixation_last_time_released
+        # Schedule a timer to update the state pin after a random delay
+        if self.simulate_hand_fixation_delay_timer is None:
+            delay = random.uniform(
+                0.0, self.simulate_hand_fixation_max_delay_sec
+            )
+            self.simulate_hand_fixation_delay_timer = self.create_timer(
+                delay,
+                lambda: self.delay_timer_callback(
+                    timer_name="simulate_hand_fixation_delay_timer",
+                    pin=HAND_FIXATION_STATE_PIN,
+                    state=not digital_read(HAND_FIXATION_STATE_PIN),
+                    delay=delay,
+                ),
+            )
+
+        # Set the response message
         response.success = True
+        response.is_pressed = digital_read(HAND_FIXATION_STATE_PIN)
+        response.last_time_pressed_ms = self.hand_fixation_last_time_pressed_ms
+        response.last_time_released_ms = (
+            self.hand_fixation_last_time_released_ms
+        )
         response.message = f"Hand fixation is {'pressed' if response.is_pressed else 'released'}"
+        self.log(response.message)
+
         return response
 
     def set_smartglass_callback(
         self, request: SetSmartglass.Request, response: SetSmartglass.Response
     ):
-        # Update the control pin
-        digital_write(SMARTGLASS_CONTROL_PIN, request.is_revealed)
-
-        # Check if a smartglass timer already exists
+        # Check if a smartglass timer already exists (for simulation purposes)
         if self.simulate_smartglass_delay_timer is not None:
             response.message = "Smartglass timer already exists"
             response.success = False
+            self.log(response.message, severity="WARN")
             return response
 
+        # Update the control pin
+        digital_write(SMARTGLASS_CONTROL_PIN, request.is_revealed)
+
         # Schedule a timer to update the state pin after a random delay
-        delay = random.uniform(0.0, self.smartglass_max_delay)
+        delay = random.uniform(0.0, self.simulate_smartglass_max_delay_sec)
         self.simulate_smartglass_delay_timer = self.create_timer(
             delay,
             lambda: self.delay_timer_callback(
-                timer_name="smartglass_state_timer",
+                timer_name="simulate_smartglass_delay_timer",
                 pin=SMARTGLASS_STATE_PIN,
                 state=request.is_revealed,
                 delay=delay,
             ),
         )
+
         # Set the response message
-        msg_str = f"Smartglass {'revealed' if request.is_revealed else 'occluded'} started"
-        self.log(msg_str)
-        response.message = msg_str
         response.success = True
+        response.message = f"Smartglass {'reveal' if request.is_revealed else 'occlude'} started"
+        self.log(response.message)
+
         return response
 
     def set_arm_door_callback(
         self, request: SetArmDoor.Request, response: SetArmDoor.Response
     ):
-        # Update the control pin
-        digital_write(ARM_DOOR_CONTROL_PIN, request.is_open)
-
-        # Check if an arm door timer already exists
+        # Check if an arm door timer already exists (for simulation purposes)
         if self.simulate_arm_door_delay_timer is not None:
             response.message = "Arm door timer already exists"
             response.success = False
             return response
 
+        # Update the control pin
+        digital_write(ARM_DOOR_CONTROL_PIN, request.is_open)
+
         # Schedule a timer to update the state pin after a random delay
-        delay = random.uniform(0.0, self.arm_door_max_delay)
+        delay = random.uniform(0.0, self.simulate_arm_door_max_delay_sec)
         self.simulate_arm_door_delay_timer = self.create_timer(
             delay,
             lambda: self.delay_timer_callback(
-                timer_name="arm_door_state_timer",
+                timer_name="simulate_arm_door_delay_timer",
                 pin=ARM_DOOR_STATE_PIN,
                 state=request.is_open,
                 delay=delay,
             ),
         )
 
-        msg_str = f"Arm door {'open' if request.is_open else 'closed'} started"
-        self.log(msg_str)
-        response.message = msg_str
+        # Set the response message
         response.success = True
+        response.message = (
+            f"Arm door {'open' if request.is_open else 'close'} started"
+        )
+        self.log(response.message)
+
         return response
 
     def set_reward_callback(
         self, request: SetReward.Request, response: SetReward.Response
     ):
-        duration_ms = request.duration_ms
-        duration_sec = duration_ms / 1000.0
-        digital_write(REWARD_CONTROL_PIN, True)
-
         # Check if a reward timer already exists
         if self.reward_duration_timer is not None:
             msg = "Reward duration timer already exists"
@@ -282,22 +316,26 @@ class MockTeensy(BaseNode):
             response.success = False
             return response
 
+        # Update the control pin
+        digital_write(REWARD_CONTROL_PIN, True)
+
         # Schedule a timer to update the state pin after a random delay
+        duration_ms = request.duration_ms
+        duration_sec = duration_ms / 1000.0
         self.reward_duration_timer = self.create_timer(
             duration_sec,
             lambda: self.delay_timer_callback(
                 timer_name="reward_duration_timer",
                 pin=REWARD_STATE_PIN,
-                state=False,
+                state=LOW,
                 delay=duration_sec,
             ),
         )
 
         # Set the response message
-        msg_str = f"Reward started for {duration_ms} ms"
-        self.log(msg_str)
-        response.message = msg_str
         response.success = True
+        response.message = f"Reward started for {duration_ms} ms"
+        self.log(response.message)
         return response
 
     def delay_timer_callback(
@@ -306,13 +344,12 @@ class MockTeensy(BaseNode):
         # Update the pin state
         digital_write(pin, state)
 
-        msg_str = f"{timer_name} delayed for {delay} seconds"
-        self.log(msg_str)
-
         timer = getattr(self, timer_name)
         assert timer is not None
         timer.cancel()
         setattr(self, timer_name, None)
+
+        self.log(f"{timer_name} delayed for {delay} seconds")
 
     def read_sensors(self) -> TeensySensor:
         sensor_msg = TeensySensor()
@@ -333,25 +370,24 @@ class MockTeensy(BaseNode):
 
         # Check if the fixation button state has changed
         if sensor_msg.fixation_button_state:
-            self.hand_fixation_last_time_pressed = int(time.time() * 1000)
+            self.hand_fixation_last_time_pressed_ms = int(time.time() * 1000)
         else:
-            self.hand_fixation_last_time_released = int(time.time() * 1000)
+            self.hand_fixation_last_time_released_ms = int(time.time() * 1000)
 
         self.sensor_pub.publish(sensor_msg)
-        self.last_sensor_msg = sensor_msg
 
     def sync_pulse_base_timer_callback(self):
         # Only schedule a sync pulse if one is not already active
-        if not self.sync_pulse_state:
-            # Generate a random delay between 0 and 200 ms
-            delay = random.uniform(0, 0.2)
-            self.get_logger().debug(
-                f"Scheduling sync pulse start in {delay * 1000:.1f} ms"
-            )
-            # Create a one-shot timer for sync pulse start
-            self.sync_start_timer = self.create_timer(
-                delay, self.sync_pulse_start_callback
-            )
+        assert self.sync_pulse_state is False
+        # Generate a random delay between 0 and 200 ms
+        delay = random.uniform(0, 0.2)
+        self.get_logger().debug(
+            f"Scheduling sync pulse start in {delay * 1000:.1f} ms"
+        )
+        # Create a one-shot timer for sync pulse start
+        self.sync_start_timer = self.create_timer(
+            delay, self.sync_pulse_start_callback
+        )
 
     def sync_pulse_start_callback(self):
         if self.sync_start_timer:

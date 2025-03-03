@@ -1,6 +1,6 @@
 import asyncio
-from collections.abc import Awaitable, Callable
-from inspect import isawaitable, iscoroutinefunction
+from collections.abc import Callable, Coroutine
+from inspect import iscoroutine, iscoroutinefunction
 from typing import Any, Optional
 
 import yaml
@@ -11,6 +11,7 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
+from tabletop_utils.common import BracketedListDumper
 from tabletop_utils.ros import (
     SrvType,
     SrvTypeRequest,
@@ -22,29 +23,6 @@ from tabletop_utils.ros import (
 # from logging import DEBUG, INFO, WARN, ERROR, FATAL
 # Move this to a constants file
 DEFAULT_LOG_SEVERITY = "INFO"
-
-
-class BracketedListDumper(yaml.Dumper):
-    """
-    Custom YAML Dumper that formats scalar sequences as bracketed lists.
-    """
-
-    def represent_sequence(self, tag, sequence, flow_style=None):
-        """
-        Overrides the default represent_sequence to use flow style (bracketed)
-        for sequences containing only scalar values.
-        """
-        if all(
-            isinstance(item, (str, int, float, bool, type(None)))
-            for item in sequence
-        ):
-            return yaml.Dumper.represent_sequence(
-                self, tag, sequence, flow_style=True
-            )
-        else:
-            return yaml.Dumper.represent_sequence(
-                self, tag, sequence, flow_style=flow_style
-            )
 
 
 class BaseNode(Node):
@@ -71,6 +49,7 @@ class BaseNode(Node):
         self._check_parameters()
         self._declare_default_parameters()
         self.log_params(severity="DEBUG")
+        self.tg = None
 
     def log(
         self,
@@ -111,10 +90,12 @@ class BaseNode(Node):
             try:
                 self.get_parameter_wrapper(name)
             except ParameterNotDeclaredException:
-                self.log(
-                    f"Required parameter {name} not declared", severity="ERROR"
+                msg = (
+                    f"Required parameter {name} not declared "
+                    f"for {self.get_name()} node"
                 )
-                raise RuntimeError(f"Required parameter {name} not declared")
+                self.log(msg, severity="ERROR")
+                raise ParameterNotDeclaredException(msg)
 
     def _declare_default_parameters(self):
         """
@@ -140,6 +121,21 @@ class BaseNode(Node):
         params = self.get_parameters_by_prefix(prefix)
         for param in params.values():
             self.log(f"{param.name}: {param.value}", severity=severity)  # type: ignore
+
+    def log_ros_msg(
+        self,
+        msg: Any,
+        title: Optional[str] = None,
+        severity: str = DEFAULT_LOG_SEVERITY,
+    ):
+        string = yaml.dump(
+            msg_to_dict(msg),
+            Dumper=BracketedListDumper,
+            width=self.get_parameter_wrapper("yaml_width"),
+        )
+        if title is not None:
+            string = f"{title}\n{string}"
+        self.log(string, severity=severity)
 
     def get_nested_parameters(self, prefix: str = "") -> dict:
         """
@@ -178,23 +174,8 @@ class BaseNode(Node):
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
 
-    def log_ros_msg(
-        self,
-        msg: Any,
-        title: Optional[str] = None,
-        severity: str = DEFAULT_LOG_SEVERITY,
-    ):
-        string = yaml.dump(
-            msg_to_dict(msg),
-            Dumper=BracketedListDumper,
-            width=self.get_parameter_wrapper("yaml_width"),
-        )
-        if title is not None:
-            string = f"{title}\n{string}"
-        self.log(string, severity=severity)
-
     @staticmethod
-    def rclpy_task_wrapper(
+    def _rclpy_task_wrapper(
         handle: Callable,
         *args,
         **kwargs,
@@ -207,7 +188,7 @@ class BaseNode(Node):
             return e
 
     @staticmethod
-    async def rclpy_task_wrapper_awaitable(handle: Awaitable):
+    async def _rclpy_task_wrapper_coroutine(handle: Coroutine):
         try:
             return await handle
         except Exception as e:
@@ -220,7 +201,7 @@ class BaseNode(Node):
 
     async def create_rclpy_task(
         self,
-        handle: Callable | Awaitable,
+        handle: Callable | Coroutine,
         *args,
         done_callback: Optional[Callable] = None,
         timeout_sec: Optional[float] = None,
@@ -230,32 +211,58 @@ class BaseNode(Node):
         Create an rclpy task is finished.
         To wait for the task to finish, await the coroutine.
         """
-        if isawaitable(handle):
+        if iscoroutine(handle):
             if args or kwargs:
                 raise ValueError(
                     "Arguments and keyword arguments are not allowed for awaitable handles"
                 )
             rclpy_task = self.executor.create_task(  # type: ignore
-                self.rclpy_task_wrapper_awaitable(handle)
+                self._rclpy_task_wrapper_coroutine(handle)
             )
         elif iscoroutinefunction(handle):
             rclpy_task = self.executor.create_task(  # type: ignore
-                self.rclpy_task_wrapper_awaitable(handle(*args, **kwargs))
+                self._rclpy_task_wrapper_coroutine(handle(*args, **kwargs))
             )
         else:
             rclpy_task = self.executor.create_task(  # type: ignore
-                self.rclpy_task_wrapper, handle, *args, **kwargs
+                self._rclpy_task_wrapper, handle, *args, **kwargs
             )
 
         if done_callback is not None:
             rclpy_task.add_done_callback(done_callback)
 
-        async with asyncio.timeout(timeout_sec):
-            result = await rclpy_task
-            if isinstance(result, Exception):
-                raise result
+        try:
+            async with asyncio.timeout(timeout_sec):
+                result = await rclpy_task
+                if isinstance(result, Exception):
+                    raise result
+                else:
+                    return result
+        except (asyncio.CancelledError, TimeoutError) as e:
+            # Cancel the future to invoke the done callback
+            rclpy_task.cancel()
+
+            # Check if the future was successfully cancelled (avoids race
+            # condition)
+            if rclpy_task.cancelled():
+                if isinstance(e, asyncio.CancelledError):
+                    self.log(
+                        f"Rclpy task {handle.__name__} was cancelled by asyncio",
+                        severity="ERROR",
+                    )
+                else:
+                    self.log(
+                        f"Rclpy task {handle.__name__} timed out",
+                        severity="ERROR",
+                    )
             else:
-                return result
+                self.log(
+                    f"Rclpy task {handle.__name__} finished before cancellation",
+                    severity="WARN",
+                )
+                return rclpy_task.result()
+
+            raise e
 
     def _create_client(
         self,
@@ -299,7 +306,10 @@ class BaseNode(Node):
         # Wait for the service to be available with the provided or default
         # timeout
         try:
-            self.log(f"Waiting for {srv_name} service to be available...")
+            self.log(
+                f"Waiting for {srv_name} service to be available...",
+                severity="DEBUG",
+            )
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
@@ -310,7 +320,7 @@ class BaseNode(Node):
                 self.log(error_msg, severity="ERROR")
                 raise TimeoutError(error_msg)
 
-            self.log(f"{srv_name} service is available")
+            self.log(f"{srv_name} service is available", severity="DEBUG")
         finally:
             # Destroy the service client if it was created by this function
             if destroy_service_client:
@@ -339,7 +349,10 @@ class BaseNode(Node):
         # Call the service with the provided or default timeout and
         # validate the response
         try:
-            self.log(f"Calling {service_client.service_name} service...")
+            self.log(
+                f"Calling {service_client.service_name} service...",
+                severity="DEBUG",
+            )
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
@@ -378,7 +391,8 @@ class BaseNode(Node):
 
         # Call the service asynchronously
         self.log(
-            f"Calling {service_client.service_name} service asynchronously..."
+            f"Calling {service_client.service_name} service asynchronously...",
+            severity="DEBUG",
         )
         future = service_client.call_async(srv_request)
 
@@ -423,6 +437,6 @@ class BaseNode(Node):
                 )
 
             raise e
-        else:
-            validate_service_response(response, service_client)
-            return response
+
+        validate_service_response(response, service_client)
+        return response

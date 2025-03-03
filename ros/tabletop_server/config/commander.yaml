@@ -3,7 +3,7 @@
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    max_plan_attempts: 10
+    max_plan_attempts: 20
     max_execution_attempts: 3
 
     dashboard:
@@ -11,13 +11,18 @@
       program: external_control.urp
       init_timeout: 5.0
 
+    rig:
+      init_timeout: 20.0
+
     teensy:
-      hand_fixation_spin_period_s: 0.1
-      flic_spin_period_s: 0.1
+      spin_period_s: 0.1
+
+    flic:
+      spin_period_s: 0.1
 
     planning:
       group_name: ur_manipulator
-      pipeline: [ompl_rrt_star, ompl_rrtc]
+      pipeline: ompl_aps_rrtc
       pose_link: eef
       eef_link: eef_link
       object_touch_links:

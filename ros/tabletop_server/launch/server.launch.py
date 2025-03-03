@@ -157,6 +157,12 @@ def declare_arguments():
             default_value="false",
             description="Use mock TeensyBoard",
         ),
+        # Flic
+        DeclareLaunchArgument(
+            "simulate_flic",
+            default_value="true",
+            description="Simulate Flic",
+        ),
         # RViz
         DeclareLaunchArgument(
             "launch_rviz_server",
@@ -198,15 +204,21 @@ def declare_arguments():
         ),
         # Logging
         DeclareLaunchArgument(
-            "log_level",
+            "default_log_level",
             default_value="INFO",
-            description="Log level",
+            description="Default log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
             "commander_log_level",
             default_value="INFO",
             description="Commander log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "teensy_log_level",
+            default_value="INFO",
+            description="Teensy log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         # VSCode Debugging
@@ -247,6 +259,8 @@ def generate_launch_description():
     micro_ros_verbosity = LaunchConfiguration("micro_ros_verbosity")
     use_mock_teensy = LaunchConfiguration("use_mock_teensy")
 
+    # Flic
+    simulate_flic = LaunchConfiguration("simulate_flic")
     # RViz
     launch_rviz_server = LaunchConfiguration("launch_rviz_server")
     rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
@@ -259,8 +273,9 @@ def generate_launch_description():
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
 
     # Logging
-    log_level = LaunchConfiguration("log_level")
+    default_log_level = LaunchConfiguration("default_log_level")
     commander_log_level = LaunchConfiguration("commander_log_level")
+    teensy_log_level = LaunchConfiguration("teensy_log_level")
     ################################################
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
@@ -309,7 +324,7 @@ def generate_launch_description():
         executable="mock_dashboard",
         output="log",
         parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", log_level],
+        ros_arguments=["--log-level", default_log_level],
         condition=IfCondition(use_mock_robot),
     )
 
@@ -358,7 +373,7 @@ def generate_launch_description():
         executable="micro_ros_agent",
         output="both",
         parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", log_level],
+        ros_arguments=["--log-level", teensy_log_level],
         arguments=[
             micro_ros_transport,
             "--dev",
@@ -377,9 +392,21 @@ def generate_launch_description():
         package="tabletop_server",
         executable="mock_teensy",
         output="both",
-        parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", log_level],
+        parameters=[{"use_sim_time": use_sim_time, "simulate": True}],
+        ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
         condition=IfCondition(use_mock_teensy),
+    )
+
+    # Flic
+    flic = Node(
+        name="flic",
+        package="tabletop_server",
+        executable="flic",
+        output="both",
+        parameters=[
+            {"use_sim_time": use_sim_time, "simulate": simulate_flic},
+        ],
+        ros_arguments=["--log-level", ["flic:=", default_log_level]],
     )
 
     # RViz
@@ -398,7 +425,7 @@ def generate_launch_description():
             {"use_sim_time": use_sim_time},
         ],
         arguments=["-d", rviz_config_file_server],  # -l for ogre log
-        ros_arguments=["--log-level", log_level],
+        ros_arguments=["--log-level", default_log_level],
     )
 
     # Bag
@@ -416,6 +443,7 @@ def generate_launch_description():
         commander,
         micro_ros_agent,
         mock_teensy,
+        flic,
         rviz_node,
         bag,
     ]

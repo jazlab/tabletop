@@ -1,9 +1,10 @@
 """Block-structured cup/drawer trial generator."""
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-from tabletop_utils.ros import pose_stamped_msg
+from tabletop_server.nodes import Commander
 
 from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialSpec
 
@@ -22,12 +23,16 @@ class RandomChoice(BaseTrialGenerator):
 
     def __init__(
         self,
+        commander: Commander,
         object_ids: list[str],
-        poses: list[dict[str, Any]],
+        poses: list[Mapping[str, Any]],
         num_trials: int,
     ):
+        super().__init__(commander)
         self._object_ids = object_ids
-        self._poses = [pose_stamped_msg(**pose) for pose in poses]
+        self._poses = [
+            self._commander.create_pose_stamped(**pose) for pose in poses
+        ]
         self._num_trials = num_trials
         self._trial_counter = 0
 
@@ -53,7 +58,6 @@ class RandomChoice(BaseTrialGenerator):
 
         return trial_spec
 
-    def send(self, value: dict[str, Any]) -> None:
-        raise NotImplementedError(
-            "RandomObject trial generator does not support sending feedback"
-        )
+    def send(self, **unused_kwargs: dict) -> None:
+        """Send feedback."""
+        pass
