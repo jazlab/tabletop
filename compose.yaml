@@ -10,7 +10,7 @@ services:
       - 8080:8080
     networks:
       tabletop_net:
-        ipv4_address: 192.168.12.12
+        ipv4_address: 192.168.12.100
     restart: on-failure
     healthcheck:
       test: ["CMD", "/app/healthcheck.sh"]
@@ -20,91 +20,100 @@ services:
       start_period: 10s
       start_interval: 2s
     environment:
-      # Adjust to your screen size
-      - DISPLAY_WIDTH=1280
-      - DISPLAY_HEIGHT=824
+      - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
+      - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
-  robot:
-    depends_on:
-      novnc:
-        condition: service_healthy
+  robot_base:
     restart: unless-stopped
-    image: universalrobots/ursim_e-series
+    image: universalrobots/ursim_e-series:latest
     pull_policy: always
     platform: linux/amd64
-    pid: host
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
       - ./ur_robot/entrypoint.sh:/entrypoint.sh
+    entrypoint: ["/entrypoint.sh"]
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: robot
     environment:
-      - DISPLAY=novnc:0.0
       - ROBOT_MODEL=ur5e
 
-  robot_x11:
-    extends: robot
+  robot_novnc:
+    extends: robot_base
+    depends_on:
+      novnc:
+        condition: service_healthy
+    environment:
+      - DISPLAY=novnc:0.0
+
+  robot:
+    extends: robot_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=$DISPLAY
-    
-  server_mac:
-    # depends_on:
-    #   novnc:
-    #     condition: service_healthy
+
+  server_base:
     build:
       context: ./ros
       pull: true
     pull_policy: build
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
+    image: tabletop-server
     volumes:
       - ../..:/root/ws
+      - ${MOVEIT_WS_DIR:-$HOME/moveit_ws}:/root/moveit_ws
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
     hostname: server
     environment:
-      - DISPLAY=novnc:0.0
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py use_mock_teensy:=true
-        robot_ip:=${ROBOT_IP:-192.168.12.10}
-        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+      - BUILD_COMMAND=${BUILD_COMMAND:-:}
     command: bash -c
-      "/root/ws/src/tabletop/scripts/build.sh
+      "$$BUILD_COMMAND
       && source /opt/ros/jazzy/setup.bash
       && source /root/ws/install/setup.bash
       && $$LAUNCH_COMMAND"
 
-  server:
-    extends: server_mac
+  server_novnc:
+    extends: server_base
     depends_on:
       novnc:
         condition: service_healthy
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
+    environment:
+      - DISPLAY=novnc:0.0
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py
+        use_mock_teensy:=true
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
 
-  server_x11:
-    extends: server
+  server:
+    extends: server_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /dev/dri:/dev/dri
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     environment:
       - DISPLAY=$DISPLAY
-    image: tabletop-server
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
+        ros2 launch tabletop_server server.launch.py
+        robot_ip:=${ROBOT_IP:-192.168.12.10}
+        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
 
 networks:
   tabletop_net:

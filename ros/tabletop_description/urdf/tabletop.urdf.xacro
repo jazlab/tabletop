@@ -23,8 +23,6 @@
   <xacro:arg name="safety_pos_margin" default="0.15" />
   <xacro:arg name="safety_k_position" default="20" />
   <xacro:arg name="force_abs_paths" default="false" />
-  <xacro:arg name="eef_radius" default="0.06" />
-  <xacro:arg name="eef_mass" default="0.5" />
 
   <!-- tabletop -->
   <xacro:tabletop
@@ -38,8 +36,6 @@
     safety_pos_margin="$(arg safety_pos_margin)"
     safety_k_position="$(arg safety_k_position)"
     force_abs_paths="$(arg force_abs_paths)"
-    eef_radius="$(arg eef_radius)"
-    eef_mass="$(arg eef_mass)"
   />
 
 </robot>

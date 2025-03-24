@@ -1,7 +1,9 @@
-from collections.abc import Awaitable, Callable, Coroutine
-from inspect import iscoroutine
+import asyncio
+from collections.abc import Callable, Coroutine
+from inspect import iscoroutine, iscoroutinefunction
 from typing import Any, Optional
 
+import yaml
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.exceptions import (
@@ -9,14 +11,18 @@ from rclpy.exceptions import (
     ParameterNotDeclaredException,
 )
 from rclpy.node import Node
-from rclpy.task import Task as RclpyTask
-
-from tabletop_server.utils import (
+from tabletop_utils.common import BracketedListDumper
+from tabletop_utils.ros import (
     SrvType,
     SrvTypeRequest,
     SrvTypeResponse,
+    msg_to_dict,
     validate_service_response,
 )
+
+# from logging import DEBUG, INFO, WARN, ERROR, FATAL
+# Move this to a constants file
+DEFAULT_LOG_SEVERITY = "INFO"
 
 
 class BaseNode(Node):
@@ -30,6 +36,7 @@ class BaseNode(Node):
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
+        "yaml_width": 120,
     }
     required_params: set[str] = set()
 
@@ -41,26 +48,30 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_params()
+        self.log_params(severity="DEBUG")
+        self.tg = None
 
     def log(
         self,
-        message: str,
-        severity: str = "INFO",
+        message: Any,
+        severity: str = DEFAULT_LOG_SEVERITY,
     ):
         """
         Log a message with the given severity.
         """
-        if severity == "DEBUG":
-            self.get_logger().debug(message)
-        elif severity == "INFO":
-            self.get_logger().info(message)
-        elif severity == "WARN":
-            self.get_logger().warning(message)
-        elif severity == "ERROR":
-            self.get_logger().error(message)
-        elif severity == "FATAL":
-            self.get_logger().fatal(message)
+        match severity:
+            case "DEBUG":
+                self.get_logger().debug(message)
+            case "INFO":
+                self.get_logger().info(message)
+            case "WARN":
+                self.get_logger().warning(message)
+            case "ERROR":
+                self.get_logger().error(message)
+            case "FATAL":
+                self.get_logger().fatal(message)
+            case _:
+                raise ValueError(f"Invalid severity: {severity}")
 
     def _check_parameters(self):
         """
@@ -77,12 +88,14 @@ class BaseNode(Node):
         # Check for required parameters
         for name in self.required_params:
             try:
-                self.get_parameter(name)
+                self.get_parameter_wrapper(name)
             except ParameterNotDeclaredException:
-                self.log(
-                    f"Required parameter {name} not declared", severity="ERROR"
+                msg = (
+                    f"Required parameter {name} not declared "
+                    f"for {self.get_name()} node"
                 )
-                raise RuntimeError(f"Required parameter {name} not declared")
+                self.log(msg, severity="ERROR")
+                raise ParameterNotDeclaredException(msg)
 
     def _declare_default_parameters(self):
         """
@@ -109,32 +122,61 @@ class BaseNode(Node):
         for param in params.values():
             self.log(f"{param.name}: {param.value}", severity=severity)  # type: ignore
 
+    def log_ros_msg(
+        self,
+        msg: Any,
+        title: Optional[str] = None,
+        severity: str = DEFAULT_LOG_SEVERITY,
+    ):
+        string = yaml.dump(
+            msg_to_dict(msg),
+            Dumper=BracketedListDumper,
+            width=self.get_parameter_wrapper("yaml_width"),
+        )
+        if title is not None:
+            string = f"{title}\n{string}"
+        self.log(string, severity=severity)
+
     def get_nested_parameters(self, prefix: str = "") -> dict:
         """
         Retrieves all parameters from a ROS2 node and structures them into a nested dictionary.
         Namespaces are represented as nested dictionaries.
         """
-        prefix = (
-            f"{prefix}." if prefix and not prefix.endswith(".") else prefix
-        )
         params = self.get_parameters_by_prefix(prefix)
+        if len(params) == 0:
+            raise ParameterNotDeclaredException(
+                f"No parameters found for prefix {prefix}"
+            )
         nested_params = {}
 
         for name, param in params.items():
             value = param.value  # type: ignore
-            name_parts = name.split(".")
+            keys = name.split(".")
             current_level = nested_params
 
-            for part in name_parts[:-1]:
-                current_level = current_level.get(part, {})
+            for key in keys[:-1]:
+                current_level = current_level.setdefault(key, {})
 
-            current_level[name_parts[-1]] = value
+            current_level[keys[-1]] = value
 
         return nested_params
 
+    def get_parameter_wrapper(self, name: str) -> Any:
+        """
+        Get a parameter from the node.
+        """
+        try:
+            value = self.get_parameter(name).value
+            if value == "null":
+                return None
+            else:
+                return value
+        except ParameterNotDeclaredException:
+            return self.get_nested_parameters(name)
+
     @staticmethod
-    def rclpy_task_wrapper(
-        handle: Callable | Coroutine,
+    def _rclpy_task_wrapper(
+        handle: Callable,
         *args,
         **kwargs,
     ):
@@ -146,119 +188,143 @@ class BaseNode(Node):
             return e
 
     @staticmethod
-    async def rclpy_task_wrapper_async(
-        handle: Callable | Coroutine,
-        *args,
-        **kwargs,
-    ):
+    async def _rclpy_task_wrapper_coroutine(handle: Coroutine):
         try:
-            return await handle(*args, **kwargs)
+            return await handle
         except Exception as e:
-            print(f"Error in {handle.__name__} during callback:")
+            try:
+                print(f"Error in {handle.__name__} during callback:")  # type: ignore
+            except AttributeError:
+                print(f"Error in {handle} during callback:")
             print(e)
             return e
 
-    def create_rclpy_task(
+    async def create_rclpy_task(
         self,
         handle: Callable | Coroutine,
         *args,
         done_callback: Optional[Callable] = None,
+        timeout_sec: Optional[float] = None,
         **kwargs,
-    ) -> RclpyTask:
+    ) -> Any:
         """
-        Create a future that will be resolved when the task is finished.
-        To wait for the task to finish, await the future.
+        Create an rclpy task is finished.
+        To wait for the task to finish, await the coroutine.
         """
-        # TODO: Check for couroutine functions as well
         if iscoroutine(handle):
-            rclpy_task = self.executor.create_task(
-                self.rclpy_task_wrapper_async, handle, *args, **kwargs
-            )  # type: ignore
+            if args or kwargs:
+                raise ValueError(
+                    "Arguments and keyword arguments are not allowed for awaitable handles"
+                )
+            rclpy_task = self.executor.create_task(  # type: ignore
+                self._rclpy_task_wrapper_coroutine(handle)
+            )
+        elif iscoroutinefunction(handle):
+            rclpy_task = self.executor.create_task(  # type: ignore
+                self._rclpy_task_wrapper_coroutine(handle(*args, **kwargs))
+            )
         else:
-            rclpy_task = self.executor.create_task(
-                self.rclpy_task_wrapper, handle, *args, **kwargs
-            )  # type: ignore
+            rclpy_task = self.executor.create_task(  # type: ignore
+                self._rclpy_task_wrapper, handle, *args, **kwargs
+            )
 
         if done_callback is not None:
             rclpy_task.add_done_callback(done_callback)
 
-        return rclpy_task
+        try:
+            async with asyncio.timeout(timeout_sec):
+                result = await rclpy_task
+                if isinstance(result, Exception):
+                    raise result
+                else:
+                    return result
+        except (asyncio.CancelledError, TimeoutError) as e:
+            # Cancel the future to invoke the done callback
+            rclpy_task.cancel()
+
+            # Check if the future was successfully cancelled (avoids race
+            # condition)
+            if rclpy_task.cancelled():
+                if isinstance(e, asyncio.CancelledError):
+                    self.log(
+                        f"Rclpy task {handle.__name__} was cancelled by asyncio",
+                        severity="ERROR",
+                    )
+                else:
+                    self.log(
+                        f"Rclpy task {handle.__name__} timed out",
+                        severity="ERROR",
+                    )
+            else:
+                self.log(
+                    f"Rclpy task {handle.__name__} finished before cancellation",
+                    severity="WARN",
+                )
+                return rclpy_task.result()
+
+            raise e
+
+    def _create_client(
+        self,
+        srv_type: Optional[type] = None,
+        srv_name: Optional[str] = None,
+    ) -> Client:
+        """
+        Create a client for a service or return the provided client if it
+        is not None.
+        """
+        if srv_type is None or srv_name is None:
+            msg = "srv_type and srv_name must be provided if service_client is not provided"
+            self.log(msg, severity="ERROR")
+            raise ValueError(msg)
+
+        service_client = self.create_client(
+            srv_type,
+            srv_name,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        return service_client
 
     def wait_for_service(
         self,
         srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-        destroy_service_client: bool = True,
-        wait_timeout: Optional[float] = None,
+        timeout_sec: Optional[float] = None,
     ):
         """
         Wait for a service to be available.
         """
-        service_client = self._create_client(
-            srv_type, srv_name, service_client, destroy_service_client
-        )
+        # If the service client is not provided, create a new one and destroy
+        # it after the service call
+        if service_client is None:
+            service_client = self._create_client(srv_type, srv_name)
+            destroy_service_client = True
+        else:
+            destroy_service_client = False
+
+        # Wait for the service to be available with the provided or default
+        # timeout
         try:
-            # Wait for the service to be available
-            self.log(f"Waiting for {srv_name} service to be available...")
-            wait_timeout = (
-                wait_timeout
-                if wait_timeout is not None
-                else self.get_parameter("default_service_wait_timeout").value
+            self.log(
+                f"Waiting for {srv_name} service to be available...",
+                severity="DEBUG",
             )
-            if not service_client.wait_for_service(timeout_sec=wait_timeout):
+            timeout_sec = (
+                timeout_sec
+                if timeout_sec is not None
+                else self.get_parameter_wrapper("default_service_wait_timeout")
+            )
+            if not service_client.wait_for_service(timeout_sec=timeout_sec):
                 error_msg = f"{srv_name} not available!"
                 self.log(error_msg, severity="ERROR")
                 raise TimeoutError(error_msg)
 
-            self.log(f"{srv_name} service is available")
+            self.log(f"{srv_name} service is available", severity="DEBUG")
         finally:
+            # Destroy the service client if it was created by this function
             if destroy_service_client:
                 self.destroy_client(service_client)
-
-    def _create_client(
-        self,
-        srv_type: Optional[type] = None,
-        srv_name: Optional[str] = None,
-        service_client: Optional[Client] = None,
-        destroy_service_client: bool = True,
-    ) -> Client:
-        """
-        Create a client for a service or return the provided client if it
-        is not None.
-        """
-        if service_client is None:
-            if srv_type is None or srv_name is None:
-                self.log(
-                    "srv_type and srv_name must be provided if service_client is not provided",
-                    severity="ERROR",
-                )
-                raise ValueError(
-                    "srv_type and srv_name must be provided if service_client is not provided"
-                )
-            service_client = self.create_client(
-                srv_type,
-                srv_name,
-                callback_group=MutuallyExclusiveCallbackGroup(),
-            )
-        else:
-            if srv_type is not None or srv_name is not None:
-                self.log(
-                    "srv_type and srv_name must not be provided if service_client is provided",
-                    severity="ERROR",
-                )
-                raise ValueError(
-                    "srv_type and srv_name must not be provided if service_client is provided"
-                )
-            if destroy_service_client:
-                self.log(
-                    "destroy_service_client must not be provided if service_client is provided",
-                    severity="ERROR",
-                )
-                raise ValueError(
-                    "destroy_service_client must not be provided if service_client is provided"
-                )
-        return service_client
 
     def service_call(
         self,
@@ -266,57 +332,111 @@ class BaseNode(Node):
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-        destroy_service_client: bool = True,
-        call_timeout: Optional[float] = None,
-    ) -> SrvTypeResponse | tuple[SrvTypeResponse, Client]:
+        timeout_sec: Optional[float] = None,
+    ) -> SrvTypeResponse:
         """
         Call a service synchronously, returning the response and optionally
         the service client.
         """
-        service_client = self._create_client(
-            srv_type, srv_name, service_client, destroy_service_client
-        )
-        try:
-            # Call the service
-            self.log(f"Calling {service_client.service_name} service...")
-            call_timeout = (
-                call_timeout
-                if call_timeout is not None
-                else self.get_parameter("default_service_call_timeout").value
-            )
-            response = service_client.call(
-                srv_request, timeout_sec=call_timeout
-            )
+        # If the service client is not provided, create a new one and destroy
+        # it after the service call
+        if service_client is None:
+            service_client = self._create_client(srv_type, srv_name)
+            destroy_service_client = True
+        else:
+            destroy_service_client = False
 
-            # Check if the service call succeeded
-            response = validate_service_response(response, service_client)
-            if destroy_service_client:
-                return response
-            else:
-                return response, service_client
+        # Call the service with the provided or default timeout and
+        # validate the response
+        try:
+            self.log(
+                f"Calling {service_client.service_name} service...",
+                severity="DEBUG",
+            )
+            timeout_sec = (
+                timeout_sec
+                if timeout_sec is not None
+                else self.get_parameter_wrapper("default_service_call_timeout")
+            )
+            response: SrvTypeResponse = service_client.call(
+                srv_request, timeout_sec=timeout_sec
+            )  # type: ignore
+            validate_service_response(response, service_client)
+
+            return response
         finally:
+            # Destroy the service client if it was created by this function
             if destroy_service_client:
                 self.destroy_client(service_client)
 
-    def service_call_async(
+    async def service_call_async(
         self,
         srv_request: SrvTypeRequest,
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         service_client: Optional[Client] = None,
-        destroy_service_client: bool = True,
-    ) -> Awaitable:
+        timeout_sec: Optional[float] = None,
+    ) -> SrvTypeResponse:
         """
         Call a service asynchronously, returning a future and the service
         client.
         """
-        service_client = self._create_client(
-            srv_type, srv_name, service_client, destroy_service_client=False
+        # If the service client is not provided, create a new one and
+        # destroy it after the service call
+        if service_client is None:
+            service_client = self._create_client(srv_type, srv_name)
+            destroy_service_client = True
+        else:
+            destroy_service_client = False
+
+        # Call the service asynchronously
+        self.log(
+            f"Calling {service_client.service_name} service asynchronously...",
+            severity="DEBUG",
         )
         future = service_client.call_async(srv_request)
+
+        # Add a callback to destroy the service client if it was created by
+        # this function
         future.add_done_callback(
             lambda _: self.destroy_client(service_client)
             if destroy_service_client
             else None
         )
-        return future
+
+        try:
+            # Wait asynchronously for the service call to finish with the
+            # provided or default timeout
+            async with asyncio.timeout(
+                timeout_sec
+                if timeout_sec is not None
+                else self.get_parameter_wrapper("default_service_call_timeout")
+            ):
+                response: SrvTypeResponse = await future  # type: ignore
+        except (asyncio.CancelledError, TimeoutError) as e:
+            # Cancel the future to invoke the done callback
+            future.cancel()
+
+            # Check if the future was successfully cancelled (avoids race
+            # condition)
+            if future.done():
+                self.log(
+                    f"Service call to {srv_name} finished before cancellation",
+                    severity="WARN",
+                )
+                return future.result()  # type: ignore
+            elif isinstance(e, asyncio.CancelledError):
+                self.log(
+                    f"Service call to {srv_name} was cancelled by asyncio",
+                    severity="ERROR",
+                )
+            else:
+                self.log(
+                    f"Service call to {srv_name} timed out",
+                    severity="ERROR",
+                )
+
+            raise e
+
+        validate_service_response(response, service_client)
+        return response

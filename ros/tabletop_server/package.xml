@@ -2,29 +2,29 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>tabletop_server</name>
-
   <version>0.0.0</version>
-
   <description>The server nodes for the TableTop project</description>
-
   <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
-
   <license>MIT</license>
 
   <depend>ament_index_python</depend>
-  <depend>std_msgs</depend>
   <depend>rclpy</depend>
   <depend>ur</depend>
   <depend>moveit</depend>
   <depend>moveit_py</depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>moveit_ros_visualization</exec_depend>
   <depend>ros2controlcli</depend>
+  <depend>std_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>sensor_msgs</depend>
   <depend>rosbag2</depend>
-  <depend>rosbag2_py</depend>
-  <depend>rmw_cyclonedds_cpp</depend>
+  <depend>shape_msgs</depend>
   <depend>tabletop_moveit_config</depend>
   <depend>tabletop_msgs</depend>
+  <depend>tf_transformations</depend>
+  <depend>python3-numpy</depend>
+  <depend>python3-pandas</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

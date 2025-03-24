@@ -1,35 +1,37 @@
 """SmoothPursuit task."""
 
-import abc
 import asyncio
 import time
+from typing import List
 
 import numpy as np
 from geometry_msgs.msg import Point, Pose, PoseStamped
 from std_msgs.msg import Header
-from tabletop_server.nodes.commander import Commander
-from tabletop_server.utils import quaternion_from_euler
+from tabletop_server.nodes import Commander
+from tabletop_utils.ros import quaternion_from_euler
+
+from tabletop_tasks.tasks.base_task import BaseTask
 
 
-class SmoothPursuit(abc.ABC):
+class SmoothPursuit(BaseTask):
     def __init__(
         self,
         commander: Commander,
         center_pose: Pose,
         radius: float,
         total_time: float,
-        reward_period: float = 1.0,
-        reward_duration: float = 0.1,
+        reward_period_s: float = 1.0,
+        reward_duration_s: float = 0.1,
         loop_period: float = 0.01,
     ):
-        self._commander = commander
+        super().__init__(commander)
         self._total_time = total_time
-        self._reward_period = reward_period
-        self._reward_duration = reward_duration
+        self._reward_period_s = reward_period_s
+        self._reward_duration_s = reward_duration_s
         self._loop_period = loop_period
 
         # Make circular path
-        self._path = []
+        self._path: List[PoseStamped] = []
         center_x = center_pose.position.x
         center_y = center_pose.position.y
         center_z = center_pose.position.z
@@ -48,27 +50,29 @@ class SmoothPursuit(abc.ABC):
                 )
             )
 
-    async def run(self):
+    async def run(self) -> None:
         start_time = time.time()
         last_reward_time = start_time
 
         try:
-            plan_result = self._commander.plan(self._path)
+            plan_result = self._commander.plan(self._path[0])
         except Exception as e:
             self._commander.log(f"Failed to plan path: {e}", severity="ERROR")
 
-        future = self._commander.execute_async(plan_result.trajectory)
+        future = asyncio.create_task(
+            self._commander.execute_async(plan_result.trajectory)
+        )
 
         while time.time() - start_time < self._total_time:
             # TODO: Reward logic
             if future.done():
-                # Raise exception if execution failed
-                future.result()
-
-                future = self._commander.execute_async(plan_result.trajectory)
+                await future
+                future = asyncio.create_task(
+                    self._commander.execute_async(plan_result.trajectory)
+                )
             else:
-                if time.time() - last_reward_time > self._reward_period:
-                    self._commander.reward(self._reward_duration)
+                if time.time() - last_reward_time > self._reward_period_s:
+                    await self._commander.reward_async(self._reward_duration_s)
                     last_reward_time = time.time()
 
             await asyncio.sleep(self._loop_period)

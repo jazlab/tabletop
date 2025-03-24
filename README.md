@@ -83,10 +83,11 @@ modifications made in the `ursim/` directory and `compose.yaml` file).
 
 ## Requirements
 
-This package requires:
+This package requires the following software to be installed on your system before
+building and running the project:
 
 * [Docker](https://docs.docker.com/get-docker/)
-* [Visual Studio Code](https://code.visualstudio.com/) (optional, for Dev
+* [[Optional] Visual Studio Code](https://code.visualstudio.com/) (for Dev
     Container usage)
 
 Follow the installation instructions in the links above.
@@ -117,11 +118,42 @@ You may experience issues with the Universal Robots Simulator otherwise.
     git clone https://github.com/jazlab/tabletop.git
     ```
 
-3. Upload the Micro-ROS Client software to the Teensy:
+3. [Optional] Install PlatformIO Core:
 
     ```bash
-    ./scripts/upload_teensy.sh
+    ./scripts/install_platformio.sh
     ```
+
+    **Note**: This script will add PlatformIO to your PATH. You may need to
+    restart your shell or open a new terminal session to use it.
+
+    **Note**: This is only required if you want to build and upload the
+    micro-controller firmware. If you are developing in the included dev
+    container, this is not necessary, as the dev container will install
+    PlatformIO Core (the CLI) automatically, as well as the corresponding
+    VSCode extension. The latter option requires you to run the docker
+    container in `--privileged` mode, which may pose security risks. This
+    security risk is not imposed by other containers in the project and is
+    only required for the Teensy upload functionality while developing in the
+    dev container.
+
+    If you plan on only simulating the system, you can skip this step and
+    instead use a "mock Teensy," as described below.
+
+## Setting up the physical UR5e Robot
+
+You must enable **Remote Control Mode** on the robot's Teach Pendant in order
+to connect to the robot from the host machine (or any docker containers).
+
+1. On the Teach Pendant (the "tablet" included with the robot),
+click the "hamburger" (menu) icon in the top right corner of the window.
+2. Click **Settings**.
+3. Under **System->Remote Control**, click **Enable**.
+4. Click **Exit** in the lower left corner of the menu.
+5. Click the **Local** button in the top right corner of the URSim window.
+6. Select **Remote Control** from the dropdown.
+
+*You should not need to do this for the simulator.*
 
 ## Usage
 
@@ -154,35 +186,65 @@ To run the entire software stack using Docker:
 4. Build the Docker containers:
 
     ```bash
-    docker compose build --pull [--no-cache]
+    docker compose build [--no-cache]
     ```
 
     Use `--no-cache` to force a rebuild of the Docker images and install the
     latest versions of the dependencies.
 
-5. Start the Docker containers:
+5. [Optional] Upload the Teensy firmware:
+    ```bash
+    ./scripts/upload_teensy.sh
+    ```
+
+    **Note**: This requires PlatformIO Core to be installed. See [above](#installation)
+    for more information.
+
+    **Note**: The build may fail with permission errors. If this is the case,
+    you can try the following command:
+    ```bash
+    ./scripts/upload_teensy.sh --clean
+    ```
+    This will clean the build directory and try again. Requires `sudo`
+    permissions.
+
+6. Build the tabletop packages:
+    You may opt to build the tabletop packages once before starting the
+    `server` container, instead of every time you start it, allowing
+    you to iterate more quickly:
+    ```bash
+    docker compose --env-file env_files/build.env up ...
+    ```
+    This will build the tabletop packages and install any dependencies.
+    See [here](#choosing-launch-file) for more information on using environment
+    files to set variables.
+
+7. Start the Docker containers:
 
     All at once:
     ```bash
-    docker compose up [--force-recreate] novnc robot server
+    docker compose up [--force-recreate] robot|robot_novnc server|server_novnc
     ```
 
     Individually:
     ```bash
-    docker compose up [--force-recreate] novnc
     docker compose up [--force-recreate] robot
+    docker compose up [--force-recreate] robot_novnc
     docker compose up [--force-recreate] server
+    docker compose up [--force-recreate] server_novnc
     ```
 
-    Optionally, you can opt to use your host machine's X server, in which case
-    you need only run:
+    Running the `robot` or `server` containers will use your host machine's
+    X server, in which case you may first need to run:
     ```bash
     xhost +
-    docker compose up [--force-recreate] robot_x11 server_x11
     ```
+    to allow the containers to connect to the X server.
 
     **Note**: This has only been tested on Ubuntu 24.04. The compose file
     may need to be modified for other operating systems.
+    Using `xhost +` also poses a security risk, as it allows any process to
+    connect to the X server. **TODO: Find a more secure way to do this.**
 
     Use `--force-recreate` to make sure that the containers are recreated if
     they already exist (ensures consistent behavior across runs).
@@ -190,28 +252,37 @@ To run the entire software stack using Docker:
     commands to destroy any existing containers.
 
 This will build the Docker images and start the containers. There are 3 primary
-containers:
+containers (and their variants):
 - `novnc`: The noVNC container, which exposes a web interface to interact
     with the GUIs in any of the running docker containers. Includes a dynamic
     window manager ([dwm](https://dwm.suckless.org/)) for multiple GUI windows
     to be displayed at once. A list of commonly used keyboard shortcuts can be
     found [here](https://wiki.gentoo.org/wiki/Dwm#Keys_and_key_functions:~:text=the%20window%20to.-,Default%20shortcuts,-Those%20shortcuts%20are).
-- `server`: The server container for the TableTop project, which
+- `server*`: The server container for the TableTop project, which
     runs all the local ROS 2 nodes (including the Universal Robots driver nodes,
     the MoveIt nodes, and the TableTop nodes). On startup, the `server`
-    container will install any dependencies and build the project. It will then
-    run the launch file specified in the `LAUNCH_FILE` environment variable or
-    the default in `compose.yaml` if `LAUNCH_FILE` is not set
-- `robot`: The container for the Universal Robots simulator, which simulates the
-    safety constraints of the real robot.
+    container will optionally install any dependencies and build the project.
+    It will then run the command specified in the `LAUNCH_COMMAND` environment
+    variable or the default in `compose.yaml` if `LAUNCH_COMMAND` is not set. The
+    difference between `server` and `server_novnc` is that the former uses the
+    host machine's X server to display the GUI, while the latter uses the noVNC
+    web interface.
+- `robot*`: The container for the Universal Robots simulator, which simulates the
+    safety constraints of the real robot. The difference between `robot` and
+    `robot_novnc` is that the former uses the host machine's X server to display
+    the simulator GUI, while the latter uses the noVNC web interface.
 
-Once the containers are started, you can access the web interface at
-http://localhost:8080/vnc.html in your web browser.
+**Note**: Be careful not to run more than one of each type of container at
+once. This means you cannot use `docker compose up` without any service
+arguments.
 
-### Interacting with the GUI
+If you are using the noVNC GUI, you can access the web interface at
+`http://localhost:8080/vnc.html` in your web browser.
 
-The web interface provides a desktop-like interface for interacting with the
-Universal Robots simulator and the ROS 2 visualization nodes.
+### Interacting with the noVNC GUI
+
+The noVNC web interface provides a desktop-like interface for interacting with
+the Universal Robots simulator and the ROS 2 visualization nodes.
 
 To make sure that you can see the whole screen:
 * Click the drawer icon on the left of the screen to expand it
@@ -222,32 +293,22 @@ To get started:
 
 1. Make sure any previous containers have been destroyed (call `docker compose
     down` in the root directory of the project).
-2. Start the docker containers for the `novnc` and `robot` containers, as above.
-    - It is currently necessary to do these before the `server` in order to
-      give the 'robot' container time to spin up.
-3. [Only if you are connecting to the physical robot] Enable **Remote Control Mode** for the robot.
-    1. On the Teach Pendant (the "tablet" included with the robot), click the "hamburger" (menu) icon in the top right corner of the window.
-    2. Click **Settings**.
-    3. Under **System->Remote Control**, click **Enable**.
-    4. Click **Exit** in the lower left corner of the menu.
-    5. Click the **Local** button in the top right corner of the URSim window.
-    6. Select **Remote Control** from the dropdown.
-
-    *You should not need to do this for the simulator.*
-
-4. Start the `server` container, as above.
+2. Start the `robot_novnc` container, as above.
+    - It is currently necessary to do this before the `server_novnc` in order
+      to give the URSim time to spin up.
+3. Start the `server_novnc` container, as above.
     * **Note**: If you are running MacOS, you may need to comment out the
         following lines in the `compose.yaml` file:
         ```yaml
         services:
             ...
-            server:
+            server_novnc:
                 # depends_on:
                 #   novnc:
                 #     condition: service_healthy
                 ...
         ```
-        This will prevent the novnc container from restarting when the `server`
+        This will prevent the novnc container from restarting when the `server_novnc`
         container is started. This seems to be an issue exclusive to MacOS.
 
 This will power on the simulated robot and initiate communication with the
@@ -255,22 +316,28 @@ ROS 2 driver.
 
 ### Choosing Launch Command
 
-The default behavior of the `server` container is to source and build the ROS2
-environment (by sourcing `scripts/build.sh`) then launch the `server.launch.py`
-file. To change this default behavior, you can set the `LAUNCH_COMMAND`
-environment variable to your desired bash command.  You can do this by
+The default behavior of the `server` container is to build and source the ROS2
+environment then launch `server.launch.py`. To change this default behavior,
+you can set the `LAUNCH_COMMAND` environment variable to your desired bash command.
+You can do this by:
 * Setting the variable from the command line:
     ```bash
-    LAUNCH_COMMAND="ros2 launch tabletop_moveit_config moveit.launch.py" \
+    LAUNCH_COMMAND="ros2 launch tabletop_tasks run_tasks.launch.py" \
     docker compose up --build --force-recreate
     ```
 * [Preferred] Using an environment file (commonly used such files in
     `env_files/`):
     ```bash
-    docker compose --env-file env_files/sim.env --env-file env_files/launch_moveit.env up ...
+    docker compose --env-file env_files/robot.env --env-file env_files/launch_tasks.env up ...
     ```
-    Note that the order of the environment files matters. Here, the `sim.env`
-    file sets variables that are used by the `launch_moveit.env` file.
+    **Note**: The order of the environment files matters. Here, the `robot.env`
+    file sets variables that are used by the `launch_tasks.env` file.
+
+    **Note**: You may not use a log file that depends on the default environment
+    variables in the compose file. For example, if your environment file sets
+    `LAUNCH_COMMAND` whose value depends on `ROBOT_IP` and you do not first provide
+    another environment file that sets `ROBOT_IP` (like `robot.env`), the `compose`
+    command will fail.
 * Editing the `compose.yaml` file (make sure to edit the default value so that
     you can overwrite `LAUNCH_COMMAND` from the command line later):
 
@@ -295,11 +362,38 @@ Container extension. To open VSCode in the development container:
 
 1. Install the "Remote - Containers" extension in VSCode.
 2. Open the project folder in VSCode.
-3. When prompted, click "Reopen in Container" or use the command palette (F1 or
-    Ctrl+Shift+P) and select "Remote-Containers: Reopen in Container".
+3. When prompted, click "Rebuild and Reopen in Container" or use the command
+    palette (F1 or Ctrl+Shift+P) and select "Remote-Containers: Rebuild and
+    Reopen in Container".
 
 VSCode will build the Dev Container and provide you with a fully configured
 development environment.
+
+You may also want to install the recommended extensions for the Dev Container,
+which you should be prompted to do when you first open the Dev Container.
+
+**Note**: In order to command the robot from the Dev Container, you will need
+to set the host IP and host name in the UR Dashboard to the Dev Container's
+IP address. This setting can be found in *Installation->URCaps->External
+Control->Host IP* and *Installation->URCaps->External Control->Host Name*.
+If you then save the installation, you will not have to do this again.
+
+You can now run any of the scripts in the `scripts/` directory. A few useful
+ones are:
+* `scripts/bashrc_update.sh [--display novnc|x11]` to update your bashrc file to
+    with the correct ROS 2 environment variables and optionally set the `DISPLAY`
+    variable to the correct value for the noVNC or X11 display.
+* `scripts/build.sh [--clean]` to optionally clean the build artifacts and then
+    rebuild the project.
+* `scripts/clean_ws.sh` to clean the workspace directory.
+* `scripts/teensy_build.sh` to build the Teensy firmware.
+
+You can also run any ROS 2 commands as you normally would. For example, to
+launch the `tabletop_tasks` node, you can run:
+```bash
+ros2 launch tabletop_tasks run_tasks.launch.py --task_config:=<path_to_task_config> use_mock_teensy:=<true|false>
+```
+
 
 ## Project Structure
 
@@ -328,12 +422,13 @@ Contributions are welcome! To contribute, follow these steps:
     button.
 2. Clone the forked repository to your local machine using the command
     `git clone <url>`.
-3. Create a new branch for your changes using the command
+3. Install the dependencies using the command `pip install -r requirements-dev.txt`.
+4. Create a new branch for your changes using the command
     `git checkout -b <branch-name>`.
-4. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
+5. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
     and push them to your forked repository using the command
     `git push origin <branch-name>`.
-5. Create a pull request to the original repository by clicking the
+6. Create a pull request to the original repository by clicking the
     "New pull request" button.
 
 Please follow the coding standards and best practices described in the
@@ -341,3 +436,33 @@ Please follow the coding standards and best practices described in the
 
 ## License
 MIT License
+
+## FAQ
+
+### What units are used?
+We follow [REP 103](https://www.ros.org/reps/rep-0103.html) for unit conventions.
+In particular, we use meters for length, seconds for time, and radians for angles.
+
+### What is a common workflow for developing in the Dev Container?
+After starting the Dev Container, make sure to update your bashrc file if
+you are using the noVNC display:
+```bash
+./scripts/bashrc_update.sh --display novnc
+```
+Then, you can build the project:
+```bash
+./scripts/build.sh [--clean]
+```
+You must then open a new terminal to see the changes take effect.
+
+You can now run any ROS 2 commands as you normally would. For example, to
+launch the `tabletop_tasks` node, you can run:
+```bash
+ros2 launch tabletop_tasks run_tasks.launch.py [--task_config_file <path_to_task_config>] [use_mock_teensy:=<true|false>] ...
+```
+
+If you make major changes to the software (e.g. adding new files or folders),
+you may need to rebuild the project:
+```bash
+./scripts/build.sh --clean
+```

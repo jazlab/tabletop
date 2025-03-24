@@ -1,57 +1,87 @@
 planning_scene_monitor_options:
-  name: "planning_scene_monitor"
-  robot_description: "robot_description"
-  joint_state_topic: "/joint_states"
-  attached_collision_object_topic: "/moveit_cpp/planning_scene_monitor"
-  publish_planning_scene_topic: "/moveit_cpp/publish_planning_scene"
-  monitored_planning_scene_topic: "/moveit_cpp/monitored_planning_scene"
-  wait_for_initial_state_timeout: 100.0
+  name: planning_scene_monitor
+  robot_description: robot_description
+  joint_state_topic: /joint_states
+  attached_collision_object_topic: /planning_scene_monitor
+  publish_planning_scene_topic: /publish_planning_scene
+  monitored_planning_scene_topic: /monitored_planning_scene
+  wait_for_initial_state_timeout: 10.0
 
 planning_pipelines:
-  pipeline_names: ["ompl", "chomp", "stomp"]
+  pipeline_names:
+    - ompl
+    - chomp
+    - stomp
 
 plan_request_params:
   planning_attempts: 10 # Number of attempts the planning pipeline tries to solve a given motion planning problem
   planning_pipeline: ompl # Name of the pipeline that is being used
-  planner_id: "PersistentPRMstar" # Name of the specific planner to be used by the pipeline
+  planner_id: PersistentPRMstar # Name of the specific planner to be used by the pipeline
   planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
-  max_velocity_scaling_factor: 0.3
+  max_velocity_scaling_factor: 0.5
   max_acceleration_scaling_factor: 0.5
+
+ompl_aps_not_persistent:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSNotPersistent
+    planning_time: 5.0
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+
+ompl_aps_persistent:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSPersistent
+    planning_time: 5.0
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+
+ompl_aps_rrtc:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSRRTConnect
+    planning_time: 0.5
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
 
 ompl_rrtc:
   plan_request_params:
     planning_attempts: 8
     planning_pipeline: ompl
-    planner_id: "RRTConnect"
-    planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    planner_id: RRTConnect
+    planning_time: 5.0
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
 ompl_rrt_star:
   plan_request_params:
     planning_attempts: 8
     planning_pipeline: ompl
-    planner_id: "RRTstar"
-    planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    planner_id: RRTstar
+    planning_time: 5.0
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
 ompl_prm_star:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: ompl
-    planner_id: "PersistentPRMstar"
+    planner_id: PersistentPRMstar
     planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
 ompl_loading_prm:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: ompl
-    planner_id: "PersistentLoadingPRM"
+    planner_id: PersistentLoadingPRM
     planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
 chomp_planner:
@@ -59,7 +89,7 @@ chomp_planner:
     planning_attempts: 1
     planning_pipeline: chomp
     planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
 stomp_planner:
@@ -67,5 +97,5 @@ stomp_planner:
     planning_attempts: 1
     planning_pipeline: stomp
     planning_time: 1.0
-    max_velocity_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5

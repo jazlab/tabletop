@@ -3,7 +3,7 @@
 	"tasks": [
 		{
 			"type": "shell",
-			"label": "build_debug",
+			"label": "tabletop_build_debug",
 			"command": "./scripts/build.sh --debug",
 			"problemMatcher": [
 				"$catkin-gcc"
@@ -15,7 +15,7 @@
 		},
 		{
 			"type": "shell",
-			"label": "build_release",
+			"label": "tabletop_build_release",
 			"command": "./scripts/build.sh",
 			"problemMatcher": [
 				"$catkin-gcc"
@@ -24,6 +24,33 @@
 				"kind": "build",
 				"isDefault": true
 			}
+		},
+		{
+			"type": "shell",
+			"label": "launch_server",
+			"command": "ros2 launch tabletop_server server.launch.py",
+			"problemMatcher": [],
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			}
+		},
+		{
+			"type": "shell",
+			"label": "view_mesh",
+			"command": "./scripts/view_mesh.py",
+			"args": [
+				"${file}"
+			],
+			"problemMatcher": [],
+			"group": "none"
+		},
+		{
+			"type": "shell",
+			"label": "clean_build_artifacts",
+			"command": "./scripts/clean_build_artifacts.sh",
+			"problemMatcher": [],
+			"group": "none"
 		}
 	]
 }
