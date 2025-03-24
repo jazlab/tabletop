@@ -29,10 +29,7 @@
 #
 # Author: Felix Exner
 import os
-from pathlib import Path
 
-import yaml
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
@@ -43,24 +40,22 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
-def load_yaml(package_name, file_path):
-    package_path = get_package_share_directory(package_name)
-    absolute_file_path = os.path.join(package_path, file_path)
-
-    try:
-        with open(absolute_file_path) as file:
-            return yaml.safe_load(file)
-    except (
-        OSError
-    ):  # parent of IOError, OSError *and* WindowsError where available
-        return None
-
-
 def declare_arguments():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
                 "launch_rviz", default_value="true", description="Launch RViz?"
+            ),
+            DeclareLaunchArgument(
+                "rviz_config_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("tabletop_moveit_config"),
+                        "rviz",
+                        "moveit.rviz",
+                    ]
+                ),
+                description="Path to RViz config file",
             ),
             DeclareLaunchArgument(
                 "ur_type",
@@ -83,11 +78,6 @@ def declare_arguments():
                 description="Path where the warehouse database should be stored",
             ),
             DeclareLaunchArgument(
-                "launch_servo",
-                default_value="false",
-                description="Launch Servo?",
-            ),
-            DeclareLaunchArgument(
                 "use_sim_time",
                 default_value="false",
                 description="Using or not time from simulation",
@@ -103,9 +93,9 @@ def declare_arguments():
 
 def generate_launch_description():
     launch_rviz = LaunchConfiguration("launch_rviz")
+    rviz_config_file = LaunchConfiguration("rviz_config_file")
     ur_type = LaunchConfiguration("ur_type")
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
-    launch_servo = LaunchConfiguration("launch_servo")
     use_sim_time = LaunchConfiguration("use_sim_time")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
@@ -116,7 +106,7 @@ def generate_launch_description():
             robot_name="ur", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            Path("srdf") / "ur.srdf.xacro", {"name": ur_type}
+            os.path.join("srdf", "tabletop.srdf.xacro"), {"name": ur_type}
         )
         .to_moveit_configs()
     )
@@ -150,22 +140,6 @@ def generate_launch_description():
         ],
     )
 
-    servo_yaml = load_yaml("tabletop_moveit_config", "config/ur_servo.yaml")
-    servo_params = {"moveit_servo": servo_yaml}
-    servo_node = Node(
-        package="moveit_servo",
-        condition=IfCondition(launch_servo),
-        executable="servo_node",
-        parameters=[
-            moveit_config.to_dict(),
-            servo_params,
-        ],
-        output="screen",
-    )
-
-    rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare("tabletop_moveit_config"), "config", "moveit.rviz"]
-    )
     rviz_node = Node(
         package="rviz2",
         condition=IfCondition(launch_rviz),
@@ -190,7 +164,7 @@ def generate_launch_description():
         RegisterEventHandler(
             OnProcessExit(
                 target_action=wait_robot_description,
-                on_exit=[move_group_node, rviz_node, servo_node],
+                on_exit=[move_group_node, rviz_node],
             )
         ),
     )

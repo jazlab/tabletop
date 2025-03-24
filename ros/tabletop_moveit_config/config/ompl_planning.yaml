@@ -167,17 +167,33 @@ planner_configs:
     store_planner_data: 0
     load_planner_data: 1
     planner_data_path: /root/ws/src/tabletop/ros/tabletop_moveit_config/lazyprmstar.graph
-  APS:
+  APSNotPersistent:
     type: geometric::AnytimePathShortening
-    shortcut: true # Attempt to shortcut all new solution paths
-    hybridize: true # Compute hybrid solution trajectories
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 36 # Number of hybrid paths generated per iteration
     num_planners: 4 # The number of default planners to use for planning
     termination_condition: CostConvergence[10,0.1]
     # A comma-separated list of planner types (e.g., "PRM,EST,RRTConnect")
     # Optionally, planner parameters can be passed to change the default:
     # "PRM[max_nearest_neighbors=5],EST[goal_bias=.5],RRT[range=10. goal_bias=.1]"
-    planners: "RRTConnect,RRTstar,PRMstar,BFMT"
+    planners: RRTConnect,RRTConnect,RRTstar[range=0.0 goal_bias=0.05],TRRT
+  APSPersistent:
+    type: geometric::AnytimePathShortening
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
+    max_hybrid_paths: 36 # Number of hybrid paths generated per iteration
+    num_planners: 4 # The number of default planners to use for planning
+    termination_condition: CostConvergence[10,0.1]
+    planners: PersistentPRMstar,PersistentLoadingPRM
+  APSRRTConnect:
+    type: geometric::AnytimePathShortening
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
+    max_hybrid_paths: 36 # Number of hybrid paths generated per iteration
+    num_planners: 8 # The number of default planners to use for planning
+    # termination_condition: CostConvergence[10,0.1]
+    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
 
 ur_manipulator:
   planner_configs:
@@ -209,6 +225,9 @@ ur_manipulator:
     - PersistentLoadingPRM
     - PersistentLazyPRMstar
     - PersistentLoadingLazyPRM
-    - APS
-  projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
-  enforce_constrained_state_space: true
+    - APSNotPersistent
+    - APSPersistent
+    - APSRRTConnect
+  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint,elbow_joint)
+  # enforce_constrained_state_space: true
+  longest_valid_segment_fraction: 0.005

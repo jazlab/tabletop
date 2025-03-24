@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:macro name="sphere"
+    params="
+    tf_prefix
+    parent
+    *origin
+    radius
+    mass
+    ">
+
+    <link name="${tf_prefix}sphere">
+      <collision>
+        <geometry>
+          <sphere radius="${radius}" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </collision>
+    </link>
+
+    <joint name="${parent}-sphere" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}" />
+      <child link="${tf_prefix}sphere" />
+    </joint>
+
+  </xacro:macro>
+
+</robot>

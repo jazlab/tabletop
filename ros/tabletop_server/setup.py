@@ -23,6 +23,10 @@ setup(
             os.path.join("share", package_name, "config"),
             glob(os.path.join("config", "*.*")),
         ),
+        (
+            os.path.join("share", package_name, "rviz"),
+            glob(os.path.join("rviz", "*.*")),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -33,10 +37,10 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "commander = tabletop_server.nodes.commander:main",
-            "sensor = tabletop_server.nodes.sensor:main",
-            "camera = tabletop_server.nodes.camera:main",
+            "example_commander = tabletop_server.nodes.commander:main",
             "mock_teensy = tabletop_server.nodes.mock_teensy:main",
+            "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
+            "flic = tabletop_server.nodes.flic:main",
         ],
     },
 )

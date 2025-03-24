@@ -1,0 +1,4 @@
+---
+bool success
+uint64 last_time_pressed_ms
+string message

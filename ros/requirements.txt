@@ -1,0 +1,4 @@
+pyfqmr
+pyglet<2
+ros2-graph
+trimesh[easy]

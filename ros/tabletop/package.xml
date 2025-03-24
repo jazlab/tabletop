@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+    <name>tabletop</name>
+    <version>0.0.0</version>
+    <description>
+        Meta package for ROS2 related packages in the TableTop project.
+    </description>
+
+    <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
+    <license>MIT</license>
+
+
+    <exec_depend>tabletop_description</exec_depend>
+    <exec_depend>tabletop_server</exec_depend>
+    <exec_depend>tabletop_tasks</exec_depend>
+    <exec_depend>tabletop_msgs</exec_depend>
+    <exec_depend>tabletop_moveit_config</exec_depend>
+
+
+    <export>
+        <metapackage />
+    </export>
+</package>

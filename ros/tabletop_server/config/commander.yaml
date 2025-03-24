@@ -3,93 +3,55 @@
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    state_machine_period: 1.0
-    max_plan_attempts: 5
+    max_plan_attempts: 20
     max_execution_attempts: 3
-    max_reset_attempts: 3
 
     dashboard:
       installation: default.installation
       program: external_control.urp
-      connect_timeout: 5.0
+      init_timeout: 5.0
+
+    rig:
+      init_timeout: 20.0
+
+    teensy:
+      spin_period_s: 0.1
+
+    flic:
+      spin_period_s: 0.1
 
     planning:
       group_name: ur_manipulator
+      pipeline: ompl_aps_rrtc
       pose_link: eef
-      pipeline: ["ompl_rrt_star", "ompl_rrtc"]
+      eef_link: eef_link
+      object_touch_links:
+        - eef_link
+      idle_pose:
+        position: [0.3, 0.6, 0.6]
+        rpy: [0.0, 0.0, 1.5707]
+      pre_fetch_offset: [-0.05, 0.0, -0.01]
+      pre_attach_offset: [-0.05, 0.0, 0.0]
+      post_attach_offset: [0.05, 0.0, 0.0]
 
-    waypoints:
-      path:
-        - object_area
-        - object_grab
-        - object_area
-        - monkey_area_1
-        - monkey_area_2
-        - object_area
-        - object_grab
-        - object_area
-      poses_stamped:
-        init:
-          header:
-            frame_id: world
-          pose:
-            position:
-              x: 0.1
-              y: 0.1
-              z: 0.8
-            orientation:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
-
-        object_area:
-          header:
-            frame_id: world
-          pose:
-            position:
-              x: 0.3
-              y: 0.6
-              z: 0.6
-            orientation:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
-
-        object_grab:
-          header:
-            frame_id: world
-          pose:
-            position:
-              x: 0.3
-              y: 0.65
-              z: 0.6
-            orientation:
-              roll: 0.0
-              pitch: 0.0
-              yaw: 1.5707
-
-        monkey_area_1:
-          header:
-            frame_id: world
-          pose:
-            position:
-              x: -0.2
-              y: -0.5
-              z: 0.8
-            orientation:
-              roll: 0.4
-              pitch: -0.1
-              yaw: -1.5707
-
-        monkey_area_2:
-          header:
-            frame_id: world
-          pose:
-            position:
-              x: 0.2
-              y: -0.5
-              z: 0.7
-            orientation:
-              roll: -0.4
-              pitch: 0.1
-              yaw: -1.5707
+    planning_scene:
+      # TODO: Maybe combine static and dynamic meshes
+      static_meshes:
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
+        scale: 1.0
+        simplification: bounding_primitive
+        color: pink
+        correction:
+          position: [0.0, 0.0, 0.0]
+          rpy: [0.0, 0.0, 1.5707]
+      dynamic_meshes:
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic_dae/
+        scale: 0.001
+        simplification: convex_hull
+        color: orange
+        poses: # In meters
+          complex_object:
+            position: [-0.1, 0.4, 0.8]
+          simple_object:
+            position: [0.1, 0.3, 0.8]
+    # - [simple_object, ...]
