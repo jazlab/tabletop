@@ -26,8 +26,7 @@
                 "ms-vscode.cpptools-themes",
                 "ms-vscode.cmake-tools",
                 "IronGeek.vscode-env",
-                "platformio.platformio-ide",
-                "twxs.cmake"
+                "platformio.platformio-ide"
             ]
         }
     }

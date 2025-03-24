@@ -8,7 +8,13 @@
 #include <std_msgs/msg/string.h>
 #include <std_srvs/srv/set_bool.h>
 #include <tabletop_msgs/msg/teensy_sensor.h>
-#include <tabletop_msgs/srv/set_uint32.h>
+#include <tabletop_msgs/srv/get_arm_door.h>
+#include <tabletop_msgs/srv/get_hand_fixation.h>
+#include <tabletop_msgs/srv/get_reward.h>
+#include <tabletop_msgs/srv/get_smartglass.h>
+#include <tabletop_msgs/srv/set_arm_door.h>
+#include <tabletop_msgs/srv/set_reward.h>
+#include <tabletop_msgs/srv/set_smartglass.h>
 
 #if !defined(MICRO_ROS_TRANSPORT_ARDUINO_SERIAL)
 #  error This code only supports serial transport.
@@ -40,10 +46,20 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
     0,
     NULL};
 
-#define ARM_DOOR_SRV_NAME "/teensy/arm_door"
-#define SMARTGLASS_SRV_NAME "/teensy/smartglass"
-#define REWARD_SRV_NAME "/teensy/reward"
+// ROS2 topics
+
 #define SENSORS_TOPIC "/teensy/sensors"
+#define LOG_TOPIC "/teensy/log"
+
+// ROS2 services
+
+#define SET_ARM_DOOR_SRV_NAME "/teensy/set_arm_door"
+#define GET_ARM_DOOR_SRV_NAME "/teensy/get_arm_door"
+#define SET_SMARTGLASS_SRV_NAME "/teensy/set_smartglass"
+#define GET_SMARTGLASS_SRV_NAME "/teensy/get_smartglass"
+#define SET_REWARD_SRV_NAME "/teensy/set_reward"
+#define GET_REWARD_SRV_NAME "/teensy/get_reward"
+#define GET_HAND_FIXATION_SRV_NAME "/teensy/get_hand_fixation"
 
 // Execution parameters
 
@@ -56,8 +72,8 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
   10                                   // Timeout for agent reconnection, in ms
 #define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
 #define SYNC_PULSE_BASE_PERIOD_MS 1000 // Base period between sync pulses, in ms
-// Range of jitter in the base period, in ms
-#define SYNC_PULSE_DELAY_RANGE_MS 200
+#define SYNC_PULSE_DELAY_RANGE_MS \
+  200                              // Range of jitter in the base period, in ms
 #define SYNC_PULSE_DURATION_MS 100 // Duration of each sync pulse, in ms
 
 // Agent reconnection parameters
@@ -70,9 +86,13 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 rcl_publisher_t sensor_publisher;
 rcl_publisher_t log_publisher;
 
-rcl_service_t arm_door_service;
-rcl_service_t smartglass_service;
-rcl_service_t reward_service;
+rcl_service_t set_arm_door_service;
+rcl_service_t get_arm_door_service;
+rcl_service_t set_smartglass_service;
+rcl_service_t get_smartglass_service;
+rcl_service_t set_reward_service;
+rcl_service_t get_reward_service;
+rcl_service_t get_hand_fixation_service;
 
 rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
@@ -88,12 +108,20 @@ rclc_executor_t executor;
 tabletop_msgs__msg__TeensySensor sensor_msg;
 std_msgs__msg__String log_msg;
 
-std_srvs__srv__SetBool_Request arm_door_request;
-std_srvs__srv__SetBool_Response arm_door_response;
-std_srvs__srv__SetBool_Request smartglass_request;
-std_srvs__srv__SetBool_Response smartglass_response;
-tabletop_msgs__srv__SetUint32_Request reward_request;
-tabletop_msgs__srv__SetUint32_Response reward_response;
+tabletop_msgs__srv__SetArmDoor_Request set_arm_door_request;
+tabletop_msgs__srv__SetArmDoor_Response set_arm_door_response;
+tabletop_msgs__srv__GetArmDoor_Request get_arm_door_request;
+tabletop_msgs__srv__GetArmDoor_Response get_arm_door_response;
+tabletop_msgs__srv__SetSmartglass_Request set_smartglass_request;
+tabletop_msgs__srv__SetSmartglass_Response set_smartglass_response;
+tabletop_msgs__srv__GetSmartglass_Request get_smartglass_request;
+tabletop_msgs__srv__GetSmartglass_Response get_smartglass_response;
+tabletop_msgs__srv__SetReward_Request set_reward_request;
+tabletop_msgs__srv__SetReward_Response set_reward_response;
+tabletop_msgs__srv__GetReward_Request get_reward_request;
+tabletop_msgs__srv__GetReward_Response get_reward_response;
+tabletop_msgs__srv__GetHandFixation_Request get_hand_fixation_request;
+tabletop_msgs__srv__GetHandFixation_Response get_hand_fixation_response;
 
 static uint8_t agent_reconnect_retries;
 
@@ -105,6 +133,10 @@ static enum states {
   AGENT_DISCONNECTED,
   CLIENT_ERROR
 } state;
+
+// State tracking
+int64_t hand_fixation_last_time_pressed_ms;
+int64_t hand_fixation_last_time_released_ms;
 
 // Macro definitions
 
@@ -252,6 +284,14 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
     sensor_msg.arm_door_state = digitalRead(ARM_DOOR_STATE_PIN);
     sensor_msg.smartglass_state = digitalRead(SMARTGLASS_STATE_PIN);
     sensor_msg.fixation_button_state = digitalRead(HAND_FIXATION_STATE_PIN);
+
+    // Update hand fixation timestamps
+    if (sensor_msg.fixation_button_state) {
+      hand_fixation_last_time_pressed_ms = rmw_uros_epoch_millis();
+    } else {
+      hand_fixation_last_time_released_ms = rmw_uros_epoch_millis();
+    }
+
     for (int i = 0; i < 5; i++) {
       sensor_msg.tactile_glove_states[i] = analogRead(GLOVE_STATE_PINS[i]);
     }
@@ -274,69 +314,135 @@ void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   }
 }
 
+// Service callback for get_arm_door
+void get_arm_door_callback(const void* req, void* res) {
+  tabletop_msgs__srv__GetArmDoor_Request* request =
+      (tabletop_msgs__srv__GetArmDoor_Request*) req;
+  tabletop_msgs__srv__GetArmDoor_Response* response =
+      (tabletop_msgs__srv__GetArmDoor_Response*) res;
+
+  LOG("Get arm door callback started");
+
+  response->is_open = digitalRead(ARM_DOOR_STATE_PIN);
+  response->success = true;
+  STRING_SET(&response->message, "Arm door is %s",
+             response->is_open ? "open" : "closed");
+  LOG(response->message.data);
+}
+
+// Service callback for get_smartglass
+void get_smartglass_callback(const void* req, void* res) {
+  tabletop_msgs__srv__GetSmartglass_Request* request =
+      (tabletop_msgs__srv__GetSmartglass_Request*) req;
+  tabletop_msgs__srv__GetSmartglass_Response* response =
+      (tabletop_msgs__srv__GetSmartglass_Response*) res;
+
+  LOG("Get smartglass callback started");
+
+  response->is_revealed = digitalRead(SMARTGLASS_STATE_PIN);
+  response->success = true;
+  STRING_SET(&response->message, "Smartglass is %s",
+             response->is_revealed ? "revealed" : "occluded");
+  LOG(response->message.data);
+}
+
+// Service callback for get_reward
+void get_reward_callback(const void* req, void* res) {
+  tabletop_msgs__srv__GetReward_Request* request =
+      (tabletop_msgs__srv__GetReward_Request*) req;
+  tabletop_msgs__srv__GetReward_Response* response =
+      (tabletop_msgs__srv__GetReward_Response*) res;
+
+  LOG("Get reward callback started");
+
+  response->is_active = digitalRead(REWARD_CONTROL_PIN);
+  response->success = true;
+  STRING_SET(&response->message, "Reward is %s",
+             response->is_active ? "active" : "inactive");
+  LOG(response->message.data);
+}
+
+// Service callback for get_hand_fixation
+void get_hand_fixation_callback(const void* req, void* res) {
+  tabletop_msgs__srv__GetHandFixation_Request* request =
+      (tabletop_msgs__srv__GetHandFixation_Request*) req;
+  tabletop_msgs__srv__GetHandFixation_Response* response =
+      (tabletop_msgs__srv__GetHandFixation_Response*) res;
+
+  LOG("Get hand fixation callback started");
+
+  response->is_pressed = digitalRead(HAND_FIXATION_STATE_PIN);
+  response->last_time_pressed_ms = hand_fixation_last_time_pressed_ms;
+  response->last_time_released_ms = hand_fixation_last_time_released_ms;
+  response->success = true;
+  STRING_SET(&response->message, "Hand fixation is %s",
+             response->is_pressed ? "pressed" : "released");
+  LOG(response->message.data);
+}
+
+// Service callback for arm_door
+void set_arm_door_callback(const void* req, void* res) {
+  tabletop_msgs__srv__SetArmDoor_Request* request =
+      (tabletop_msgs__srv__SetArmDoor_Request*) req;
+  tabletop_msgs__srv__SetArmDoor_Response* response =
+      (tabletop_msgs__srv__SetArmDoor_Response*) res;
+
+  LOG("Set arm door callback started");
+
+  digitalWrite(ARM_DOOR_CONTROL_PIN, request->is_open);
+  STRING_SET(&response->message, "Arm door %s started",
+             request->is_open ? "open" : "close");
+  LOG(response->message.data);
+  response->success = true;
+}
+
+// Service callback for smartglass
+void set_smartglass_callback(const void* req, void* res) {
+  tabletop_msgs__srv__SetSmartglass_Request* request =
+      (tabletop_msgs__srv__SetSmartglass_Request*) req;
+  tabletop_msgs__srv__SetSmartglass_Response* response =
+      (tabletop_msgs__srv__SetSmartglass_Response*) res;
+
+  LOG("Set smartglass callback started");
+
+  digitalWrite(SMARTGLASS_CONTROL_PIN, request->is_revealed);
+  STRING_SET(&response->message, "Smartglass %s started",
+             request->is_revealed ? "reveal" : "occlude");
+  LOG(response->message.data);
+  response->success = true;
+}
+
 // Service callback for reward
-void reward_callback(const void* req, void* res) {
-  tabletop_msgs__srv__SetUint32_Request* request =
-      (tabletop_msgs__srv__SetUint32_Request*) req;
-  tabletop_msgs__srv__SetUint32_Response* response =
-      (tabletop_msgs__srv__SetUint32_Response*) res;
+void set_reward_callback(const void* req, void* res) {
+  tabletop_msgs__srv__SetReward_Request* request =
+      (tabletop_msgs__srv__SetReward_Request*) req;
+  tabletop_msgs__srv__SetReward_Response* response =
+      (tabletop_msgs__srv__SetReward_Response*) res;
 
-  LOG("Reward service callback started");
+  LOG("Set reward callback started");
 
-  uint32_t duration_ms = request->data;
+  bool timer_is_canceled;
+  RCASSERT(rcl_timer_is_canceled(&reward_timer, &timer_is_canceled),
+           "Failed to check if reward timer is canceled");
+  if (!timer_is_canceled) {
+    response->success = false;
+    STRING_SET(&response->message, "Reward already active!");
+    LOG(response->message.data);
+    return;
+  }
+
+  uint32_t duration_ms = request->duration_ms;
   int64_t old_period;
 
   RCASSERT(rcl_timer_exchange_period(&reward_timer, RCL_MS_TO_NS(duration_ms),
                                      &old_period),
            "Failed to exchange reward timer period");
   RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
+
   digitalWrite(REWARD_CONTROL_PIN, HIGH);
-
   STRING_SET(&response->message, "Reward started for %lu ms", duration_ms);
+  LOG(response->message.data);
   response->success = true;
-
-  LOG("Reward service callback completed");
-}
-
-// Service callback for arm_door
-void arm_door_callback(const void* req, void* res) {
-  std_srvs__srv__SetBool_Request* request =
-      (std_srvs__srv__SetBool_Request*) req;
-  std_srvs__srv__SetBool_Response* response =
-      (std_srvs__srv__SetBool_Response*) res;
-
-  LOG("Arm door callback started");
-
-  digitalWrite(ARM_DOOR_CONTROL_PIN, request->data);
-  if (request->data) {
-    STRING_SET(&response->message, "Arm door opened");
-    LOG("Arm door opened");
-  } else {
-    STRING_SET(&response->message, "Arm door closed");
-    LOG("Arm door closed");
-  }
-  response->success = true;
-}
-
-// Service callback for smartglass
-void smartglass_callback(const void* req, void* res) {
-  std_srvs__srv__SetBool_Request* request =
-      (std_srvs__srv__SetBool_Request*) req;
-  std_srvs__srv__SetBool_Response* response =
-      (std_srvs__srv__SetBool_Response*) res;
-
-  LOG("Smartglass callback started");
-
-  digitalWrite(SMARTGLASS_CONTROL_PIN, request->data);
-  if (request->data) {
-    STRING_SET(&response->message, "Smartglass revealed");
-    LOG("Smartglass revealed");
-  } else {
-    STRING_SET(&response->message, "Smartglass occluded");
-    LOG("Smartglass occluded");
-  }
-  response->success = true;
-  LOG("Smartglass callback completed");
 }
 
 bool create_entities() {
@@ -356,25 +462,42 @@ bool create_entities() {
   RCCHECK(rclc_publisher_init_best_effort(
       &sensor_publisher, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, msg, TeensySensor),
-      "teensy/sensors"));
+      SENSORS_TOPIC));
   RCCHECK(rclc_publisher_init_default(
       &log_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
-      "teensy/log"));
+      LOG_TOPIC));
   // can now log to the ROS2 teensy/log topic
   LOG("Publishers initialized");
 
   // create services
   RCCHECK(rclc_service_init_default(
-      &arm_door_service, &node,
-      ROSIDL_GET_SRV_TYPE_SUPPORT(std_srvs, srv, SetBool), "teensy/arm_door"));
+      &set_arm_door_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetArmDoor),
+      SET_ARM_DOOR_SRV_NAME));
   RCCHECK(rclc_service_init_default(
-      &smartglass_service, &node,
-      ROSIDL_GET_SRV_TYPE_SUPPORT(std_srvs, srv, SetBool),
-      "teensy/smartglass"));
+      &get_arm_door_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, GetArmDoor),
+      GET_ARM_DOOR_SRV_NAME));
   RCCHECK(rclc_service_init_default(
-      &reward_service, &node,
-      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetUint32),
-      "teensy/reward"));
+      &set_smartglass_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetSmartglass),
+      SET_SMARTGLASS_SRV_NAME));
+  RCCHECK(rclc_service_init_default(
+      &get_smartglass_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, GetSmartglass),
+      GET_SMARTGLASS_SRV_NAME));
+  RCCHECK(rclc_service_init_default(
+      &set_reward_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetReward),
+      SET_REWARD_SRV_NAME));
+  RCCHECK(rclc_service_init_default(
+      &get_reward_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, GetReward),
+      GET_REWARD_SRV_NAME));
+  RCCHECK(rclc_service_init_default(
+      &get_hand_fixation_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, GetHandFixation),
+      GET_HAND_FIXATION_SRV_NAME));
   LOG("Services initialized");
 
   // create timers
@@ -395,21 +518,41 @@ bool create_entities() {
   LOG("Timers initialized");
 
   // create executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 8, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 12, &allocator));
+
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
-  RCCHECK(rclc_executor_add_service(&executor, &reward_service, &reward_request,
-                                    &reward_response, &reward_callback));
-  RCCHECK(rclc_executor_add_service(&executor, &arm_door_service,
-                                    &arm_door_request, &arm_door_response,
-                                    &arm_door_callback));
-  RCCHECK(rclc_executor_add_service(&executor, &smartglass_service,
-                                    &smartglass_request, &smartglass_response,
-                                    &smartglass_callback));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
+
+  RCCHECK(rclc_executor_add_service(
+      &executor, &set_arm_door_service, &set_arm_door_request,
+      &set_arm_door_response, &set_arm_door_callback));
+  RCCHECK(rclc_executor_add_service(
+      &executor, &get_arm_door_service, &get_arm_door_request,
+      &get_arm_door_response, &get_arm_door_callback));
+  RCCHECK(rclc_executor_add_service(
+      &executor, &set_smartglass_service, &set_smartglass_request,
+      &set_smartglass_response, &set_smartglass_callback));
+  RCCHECK(rclc_executor_add_service(
+      &executor, &get_smartglass_service, &get_smartglass_request,
+      &get_smartglass_response, &get_smartglass_callback));
+  RCCHECK(rclc_executor_add_service(&executor, &set_reward_service,
+                                    &set_reward_request, &set_reward_response,
+                                    &set_reward_callback));
+  RCCHECK(rclc_executor_add_service(&executor, &get_reward_service,
+                                    &get_reward_request, &get_reward_response,
+                                    &get_reward_callback));
+  RCCHECK(rclc_executor_add_service(
+      &executor, &get_hand_fixation_service, &get_hand_fixation_request,
+      &get_hand_fixation_response, &get_hand_fixation_callback));
+
   LOG("Executor initialized");
+
+  RCCHECK(rmw_uros_sync_session(1000));
+
+  LOG("Session synced");
 
   return true;
 }
@@ -428,9 +571,13 @@ void destroy_entities() {
   RCSOFTCHECK(rcl_timer_fini(&sync_pulse_end_timer));
   RCSOFTCHECK(rcl_timer_fini(&sensor_timer));
   RCSOFTCHECK(rcl_timer_fini(&reward_timer));
-  RCSOFTCHECK(rcl_service_fini(&arm_door_service, &node));
-  RCSOFTCHECK(rcl_service_fini(&smartglass_service, &node));
-  RCSOFTCHECK(rcl_service_fini(&reward_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&set_arm_door_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&get_arm_door_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&set_smartglass_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&get_smartglass_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&set_reward_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&get_reward_service, &node));
+  RCSOFTCHECK(rcl_service_fini(&get_hand_fixation_service, &node));
   RCSOFTCHECK(rclc_executor_fini(&executor));
   RCSOFTCHECK(rcl_node_fini(&node));
   RCSOFTCHECK(rclc_support_fini(&support));
@@ -454,7 +601,6 @@ void setup() {
   // Initialize input pins
   pinMode(ARM_DOOR_STATE_PIN, INPUT);
   pinMode(SMARTGLASS_STATE_PIN, INPUT);
-  pinMode(REWARD_STATE_PIN, INPUT);
   pinMode(HAND_FIXATION_STATE_PIN, INPUT);
 
   printf("Pins initialized\n");
@@ -464,16 +610,32 @@ void setup() {
   sync_pulse_state = false;
   state = WAITING_AGENT;
 
+  // Initialize state tracking
+  hand_fixation_last_time_pressed_ms = rmw_uros_epoch_millis();
+  hand_fixation_last_time_released_ms = rmw_uros_epoch_millis();
+
   // create message memories
   bool success = micro_ros_utilities_create_message_memory(
-      ROSIDL_GET_MSG_TYPE_SUPPORT(std_srvs, srv, SetBool_Response),
-      &arm_door_response, memory_conf);
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetArmDoor_Response),
+      &set_arm_door_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
-      ROSIDL_GET_MSG_TYPE_SUPPORT(std_srvs, srv, SetBool_Response),
-      &smartglass_response, memory_conf);
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, GetArmDoor_Response),
+      &get_arm_door_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
-      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetUint32_Response),
-      &reward_response, memory_conf);
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetSmartglass_Response),
+      &set_smartglass_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, GetSmartglass_Response),
+      &get_smartglass_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetReward_Response),
+      &set_reward_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, GetReward_Response),
+      &get_reward_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, GetHandFixation_Response),
+      &get_hand_fixation_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String), &log_msg,
       memory_conf);

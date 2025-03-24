@@ -26,3 +26,10 @@ ros2 launch tabletop_description view_robot.launch.py
 ```bash
 ros2 launch tabletop_tasks run_tasks.launch.py
 ```
+
+4. If you change the teensy code, make sure the `executor` is initialized with
+the correct number of handles and that `colcon.meta` is updated with the
+correct number of each type of handle. Then rebuild using:
+```bash
+./scripts/teensy_build.sh
+```

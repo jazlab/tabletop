@@ -1,6 +1,6 @@
 ---
 bool success
 bool is_pressed
-uint64 last_time_pressed_ms
-uint64 last_time_released_ms
+int64 last_time_pressed_ms
+int64 last_time_released_ms
 string message
