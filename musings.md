@@ -33,3 +33,9 @@ correct number of each type of handle. Then rebuild using:
 ```bash
 ./scripts/teensy_build.sh
 ```
+5. To disable and stop bluetooth on host machine, run:
+```bash
+sudo systemctl disable bluetooth
+sudo systemctl stop bluetooth
+```
+To stop it from restarting on boot, edit the `/etc/bluetooth/main.conf` file and set `AutoEnable=false`.

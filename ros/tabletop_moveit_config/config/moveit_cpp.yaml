@@ -21,6 +21,15 @@ plan_request_params:
   max_velocity_scaling_factor: 0.5
   max_acceleration_scaling_factor: 0.5
 
+pilz_industrial_motion_planner:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: pilz_industrial_motion_planner
+    planner_id: LIN
+    planning_time: 0.5
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+
 ompl_aps_not_persistent:
   plan_request_params:
     planning_attempts: 1
