@@ -65,7 +65,6 @@ services:
     image: tabletop-server
     volumes:
       - ../..:/root/ws
-      - ${MOVEIT_WS_DIR:-$HOME/moveit_ws}:/root/moveit_ws
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11

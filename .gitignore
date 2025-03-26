@@ -23,3 +23,6 @@
 
 # Ignore cursor files
 **/.cursorignore
+
+# Ignore meshes
+**/meshes/test/

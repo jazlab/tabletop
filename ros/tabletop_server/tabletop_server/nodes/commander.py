@@ -275,6 +275,8 @@ class Commander(BaseNode):
         self.dashboard_trigger("/dashboard_client/close_popup")
         self.dashboard_trigger("/dashboard_client/close_safety_popup")
         self.dashboard_trigger("/dashboard_client/play")
+        self.dashboard_trigger("/dashboard_client/close_popup")
+        self.dashboard_trigger("/dashboard_client/close_safety_popup")
 
     @asyncio_task_decorator
     async def reset_dashboard_async(self):
@@ -300,6 +302,10 @@ class Commander(BaseNode):
             "/dashboard_client/close_safety_popup"
         )
         await self.dashboard_trigger_async("/dashboard_client/play")
+        await self.dashboard_trigger_async("/dashboard_client/close_popup")
+        await self.dashboard_trigger_async(
+            "/dashboard_client/close_safety_popup"
+        )
 
     def init_dashboard(self, timeout_s: Optional[float] = None):
         """
@@ -647,6 +653,7 @@ class Commander(BaseNode):
         self,
         goal: PoseStamped | str,
         pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
     ) -> MotionPlanResponse:
         """
         Plan a trajectory to the given waypoint once.
@@ -685,34 +692,43 @@ class Commander(BaseNode):
         # Set start state to current state
         self.planning_component.set_start_state_to_current_state()
 
+        if planning_pipeline is None:
+            planning_pipeline = self.get_parameter_wrapper("planning.pipeline")
+
         # Plan
-        if self.get_parameter_wrapper("planning.pipeline") == "default":
-            return self.planning_component.plan()
-        else:
-            try:
-                request_params = PlanRequestParameters(
-                    self.moveit_py,
-                    self.get_parameter_wrapper("planning.pipeline"),
-                )
-                return self.planning_component.plan(
-                    single_plan_parameters=request_params
-                )
-            except TypeError:
-                request_params = MultiPipelinePlanRequestParameters(
-                    self.moveit_py,
-                    self.get_parameter_wrapper("planning.pipeline"),
-                )
-                return self.planning_component.plan(
-                    multi_plan_parameters=request_params
-                )
-            except Exception as e:
-                self.log(f"Error planning: {e}", severity="ERROR")
-                raise e
+        try:
+            if planning_pipeline == "default":
+                return self.planning_component.plan(self.moveit_py)
+            else:
+                try:
+                    request_params = PlanRequestParameters(
+                        self.moveit_py,
+                        planning_pipeline,
+                    )
+                    return self.planning_component.plan(
+                        self.moveit_py, single_plan_parameters=request_params
+                    )
+                    # return self.moveit_py.plan(
+                    #     planning_component=self.planning_component,
+                    #     parameters=request_params,
+                    # )
+                except TypeError:
+                    request_params = MultiPipelinePlanRequestParameters(
+                        self.moveit_py,
+                        self.get_parameter_wrapper("planning.pipeline"),
+                    )
+                    return self.planning_component.plan(
+                        self.moveit_py, multi_plan_parameters=request_params
+                    )
+        except Exception as e:
+            self.log(f"Error planning: {e}", severity="ERROR")
+            raise e
 
     def plan(
         self,
         goal: PoseStamped | str,
         pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
         max_attempts: Optional[int] = None,
     ) -> MotionPlanResponse:
         """
@@ -734,7 +750,9 @@ class Commander(BaseNode):
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
             try:
-                plan_response = self.plan_once(goal, pose_link)
+                plan_response = self.plan_once(
+                    goal, pose_link, planning_pipeline
+                )
                 if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
                     self.log(
                         f"Planning attempt {i + 1}/{max_attempts} succeeded"
@@ -768,6 +786,7 @@ class Commander(BaseNode):
         self,
         goal: PoseStamped | str,
         pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
         max_attempts: Optional[int] = None,
     ) -> MotionPlanResponse:
         """
@@ -782,6 +801,7 @@ class Commander(BaseNode):
             self.plan,
             goal=goal,
             pose_link=pose_link,
+            planning_pipeline=planning_pipeline,
             max_attempts=max_attempts,
         )
 
@@ -789,6 +809,7 @@ class Commander(BaseNode):
         self,
         goals: list[PoseStamped | str],
         pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
         max_attempts_per_goal: Optional[int] = None,
     ) -> AsyncGenerator[MotionPlanResponse, None]:
         """
@@ -806,7 +827,10 @@ class Commander(BaseNode):
         while goals:
             goal = goals.pop(0)
             new_goals = yield await self.plan_async(
-                goal, pose_link, max_attempts=max_attempts_per_goal
+                goal,
+                pose_link,
+                planning_pipeline,
+                max_attempts=max_attempts_per_goal,
             )
             if new_goals:
                 goals.extend(new_goals)
@@ -955,6 +979,7 @@ class Commander(BaseNode):
         self,
         goal: PoseStamped | str,
         pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
     ) -> None:
         """
         Plan and execute a trajectory.
@@ -978,13 +1003,16 @@ class Commander(BaseNode):
                 max_execution_attempts) are reached
         """
         # Plan the trajectory
-        plan_response = self.plan(goal, pose_link)
+        plan_response = self.plan(goal, pose_link, planning_pipeline)
         # Execute the plan
         self.execute(plan_response.trajectory)
 
     @asyncio_task_decorator
     async def plan_and_execute_async(
-        self, goal: PoseStamped | str, pose_link: Optional[str] = None
+        self,
+        goal: PoseStamped | str,
+        pose_link: Optional[str] = None,
+        planning_pipeline: Optional[str] = None,
     ) -> None:
         """
         Asynchronous coroutine wrapper for `plan_and_execute()` method.
@@ -1000,6 +1028,7 @@ class Commander(BaseNode):
             self.plan_and_execute,
             goal=goal,
             pose_link=pose_link,
+            planning_pipeline=planning_pipeline,
         )
 
     def get_planning_frame(self) -> str:
@@ -1518,7 +1547,8 @@ class Commander(BaseNode):
             f"Moving to pre-attach pose {self.pre_attach_pose(object_id, subframe_name)}"
         )
         await self.plan_and_execute_async(
-            goal=self.pre_attach_pose(object_id, subframe_name)
+            goal=self.pre_attach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Attach pose (no offset with respect to object frame)
@@ -1526,7 +1556,8 @@ class Commander(BaseNode):
             f"Moving to attach pose {self.attach_pose(object_id, subframe_name)}"
         )
         await self.plan_and_execute_async(
-            goal=self.attach_pose(object_id, subframe_name)
+            goal=self.attach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Attach object
@@ -1541,7 +1572,8 @@ class Commander(BaseNode):
             f"Moving to post-attach pose {self.post_attach_pose(object_id)}"
         )
         await self.plan_and_execute_async(
-            goal=self.post_attach_pose(object_id)
+            goal=self.post_attach_pose(object_id),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Move to target pose
@@ -1599,7 +1631,10 @@ class Commander(BaseNode):
 
         # Move to the detach pose
         self.log(f"Moving to detach pose {self.detach_pose(object_id)}")
-        await self.plan_and_execute_async(goal=self.detach_pose(object_id))
+        await self.plan_and_execute_async(
+            goal=self.detach_pose(object_id),
+            # planning_pipeline="pilz_industrial_motion_planner",
+        )
 
         # Detach the object
         self.detach_collision_object(object_id=object_id)
@@ -1613,7 +1648,8 @@ class Commander(BaseNode):
             f"Moving to post-detach pose {self.post_detach_pose(object_id, subframe_name)}"
         )
         await self.plan_and_execute_async(
-            goal=self.post_detach_pose(object_id, subframe_name)
+            goal=self.post_detach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Move to the post-return (pre-fetch) pose
@@ -1621,7 +1657,8 @@ class Commander(BaseNode):
             f"Moving to post-return pose {self.post_return_pose(object_id, subframe_name)}"
         )
         await self.plan_and_execute_async(
-            goal=self.post_return_pose(object_id, subframe_name)
+            goal=self.post_return_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Disallow collision between touch links and object
@@ -1667,14 +1704,18 @@ class Commander(BaseNode):
             f"Moving to pre-attach pose {self.pre_attach_pose(object_id, subframe_name)}"
         )
         self.plan_and_execute(
-            goal=self.pre_attach_pose(object_id, subframe_name)
+            goal=self.pre_attach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Attach pose (no offset with respect to object frame)
         self.log(
             f"Moving to attach pose {self.attach_pose(object_id, subframe_name)}"
         )
-        self.plan_and_execute(goal=self.attach_pose(object_id, subframe_name))
+        self.plan_and_execute(
+            goal=self.attach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
+        )
 
         # Attach object
         self.attach_collision_object(
@@ -1687,7 +1728,10 @@ class Commander(BaseNode):
         self.log(
             f"Moving to post-attach pose {self.post_attach_pose(object_id)}"
         )
-        self.plan_and_execute(goal=self.post_attach_pose(object_id))
+        self.plan_and_execute(
+            goal=self.post_attach_pose(object_id),
+            # planning_pipeline="pilz_industrial_motion_planner",
+        )
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
@@ -1729,7 +1773,10 @@ class Commander(BaseNode):
 
         # Move to the detach pose
         self.log(f"Moving to detach pose {self.detach_pose(object_id)}")
-        self.plan_and_execute(goal=self.detach_pose(object_id))
+        self.plan_and_execute(
+            goal=self.detach_pose(object_id),
+            # planning_pipeline="pilz_industrial_motion_planner",
+        )
 
         # Detach the object
         self.detach_collision_object(object_id=object_id)
@@ -1743,7 +1790,8 @@ class Commander(BaseNode):
             f"Moving to post-detach pose {self.post_detach_pose(object_id, subframe_name)}"
         )
         self.plan_and_execute(
-            goal=self.post_detach_pose(object_id, subframe_name)
+            goal=self.post_detach_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Move to the post-return (pre-fetch) pose
@@ -1751,7 +1799,8 @@ class Commander(BaseNode):
             f"Moving to post-return pose {self.post_return_pose(object_id, subframe_name)}"
         )
         self.plan_and_execute(
-            goal=self.post_return_pose(object_id, subframe_name)
+            goal=self.post_return_pose(object_id, subframe_name),
+            # planning_pipeline="pilz_industrial_motion_planner",
         )
 
         # Disallow collision between touch links and object

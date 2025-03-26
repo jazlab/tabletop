@@ -38,4 +38,3 @@ RUN mkdir -p $HOME/.config \
 ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/logs
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1
-ENV XDG_RUNTIME_DIR=/tmp/runtime-root

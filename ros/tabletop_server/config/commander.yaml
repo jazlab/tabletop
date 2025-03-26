@@ -37,21 +37,20 @@
     planning_scene:
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig.dae
-        scale: 1.0
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_v2.dae
+        scale: 0.01
         simplification: bounding_primitive
         color: pink
         correction:
-          position: [0.0, 0.0, 0.0]
-          rpy: [0.0, 0.0, 1.5707]
+          position: [0.0, 0.0, 0.045] # corrects the origin of the rig to be at the floor
+          rpy: [0.0, 0.0, -1.5707]
       dynamic_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic_dae/
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/complex_object.dae
         scale: 0.001
         simplification: convex_hull
         color: orange
         poses: # In meters
           complex_object:
-            position: [-0.1, 0.4, 0.8]
-          simple_object:
-            position: [0.1, 0.3, 0.8]
-    # - [simple_object, ...]
+            position: [0.0, 0.75935, 0.37811]
+            # position: [0.0, 0.90424 - (0.17639 - 0.0315), 0.37211 - 0.039 + 0.045]
+            # position: [(centered), (distance to back of tool pocket - (tool pocket length - tool holder radius)), (distance to top of tool pocket - tool pocket height + vertical rig offset)]

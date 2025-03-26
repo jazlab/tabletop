@@ -15,6 +15,7 @@
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
         "IronGeek.vscode-env",
-        "platformio.platformio-ide"
+        "platformio.platformio-ide",
+        "ms-toolsai.jupyter"
     ]
 }
