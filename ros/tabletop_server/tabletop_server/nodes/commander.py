@@ -38,6 +38,7 @@ from moveit_msgs.msg import (
 from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import Plane
@@ -106,7 +107,8 @@ class Commander(BaseNode):
         "teensy.spin_period_s",
         "flic.spin_period_s",
         "planning.group_name",
-        "planning.pipeline",
+        "planning.default_pipeline",
+        "planning.linear_pipeline",
         "planning.pose_link",
         "planning.eef_link",
         "planning.object_touch_links",
@@ -692,37 +694,35 @@ class Commander(BaseNode):
         # Set start state to current state
         self.planning_component.set_start_state_to_current_state()
 
-        if planning_pipeline is None:
-            planning_pipeline = self.get_parameter_wrapper("planning.pipeline")
+        planning_pipeline = (
+            planning_pipeline
+            if planning_pipeline is not None
+            else "default_pipeline"
+        )
+        try:
+            planning_pipeline_arg = self.get_parameter_wrapper(
+                f"planning.{planning_pipeline}"
+            )
+        except ParameterNotDeclaredException:
+            planning_pipeline_arg = planning_pipeline
 
         # Plan
-        try:
-            if planning_pipeline == "default":
-                return self.planning_component.plan(self.moveit_py)
-            else:
-                try:
-                    request_params = PlanRequestParameters(
-                        self.moveit_py,
-                        planning_pipeline,
-                    )
-                    return self.planning_component.plan(
-                        self.moveit_py, single_plan_parameters=request_params
-                    )
-                    # return self.moveit_py.plan(
-                    #     planning_component=self.planning_component,
-                    #     parameters=request_params,
-                    # )
-                except TypeError:
-                    request_params = MultiPipelinePlanRequestParameters(
-                        self.moveit_py,
-                        self.get_parameter_wrapper("planning.pipeline"),
-                    )
-                    return self.planning_component.plan(
-                        self.moveit_py, multi_plan_parameters=request_params
-                    )
-        except Exception as e:
-            self.log(f"Error planning: {e}", severity="ERROR")
-            raise e
+        if isinstance(planning_pipeline_arg, str):
+            request_params = PlanRequestParameters(
+                self.moveit_py,
+                planning_pipeline_arg,
+            )
+            return self.planning_component.plan(
+                self.moveit_py, single_plan_parameters=request_params
+            )
+        else:
+            request_params = MultiPipelinePlanRequestParameters(
+                self.moveit_py,
+                planning_pipeline_arg,
+            )
+            return self.planning_component.plan(
+                self.moveit_py, multi_plan_parameters=request_params
+            )
 
     def plan(
         self,
@@ -1382,8 +1382,8 @@ class Commander(BaseNode):
         self.process_floor_collision_object()
 
         # Add collision objects
-        static_object_ids = []
-        dynamic_object_ids = []
+        self.static_object_ids = []
+        self.dynamic_object_ids = []
         for mesh_type in ["static_meshes", "dynamic_meshes"]:
             # Get parameters
             prefix = f"planning_scene.{mesh_type}"
@@ -1415,7 +1415,7 @@ class Commander(BaseNode):
                 self.log(f"Processing mesh collision object from path: {path}")
                 object_id = os.path.splitext(os.path.basename(path))[0]
                 if mesh_type == "static_meshes":
-                    static_object_ids.append(object_id)
+                    self.static_object_ids.append(object_id)
                 else:
                     if object_id in self.get_collision_object_ids():
                         self.log(
@@ -1423,7 +1423,7 @@ class Commander(BaseNode):
                             severity="INFO",
                         )
                         continue
-                    dynamic_object_ids.append(object_id)
+                    self.dynamic_object_ids.append(object_id)
                 try:
                     pose_config = meshes_config["poses"][object_id]
                     pose_stamped = self.create_pose_stamped(**pose_config)
@@ -1443,11 +1443,11 @@ class Commander(BaseNode):
                 )
 
         # Update planning scene
-        for static_object_id in static_object_ids:
+        for static_object_id in self.static_object_ids:
             self.allow_collision("base_link_inertia", static_object_id)
             self.allow_collision("sphere", static_object_id)
 
-        for dynamic_object_id in dynamic_object_ids:
+        for dynamic_object_id in self.dynamic_object_ids:
             self.allow_collision("sphere", dynamic_object_id)
 
         # Log planning scene
@@ -1548,7 +1548,7 @@ class Commander(BaseNode):
         )
         await self.plan_and_execute_async(
             goal=self.pre_attach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Attach pose (no offset with respect to object frame)
@@ -1557,7 +1557,7 @@ class Commander(BaseNode):
         )
         await self.plan_and_execute_async(
             goal=self.attach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Attach object
@@ -1567,14 +1567,23 @@ class Commander(BaseNode):
             touch_links=self.touch_links,
         )
 
+        # Allow collision between object and static objects
+        # Needed to prevent errors when removing object from its tool pocket
+        for static_object_id in self.static_object_ids:
+            self.allow_collision(object_id, static_object_id)
+
         # Post-attach pose
         self.log(
             f"Moving to post-attach pose {self.post_attach_pose(object_id)}"
         )
         await self.plan_and_execute_async(
             goal=self.post_attach_pose(object_id),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
+
+        # Disallow collision between object and static objects
+        for static_object_id in self.static_object_ids:
+            self.disallow_collision(object_id, static_object_id)
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
@@ -1629,15 +1638,24 @@ class Commander(BaseNode):
         )
         await self.plan_and_execute_async(goal=self.pre_detach_pose(object_id))
 
+        # Allow collision between object and static objects
+        # Needed to prevent errors when inserting object into its tool pocket
+        for static_object_id in self.static_object_ids:
+            self.allow_collision(object_id, static_object_id)
+
         # Move to the detach pose
         self.log(f"Moving to detach pose {self.detach_pose(object_id)}")
         await self.plan_and_execute_async(
             goal=self.detach_pose(object_id),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Detach the object
         self.detach_collision_object(object_id=object_id)
+
+        # Disallow collision between object and static objects
+        for static_object_id in self.static_object_ids:
+            self.disallow_collision(object_id, static_object_id)
 
         # Allow collision between robot and object
         for touch_link in self.touch_links:
@@ -1649,7 +1667,7 @@ class Commander(BaseNode):
         )
         await self.plan_and_execute_async(
             goal=self.post_detach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Move to the post-return (pre-fetch) pose
@@ -1658,7 +1676,7 @@ class Commander(BaseNode):
         )
         await self.plan_and_execute_async(
             goal=self.post_return_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Disallow collision between touch links and object
@@ -1705,7 +1723,7 @@ class Commander(BaseNode):
         )
         self.plan_and_execute(
             goal=self.pre_attach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Attach pose (no offset with respect to object frame)
@@ -1714,7 +1732,7 @@ class Commander(BaseNode):
         )
         self.plan_and_execute(
             goal=self.attach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Attach object
@@ -1730,7 +1748,7 @@ class Commander(BaseNode):
         )
         self.plan_and_execute(
             goal=self.post_attach_pose(object_id),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Move to target pose
@@ -1775,7 +1793,7 @@ class Commander(BaseNode):
         self.log(f"Moving to detach pose {self.detach_pose(object_id)}")
         self.plan_and_execute(
             goal=self.detach_pose(object_id),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Detach the object
@@ -1791,7 +1809,7 @@ class Commander(BaseNode):
         )
         self.plan_and_execute(
             goal=self.post_detach_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Move to the post-return (pre-fetch) pose
@@ -1800,7 +1818,7 @@ class Commander(BaseNode):
         )
         self.plan_and_execute(
             goal=self.post_return_pose(object_id, subframe_name),
-            # planning_pipeline="pilz_industrial_motion_planner",
+            planning_pipeline="linear_pipeline",
         )
 
         # Disallow collision between touch links and object

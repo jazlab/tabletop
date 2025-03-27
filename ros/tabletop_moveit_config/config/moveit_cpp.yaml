@@ -10,18 +10,19 @@ planning_scene_monitor_options:
 planning_pipelines:
   pipeline_names:
     - ompl
-    - chomp
-    - stomp
+    - pilz_industrial_motion_planner
+    # - chomp
+    # - stomp
 
-plan_request_params:
-  planning_attempts: 10 # Number of attempts the planning pipeline tries to solve a given motion planning problem
-  planning_pipeline: ompl # Name of the pipeline that is being used
-  planner_id: PersistentPRMstar # Name of the specific planner to be used by the pipeline
-  planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
-  max_velocity_scaling_factor: 0.5
-  max_acceleration_scaling_factor: 0.5
+# plan_request_params:
+#   planning_attempts: 10 # Number of attempts the planning pipeline tries to solve a given motion planning problem
+#   planning_pipeline: ompl # Name of the pipeline that is being used
+#   planner_id: PersistentPRMstar # Name of the specific planner to be used by the pipeline
+#   planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
+#   max_velocity_scaling_factor: 0.5
+#   max_acceleration_scaling_factor: 0.5
 
-pilz_industrial_motion_planner:
+pilz_lin:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: pilz_industrial_motion_planner
