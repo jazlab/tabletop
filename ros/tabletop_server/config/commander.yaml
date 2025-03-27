@@ -22,7 +22,8 @@
 
     planning:
       group_name: ur_manipulator
-      pipeline: ompl_aps_rrtc
+      default_pipeline: ompl_aps_rrtc
+      linear_pipeline: ompl_aps_rrtc
       pose_link: eef
       eef_link: eef_link
       object_touch_links:
@@ -32,25 +33,26 @@
         rpy: [0.0, 0.0, 1.5707]
       pre_fetch_offset: [-0.05, 0.0, -0.01]
       pre_attach_offset: [-0.05, 0.0, 0.0]
-      post_attach_offset: [0.05, 0.0, 0.0]
+      post_attach_offset: [0.0, -0.10, 0.0] # relative to world. TODO: Make relative to object
 
     planning_scene:
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_v2.dae
         scale: 0.01
-        simplification: bounding_primitive
+        simplification: convex_hull
         color: pink
         correction:
           position: [0.0, 0.0, 0.045] # corrects the origin of the rig to be at the floor
           rpy: [0.0, 0.0, -1.5707]
       dynamic_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/complex_object.dae
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/simple_object.dae
         scale: 0.001
         simplification: convex_hull
         color: orange
-        poses: # In meters
-          complex_object:
+        poses:
+          simple_object:
             position: [0.0, 0.75935, 0.37811]
-            # position: [0.0, 0.90424 - (0.17639 - 0.0315), 0.37211 - 0.039 + 0.045]
-            # position: [(centered), (distance to back of tool pocket - (tool pocket length - tool holder radius)), (distance to top of tool pocket - tool pocket height + vertical rig offset)]
+            rpy: [0.0, 0.0, -1.5707]
+            # position: [0.0, 0.90424 - (0.17639 - 0.0315), 0.37211 - 0.039 + 0.045 - 0.008]
+            # position: [(centered), (distance to back of tool pocket - (tool pocket length - tool holder radius)), (distance to top of tool pocket - tool pocket height + vertical rig offset - tool holder offset)]
