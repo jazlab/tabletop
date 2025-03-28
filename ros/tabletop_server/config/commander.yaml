@@ -24,15 +24,20 @@
       group_name: ur_manipulator
       default_pipeline: ompl_aps_rrtc
       linear_pipeline: ompl_aps_rrtc
-      pose_link: eef
-      eef_link: eef_link
+      line_constraint_width_tolerance: 0.00004999 # meters (must be less than 0.0005)
+      line_constraint_length_tolerance: 0.001 # meters (1mm either end of line)
+      line_constraint_weight: 1.0
+      orientation_constraint_tolerance: 0.05 # radians
+      orientation_constraint_weight: 1.0
+
+      eef_link: eef
       object_touch_links:
         - eef_link
       idle_pose:
         position: [0.3, 0.6, 0.6]
         rpy: [0.0, 0.0, 1.5707]
-      pre_fetch_offset: [-0.05, 0.0, -0.01]
-      pre_attach_offset: [-0.05, 0.0, 0.0]
+      pre_fetch_offset: [-0.02, 0.0, -0.01]
+      pre_attach_offset: [-0.01, 0.0, 0.0]
       post_attach_offset: [0.0, -0.10, 0.0] # relative to world. TODO: Make relative to object
 
     planning_scene:

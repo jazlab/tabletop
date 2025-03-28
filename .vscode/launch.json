@@ -2,18 +2,32 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "ROS: Launch",
+            "name": "ROS: Launch Commander",
             "request": "launch",
             "type": "ros",
             "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/server.launch.py",
             "arguments": [
-                "robot_ip:=192.168.12.10",
-                "reverse_ip:=192.168.12.101"
+                "use_mock_teensy:=true",
+                "commander_log_level:=DEBUG"
             ],
-            "preLaunchTask": "build_debug",
             "attachDebugger": [
                 "commander"
-            ]
+            ],
+            "postDebugTask": "kill_ros"
+        },
+        {
+            "name": "ROS: Launch Tasks",
+            "request": "launch",
+            "type": "ros",
+            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
+            "arguments": [
+                "use_mock_teensy:=true",
+                "commander_log_level:=DEBUG"
+            ],
+            "attachDebugger": [
+                "run_tasks"
+            ],
+            "postDebugTask": "kill_ros"
         },
         {
             "name": "Python Debugger: Python File",
