@@ -3,8 +3,8 @@
 	"tasks": [
 		{
 			"type": "shell",
-			"label": "tabletop_build_debug",
-			"command": "./scripts/build.sh --debug",
+			"label": "build_debug",
+			"command": "${workspaceFolder}/scripts/build.sh --debug",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -15,8 +15,8 @@
 		},
 		{
 			"type": "shell",
-			"label": "tabletop_build_release",
-			"command": "./scripts/build.sh",
+			"label": "build_release",
+			"command": "${workspaceFolder}/scripts/build.sh",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -27,18 +27,8 @@
 		},
 		{
 			"type": "shell",
-			"label": "launch_server",
-			"command": "ros2 launch tabletop_server server.launch.py",
-			"problemMatcher": [],
-			"group": {
-				"kind": "test",
-				"isDefault": true
-			}
-		},
-		{
-			"type": "shell",
 			"label": "view_mesh",
-			"command": "./scripts/view_mesh.py",
+			"command": "${workspaceFolder}/scripts/view_mesh.py",
 			"args": [
 				"${file}"
 			],
@@ -48,7 +38,14 @@
 		{
 			"type": "shell",
 			"label": "clean_build_artifacts",
-			"command": "./scripts/clean_build_artifacts.sh",
+			"command": "${workspaceFolder}/scripts/clean_build_artifacts.sh",
+			"problemMatcher": [],
+			"group": "none"
+		},
+		{
+			"type": "shell",
+			"label": "kill_ros",
+			"command": "${workspaceFolder}/scripts/kill_ros.sh",
 			"problemMatcher": [],
 			"group": "none"
 		}

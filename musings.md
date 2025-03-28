@@ -39,3 +39,13 @@ sudo systemctl disable bluetooth
 sudo systemctl stop bluetooth
 ```
 To stop it from restarting on boot, edit the `/etc/bluetooth/main.conf` file and set `AutoEnable=false`.
+
+6. Don't mess with the VSCode debugger. You already figured it out bro. Stop
+forgetting you spent fucking hours figuring it out. No need for `gdb -ex`
+this and `build_debug` that. Just use the debugger and be happy about it.
+If you *really* need some info, check out this [video](https://www.youtube.com/watch?v=PBbEhRf8QjE&list=PL2dJBq8ig-vihvDVw-D5zAYOArTMIX0FA&index=1).
+
+7. As a follow up to 6, if you forget why something is somewhere (or not
+somewhere), you spent fucking hours determining that the presence (or lack
+thereof) of that something at that somewhere was the optimal solution. Don't
+re-invent the wheel. You already invented it 5 times.
