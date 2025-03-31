@@ -23,12 +23,13 @@
     planning:
       group_name: ur_manipulator
       default_pipeline: ompl_aps_rrtc
-      linear_pipeline: ompl_aps_rrtc
-      line_constraint_width_tolerance: 0.00004999 # meters (must be less than 0.0005)
-      line_constraint_length_tolerance: 0.001 # meters (1mm either end of line)
-      line_constraint_weight: 1.0
-      orientation_constraint_tolerance: 0.05 # radians
-      orientation_constraint_weight: 1.0
+      linear_pipeline: pilz_lin
+      # default_linear_path_constraints:
+      #   line_width: 0.0005 # meters (must be between 0.0001 and 0.001)
+      #   line_length_tolerance: 0.001 # meters (1mm either end of line)
+      #   line_weight: 1.0
+      #   orientation_tolerance: 0.05 # radians
+      #   orientation_weight: 1.0
 
       eef_link: eef
       object_touch_links:
@@ -41,6 +42,9 @@
       post_attach_offset: [0.0, -0.10, 0.0] # relative to world. TODO: Make relative to object
 
     planning_scene:
+      floor_coef: [0.0, 0.0, 1.0, 0.0]
+      divider_coef: [1.0, 0.0, 0.0, -0.3]
+
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_v2.dae

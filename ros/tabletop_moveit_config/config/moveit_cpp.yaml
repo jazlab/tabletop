@@ -5,7 +5,7 @@ planning_scene_monitor_options:
   attached_collision_object_topic: /planning_scene_monitor
   publish_planning_scene_topic: /publish_planning_scene
   monitored_planning_scene_topic: /monitored_planning_scene
-  wait_for_initial_state_timeout: 10.0
+  wait_for_initial_state_timeout: 100.0
 
 planning_pipelines:
   pipeline_names:
@@ -22,12 +22,30 @@ planning_pipelines:
 #   max_velocity_scaling_factor: 0.5
 #   max_acceleration_scaling_factor: 0.5
 
+ompl_aps_rrtc:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSRRTConnect
+    planning_time: 0.5
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+
+ompl_aps_rrt_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSRRTstarConnect
+    planning_time: 1.0
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+
 pilz_lin:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: pilz_industrial_motion_planner
     planner_id: LIN
-    planning_time: 0.5
+    planning_time: 0.1
     max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
@@ -46,15 +64,6 @@ ompl_aps_persistent:
     planning_pipeline: ompl
     planner_id: APSPersistent
     planning_time: 5.0
-    max_velocity_scaling_factor: 0.5
-    max_acceleration_scaling_factor: 0.5
-
-ompl_aps_rrtc:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTConnect
-    planning_time: 0.5
     max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
 
