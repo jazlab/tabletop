@@ -17,6 +17,7 @@ from rclpy.client import Client
 from shape_msgs.msg import Mesh, MeshTriangle
 from std_msgs.msg import ColorRGBA, Header
 from tf_transformations import (
+    euler_from_quaternion,
     inverse_matrix,
     quaternion_about_axis,
     quaternion_from_euler,
@@ -180,7 +181,11 @@ def msg_to_dict(msg: Any):
 
 
 def quaternion_msg_from_euler(
-    roll: float, pitch: float, yaw: float, *, axes: str = "sxyz"
+    roll: float = 0.0,
+    pitch: float = 0.0,
+    yaw: float = 0.0,
+    *,
+    axes: str = "sxyz",
 ) -> Quaternion:
     """
     Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
@@ -206,12 +211,30 @@ def quaternion_msg_from_axis_angle(
     )
 
 
+def euler_from_quaternion_msg(
+    quaternion: Quaternion,
+) -> tuple[float, float, float]:
+    """
+    Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians).
+    """
+    return euler_from_quaternion(
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
+        axes="sxyz",
+    )
+
+
 def pose_msg(
     position: Optional[Point | Iterable[float] | Mapping[str, float]] = None,
+    x: float = 0.0,
+    y: float = 0.0,
+    z: float = 0.0,
     orientation: Optional[
         Quaternion | Iterable[float] | Mapping[str, float]
     ] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
+    roll: float = 0.0,
+    pitch: float = 0.0,
+    yaw: float = 0.0,
 ) -> Pose:
     """
     Convert a dictionary of parameters to a geometry_msgs/Pose message.
@@ -220,6 +243,9 @@ def pose_msg(
 
     # Position extraction
     if position is not None:
+        if any((x, y, z)):
+            raise ValueError("position and x, y, z cannot both be provided")
+
         if isinstance(position, Point):
             pose.position = position
         elif isinstance(position, Mapping):
@@ -231,30 +257,35 @@ def pose_msg(
             raise ValueError(
                 f"Invalid position type: expected Mapping or Iterable, got {type(position)}"
             )
+    elif any((x, y, z)):
+        pose.position = Point(x=x, y=y, z=z)
 
     # Orientation extraction
     if rpy is not None:
+        if any((roll, pitch, yaw)):
+            raise ValueError(
+                "rpy and roll, pitch, yaw cannot both be provided"
+            )
+        if orientation is not None:
+            raise ValueError("orientation and rpy cannot both be provided")
         if isinstance(rpy, Mapping):
             pose.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
-        elif is_iterable(rpy):
-            pose.orientation = quaternion_msg_from_euler(*rpy)
         else:
+            pose.orientation = quaternion_msg_from_euler(*rpy)
+    elif any((roll, pitch, yaw)):
+        if orientation is not None:
             raise ValueError(
-                f"Invalid rpy type: expected Mapping or Iterable, got {type(rpy)}"
+                "orientation and roll, pitch, yaw cannot both be provided"
             )
-
+        pose.orientation = quaternion_msg_from_euler(roll, pitch, yaw)
     elif orientation is not None:
         if isinstance(orientation, Quaternion):
             pose.orientation = orientation
         elif isinstance(orientation, Mapping):
             pose.orientation = Quaternion(**orientation)  # type: ignore
-        elif is_iterable(orientation):
+        else:
             x, y, z, w = orientation
             pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
-        else:
-            raise ValueError(
-                f"Invalid orientation type: expected Mapping or Iterable, got {type(orientation)}"
-            )
 
     return pose
 
@@ -386,18 +417,19 @@ def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
     )
 
 
+def matrix_from_point_msg(point: Point) -> np.ndarray:
+    return translation_matrix([point.x, point.y, point.z])
+
+
+def matrix_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    return quaternion_matrix(
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+    )
+
+
 def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
-    translation = translation_matrix(
-        [pose.position.x, pose.position.y, pose.position.z]
-    )
-    rotation = quaternion_matrix(
-        [
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-    )
+    translation = matrix_from_point_msg(pose.position)
+    rotation = matrix_from_quaternion_msg(pose.orientation)
     return translation @ rotation
 
 

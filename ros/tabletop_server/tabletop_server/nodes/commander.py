@@ -9,6 +9,7 @@ from collections.abc import (
     Mapping,
 )
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from typing import Any, Callable, Coroutine, Optional
 
 import numpy as np
@@ -20,6 +21,7 @@ from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_model import RobotModel  # type: ignore
+from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit.planning import (
     MoveItPy,
@@ -71,6 +73,7 @@ from tabletop_utils.ros import (
     arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
+    euler_from_quaternion_msg,
     matrix_from_pose_msg,
     mesh_collision_object_msg,
     moveit_error_code_map,
@@ -79,6 +82,7 @@ from tabletop_utils.ros import (
     pose_msg_from_matrix,
     pose_stamped_msg,
     quaternion_msg_from_axis_angle,
+    quaternion_msg_from_euler,
 )
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
@@ -118,17 +122,14 @@ class Commander(BaseNode):
         "planning.group_name",
         "planning.default_pipeline",
         "planning.linear_pipeline",
-        "planning.line_constraint_width_tolerance",
-        "planning.line_constraint_length_tolerance",
-        "planning.line_constraint_weight",
-        "planning.orientation_constraint_tolerance",
-        "planning.orientation_constraint_weight",
         "planning.eef_link",
         "planning.object_touch_links",
         "planning.idle_pose",
         "planning.pre_fetch_offset",
         "planning.pre_attach_offset",
         "planning.post_attach_offset",
+        "planning_scene.floor_coef",
+        "planning_scene.divider_coef",
         "planning_scene.static_meshes.path",
         "planning_scene.static_meshes.scale",
         "planning_scene.static_meshes.simplification",
@@ -174,10 +175,12 @@ class Commander(BaseNode):
         # self._change_state("RESET")
 
     # @property
-    def get_planning_component(self) -> PlanningComponent:
-        return self.moveit_py.get_planning_component(
-            self.get_parameter_wrapper("planning.group_name")
-        )
+    def get_planning_component(
+        self, group_name: Optional[str] = None
+    ) -> PlanningComponent:
+        if group_name is None:
+            group_name = self.get_parameter_wrapper("planning.group_name")
+        return self.moveit_py.get_planning_component(group_name)
 
     # @property
     # def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
@@ -844,6 +847,21 @@ class Commander(BaseNode):
     def pre_detach_pose_stamped(self, object_id: str) -> PoseStamped:
         return self.post_attach_pose_stamped(object_id)
 
+    def pre_detach_pose_stamped_wrist_2(self, object_id: str) -> PoseStamped:
+        pose_stamped = self.pre_detach_pose_stamped(object_id)
+        pose_stamped.pose.position.z -= 0.13
+
+        roll, pitch, yaw = euler_from_quaternion_msg(
+            pose_stamped.pose.orientation
+        )
+        roll -= 1.57
+        yaw -= 1.57
+        pose_stamped.pose.orientation = quaternion_msg_from_euler(
+            roll, pitch, yaw
+        )
+
+        return pose_stamped
+
     def detach_pose_stamped(self, object_id: str) -> PoseStamped:
         return self.object_init_pose_stamped(object_id)
 
@@ -861,31 +879,57 @@ class Commander(BaseNode):
     ########## Planning scene #################################
     ############################################################
 
-    def get_collision_objects(self) -> list[CollisionObject]:
+    @property
+    def current_state(self) -> RobotState:
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            return deepcopy(scene.current_state)
+
+    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
+        """
+        Check if the current state of the planning scene is colliding.
+        """
+        if group_name is None:
+            group_name = self.planning_group_name
+
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            is_colliding = scene.is_state_colliding(group_name)
+            if is_colliding:
+                self.log("State is colliding", severity="WARN")
+            else:
+                self.log("State is not colliding", severity="DEBUG")
+            return is_colliding
+
+    @property
+    def collision_objects(self) -> list[CollisionObject]:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
             return planning_scene_msg.world.collision_objects  # type: ignore
 
-    def get_collision_object_ids(self) -> list[str]:
+    @property
+    def collision_object_ids(self) -> list[str]:
         return [
-            collision_object.id
-            for collision_object in self.get_collision_objects()
+            collision_object.id for collision_object in self.collision_objects
         ]
 
-    def get_attached_collision_objects(self) -> list[AttachedCollisionObject]:
+    @property
+    def attached_collision_objects(self) -> list[AttachedCollisionObject]:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
             return planning_scene_msg.robot_state.attached_collision_objects  # type: ignore
 
-    def get_attached_collision_object_ids(self) -> list[str]:
+    @property
+    def attached_collision_object_ids(self) -> list[str]:
         return [
             attached_collision_object.object.id
-            for attached_collision_object in self.get_attached_collision_objects()
+            for attached_collision_object in self.attached_collision_objects
         ]
 
-    def get_collision_matrix_df(self) -> pd.DataFrame:
+    @property
+    def collision_matrix_df(self) -> pd.DataFrame:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             msg: AllowedCollisionMatrix = (
@@ -916,23 +960,7 @@ class Commander(BaseNode):
 
             return matrix_df
 
-    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
-        """
-        Check if the current state of the planning scene is colliding.
-        """
-        if group_name is None:
-            group_name = self.planning_group_name
-
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            is_colliding = scene.is_state_colliding(group_name)
-            if is_colliding:
-                self.log("State is colliding", severity="WARN")
-            else:
-                self.log("State is not colliding", severity="DEBUG")
-            return is_colliding
-
-    def process_floor_collision_object(
+    def add_floor_collision_object(
         self,
         *,
         header_frame_id: Optional[str] = None,
@@ -951,9 +979,34 @@ class Commander(BaseNode):
         collision_object.id = "floor"
 
         plane = Plane()
-        plane.coef = [0, 0, 1, 0]
+        plane.coef = self.get_parameter_wrapper("planning_scene.floor_coef")
 
         collision_object.planes.append(plane)  # type: ignore
+        collision_object.operation = CollisionObject.ADD
+
+        self.planning_scene_monitor.process_collision_object(collision_object)
+
+    def add_divider_collision_object(
+        self,
+        *,
+        header_frame_id: Optional[str] = None,
+    ):
+        """
+        Add the divider collision object to the planning scene.
+        """
+        self.log("Processing divider collision object")
+
+        if header_frame_id is None:
+            header_frame_id = self.planning_frame
+
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = header_frame_id
+        collision_object.id = "divider"
+
+        plane = Plane()
+        plane.coef = self.get_parameter_wrapper("planning_scene.divider_coef")
+        collision_object.planes.append(plane)  # type: ignore
+
         collision_object.operation = CollisionObject.ADD
 
         self.planning_scene_monitor.process_collision_object(collision_object)
@@ -1121,7 +1174,7 @@ class Commander(BaseNode):
 
     def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
         self.log(
-            f"Allowed collision matrix: \n{self.get_collision_matrix_df().to_string()}",
+            f"Allowed collision matrix: \n{self.collision_matrix_df.to_string()}",
             severity=severity,
         )
 
@@ -1151,7 +1204,10 @@ class Commander(BaseNode):
         self.log("Setting up planning scene")
 
         # Add floor collision object
-        self.process_floor_collision_object()
+        self.add_floor_collision_object()
+
+        # Add divider collision object
+        self.add_divider_collision_object()
 
         # Add collision objects
         self.static_object_ids = []
@@ -1189,7 +1245,7 @@ class Commander(BaseNode):
                 if mesh_type == "static_meshes":
                     self.static_object_ids.append(object_id)
                 else:
-                    if object_id in self.get_collision_object_ids():
+                    if object_id in self.collision_object_ids:
                         self.log(
                             f"Skipping dynamic mesh {object_id} because it already exists in the planning scene",
                             severity="INFO",
@@ -1228,6 +1284,10 @@ class Commander(BaseNode):
         self.log_collision_objects(severity="DEBUG")
         self.log_collision_matrix(severity="DEBUG")
 
+    def get_planning_scene_copy(self) -> PlanningScene:
+        with self.planning_scene_monitor.read_only() as scene:
+            return deepcopy(scene)
+
     ############################################################
     ########## Planning and execution ##########################
     ############################################################
@@ -1236,6 +1296,11 @@ class Commander(BaseNode):
         self,
         goal_pose_stamped: PoseStamped,
         start_pose_stamped: Optional[PoseStamped] = None,
+        line_width: float = 0.0005,
+        line_length_tolerance: float = 0.001,
+        line_weight: float = 1.0,
+        orientation_tolerance: float = 0.05,
+        orientation_weight: float = 1.0,
     ) -> Constraints:
         """
         Construct a line constraint for the linear cartesian path.
@@ -1262,8 +1327,12 @@ class Commander(BaseNode):
             == goal_pose_stamped.header.frame_id
         )
 
-        start_position, _ = arrays_from_pose_msg(start_pose_stamped.pose)
-        goal_position, _ = arrays_from_pose_msg(goal_pose_stamped.pose)
+        start_position, start_orientation = arrays_from_pose_msg(
+            start_pose_stamped.pose
+        )
+        goal_position, goal_orientation = arrays_from_pose_msg(
+            goal_pose_stamped.pose
+        )
 
         distance = np.linalg.norm(goal_position - start_position)
         direction = (goal_position - start_position) / distance
@@ -1278,17 +1347,11 @@ class Commander(BaseNode):
         line_constraint.link_name = self.eef_link
         line = SolidPrimitive()
         line.type = SolidPrimitive.BOX
-        width_tolerance = self.get_parameter_wrapper(
-            "planning.line_constraint_width_tolerance"
-        )
-        length_tolerance = self.get_parameter_wrapper(
-            "planning.line_constraint_length_tolerance"
-        )
-        line.dimensions = {
-            width_tolerance * 2,
-            width_tolerance * 2,
-            distance + length_tolerance * 2,
-        }
+        line.dimensions = [
+            line_width,
+            line_width,
+            distance + line_length_tolerance * 2,
+        ]
         line_constraint.constraint_region.primitives.append(line)  # type: ignore
 
         # Create line constraint pose
@@ -1299,62 +1362,59 @@ class Commander(BaseNode):
         line_constraint.constraint_region.primitive_poses.append(line_pose)  # type: ignore
 
         # Set weight (relative importance) of line constraint
-        line_constraint.weight = self.get_parameter_wrapper(
-            "planning.line_constraint_weight"
-        )
+        line_constraint.weight = line_weight
 
         # Add line constraint to constraints
         constraints.position_constraints.append(line_constraint)  # type: ignore
 
         # Create orientation constraint if start and goal orientations are the same
-        start_position, start_orientation = arrays_from_pose_msg(
-            start_pose_stamped.pose
-        )
-        goal_position, goal_orientation = arrays_from_pose_msg(
-            goal_pose_stamped.pose
-        )
-        orientation_tolerance = self.get_parameter_wrapper(
-            "planning.orientation_constraint_tolerance"
-        )
-        if np.allclose(
-            goal_orientation, start_orientation, atol=orientation_tolerance
-        ):
-            orientation_constraint = OrientationConstraint()
-            orientation_constraint.header.frame_id = (
-                start_pose_stamped.header.frame_id
-            )
-            orientation_constraint.link_name = self.eef_link
-            orientation_constraint.orientation = (
-                goal_pose_stamped.pose.orientation
-            )
-            orientation_constraint.absolute_x_axis_tolerance = (
-                orientation_tolerance
-            )
-            orientation_constraint.absolute_y_axis_tolerance = (
-                orientation_tolerance
-            )
-            orientation_constraint.absolute_z_axis_tolerance = (
-                orientation_tolerance
-            )
-            orientation_constraint.weight = self.get_parameter_wrapper(
-                "planning.orientation_constraint_weight"
-            )
-            constraints.orientation_constraints.append(orientation_constraint)  # type: ignore
-        else:
-            assert False  # For debugging
-            self.log(
-                "Start and goal orientations are different, skipping orientation constraint",
-                severity="WARNING",
-            )
+        if orientation_tolerance is not None:
+            if np.allclose(
+                goal_orientation,
+                start_orientation,
+                atol=orientation_tolerance,
+            ):
+                orientation_constraint = OrientationConstraint()
+                orientation_constraint.header.frame_id = (
+                    start_pose_stamped.header.frame_id
+                )
+                orientation_constraint.link_name = self.eef_link
+                orientation_constraint.orientation = (
+                    goal_pose_stamped.pose.orientation
+                )
+                orientation_constraint.absolute_x_axis_tolerance = (
+                    orientation_tolerance
+                )
+                orientation_constraint.absolute_y_axis_tolerance = (
+                    orientation_tolerance
+                )
+                orientation_constraint.absolute_z_axis_tolerance = (
+                    orientation_tolerance
+                )
+                orientation_constraint.weight = orientation_weight
+                if orientation_constraint.weight is None:
+                    raise ValueError(
+                        "Orientation constraint weight is not set"
+                    )
+                constraints.orientation_constraints.append(  # type: ignore
+                    orientation_constraint
+                )
+            else:
+                assert False  # For debugging
+                self.log(
+                    "Start and goal orientations are different, skipping orientation constraint",
+                    severity="WARNING",
+                )
 
         return constraints
 
     def plan_once(
         self,
-        goal: PoseStamped | str,
+        goal: PoseStamped | str | RobotState,
         path_constraints: Optional[Constraints] = None,
         pose_link: Optional[str] = None,
         planning_pipeline: str | list[str] = "default",
+        group_name: Optional[str] = None,
     ) -> MotionPlanResponse:
         """
         Plan a trajectory to the given waypoint once.
@@ -1373,7 +1433,7 @@ class Commander(BaseNode):
         """
         self.log("Planning trajectory once:", severity="DEBUG")
 
-        planning_component = self.get_planning_component()
+        planning_component = self.get_planning_component(group_name)
 
         # Set goal state from pose or configuration name
         original_pose_link = pose_link
@@ -1387,6 +1447,8 @@ class Commander(BaseNode):
         if isinstance(goal, PoseStamped):
             goal_kwargs["pose_stamped_msg"] = goal
             goal_kwargs["pose_link"] = pose_link
+        elif isinstance(goal, RobotState):
+            goal_kwargs["robot_state"] = goal
         elif isinstance(goal, str):
             if original_pose_link is not None:
                 raise ValueError(
@@ -1397,48 +1459,61 @@ class Commander(BaseNode):
         if not planning_component.set_goal_state(**goal_kwargs):
             raise ValueError(f"Invalid goal: {goal}")
 
-        if planning_pipeline in ("default", "default_pipeline"):
-            planning_pipeline = self.get_parameter_wrapper(
-                "planning.default_pipeline"
-            )
-        elif planning_pipeline in ("linear", "linear_pipeline"):
-            planning_pipeline = self.get_parameter_wrapper(
-                "planning.linear_pipeline"
-            )
-            if path_constraints is not None:
-                raise ValueError(
-                    "Linear pipeline does not support user-provided path constraints"
-                )
-            if not isinstance(goal, PoseStamped):
-                raise ValueError("Linear pipeline requires a PoseStamped goal")
-
-            if planning_pipeline != "pilz_lin":
-                path_constraints = self.cartesian_path_constraints(
-                    goal_pose_stamped=goal
-                )
-        else:
-            try:
+        # Set planning pipeline
+        if isinstance(planning_pipeline, str):
+            if "default" in planning_pipeline:
                 planning_pipeline = self.get_parameter_wrapper(
-                    f"planning.{planning_pipeline}"
+                    "planning.default_pipeline"
                 )
-            except ParameterNotDeclaredException:
-                pass
+            elif "linear" in planning_pipeline.lower():
+                if not isinstance(goal, PoseStamped):
+                    raise ValueError(
+                        "Linear pipeline requires a PoseStamped goal"
+                    )
 
+                planning_pipeline = self.get_parameter_wrapper(
+                    "planning.linear_pipeline"
+                )
+
+                try:
+                    linear_path_constraints = self.get_parameter_wrapper(
+                        "planning.default_linear_path_constraints"
+                    )
+                    if path_constraints is None:
+                        path_constraints = self.cartesian_path_constraints(
+                            goal_pose_stamped=goal,
+                            **linear_path_constraints,
+                        )
+                except ParameterNotDeclaredException:
+                    pass
+
+                if path_constraints is not None:
+                    path_constraints = self.cartesian_path_constraints(
+                        goal_pose_stamped=goal
+                    )
+            else:
+                try:
+                    planning_pipeline = self.get_parameter_wrapper(
+                        f"planning.{planning_pipeline}"
+                    )
+                except ParameterNotDeclaredException:
+                    pass
+
+        # Set path constraints
         if path_constraints is not None:
             planning_component.set_path_constraints(path_constraints)
 
         # Set start state to current state
         planning_component.set_start_state_to_current_state()
 
+        # Plan
         self.log(
             f"Planning to {goal} with path constraints {path_constraints} with pipeline {planning_pipeline}",
             severity="DEBUG",
         )
-        # Plan
         if isinstance(planning_pipeline, str):
             request_params = PlanRequestParameters(
-                self.moveit_py,
-                planning_pipeline,
+                self.moveit_py, planning_pipeline
             )
             return planning_component.plan(
                 self.moveit_py, single_plan_parameters=request_params
@@ -1446,8 +1521,7 @@ class Commander(BaseNode):
         else:
             assert isinstance(planning_pipeline, (list, tuple))
             request_params = MultiPipelinePlanRequestParameters(
-                self.moveit_py,
-                planning_pipeline,
+                self.moveit_py, planning_pipeline
             )
             return planning_component.plan(
                 self.moveit_py, multi_plan_parameters=request_params
@@ -1759,6 +1833,8 @@ class Commander(BaseNode):
         for touch_link in self.touch_links:
             self.allow_collision(touch_link, object_id)
 
+        self.log_collision_matrix(severity="DEBUG")
+
         # Pre-attach pose
         self.log(
             f"Moving to pre-attach pose {self.pre_attach_pose_stamped(object_id, subframe_name)}"
@@ -1789,6 +1865,8 @@ class Commander(BaseNode):
         for static_object_id in self.static_object_ids:
             self.allow_collision(object_id, static_object_id)
 
+        self.log_collision_matrix(severity="DEBUG")
+
         # Post-attach pose
         self.log(
             f"Moving to post-attach pose {self.post_attach_pose_stamped(object_id)}"
@@ -1797,6 +1875,8 @@ class Commander(BaseNode):
             goal=self.post_attach_pose_stamped(object_id),
             planning_pipeline="linear",
         )
+
+        self.last_post_attach_state = self.current_state
 
         # Disallow collision between object and static objects
         for static_object_id in self.static_object_ids:
@@ -1823,34 +1903,35 @@ class Commander(BaseNode):
         self.log(f"Fetching object {object_id} from subframe {subframe_name}")
 
         # Pre-fetch pose
-        self.log(
-            f"Moving to pre-fetch pose {self.pre_fetch_pose_stamped(object_id, subframe_name)}"
+        pre_fetch_pose_stamped = self.pre_fetch_pose_stamped(
+            object_id, subframe_name
         )
-        await self.plan_and_execute_async(
-            goal=self.pre_fetch_pose_stamped(object_id, subframe_name)
-        )
+        self.log(f"Moving to pre-fetch pose {pre_fetch_pose_stamped}")
+        await self.plan_and_execute_async(goal=pre_fetch_pose_stamped)
 
         # Allow collision between touch links and object
         for touch_link in self.touch_links:
             self.allow_collision(touch_link, object_id)
 
-        self.log_collision_matrix(severity="INFO")
+        self.log_collision_matrix(severity="DEBUG")
 
         # Pre-attach pose
-        self.log(
-            f"Moving to pre-attach pose {self.pre_attach_pose_stamped(object_id, subframe_name)}"
+        pre_attach_pose_stamped = self.pre_attach_pose_stamped(
+            object_id, subframe_name
         )
+        self.log(f"Moving to pre-attach pose {pre_attach_pose_stamped}")
         await self.plan_and_execute_async(
-            goal=self.pre_attach_pose_stamped(object_id, subframe_name),
+            goal=pre_attach_pose_stamped,
             planning_pipeline="linear",
         )
 
         # Attach pose (no offset with respect to object frame)
-        self.log(
-            f"Moving to attach pose {self.attach_pose_stamped(object_id, subframe_name)}"
+        attach_pose_stamped = self.attach_pose_stamped(
+            object_id, subframe_name
         )
+        self.log(f"Moving to attach pose {attach_pose_stamped}")
         await self.plan_and_execute_async(
-            goal=self.attach_pose_stamped(object_id, subframe_name),
+            goal=attach_pose_stamped,
             planning_pipeline="linear",
         )
 
@@ -1866,16 +1947,17 @@ class Commander(BaseNode):
         for static_object_id in self.static_object_ids:
             self.allow_collision(object_id, static_object_id)
 
-        self.log_collision_matrix(severity="INFO")
+        self.log_collision_matrix(severity="DEBUG")
 
         # Post-attach pose
-        self.log(
-            f"Moving to post-attach pose {self.post_attach_pose_stamped(object_id)}"
-        )
+        post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
+        self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
         await self.plan_and_execute_async(
-            goal=self.post_attach_pose_stamped(object_id),
+            goal=post_attach_pose_stamped,
             planning_pipeline="linear",
         )
+
+        self.last_post_attach_state = self.current_state
 
         # Disallow collision between object and static objects
         for static_object_id in self.static_object_ids:
@@ -1902,9 +1984,7 @@ class Commander(BaseNode):
 
         # Get object ID from planning scene and check that there is exactly one
         # attached collision object
-        attached_collision_object_ids = (
-            self.get_attached_collision_object_ids()
-        )
+        attached_collision_object_ids = self.attached_collision_object_ids
         if len(attached_collision_object_ids) != 1:
             raise RuntimeError(
                 f"Expected exactly one attached collision object, "
@@ -1913,15 +1993,18 @@ class Commander(BaseNode):
 
         object_id = attached_collision_object_ids[0]
 
-        # Move to the pre-detach pose
+        # Move to saved post-attach state
         self.log(
-            f"Moving to pre-detach pose {self.pre_detach_pose_stamped(object_id)}"
+            f"Moving to saved post-attach state {self.last_post_attach_state}"
         )
-        self.plan_and_execute(goal=self.pre_detach_pose_stamped(object_id))
+        self.plan_and_execute(
+            goal=self.last_post_attach_state,
+        )
 
-        # Disallow collision between object and static objects
+        # Allow collision between object and static objects
+        # Needed to prevent errors when inserting object into its tool pocket
         for static_object_id in self.static_object_ids:
-            self.disallow_collision(object_id, static_object_id)
+            self.allow_collision(object_id, static_object_id)
 
         # Move to the detach pose
         self.log(
@@ -1935,9 +2018,9 @@ class Commander(BaseNode):
         # Detach the object
         self.detach_collision_object(object_id=object_id)
 
-        # Allow collision between object and static objects
+        # Disallow collision between object and static objects
         for static_object_id in self.static_object_ids:
-            self.allow_collision(object_id, static_object_id)
+            self.disallow_collision(object_id, static_object_id)
 
         # Allow collision between robot and object
         for touch_link in self.touch_links:
@@ -1988,9 +2071,7 @@ class Commander(BaseNode):
 
         # Get object ID from planning scene and check that there is exactly one
         # attached collision object
-        attached_collision_object_ids = (
-            self.get_attached_collision_object_ids()
-        )
+        attached_collision_object_ids = self.attached_collision_object_ids
         if len(attached_collision_object_ids) != 1:
             raise RuntimeError(
                 f"Expected exactly one attached collision object, "
@@ -1999,12 +2080,35 @@ class Commander(BaseNode):
 
         object_id = attached_collision_object_ids[0]
 
-        # Move to the pre-detach pose
+        # Move to the pre-detach pose for wrist_2
+        # This is needed to solve inverse kinematics issues with pilz
+        # pre_detach_pose_stamped_wrist2 = self.pre_detach_pose_stamped_wrist_2(
+        #     object_id
+        # )
+        # self.log(
+        #     f"Moving to pre-detach pose for wrist_2 {pre_detach_pose_stamped_wrist2}"
+        # )
+        # await self.plan_and_execute_async(
+        #     goal=pre_detach_pose_stamped_wrist2,
+        #     group_name="ur_wrist_2",
+        #     pose_link="wrist_2_link",
+        # )
+
+        # # Move to the pre-detach pose (for eef)
+        # self.log(
+        #     f"Moving to pre-detach pose {self.pre_detach_pose_stamped(object_id)}"
+        # )
+        # await self.plan_and_execute_async(
+        #     goal=self.pre_detach_pose_stamped(object_id),
+        #     planning_pipeline="linear",
+        # )
+
+        # Move to saved post-attach state
         self.log(
-            f"Moving to pre-detach pose {self.pre_detach_pose_stamped(object_id)}"
+            f"Moving to saved post-attach state {self.last_post_attach_state}"
         )
         await self.plan_and_execute_async(
-            goal=self.pre_detach_pose_stamped(object_id)
+            goal=self.last_post_attach_state,
         )
 
         # Allow collision between object and static objects
@@ -2099,7 +2203,7 @@ class Commander(BaseNode):
                 severity="DEBUG",
             )
             self.move_out_of_collision(goal="idle")
-        if len(self.get_attached_collision_object_ids()) > 0:
+        if len(self.attached_collision_object_ids) > 0:
             self.log(
                 "Resetting rig: Returning object to original pose",
                 severity="DEBUG",
@@ -2121,7 +2225,7 @@ class Commander(BaseNode):
                 severity="DEBUG",
             )
             await self.move_out_of_collision_async(goal="idle")
-        if len(self.get_attached_collision_object_ids()) > 0:
+        if len(self.attached_collision_object_ids) > 0:
             self.log(
                 "Resetting rig asynchronously: Returning object to original pose",
                 severity="DEBUG",
