@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
-    platform: linux/amd64
+    # platform: linux/amd64
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -63,6 +63,13 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
+    # ports:
+    #   - 5551:5551
+    # device_cgroup_rules:
+    #   - c 160:* rmw
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:
@@ -78,6 +85,10 @@ services:
       && $$LAUNCH_COMMAND"
 
   server_novnc:
+    build:
+      context: ./novnc
+      pull: true
+    pull_policy: build
     extends: server_base
     depends_on:
       novnc:
@@ -99,7 +110,6 @@ services:
     extends: server_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
     ports:
@@ -113,6 +123,17 @@ services:
         ros2 launch tabletop_server server.launch.py
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+
+  flic_server:
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    image: ubuntu:latest
+    pull_policy: always
+    volumes:
+      - ./flic_server:/flic_server
+    command: bash -c "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0"
 
 networks:
   tabletop_net:

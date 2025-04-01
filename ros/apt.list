@@ -5,6 +5,8 @@ ros-jazzy-ros2controlcli
 ros-jazzy-cv-bridge
 ros-jazzy-rmw-fastrtps-cpp
 ros-jazzy-rmw-cyclonedds-cpp
+ros-jazzy-trac-ik-kinematics-plugin
+ros-jazzy-moveit-tests
 python3-pip
 python3-venv
 python-is-python3
@@ -21,5 +23,6 @@ vim
 psmisc
 iputils-ping
 net-tools
+iproute2
 gdb
 xarclock
