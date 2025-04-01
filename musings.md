@@ -49,3 +49,15 @@ If you *really* need some info, check out this [video](https://www.youtube.com/w
 somewhere), you spent fucking hours determining that the presence (or lack
 thereof) of that something at that somewhere was the optimal solution. Don't
 re-invent the wheel. You already invented it 5 times.
+
+8. Getting the `flicd` server running in the `tabletop_server` container is a
+bitch. Forget about it, don't try to do it again. It's not worth it. Just run
+it in its own container, that's hard enough as it is.
+
+9. Speaking of which, to connect to the `flicd` server from another container,
+you need to connect via the host machine's IP address (with respect to the
+docker internal network). E.g.
+```bash
+./flic_client/simple_client 172.17.0.1 [5551]
+```
+(port `5551` is the default and therefore optional).
