@@ -20,6 +20,7 @@ import threading
 import time
 from collections import namedtuple
 from enum import Enum
+from typing import Optional
 
 
 class CreateConnectionChannelError(Enum):
@@ -198,7 +199,7 @@ class ButtonConnectionChannel:
         self._bd_addr = bd_addr
         self._latency_mode = latency_mode
         self._auto_disconnect_time = auto_disconnect_time
-        self._client = None
+        self._client: Optional[FlicClient] = None
 
         self.on_create_connection_channel_response = (
             lambda channel, error, connection_status: None
@@ -368,10 +369,10 @@ class FlicClient:
         ),
     ]
     _EVENT_STRUCTS = list(
-        map(lambda x: None if x == None else struct.Struct(x[1]), _EVENTS)
+        map(lambda x: None if x is None else struct.Struct(x[1]), _EVENTS)
     )
     _EVENT_NAMED_TUPLES = list(
-        map(lambda x: None if x == None else namedtuple(x[0], x[2]), _EVENTS)
+        map(lambda x: None if x is None else namedtuple(x[0], x[2]), _EVENTS)
     )
 
     _COMMANDS = [
@@ -405,9 +406,11 @@ class FlicClient:
     )
     _COMMAND_NAME_TO_OPCODE = dict((x[0], i) for i, x in enumerate(_COMMANDS))
 
+    @staticmethod
     def _bdaddr_bytes_to_string(bdaddr_bytes):
         return ":".join(map(lambda x: "%02x" % x, reversed(bdaddr_bytes)))
 
+    @staticmethod
     def _bdaddr_string_to_bytes(bdaddr_string):
         return bytearray.fromhex("".join(reversed(bdaddr_string.split(":"))))
 
@@ -660,7 +663,7 @@ class FlicClient:
 
         if (
             opcode >= len(FlicClient._EVENTS)
-            or FlicClient._EVENTS[opcode] == None
+            or FlicClient._EVENTS[opcode] is None
         ):
             return
 

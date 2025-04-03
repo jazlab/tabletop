@@ -2,7 +2,13 @@
 
 import asyncio
 
-from aioflic import *
+from tabletop_server.flic_client.aioflic import (
+    ButtonConnectionChannel,
+    ConnectionStatus,
+    FlicClient,
+    ScanWizard,
+    ScanWizardResult,
+)
 
 
 def got_button(bd_addr):
@@ -69,17 +75,21 @@ def scan():
     client.add_scan_wizard(mywiz)
 
 
-FlicClient.on_get_info = got_info
-loop = asyncio.get_event_loop()
-try:
-    coro = loop.create_connection(lambda: FlicClient(loop), "localhost", 5551)
-    conn, client = loop.run_until_complete(coro)
-    client.on_get_info = got_info
-    client.get_info()
-    loop.run_forever()
-except KeyboardInterrupt:
-    print("\n", "Exiting at user's request")
-finally:
-    # Close the server
-    client.close()
-    loop.close()
+async def main():
+    loop = asyncio.get_event_loop()
+    client = FlicClient(loop)
+    try:
+        coro = loop.create_connection(lambda: client, "localhost", 5551)
+        conn, client = loop.run_until_complete(coro)
+        client.get_info()
+        loop.run_forever()
+    except KeyboardInterrupt:
+        print("\n", "Exiting at user's request")
+    finally:
+        # Close the server
+        client.close()
+        loop.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

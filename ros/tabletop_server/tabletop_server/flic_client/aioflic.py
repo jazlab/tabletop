@@ -14,7 +14,7 @@ Bd addr are represented as standard python strings, e.g. "aa:bb:cc:dd:ee:ff".
 import asyncio
 import itertools
 import struct
-import time
+from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from enum import Enum
 
@@ -93,7 +93,7 @@ class ScanWizardResult(Enum):
     WizardButtonAlreadyConnectedToOtherDevice = 8
 
 
-class ButtonScanner:
+class ButtonScanner(metaclass=ABCMeta):
     """ButtonScanner class.
 
     Usage:
@@ -106,19 +106,23 @@ class ButtonScanner:
 
     def __init__(self):
         self._scan_id = next(ButtonScanner._cnt)
-        self.on_advertisement_packet = (
-            lambda scanner,
-            bd_addr,
-            name,
-            rssi,
-            is_private,
-            already_verified,
-            already_connected_to_this_device,
-            already_connected_to_other_device: None
-        )
+
+    @abstractmethod
+    def on_advertisement_packet(
+        self,
+        scanner,
+        bd_addr,
+        name,
+        rssi,
+        is_private,
+        already_verified,
+        already_connected_to_this_device,
+        already_connected_to_other_device,
+    ):
+        pass
 
 
-class ScanWizard:
+class ScanWizard(metaclass=ABCMeta):
     """ScanWizard class
 
     Usage:
@@ -136,13 +140,25 @@ class ScanWizard:
         self._scan_wizard_id = next(ScanWizard._cnt)
         self._bd_addr = None
         self._name = None
-        self.on_found_private_button = lambda scan_wizard: None
-        self.on_found_public_button = lambda scan_wizard, bd_addr, name: None
-        self.on_button_connected = lambda scan_wizard, bd_addr, name: None
-        self.on_completed = lambda scan_wizard, result, bd_addr, name: None
+
+    @abstractmethod
+    def on_found_private_button(self, scan_wizard):
+        pass
+
+    @abstractmethod
+    def on_found_public_button(self, scan_wizard, bd_addr, name):
+        pass
+
+    @abstractmethod
+    def on_button_connected(self, scan_wizard, bd_addr, name):
+        pass
+
+    @abstractmethod
+    def on_completed(self, scan_wizard, result, bd_addr, name):
+        pass
 
 
-class BatteryStatusListener:
+class BatteryStatusListener(metaclass=ABCMeta):
     """BatteryStatusListener class
 
     Usage:
@@ -156,16 +172,17 @@ class BatteryStatusListener:
     def __init__(self, bd_addr):
         self._listener_id = next(BatteryStatusListener._cnt)
         self._bd_addr = bd_addr
-        self.on_battery_status = (
-            lambda battery_status_listener, battery_percentage, timestamp: None
-        )
 
     @property
     def bd_addr(self):
         return self._bd_addr
 
+    @abstractmethod
+    def on_battery_status(self, battery_percentage, timestamp):
+        pass
 
-class ButtonConnectionChannel:
+
+class ButtonConnectionChannel(metaclass=ABCMeta):
     """ButtonConnectionChannel class.
 
     This class represents a connection channel to a Flic button.
@@ -188,6 +205,7 @@ class ButtonConnectionChannel:
     def __init__(
         self,
         bd_addr,
+        client,
         latency_mode=LatencyMode.NormalLatency,
         auto_disconnect_time=511,
     ):
@@ -195,27 +213,41 @@ class ButtonConnectionChannel:
         self._bd_addr = bd_addr
         self._latency_mode = latency_mode
         self._auto_disconnect_time = auto_disconnect_time
-        self._client = None
+        self._client = client
 
-        self.on_create_connection_channel_response = (
-            lambda channel, error, connection_status: None
-        )
-        self.on_removed = lambda channel, removed_reason: None
-        self.on_connection_status_changed = (
-            lambda channel, connection_status, disconnect_reason: None
-        )
-        self.on_button_up_or_down = (
-            lambda channel, click_type, was_queued, time_diff: None
-        )
-        self.on_button_click_or_hold = (
-            lambda channel, click_type, was_queued, time_diff: None
-        )
-        self.on_button_single_or_double_click = (
-            lambda channel, click_type, was_queued, time_diff: None
-        )
-        self.on_button_single_or_double_click_or_hold = (
-            lambda channel, click_type, was_queued, time_diff: None
-        )
+    @abstractmethod
+    def on_create_connection_channel_response(self, error, connection_status):
+        pass
+
+    @abstractmethod
+    def on_removed(self, removed_reason):
+        pass
+
+    @abstractmethod
+    def on_connection_status_changed(
+        self, connection_status, disconnect_reason
+    ):
+        pass
+
+    @abstractmethod
+    def on_button_up_or_down(self, click_type, was_queued, time_diff):
+        pass
+
+    @abstractmethod
+    def on_button_click_or_hold(self, click_type, was_queued, time_diff):
+        pass
+
+    @abstractmethod
+    def on_button_single_or_double_click(
+        self, click_type, was_queued, time_diff
+    ):
+        pass
+
+    @abstractmethod
+    def on_button_single_or_double_click_or_hold(
+        self, click_type, was_queued, time_diff
+    ):
+        pass
 
     @property
     def bd_addr(self):
@@ -264,7 +296,7 @@ class ButtonConnectionChannel:
             )
 
 
-class FlicClient(asyncio.Protocol):
+class FlicClient(asyncio.Protocol, metaclass=ABCMeta):
     """FlicClient class.
 
     When this class is constructed, a socket connection is established.
@@ -362,10 +394,10 @@ class FlicClient(asyncio.Protocol):
         ),
     ]
     _EVENT_STRUCTS = list(
-        map(lambda x: None if x == None else struct.Struct(x[1]), _EVENTS)
+        map(lambda x: None if x is None else struct.Struct(x[1]), _EVENTS)
     )
     _EVENT_NAMED_TUPLES = list(
-        map(lambda x: None if x == None else namedtuple(x[0], x[2]), _EVENTS)
+        map(lambda x: None if x is None else namedtuple(x[0], x[2]), _EVENTS)
     )
 
     _COMMANDS = [
@@ -399,13 +431,19 @@ class FlicClient(asyncio.Protocol):
     )
     _COMMAND_NAME_TO_OPCODE = dict((x[0], i) for i, x in enumerate(_COMMANDS))
 
+    @staticmethod
     def _bdaddr_bytes_to_string(bdaddr_bytes):
         return ":".join(map(lambda x: "%02x" % x, reversed(bdaddr_bytes)))
 
+    @staticmethod
     def _bdaddr_string_to_bytes(bdaddr_string):
         return bytearray.fromhex("".join(reversed(bdaddr_string.split(":"))))
 
-    def __init__(self, loop, parent=None):
+    def __init__(
+        self,
+        loop,
+        parent=None,
+    ):
         self.loop = loop
         self.buffer = b""
         self.transport = None
@@ -414,22 +452,37 @@ class FlicClient(asyncio.Protocol):
         self._scan_wizards = {}
         self._connection_channels = {}
         self._battery_status_listeners = {}
-        self._get_info_response_queue = queue.Queue()
-        self._get_button_info_queue = queue.Queue()
+        self._get_info_queue = asyncio.Queue()
+        self._get_button_info_queue = asyncio.Queue()
         self._closed = False
 
-        self.on_new_verified_button = lambda bd_addr: None
-        self.on_no_space_for_new_connection = (
-            lambda max_concurrently_connected_buttons: None
-        )
-        self.on_got_space_for_new_connection = (
-            lambda max_concurrently_connected_buttons: None
-        )
-        self.on_bluetooth_controller_state_change = lambda state: None
-        self.on_get_info = lambda items: None
-        self.on_button_deleted = lambda bd_addr, deleted_by_this_client: None
+    @abstractmethod
+    def on_new_verified_button(self, bd_addr: str):
+        raise NotImplementedError("on_new_verified_button")
 
-    def connection_made(self, transport):
+    @abstractmethod
+    def on_no_space_for_new_connection(
+        self, max_concurrently_connected_buttons: int
+    ):
+        raise NotImplementedError("on_no_space_for_new_connection")
+
+    @abstractmethod
+    def on_got_space_for_new_connection(
+        self, max_concurrently_connected_buttons: int
+    ):
+        raise NotImplementedError("on_got_space_for_new_connection")
+
+    @abstractmethod
+    def on_bluetooth_controller_state_change(
+        self, state: BluetoothControllerState
+    ):
+        raise NotImplementedError("on_bluetooth_controller_state_change")
+
+    @abstractmethod
+    def on_button_deleted(self, bd_addr: str, deleted_by_this_client: bool):
+        raise NotImplementedError("on_button_deleted")
+
+    def connection_made(self, transport: asyncio.Transport):
         self.transport = transport
         if self.parent:
             self.parent.register_protocol(self)
@@ -441,7 +494,7 @@ class FlicClient(asyncio.Protocol):
 
         self._closed = True
 
-    def add_scanner(self, scanner):
+    def add_scanner(self, scanner: ButtonScanner):
         """Add a ButtonScanner object.
 
         The scan will start directly once the scanner is added.
@@ -563,7 +616,7 @@ class FlicClient(asyncio.Protocol):
         """
         self._send_command("CmdForceDisconnect", {"bd_addr": bd_addr})
 
-    def get_info(self):
+    async def get_info(self):
         """Get info about the current state of the server.
 
         The server will send back its information directly and the callback will be called once the response arrives.
@@ -572,8 +625,9 @@ class FlicClient(asyncio.Protocol):
         current_pending_connections, currently_no_space_for_new_connection, bd_addr_of_verified_buttons (a list of bd addresses).
         """
         self._send_command("CmdGetInfo", {})
+        await self._get_info_queue.get()
 
-    def get_button_info(self, bd_addr, callback):
+    async def get_button_info(self, bd_addr):
         """Get button info for a verified button.
 
         The server will send back its information directly and the callback will be called once the response arrives.
@@ -583,15 +637,15 @@ class FlicClient(asyncio.Protocol):
 
         Note: if the button isn't verified, the uuid sent to the callback will rather be None.
         """
-        self._get_button_info_queue.put(callback)
         self._send_command("CmdGetButtonInfo", {"bd_addr": bd_addr})
+        await self._get_button_info_queue.get()
 
-    def run_on_handle_events_thread(self, callback):
-        """Run a function on the thread that handles the events."""
-        if threading.get_ident() == self._handle_event_thread_ident:
-            callback()
-        else:
-            self.set_timer(0, callback)
+    # def run_on_handle_events_thread(self, callback):
+    #     """Run a function on the thread that handles the events."""
+    #     if threading.get_ident() == self._handle_event_thread_ident:
+    #         callback()
+    #     else:
+    #         self.set_timer(0, callback)
 
     def _send_command(self, name, items):
         for key, value in items.items():
@@ -612,6 +666,8 @@ class FlicClient(asyncio.Protocol):
         bytes[1] = (len(data_bytes) + 1) >> 8
         bytes[2] = opcode
         bytes += data_bytes
+        if not self.transport:
+            raise RuntimeError("")
         self.transport.write(bytes)
 
     def _dispatch_event(self, data):
@@ -621,7 +677,7 @@ class FlicClient(asyncio.Protocol):
 
         if (
             opcode >= len(FlicClient._EVENTS)
-            or FlicClient._EVENTS[opcode] == None
+            or FlicClient._EVENTS[opcode] is None
         ):
             return
 
@@ -638,187 +694,187 @@ class FlicClient(asyncio.Protocol):
             items["bd_addr"] = FlicClient._bdaddr_bytes_to_string(
                 items["bd_addr"]
             )
-
         if "name" in items:
             items["name"] = items["name"].decode("utf-8")
 
-        if event_name == "EvtCreateConnectionChannelResponse":
-            items["error"] = CreateConnectionChannelError(items["error"])
-            items["connection_status"] = ConnectionStatus(
-                items["connection_status"]
-            )
-
-        if event_name == "EvtConnectionStatusChanged":
-            items["connection_status"] = ConnectionStatus(
-                items["connection_status"]
-            )
-            items["disconnect_reason"] = DisconnectReason(
-                items["disconnect_reason"]
-            )
-
-        if event_name == "EvtConnectionChannelRemoved":
-            items["removed_reason"] = RemovedReason(items["removed_reason"])
-
-        if event_name.startswith("EvtButton"):
-            items["click_type"] = ClickType(items["click_type"])
-
-        if event_name == "EvtGetInfoResponse":
-            items["bluetooth_controller_state"] = BluetoothControllerState(
-                items["bluetooth_controller_state"]
-            )
-            items["my_bd_addr"] = FlicClient._bdaddr_bytes_to_string(
-                items["my_bd_addr"]
-            )
-            items["my_bd_addr_type"] = BdAddrType(items["my_bd_addr_type"])
-            items["bd_addr_of_verified_buttons"] = []
-
-            pos = FlicClient._EVENT_STRUCTS[opcode].size
-            for i in range(items["nb_verified_buttons"]):
-                items["bd_addr_of_verified_buttons"].append(
-                    FlicClient._bdaddr_bytes_to_string(
-                        data[1 + pos : 1 + pos + 6]
-                    )
+        match event_name:
+            case "EvtCreateConnectionChannelResponse":
+                items["error"] = CreateConnectionChannelError(items["error"])
+                items["connection_status"] = ConnectionStatus(
+                    items["connection_status"]
                 )
-                pos += 6
+            case "EvtConnectionStatusChanged":
+                items["connection_status"] = ConnectionStatus(
+                    items["connection_status"]
+                )
+                items["disconnect_reason"] = DisconnectReason(
+                    items["disconnect_reason"]
+                )
+            case "EvtConnectionChannelRemoved":
+                items["removed_reason"] = RemovedReason(
+                    items["removed_reason"]
+                )
 
-        if event_name == "EvtBluetoothControllerStateChange":
-            items["state"] = BluetoothControllerState(items["state"])
+            case event_name.startswith("EvtButton"):
+                items["click_type"] = ClickType(items["click_type"])
 
-        if event_name == "EvtGetButtonInfoResponse":
-            items["uuid"] = "".join(map(lambda x: "%02x" % x, items["uuid"]))
-            if items["uuid"] == "00000000000000000000000000000000":
-                items["uuid"] = None
-            items["color"] = items["color"].decode("utf-8")
-            if items["color"] == "":
-                items["color"] = None
-            items["serial_number"] = items["serial_number"].decode("utf-8")
-            if items["serial_number"] == "":
-                items["serial_number"] = None
+            case "EvtGetInfoResponse":
+                items["bluetooth_controller_state"] = BluetoothControllerState(
+                    items["bluetooth_controller_state"]
+                )
+                items["my_bd_addr"] = FlicClient._bdaddr_bytes_to_string(
+                    items["my_bd_addr"]
+                )
+                items["my_bd_addr_type"] = BdAddrType(items["my_bd_addr_type"])
+                items["bd_addr_of_verified_buttons"] = []
 
-        if event_name == "EvtScanWizardCompleted":
-            items["result"] = ScanWizardResult(items["result"])
+                pos = FlicClient._EVENT_STRUCTS[opcode].size
+                for i in range(items["nb_verified_buttons"]):
+                    items["bd_addr_of_verified_buttons"].append(
+                        FlicClient._bdaddr_bytes_to_string(
+                            data[1 + pos : 1 + pos + 6]
+                        )
+                    )
+                    pos += 6
+
+            case "EvtBluetoothControllerStateChange":
+                items["state"] = BluetoothControllerState(items["state"])
+
+            case "EvtGetButtonInfoResponse":
+                items["uuid"] = "".join(
+                    map(lambda x: "%02x" % x, items["uuid"])
+                )
+                if items["uuid"] == "00000000000000000000000000000000":
+                    items["uuid"] = None
+                items["color"] = items["color"].decode("utf-8")
+                if items["color"] == "":
+                    items["color"] = None
+                items["serial_number"] = items["serial_number"].decode("utf-8")
+                if items["serial_number"] == "":
+                    items["serial_number"] = None
+
+            case "EvtScanWizardCompleted":
+                items["result"] = ScanWizardResult(items["result"])
 
         # Process event
-        if event_name == "EvtAdvertisementPacket":
-            scanner = self._scanners.get(items["scan_id"])
-            if scanner is not None:
-                scanner.on_advertisement_packet(
-                    scanner,
-                    items["bd_addr"],
-                    items["name"],
-                    items["rssi"],
-                    items["is_private"],
-                    items["already_verified"],
+        match event_name:
+            case "EvtAdvertisementPacket":
+                scanner = self._scanners.get(items["scan_id"])
+                if scanner is not None:
+                    scanner.on_advertisement_packet(
+                        scanner,
+                        items["bd_addr"],
+                        items["name"],
+                        items["rssi"],
+                        items["is_private"],
+                        items["already_verified"],
+                    )
+
+            case "EvtCreateConnectionChannelResponse":
+                channel = self._connection_channels[items["conn_id"]]
+                if items["error"] != CreateConnectionChannelError.NoError:
+                    del self._connection_channels[items["conn_id"]]
+                channel.on_create_connection_channel_response(
+                    channel, items["error"], items["connection_status"]
                 )
 
-        if event_name == "EvtCreateConnectionChannelResponse":
-            channel = self._connection_channels[items["conn_id"]]
-            if items["error"] != CreateConnectionChannelError.NoError:
+            case "EvtConnectionStatusChanged":
+                channel = self._connection_channels[items["conn_id"]]
+                channel.on_connection_status_changed(
+                    channel,
+                    items["connection_status"],
+                    items["disconnect_reason"],
+                )
+
+            case "EvtConnectionChannelRemoved":
+                channel = self._connection_channels[items["conn_id"]]
                 del self._connection_channels[items["conn_id"]]
-            channel.on_create_connection_channel_response(
-                channel, items["error"], items["connection_status"]
-            )
+                channel.on_removed(channel, items["removed_reason"])
 
-        if event_name == "EvtConnectionStatusChanged":
-            channel = self._connection_channels[items["conn_id"]]
-            channel.on_connection_status_changed(
-                channel, items["connection_status"], items["disconnect_reason"]
-            )
+            case "EvtButtonUpOrDown":
+                channel = self._connection_channels[items["conn_id"]]
+                channel.on_button_up_or_down(
+                    channel,
+                    items["click_type"],
+                    items["was_queued"],
+                    items["time_diff"],
+                )
+            case "EvtButtonClickOrHold":
+                channel = self._connection_channels[items["conn_id"]]
+                channel.on_button_click_or_hold(
+                    channel,
+                    items["click_type"],
+                    items["was_queued"],
+                    items["time_diff"],
+                )
+            case "EvtButtonSingleOrDoubleClick":
+                channel = self._connection_channels[items["conn_id"]]
+                channel.on_button_single_or_double_click(
+                    channel,
+                    items["click_type"],
+                    items["was_queued"],
+                    items["time_diff"],
+                )
+            case "EvtButtonSingleOrDoubleClickOrHold":
+                channel = self._connection_channels[items["conn_id"]]
+                channel.on_button_single_or_double_click_or_hold(
+                    channel,
+                    items["click_type"],
+                    items["was_queued"],
+                    items["time_diff"],
+                )
 
-        if event_name == "EvtConnectionChannelRemoved":
-            channel = self._connection_channels[items["conn_id"]]
-            del self._connection_channels[items["conn_id"]]
-            channel.on_removed(channel, items["removed_reason"])
+            case "EvtNewVerifiedButton":
+                self.on_new_verified_button(items["bd_addr"])
 
-        if event_name == "EvtButtonUpOrDown":
-            channel = self._connection_channels[items["conn_id"]]
-            channel.on_button_up_or_down(
-                channel,
-                items["click_type"],
-                items["was_queued"],
-                items["time_diff"],
-            )
-        if event_name == "EvtButtonClickOrHold":
-            channel = self._connection_channels[items["conn_id"]]
-            channel.on_button_click_or_hold(
-                channel,
-                items["click_type"],
-                items["was_queued"],
-                items["time_diff"],
-            )
-        if event_name == "EvtButtonSingleOrDoubleClick":
-            channel = self._connection_channels[items["conn_id"]]
-            channel.on_button_single_or_double_click(
-                channel,
-                items["click_type"],
-                items["was_queued"],
-                items["time_diff"],
-            )
-        if event_name == "EvtButtonSingleOrDoubleClickOrHold":
-            channel = self._connection_channels[items["conn_id"]]
-            channel.on_button_single_or_double_click_or_hold(
-                channel,
-                items["click_type"],
-                items["was_queued"],
-                items["time_diff"],
-            )
+            case "EvtGetInfoResponse":
+                self._get_info_queue.put_nowait(items)
 
-        if event_name == "EvtNewVerifiedButton":
-            self.on_new_verified_button(items["bd_addr"])
+            case "EvtGetButtonInfoResponse":
+                self._get_button_info_queue.put_nowait(items)
 
-        if event_name == "EvtGetInfoResponse":
-            self.on_get_info(items)
+            case "EvtNoSpaceForNewConnection":
+                self.on_no_space_for_new_connection(
+                    items["max_concurrently_connected_buttons"]
+                )
 
-        if event_name == "EvtNoSpaceForNewConnection":
-            self.on_no_space_for_new_connection(
-                items["max_concurrently_connected_buttons"]
-            )
+            case "EvtGotSpaceForNewConnection":
+                self.on_got_space_for_new_connection(
+                    items["max_concurrently_connected_buttons"]
+                )
 
-        if event_name == "EvtGotSpaceForNewConnection":
-            self.on_got_space_for_new_connection(
-                items["max_concurrently_connected_buttons"]
-            )
+            case "EvtBluetoothControllerStateChange":
+                self.on_bluetooth_controller_state_change(items["state"])
 
-        if event_name == "EvtBluetoothControllerStateChange":
-            self.on_bluetooth_controller_state_change(items["state"])
+            case "EvtScanWizardFoundPrivateButton":
+                scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
+                scan_wizard.on_found_private_button(scan_wizard)
 
-        if event_name == "EvtGetButtonInfoResponse":
-            self._get_button_info_queue.get()(
-                items["bd_addr"],
-                items["uuid"],
-                items["color"],
-                items["serial_number"],
-                items["flic_version"],
-                items["firmware_version"],
-            )
+            case "EvtScanWizardFoundPublicButton":
+                scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
+                scan_wizard._bd_addr = items["bd_addr"]
+                scan_wizard._name = items["name"]
+                scan_wizard.on_found_public_button(
+                    scan_wizard, scan_wizard._bd_addr, scan_wizard._name
+                )
 
-        if event_name == "EvtScanWizardFoundPrivateButton":
-            scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
-            scan_wizard.on_found_private_button(scan_wizard)
+            case "EvtScanWizardButtonConnected":
+                scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
+                scan_wizard.on_button_connected(
+                    scan_wizard, scan_wizard._bd_addr, scan_wizard._name
+                )
 
-        if event_name == "EvtScanWizardFoundPublicButton":
-            scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
-            scan_wizard._bd_addr = items["bd_addr"]
-            scan_wizard._name = items["name"]
-            scan_wizard.on_found_public_button(
-                scan_wizard, scan_wizard._bd_addr, scan_wizard._name
-            )
-
-        if event_name == "EvtScanWizardButtonConnected":
-            scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
-            scan_wizard.on_button_connected(
-                scan_wizard, scan_wizard._bd_addr, scan_wizard._name
-            )
-
-        if event_name == "EvtScanWizardCompleted":
-            scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
-            del self._scan_wizards[items["scan_wizard_id"]]
-            scan_wizard.on_completed(
-                scan_wizard,
-                items["result"],
-                scan_wizard._bd_addr,
-                scan_wizard._name,
-            )
+            case "EvtScanWizardCompleted":
+                scan_wizard = self._scan_wizards[items["scan_wizard_id"]]
+                del self._scan_wizards[items["scan_wizard_id"]]
+                scan_wizard.on_completed(
+                    scan_wizard,
+                    items["result"],
+                    scan_wizard._bd_addr,
+                    scan_wizard._name,
+                )
+            case _:
+                raise ValueError(f"Unknown event: {event_name}")
 
     def data_received(self, data):
         cdata = self.buffer + data
@@ -833,3 +889,7 @@ class FlicClient(asyncio.Protocol):
                 if len(cdata):
                     self.buffer = cdata  # unlikely to happen but.....
                 break
+
+    def eof_received(self):
+        assert self.transport is not None
+        self.transport.close()

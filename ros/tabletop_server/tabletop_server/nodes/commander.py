@@ -3,6 +3,7 @@ import glob
 import os
 import time
 import traceback
+from asyncio import Future as AsyncioFuture
 from collections.abc import (
     AsyncGenerator,
     Iterable,
@@ -44,8 +45,6 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.task import Future as RclpyFuture
 from shape_msgs.msg import (
     Plane,
     SolidPrimitive,
@@ -87,6 +86,7 @@ from tabletop_utils.ros import (
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
+from tabletop_server.executor import AIOExecutor
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
 
 
@@ -101,7 +101,7 @@ def asyncio_task_decorator(coro_fn: Callable[..., Coroutine]):
 
     def wrapper(self, *args, **kwargs):
         if self.tg is None:
-            return coro_fn(self, *args, **kwargs)
+            return asyncio.create_task(coro_fn(self, *args, **kwargs))
         else:
             return self.tg.create_task(coro_fn(self, *args, **kwargs))
 
@@ -1586,16 +1586,12 @@ class Commander(BaseNode):
         """
         Asynchronous coroutine wrapper for `plan()` method.
 
-        Creates an rclpy task to compute the trajectory in a separate thread.
+        Creates an asyncio task to compute the trajectory in a separate thread.
 
         See Also:
             `plan()`: For parameter details and synchronous implementation.
         """
-        return await self.create_rclpy_task(
-            self.plan,
-            *args,
-            **kwargs,
-        )
+        return await asyncio.to_thread(self.plan, *args, **kwargs)
 
     async def plan_generator_async(
         self, *args, goals: list[PoseStamped | str], **kwargs
@@ -1657,7 +1653,7 @@ class Commander(BaseNode):
         Returns:
             ExecutionStatus: The status of the execution.
         """
-        future = RclpyFuture()
+        future = AsyncioFuture()
 
         def done_callback():
             future.set_result(
@@ -1667,7 +1663,7 @@ class Commander(BaseNode):
         self.trajectory_execution_manager.push(robot_trajectory)
         self.trajectory_execution_manager.execute(done_callback)
 
-        return await future  # type: ignore
+        return await future
 
     def execute(
         self, *args, max_attempts: Optional[int] = None, **kwargs
@@ -1798,7 +1794,7 @@ class Commander(BaseNode):
             `plan_and_execute()`: For parameter details and synchronous
                 implementation.
         """
-        await self.create_rclpy_task(self.plan_and_execute, *args, **kwargs)
+        await asyncio.to_thread(self.plan_and_execute, *args, **kwargs)
 
     ############################################################
     ########## Fetch and return ################################
@@ -2400,7 +2396,7 @@ async def run(commander: Commander, config: Mapping[str, Any]):
         raise e
 
 
-def main(args=None):
+async def main_async(args=None):
     rclpy.init(args=args)
 
     non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
@@ -2410,14 +2406,12 @@ def main(args=None):
         run_config = yaml.safe_load(f)
 
     try:
-        executor = MultiThreadedExecutor()
+        executor = AIOExecutor()
         commander = Commander()
         executor.add_node(commander)
 
-        future = executor.create_task(asyncio.run, run(commander, run_config))
-
         try:
-            executor.spin_until_future_complete(future)
+            await asyncio.gather(run(commander, run_config), executor.spin())
         finally:
             print("Shutting down executor")
             executor.shutdown()
@@ -2426,3 +2420,7 @@ def main(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.shutdown()
+
+
+def main():
+    asyncio.run(main_async())

@@ -1,3 +1,4 @@
+import asyncio
 import random
 import time
 
@@ -5,6 +6,8 @@ import rclpy
 from std_msgs.msg import String
 from tabletop_msgs.srv import GetFlic
 
+from tabletop_server.executor import AIOExecutor
+from tabletop_server.flic_client import TabletopFlicClient
 from tabletop_server.nodes.base import BaseNode
 
 DEFAULT_LOG_SEVERITY = "INFO"
@@ -16,11 +19,13 @@ class Flic(BaseNode):
         "simulate_delay_sec": 6.0,
     }
 
-    def __init__(self):
+    def __init__(self, flic_client: TabletopFlicClient):
         # Initialize base node
 
         self.log_pub = None
         super().__init__("flic")
+
+        self.flic_client = flic_client
 
         # Log publisher
 
@@ -42,7 +47,9 @@ class Flic(BaseNode):
         self.get_flic_service = self.create_service(
             GetFlic,
             "flic/get_flic",
-            self.get_flic_callback,
+            self.get_flic_callback_simulated
+            if self.simulate
+            else self.get_flic_callback,
         )
 
         # One-shot timers for delayed state updates
@@ -54,9 +61,9 @@ class Flic(BaseNode):
         if self.log_pub is not None:
             self.log_pub.publish(String(data=message))
 
-    def get_flic_callback(
+    def get_flic_callback_simulated(
         self, request: GetFlic.Request, response: GetFlic.Response
-    ):
+    ) -> GetFlic.Response:
         # Schedule a timer to update the state pin after a random delay
         if self.simulate_delay_timer is None:
             delay = random.uniform(0.0, self.simulate_delay_sec)
@@ -84,17 +91,34 @@ class Flic(BaseNode):
 
         self.log(f"Flic simulated delay for {delay} seconds")
 
+    def get_flic_callback(
+        self, request: GetFlic.Request, response: GetFlic.Response
+    ) -> GetFlic.Response:
+        # Call the flic client
+        self.flic_client.get_flic()
 
-def main(args=None):
+        # Set the response message
+        response.success = True
+        response.last_time_pressed_ms = self.flic_last_time_pressed_ms
+        response.message = (
+            f"Flic last pressed at {response.last_time_pressed_ms} ms"
+        )
+        self.log(response.message)
+
+        return response
+
+
+async def main_async(args=None):
+    loop = asyncio.get_event_loop()
+
     rclpy.init(args=args)
-
     try:
-        executor: rclpy.Executor = rclpy.executors.SingleThreadedExecutor()  # type: ignore
-        flic = Flic()
+        executor = AIOExecutor()
+        flic = Flic(TabletopFlicClient(loop))
         executor.add_node(flic)
 
         try:
-            executor.spin()
+            await executor.spin()
         finally:
             print("Shutting down executor")
             executor.shutdown()
@@ -103,3 +127,7 @@ def main(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.shutdown()
+
+
+def main():
+    asyncio.run(main_async())
