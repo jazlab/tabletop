@@ -1,12 +1,12 @@
 ros-jazzy-ur
 ros-jazzy-moveit
 ros-jazzy-moveit-py
+ros-jazzy-moveit-ros-tests
 ros-jazzy-ros2controlcli
 ros-jazzy-cv-bridge
 ros-jazzy-rmw-fastrtps-cpp
 ros-jazzy-rmw-cyclonedds-cpp
 ros-jazzy-trac-ik-kinematics-plugin
-ros-jazzy-moveit-tests
 python3-pip
 python3-venv
 python-is-python3

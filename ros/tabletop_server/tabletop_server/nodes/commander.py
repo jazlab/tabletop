@@ -585,7 +585,15 @@ class Commander(BaseNode):
     async def wait_for_hand_fixation_release_async(
         self, timeout_sec: Optional[float] = None
     ):
-        """Wait for hand fixation state to turn off, then return True."""
+        """Wait for hand fixation to be released
+
+        Args:
+            timeout_sec: Timeout in seconds.
+
+        Returns:
+            bool: True if hand fixation was released within the timeout,
+            False otherwise.
+        """
         initial_fixation = await self.get_hand_fixation_async()
         if not initial_fixation.is_pressed:
             return True

@@ -26,3 +26,7 @@
 
 # Ignore meshes
 **/meshes/test/
+
+# Ignore flic files
+/flic_server/sqlite.db
+/flic_client/simpleclient
