@@ -1,13 +1,14 @@
 import asyncio
 import random
 import time
+from typing import Optional
 
 import rclpy
-from std_msgs.msg import String
+from rclpy.timer import Timer
 from tabletop_msgs.srv import GetFlic
 
 from tabletop_server.executor import AIOExecutor
-from tabletop_server.flic_client import TabletopFlicClient
+from tabletop_server.flic_client import AIOFlicClient
 from tabletop_server.nodes.base import BaseNode
 
 DEFAULT_LOG_SEVERITY = "INFO"
@@ -15,21 +16,19 @@ DEFAULT_LOG_SEVERITY = "INFO"
 
 class Flic(BaseNode):
     default_params = BaseNode.default_params | {
-        "simulate": True,
+        "simulate": False,
         "simulate_delay_sec": 6.0,
     }
 
-    def __init__(self, flic_client: TabletopFlicClient):
+    def __init__(self, flic_client: AIOFlicClient):
         # Initialize base node
 
-        self.log_pub = None
+        # self.log_pub = None
         super().__init__("flic")
 
         self.flic_client = flic_client
 
-        # Log publisher
-
-        self.log_pub = self.create_publisher(String, "flic/log", 10)
+        # self.log_pub = self.create_publisher(String, "flic/log", 10)
 
         # Simulation parameters
 
@@ -47,28 +46,28 @@ class Flic(BaseNode):
         self.get_flic_service = self.create_service(
             GetFlic,
             "flic/get_flic",
-            self.get_flic_callback_simulated
+            self.simulated_get_flic_callback
             if self.simulate
-            else self.get_flic_callback,
+            else self.get_flic_callback,  # type: ignore
         )
 
         # One-shot timers for delayed state updates
 
-        self.simulate_delay_timer = None
+        self.simulate_delay_timer: Optional[Timer] = None
 
     def log(self, message: str, severity: str = DEFAULT_LOG_SEVERITY):
         super().log(message, severity)
-        if self.log_pub is not None:
-            self.log_pub.publish(String(data=message))
+        # if self.log_pub is not None:
+        #     self.log_pub.publish(String(data=message))
 
-    def get_flic_callback_simulated(
+    def simulated_get_flic_callback(
         self, request: GetFlic.Request, response: GetFlic.Response
     ) -> GetFlic.Response:
         # Schedule a timer to update the state pin after a random delay
         if self.simulate_delay_timer is None:
             delay = random.uniform(0.0, self.simulate_delay_sec)
             self.simulate_delay_timer = self.create_timer(
-                delay, lambda: self.delay_timer_callback(delay=delay)
+                delay, lambda: self.simulated_delay_timer_callback(delay=delay)
             )
 
         # Set the response message
@@ -81,7 +80,7 @@ class Flic(BaseNode):
 
         return response
 
-    def delay_timer_callback(self, delay: float):
+    def simulated_delay_timer_callback(self, delay: float):
         # Update the pin state
         self.flic_last_time_pressed_ms = int(time.time() * 1000)
 
@@ -94,12 +93,11 @@ class Flic(BaseNode):
     def get_flic_callback(
         self, request: GetFlic.Request, response: GetFlic.Response
     ) -> GetFlic.Response:
-        # Call the flic client
-        self.flic_client.get_flic()
-
         # Set the response message
         response.success = True
-        response.last_time_pressed_ms = self.flic_last_time_pressed_ms
+        response.last_time_pressed_ms = (
+            self.flic_client.last_time_button_down_sec * 1000
+        )
         response.message = (
             f"Flic last pressed at {response.last_time_pressed_ms} ms"
         )
@@ -109,12 +107,15 @@ class Flic(BaseNode):
 
 
 async def main_async(args=None):
-    loop = asyncio.get_event_loop()
-
     rclpy.init(args=args)
+    loop = asyncio.get_event_loop()
     try:
         executor = AIOExecutor()
-        flic = Flic(TabletopFlicClient(loop))
+        _, flic_client = await loop.create_connection(
+            lambda: AIOFlicClient(loop=loop), "172.17.0.1", 5551
+        )
+        await flic_client.connect_existing_buttons()
+        flic = Flic(flic_client)
         executor.add_node(flic)
 
         try:

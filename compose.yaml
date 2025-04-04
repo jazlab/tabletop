@@ -63,13 +63,11 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
-    # ports:
-    #   - 5551:5551
-    # device_cgroup_rules:
-    #   - c 160:* rmw
+    device_cgroup_rules:
+      - c 160:* rmw
     devices:
       - /dev/dri:/dev/dri
-      - /dev/ttyACM0:/dev/ttyACM0
+      # - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:

@@ -1,3 +1,4 @@
-from .tabletop_aioflic import TabletopFlicClient
+from .client_aio import FlicClient as AIOFlicClient
+from .client_thread import FlicClient as ThreadFlicClient
 
-__all__ = ["TabletopFlicClient"]
+__all__ = ["AIOFlicClient", "ThreadFlicClient"]

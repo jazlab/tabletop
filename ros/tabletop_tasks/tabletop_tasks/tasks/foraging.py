@@ -132,7 +132,7 @@ class ForagingTask(BaseTask):
             self._fixation_duration_s
         ):
             self.log("Hand fixation acquired")
-            self._state = ForagingState.STIMULUS
+            self._state = ForagingState.FIXATION
         else:
             self._state = ForagingState.FIXATION
 
