@@ -83,8 +83,8 @@ export MAKEFLAGS="-j2"
 colcon build \
     --symlink-install \
     --event-handlers console_cohesion+ \
-    --cmake-args "${cmake_args[@]}"
-    --parallel-workers 2 \
+    --cmake-args "${cmake_args[@]}" \
+    --parallel-workers 2 # \
     # --base-paths "${build_paths[@]}"
 
 print_status "Creating bags directory"
