@@ -79,12 +79,12 @@ fi
 
 # Build ROS 2 packages
 print_status "Building ROS 2 packages"
-# export MAKEFLAGS="-j2"
+export MAKEFLAGS="-j2"
 colcon build \
     --symlink-install \
     --event-handlers console_cohesion+ \
     --cmake-args "${cmake_args[@]}"
-    # --parallel-workers 2 \
+    --parallel-workers 2 \
     # --base-paths "${build_paths[@]}"
 
 print_status "Creating bags directory"

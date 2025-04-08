@@ -9,7 +9,7 @@
     dashboard:
       installation: default.installation
       program: external_control.urp
-      init_timeout: 5.0
+      init_timeout: 20.0
 
     rig:
       init_timeout: 20.0
@@ -43,7 +43,7 @@
 
     planning_scene:
       floor_coef: [0.0, 0.0, 1.0, 0.0]
-      divider_coef: [1.0, 0.0, 0.0, -0.3]
+      divider_coef: [1.0, 0.0, 0.0, -0.35]
 
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:
@@ -63,7 +63,8 @@
           rpy: [0.0, 0.0, 1.5707]
         poses:
           simple_object:
-            position: [0.0, 0.76474, 0.42036]
+            # position: [0.0, 0.76474, 0.42036]
+            position: [0.0, 0.76474, 0.42236]
             rpy: [3.1416, 0.0, -1.5707]
             # position: [0.0,
             #            35.6*0.0254 - (0.108 + 0.0315),

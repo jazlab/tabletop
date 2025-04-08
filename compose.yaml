@@ -70,6 +70,11 @@ services:
       - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
@@ -91,11 +96,6 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
@@ -110,11 +110,6 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
     environment:
       - DISPLAY=$DISPLAY
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
