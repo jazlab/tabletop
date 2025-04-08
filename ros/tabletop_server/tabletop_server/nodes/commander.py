@@ -1230,7 +1230,7 @@ class Commander(BaseNode):
                     f"Mesh path {meshes_path} does not exist"
                 )
             meshes_scale: float = meshes_config["scale"]
-            meshes_simplification: str = meshes_config["simplification"]
+            meshes_simplification: str | None = meshes_config["simplification"]
             meshes_color = meshes_config["color"]
             try:
                 meshes_correction = meshes_config["correction"]

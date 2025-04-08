@@ -156,7 +156,7 @@ class BaseNode(Node):
             for key in keys[:-1]:
                 current_level = current_level.setdefault(key, {})
 
-            current_level[keys[-1]] = value
+            current_level[keys[-1]] = value if value != "null" else None
 
         return nested_params
 
@@ -166,10 +166,7 @@ class BaseNode(Node):
         """
         try:
             value = self.get_parameter(name).value
-            if value == "null":
-                return None
-            else:
-                return value
+            return value if value != "null" else None
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
 

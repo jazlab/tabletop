@@ -6,8 +6,11 @@ services:
       file: ../compose.yaml
       service: server_base
     # privileged: true
-    # volumes:
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
     #   - /dev:/dev
+    environment:
+      - DISPLAY=$DISPLAY
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.12

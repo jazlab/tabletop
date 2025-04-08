@@ -57,11 +57,17 @@
       dynamic_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/simple_object.dae
         scale: 0.001
-        simplification: convex_hull
+        simplification: null
         color: orange
+        correction:
+          rpy: [0.0, 0.0, 1.5707]
         poses:
           simple_object:
-            position: [0.0, 0.75935, 0.37811]
-            rpy: [0.0, 0.0, -1.5707]
-            # position: [0.0, 0.90424 - (0.17639 - 0.0315), 0.37211 - 0.039 + 0.045 - 0.008]
-            # position: [(centered), (distance to back of tool pocket - (tool pocket length - tool holder radius)), (distance to top of tool pocket - tool pocket height + vertical rig offset - tool holder offset)]
+            position: [0.0, 0.76474, 0.42036]
+            rpy: [3.1416, 0.0, -1.5707]
+            # position: [0.0,
+            #            35.6*0.0254 - (0.108 + 0.0315),
+            #            14.65*0.0254 + 0.040 - 0.00175 + 0.010]
+            # position: [(centered),
+            #            (distance to back of tool pocket - (distance to tool holder + tool holder radius)),
+            #            (distance to top of tool pocket + vertical rig offset - tool pocket plat thickness + distance to tool holder bottom)]
