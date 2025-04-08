@@ -63,11 +63,11 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
-    device_cgroup_rules:
-      - c 160:* rmw
+    # device_cgroup_rules:
+    #   - c 160:* rmw
     devices:
       - /dev/dri:/dev/dri
-      # - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     networks:
@@ -99,7 +99,7 @@ services:
     environment:
       - DISPLAY=novnc:0.0
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py
+        ros2 launch tabletop_tasks tasks.launch.py
         use_mock_teensy:=true
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
@@ -118,11 +118,12 @@ services:
     environment:
       - DISPLAY=$DISPLAY
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py
+        ros2 launch tabletop_tasks tasks.launch.py
+        use_mock_teensy:=true
         robot_ip:=${ROBOT_IP:-192.168.12.10}
         reverse_ip:=${REVERSE_IP:-192.168.12.11}}
 
-  flic_server:
+  flic:
     restart: unless-stopped
     network_mode: host
     cap_add:

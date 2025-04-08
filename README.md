@@ -116,6 +116,10 @@ You may experience issues with the Universal Robots Simulator otherwise.
     ```bash
     cd ~/ws/src
     git clone https://github.com/jazlab/tabletop.git
+
+3. Update udev rules:
+    ```bash
+    ./scripts/udev_update.sh
     ```
 
 3. [Optional] Install PlatformIO Core:
