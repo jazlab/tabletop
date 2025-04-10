@@ -24,9 +24,14 @@ while [[ $# -gt 0 ]]; do
             clean_moveit=true
             shift
             ;;
+        --workers)
+            workers=$2
+            shift
+            shift
+            ;;
         *)
             echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--debug] [--clean] [--clean-moveit]"
+            echo "Usage: $0 [--debug] [--clean] [--clean-moveit] [--workers <num_workers>]"
             exit 1
             ;;
     esac
@@ -79,12 +84,15 @@ fi
 
 # Build ROS 2 packages
 print_status "Building ROS 2 packages"
-export MAKEFLAGS="-j2"
+if [ -n "$workers" ]; then
+    export MAKEFLAGS="-j$workers"
+    parallel_workers="--parallel-workers $workers"
+fi
 colcon build \
     --symlink-install \
     --event-handlers console_cohesion+ \
     --cmake-args "${cmake_args[@]}" \
-    --parallel-workers 2 # \
+    $parallel_workers
     # --base-paths "${build_paths[@]}"
 
 print_status "Creating bags directory"

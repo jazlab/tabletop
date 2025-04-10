@@ -276,7 +276,9 @@ def generate_launch_description():
     default_log_level = LaunchConfiguration("default_log_level")
     commander_log_level = LaunchConfiguration("commander_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
+
     ################################################
+
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
@@ -391,7 +393,7 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
-        output="own_log",
+        output="log",
         parameters=[{"use_sim_time": use_sim_time, "simulate": True}],
         ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
         condition=IfCondition(use_mock_teensy),

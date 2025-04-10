@@ -1,12 +1,13 @@
 tasks:
   - class: ForagingTask
     kwargs:
-      fixation_duration_s: 0.5
-      stimulus_duration_s: 0.5
-      delay_duration_s: 0.5
-      response_timeout_s: 5.0
-      reward_duration_s: 0.1
-      reveal_duration_s: 0.5
+      fixation_duration_sec: 0.5
+      fixation_timeout_sec: 5.0
+      stimulus_duration_sec: 0.5
+      delay_duration_sec: 0.5
+      response_timeout_sec: 5.0
+      reward_duration_sec: 0.1
+      reveal_duration_sec: 0.5
       trial_generator:
         class: RandomChoice
         kwargs:

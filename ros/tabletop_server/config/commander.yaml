@@ -15,10 +15,10 @@
       init_timeout: 20.0
 
     teensy:
-      spin_period_s: 0.1
+      spin_period_s: 0.05
 
     flic:
-      spin_period_s: 0.1
+      spin_period_s: 0.05
 
     planning:
       group_name: ur_manipulator

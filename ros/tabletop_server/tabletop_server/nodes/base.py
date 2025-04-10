@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Callable, Coroutine
 from typing import Any, Optional
 
 import yaml
@@ -48,7 +47,6 @@ class BaseNode(Node):
         self._check_parameters()
         self._declare_default_parameters()
         self.log_params(severity="DEBUG")
-        self.tg = None
 
     def log(
         self,
@@ -170,30 +168,30 @@ class BaseNode(Node):
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
 
-    @staticmethod
-    def _rclpy_task_wrapper(
-        handle: Callable,
-        *args,
-        **kwargs,
-    ):
-        try:
-            return handle(*args, **kwargs)
-        except Exception as e:
-            print(f"Error in {handle.__name__} during callback:")
-            print(e)
-            return e
+    # @staticmethod
+    # def _rclpy_task_wrapper(
+    #     handle: Callable,
+    #     *args,
+    #     **kwargs,
+    # ):
+    #     try:
+    #         return handle(*args, **kwargs)
+    #     except Exception as e:
+    #         print(f"Error in {handle.__name__} during callback:")
+    #         print(e)
+    #         return e
 
-    @staticmethod
-    async def _rclpy_task_wrapper_coroutine(handle: Coroutine):
-        try:
-            return await handle
-        except Exception as e:
-            try:
-                print(f"Error in {handle.__name__} during callback:")  # type: ignore
-            except AttributeError:
-                print(f"Error in {handle} during callback:")
-            print(e)
-            return e
+    # @staticmethod
+    # async def _rclpy_task_wrapper_coroutine(handle: Coroutine):
+    #     try:
+    #         return await handle
+    #     except Exception as e:
+    #         try:
+    #             print(f"Error in {handle.__name__} during callback:")  # type: ignore
+    #         except AttributeError:
+    #             print(f"Error in {handle} during callback:")
+    #         print(e)
+    #         return e
 
     # async def create_rclpy_task(
     #     self,
@@ -392,14 +390,6 @@ class BaseNode(Node):
         )
         future = service_client.call_async(srv_request)
 
-        # Add a callback to destroy the service client if it was created by
-        # this function
-        future.add_done_callback(
-            lambda _: self.destroy_client(service_client)
-            if destroy_service_client
-            else None
-        )
-
         try:
             # Wait asynchronously for the service call to finish with the
             # provided or default timeout
@@ -409,30 +399,20 @@ class BaseNode(Node):
                 else self.get_parameter_wrapper("default_service_call_timeout")
             ):
                 response: SrvTypeResponse = await future  # type: ignore
-        except (asyncio.CancelledError, TimeoutError) as e:
-            # Cancel the future to invoke the done callback
-            future.cancel()
-
-            # Check if the future was successfully cancelled (avoids race
-            # condition)
-            if future.done():
-                self.log(
-                    f"Service call to {srv_name} finished before cancellation",
-                    severity="WARN",
-                )
-                return future.result()  # type: ignore
-            elif isinstance(e, asyncio.CancelledError):
-                self.log(
-                    f"Service call to {srv_name} was cancelled by asyncio",
-                    severity="ERROR",
-                )
-            else:
-                self.log(
-                    f"Service call to {srv_name} timed out",
-                    severity="ERROR",
-                )
-
-            raise e
-
-        validate_service_response(response, service_client)
-        return response
+            validate_service_response(response, service_client)
+            return response
+        # except asyncio.CancelledError as e:
+        #     self.log(
+        #         f"Service call to {srv_name} was cancelled by asyncio",
+        #         severity="DEBUG",
+        #     )
+        #     raise e
+        # except TimeoutError as e:
+        #     self.log(
+        #         f"Service call to {srv_name} timed out",
+        #         severity="ERROR",
+        #     )
+        #     raise e
+        finally:
+            if destroy_service_client:
+                self.destroy_client(service_client)

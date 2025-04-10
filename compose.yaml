@@ -67,7 +67,7 @@ services:
     #   - c 160:* rmw
     devices:
       - /dev/dri:/dev/dri
-      - /dev/ttyACM0:/dev/ttyACM0
+      # - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
     ports:

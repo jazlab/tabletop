@@ -3,7 +3,6 @@ import glob
 import os
 import time
 import traceback
-from asyncio import Future as AsyncioFuture
 from collections.abc import (
     AsyncGenerator,
     Iterable,
@@ -45,6 +44,7 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
+from rclpy.executors import SingleThreadedExecutor
 from shape_msgs.msg import (
     Plane,
     SolidPrimitive,
@@ -86,8 +86,21 @@ from tabletop_utils.ros import (
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.executor import AIOExecutor
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
+
+# def create_task_wrapper(self, coro: Coroutine) -> asyncio.Task:
+#     assert isinstance(self, Commander)
+#     if self.tg is None:
+#         raise RuntimeError(
+#             "TaskGroup not set, make sure to enter the "
+#             "rig_context_manager before scheduling tasks."
+#         )
+#     return self.tg.create_task(coro)
+
+
+def create_task_wrapper(self, coro: Coroutine) -> asyncio.Task:
+    assert isinstance(self, Commander)
+    return asyncio.create_task(coro)
 
 
 def asyncio_task_decorator(coro_fn: Callable[..., Coroutine]):
@@ -97,13 +110,15 @@ def asyncio_task_decorator(coro_fn: Callable[..., Coroutine]):
     This decorator is designed for BaseNode methods. It will only work for
     methods whose first argument is `self` and whose class has an
     `asyncio.TaskGroup` attribute named `tg`.
+
+    WARNING: If a task raises an exception, all tasks in the TaskGroup will
+    be cancelled. As a result, you should not use this decorator for coroutines
+    that are expected to raise exceptions (e.g. you cannot catch exceptions of tasks).
     """
 
-    def wrapper(self, *args, **kwargs):
-        if self.tg is None:
-            return asyncio.create_task(coro_fn(self, *args, **kwargs))
-        else:
-            return self.tg.create_task(coro_fn(self, *args, **kwargs))
+    def wrapper(self, *args, **kwargs) -> asyncio.Task:
+        coro = coro_fn(self, *args, **kwargs)
+        return create_task_wrapper(self, coro)
 
     return wrapper
 
@@ -146,20 +161,13 @@ class Commander(BaseNode):
             automatically_declare_parameters_from_overrides=True,
         )
 
-        # Initialize MoveItPy
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
-        # Initialize MoveItPy components
-        # self.planning_component: PlanningComponent = (
-        #     self.moveit_py.get_planning_component(
-        #         self.get_parameter_wrapper("planning.group_name")
-        #     )
-        # )
         self.trajectory_execution_manager: TrajectoryExecutionManager = (
             self.moveit_py.get_trajectory_execution_manager()
         )
-        self.robot_model: RobotModel = self.moveit_py.get_robot_model()
 
+        self.robot_model: RobotModel = self.moveit_py.get_robot_model()
         self.log(
             f"Robot model: {self.robot_model.get_model_info()}",
             severity="DEBUG",
@@ -169,30 +177,18 @@ class Commander(BaseNode):
             self.moveit_py.get_planning_scene_monitor()
         )
 
+        self.tg: Optional[asyncio.TaskGroup] = None
+
         self.setup_planning_scene()
 
         self.log("Commander initialized")
-        # self._change_state("RESET")
 
-    # @property
     def get_planning_component(
         self, group_name: Optional[str] = None
     ) -> PlanningComponent:
         if group_name is None:
             group_name = self.get_parameter_wrapper("planning.group_name")
         return self.moveit_py.get_planning_component(group_name)
-
-    # @property
-    # def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
-    #     return self.moveit_py.get_trajectory_execution_manager()
-
-    # @property
-    # def planning_scene_monitor(self) -> PlanningSceneMonitor:
-    #     return self.moveit_py.get_planning_scene_monitor()
-
-    # @property
-    # def robot_model(self) -> RobotModel:
-    #     return self.moveit_py.get_robot_model()
 
     ############################################################
     ########## Logging #########################################
@@ -235,7 +231,6 @@ class Commander(BaseNode):
             srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
         )
 
-    @asyncio_task_decorator
     async def dashboard_trigger_async(self, srv_name: str) -> Trigger.Response:
         """
         Coroutine to call a dashboard client Trigger service asynchronously.
@@ -262,7 +257,6 @@ class Commander(BaseNode):
             srv_name=srv_name,
         )
 
-    @asyncio_task_decorator
     async def dashboard_load_async(
         self,
         srv_name: str,
@@ -297,7 +291,6 @@ class Commander(BaseNode):
         self.dashboard_trigger("/dashboard_client/brake_release")
         self.dashboard_trigger("/dashboard_client/play")
 
-    @asyncio_task_decorator
     async def reset_dashboard_async(self):
         """
         Coroutine to call a sequence of dashboard client services to reset the
@@ -353,8 +346,7 @@ class Commander(BaseNode):
     ########## Teensy interface ################################
     ############################################################
 
-    @asyncio_task_decorator
-    async def get_smartglass_async(self) -> GetSmartglass.Response:
+    async def _get_smartglass_async(self) -> GetSmartglass.Response:
         """Get the smartglass state."""
         return await self.service_call_async(
             srv_request=GetSmartglass.Request(),
@@ -362,8 +354,7 @@ class Commander(BaseNode):
             srv_name="/teensy/get_smartglass",
         )  # type: ignore
 
-    @asyncio_task_decorator
-    async def get_arm_door_async(self) -> GetArmDoor.Response:
+    async def _get_arm_door_async(self) -> GetArmDoor.Response:
         """Get the arm door state."""
         return await self.service_call_async(
             srv_request=GetArmDoor.Request(),
@@ -371,8 +362,7 @@ class Commander(BaseNode):
             srv_name="/teensy/get_arm_door",
         )  # type: ignore
 
-    @asyncio_task_decorator
-    async def get_reward_async(self) -> GetReward.Response:
+    async def _get_reward_async(self) -> GetReward.Response:
         """Get the reward state."""
         return await self.service_call_async(
             srv_request=GetReward.Request(),
@@ -380,8 +370,7 @@ class Commander(BaseNode):
             srv_name="/teensy/get_reward",
         )  # type: ignore
 
-    @asyncio_task_decorator
-    async def get_hand_fixation_async(self) -> GetHandFixation.Response:
+    async def _get_hand_fixation_async(self) -> GetHandFixation.Response:
         """Get the hand fixation state."""
         return await self.service_call_async(
             srv_request=GetHandFixation.Request(),
@@ -389,8 +378,7 @@ class Commander(BaseNode):
             srv_name="/teensy/get_hand_fixation",
         )  # type: ignore
 
-    @asyncio_task_decorator
-    async def get_flic_async(self) -> GetFlic.Response:
+    async def _get_flic_async(self) -> GetFlic.Response:
         """Get the flic state."""
         return await self.service_call_async(
             srv_request=GetFlic.Request(),
@@ -398,8 +386,7 @@ class Commander(BaseNode):
             srv_name="/flic/get_flic",
         )  # type: ignore
 
-    @asyncio_task_decorator
-    async def start_smartglass_reveal_async(self):
+    async def _start_smartglass_reveal_async(self):
         """
         Coroutine to call the smartglass service to reveal the smartglass
         asynchronously.
@@ -411,8 +398,7 @@ class Commander(BaseNode):
             srv_name="/teensy/set_smartglass",
         )
 
-    @asyncio_task_decorator
-    async def start_smartglass_occlude_async(self):
+    async def _start_smartglass_occlude_async(self):
         """
         Coroutine to call the smartglass service to occlude the smartglass
         asynchronously.
@@ -424,8 +410,7 @@ class Commander(BaseNode):
             srv_name="/teensy/set_smartglass",
         )
 
-    @asyncio_task_decorator
-    async def start_arm_door_open_async(self):
+    async def _start_arm_door_open_async(self):
         """
         Coroutine to call the arm door service to open the arm door
         asynchronously.
@@ -437,8 +422,7 @@ class Commander(BaseNode):
             srv_name="/teensy/set_arm_door",
         )
 
-    @asyncio_task_decorator
-    async def start_arm_door_close_async(self):
+    async def _start_arm_door_close_async(self):
         """
         Coroutine to call the arm door service to close the arm door
         asynchronously.
@@ -450,8 +434,7 @@ class Commander(BaseNode):
             srv_name="/teensy/set_arm_door",
         )
 
-    @asyncio_task_decorator
-    async def start_reward_async(self, duration_s: float):
+    async def _start_reward_async(self, duration_s: float):
         """
         Coroutine to call the reward service to deliver a reward for a given
         duration.
@@ -465,18 +448,17 @@ class Commander(BaseNode):
             srv_name="/teensy/set_reward",
         )
 
-    @asyncio_task_decorator
-    async def wait_for_smartglass_reveal_async(
+    async def _wait_for_smartglass_reveal_async(
         self, timeout_s: Optional[float] = None
     ):
         """Wait for smartglass reveal, then return True."""
-        smartglass_state = await self.get_smartglass_async()
+        smartglass_state = await self._get_smartglass_async()
         if smartglass_state.is_revealed:
             return True
         try:
             async with asyncio.timeout(timeout_s):
                 while not smartglass_state.is_revealed:
-                    smartglass_state = await self.get_smartglass_async()
+                    smartglass_state = await self._get_smartglass_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -484,18 +466,17 @@ class Commander(BaseNode):
         except TimeoutError:
             return False
 
-    @asyncio_task_decorator
-    async def wait_for_smartglass_occlude_async(
+    async def _wait_for_smartglass_occlude_async(
         self, timeout_s: Optional[float] = None
     ):
         """Wait for smartglass occlusion, then return True."""
-        smartglass_state = await self.get_smartglass_async()
+        smartglass_state = await self._get_smartglass_async()
         if not smartglass_state.is_revealed:
             return True
         try:
             async with asyncio.timeout(timeout_s):
                 while smartglass_state.is_revealed:
-                    smartglass_state = await self.get_smartglass_async()
+                    smartglass_state = await self._get_smartglass_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -503,18 +484,17 @@ class Commander(BaseNode):
         except TimeoutError:
             return False
 
-    @asyncio_task_decorator
-    async def wait_for_arm_door_open_async(
+    async def _wait_for_arm_door_open_async(
         self, timeout_s: Optional[float] = None
     ):
         """Wait for arm door to open, then return True."""
-        arm_door_state = await self.get_arm_door_async()
+        arm_door_state = await self._get_arm_door_async()
         if arm_door_state.is_open:
             return True
         try:
             async with asyncio.timeout(timeout_s):
                 while not arm_door_state.is_open:
-                    arm_door_state = await self.get_arm_door_async()
+                    arm_door_state = await self._get_arm_door_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -522,18 +502,17 @@ class Commander(BaseNode):
         except TimeoutError:
             return False
 
-    @asyncio_task_decorator
-    async def wait_for_arm_door_close_async(
+    async def _wait_for_arm_door_close_async(
         self, timeout_s: Optional[float] = None
     ):
         """Wait for arm door to close, then return True."""
-        arm_door_state = await self.get_arm_door_async()
+        arm_door_state = await self._get_arm_door_async()
         if not arm_door_state.is_open:
             return True
         try:
             async with asyncio.timeout(timeout_s):
                 while arm_door_state.is_open:
-                    arm_door_state = await self.get_arm_door_async()
+                    arm_door_state = await self._get_arm_door_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -541,16 +520,15 @@ class Commander(BaseNode):
         except TimeoutError:
             return False
 
-    @asyncio_task_decorator
-    async def wait_for_reward_async(self, timeout_s: Optional[float] = None):
+    async def _wait_for_reward_async(self, timeout_s: Optional[float] = None):
         """Wait for reward to start, then return True."""
-        reward_state = await self.get_reward_async()
+        reward_state = await self._get_reward_async()
         if reward_state.is_active:
             return True
         try:
             async with asyncio.timeout(timeout_s):
                 while not reward_state.is_active:
-                    reward_state = await self.get_reward_async()
+                    reward_state = await self._get_reward_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -563,7 +541,7 @@ class Commander(BaseNode):
         self, timeout_sec: Optional[float] = None
     ):
         """Wait for hand fixation state to turn on, then return True."""
-        initial_fixation = await self.get_hand_fixation_async()
+        initial_fixation = await self._get_hand_fixation_async()
         if initial_fixation.is_pressed:
             return True
         fixation = initial_fixation
@@ -573,7 +551,7 @@ class Commander(BaseNode):
                     fixation.last_time_pressed_ms
                     == initial_fixation.last_time_pressed_ms
                 ):
-                    fixation = await self.get_hand_fixation_async()
+                    fixation = await self._get_hand_fixation_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -594,7 +572,7 @@ class Commander(BaseNode):
             bool: True if hand fixation was released within the timeout,
             False otherwise.
         """
-        initial_fixation = await self.get_hand_fixation_async()
+        initial_fixation = await self._get_hand_fixation_async()
         if not initial_fixation.is_pressed:
             return True
         fixation = initial_fixation
@@ -604,7 +582,7 @@ class Commander(BaseNode):
                     fixation.last_time_released_ms
                     == initial_fixation.last_time_released_ms
                 ):
-                    fixation = await self.get_hand_fixation_async()
+                    fixation = await self._get_hand_fixation_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -618,7 +596,7 @@ class Commander(BaseNode):
         self, timeout_s: Optional[float] = None
     ):
         """Wait for flic button press, then return True."""
-        initial_flic = await self.get_flic_async()
+        initial_flic = await self._get_flic_async()
         flic = initial_flic
         try:
             async with asyncio.timeout(timeout_s):
@@ -626,7 +604,7 @@ class Commander(BaseNode):
                     flic.last_time_pressed_ms
                     == initial_flic.last_time_pressed_ms
                 ):
-                    flic = await self.get_flic_async()
+                    flic = await self._get_flic_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("flic.spin_period_s")
                     )
@@ -639,41 +617,41 @@ class Commander(BaseNode):
         self, timeout_s: Optional[float] = None
     ):
         """Reveal smartglass and wait for it to be revealed."""
-        await self.start_smartglass_reveal_async()
-        return await self.wait_for_smartglass_reveal_async(timeout_s)
+        await self._start_smartglass_reveal_async()
+        return await self._wait_for_smartglass_reveal_async(timeout_s)
 
     @asyncio_task_decorator
     async def smartglass_occlude_and_wait(
         self, timeout_s: Optional[float] = None
     ):
         """Occlude smartglass and wait for it to be occluded."""
-        await self.start_smartglass_occlude_async()
-        return await self.wait_for_smartglass_occlude_async(timeout_s)
+        await self._start_smartglass_occlude_async()
+        return await self._wait_for_smartglass_occlude_async(timeout_s)
 
     @asyncio_task_decorator
     async def arm_door_open_and_wait(self, timeout_s: Optional[float] = None):
         """Open arm door and wait for it to be open."""
-        await self.start_arm_door_open_async()
-        return await self.wait_for_arm_door_open_async(timeout_s)
+        await self._start_arm_door_open_async()
+        return await self._wait_for_arm_door_open_async(timeout_s)
 
     @asyncio_task_decorator
     async def arm_door_close_and_wait(self, timeout_s: Optional[float] = None):
         """Close arm door and wait for it to be closed."""
-        await self.start_arm_door_close_async()
-        return await self.wait_for_arm_door_close_async(timeout_s)
+        await self._start_arm_door_close_async()
+        return await self._wait_for_arm_door_close_async(timeout_s)
 
     @asyncio_task_decorator
     async def reward_and_wait(
         self, duration_s: float, timeout_s: Optional[float] = None
     ):
         """Start reward and wait for it to be active."""
-        await self.start_reward_async(duration_s)
+        await self._start_reward_async(duration_s)
         # Default timeout is duration plus spin period if not specified
         if timeout_s is None:
             timeout_s = duration_s + self.get_parameter_wrapper(
                 "teensy.spin_period_s"
             )
-        if await self.wait_for_reward_async(timeout_s):
+        if await self._wait_for_reward_async(timeout_s):
             return True
         else:
             raise RuntimeError("Reward took longer than expected timeout")
@@ -1661,7 +1639,7 @@ class Commander(BaseNode):
         Returns:
             ExecutionStatus: The status of the execution.
         """
-        future = AsyncioFuture()
+        future = asyncio.Future()
 
         def done_callback():
             future.set_result(
@@ -1790,19 +1768,31 @@ class Commander(BaseNode):
         # Execute the plan
         self.execute(plan_response.trajectory)
 
-    @asyncio_task_decorator
-    async def plan_and_execute_async(self, *args, **kwargs) -> None:
+    async def _plan_and_execute_async(self, *args, **kwargs) -> None:
         """
         Asynchronous coroutine wrapper for `plan_and_execute()` method.
 
-        Creates an rclpy task to compute the plan and execute the planned
-        trajectory in a separate thread.
+        Runs the `plan_and_execute()` method in a separate thread and awaits
+        the result.
 
         See Also:
             `plan_and_execute()`: For parameter details and synchronous
                 implementation.
         """
         await asyncio.to_thread(self.plan_and_execute, *args, **kwargs)
+
+    @asyncio_task_decorator
+    async def plan_and_execute_async(self, *args, **kwargs) -> None:
+        """
+        Asynchronous coroutine wrapper for `plan_and_execute()` method.
+
+        Runs the `plan_and_execute()` method in a separate thread and awaits
+        the result.
+        See Also:
+            `plan_and_execute()`: For parameter details and synchronous
+                implementation.
+        """
+        await self._plan_and_execute_async(*args, **kwargs)
 
     ############################################################
     ########## Fetch and return ################################
@@ -1911,7 +1901,7 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to pre-fetch pose {pre_fetch_pose_stamped}")
-        await self.plan_and_execute_async(goal=pre_fetch_pose_stamped)
+        await self._plan_and_execute_async(goal=pre_fetch_pose_stamped)
 
         # Allow collision between touch links and object
         for touch_link in self.touch_links:
@@ -1924,7 +1914,7 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to pre-attach pose {pre_attach_pose_stamped}")
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=pre_attach_pose_stamped,
             planning_pipeline="linear",
         )
@@ -1934,7 +1924,7 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to attach pose {attach_pose_stamped}")
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=attach_pose_stamped,
             planning_pipeline="linear",
         )
@@ -1956,7 +1946,7 @@ class Commander(BaseNode):
         # Post-attach pose
         post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
         self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=post_attach_pose_stamped,
             planning_pipeline="linear",
         )
@@ -1969,7 +1959,7 @@ class Commander(BaseNode):
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
-        await self.plan_and_execute_async(goal=end_goal)
+        await self._plan_and_execute_async(goal=end_goal)
 
     def return_object(
         self,
@@ -2111,7 +2101,7 @@ class Commander(BaseNode):
         self.log(
             f"Moving to saved post-attach state {self.last_post_attach_state}"
         )
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=self.last_post_attach_state,
         )
 
@@ -2124,7 +2114,7 @@ class Commander(BaseNode):
         self.log(
             f"Moving to detach pose {self.detach_pose_stamped(object_id)}"
         )
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=self.detach_pose_stamped(object_id),
             planning_pipeline="linear",
         )
@@ -2144,7 +2134,7 @@ class Commander(BaseNode):
         self.log(
             f"Moving to post-detach pose {self.post_detach_pose_stamped(object_id, subframe_name)}"
         )
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=self.post_detach_pose_stamped(object_id, subframe_name),
             planning_pipeline="linear",
         )
@@ -2153,7 +2143,7 @@ class Commander(BaseNode):
         self.log(
             f"Moving to post-return pose {self.post_return_pose_stamped(object_id, subframe_name)}"
         )
-        await self.plan_and_execute_async(
+        await self._plan_and_execute_async(
             goal=self.post_return_pose_stamped(object_id, subframe_name),
             planning_pipeline="linear",
         )
@@ -2165,7 +2155,7 @@ class Commander(BaseNode):
         # Move to end pose if specified
         if end_goal is not None:
             self.log(f"Moving to end goal {end_goal}")
-            await self.plan_and_execute_async(goal=end_goal)
+            await self._plan_and_execute_async(goal=end_goal)
 
     ############################################################
     ########## Reset rig #######################################
@@ -2180,7 +2170,6 @@ class Commander(BaseNode):
         self.plan_and_execute(goal=goal, pose_link=pose_link)
         self.setup_planning_scene()
 
-    @asyncio_task_decorator
     async def move_out_of_collision_async(
         self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ):
@@ -2195,7 +2184,7 @@ class Commander(BaseNode):
         """
         self.log("Moving out of collision asynchronously")
         self.remove_all_collision_objects()
-        await self.plan_and_execute_async(goal=goal, pose_link=pose_link)
+        await self._plan_and_execute_async(goal=goal, pose_link=pose_link)
         self.setup_planning_scene()
 
     def reset_rig(self, end_goal: Optional[PoseStamped | str] = None):
@@ -2214,7 +2203,6 @@ class Commander(BaseNode):
             )
             self.return_object(end_goal=end_goal)
 
-    @asyncio_task_decorator
     async def reset_rig_async(
         self, end_goal: Optional[PoseStamped | str] = None
     ):
@@ -2271,11 +2259,15 @@ class Commander(BaseNode):
         self.init_rig(rig_timeout_s)
 
     ############################################################
-    ########## Planning context manager #######################
+    ########## Context manager #################################
     ############################################################
 
+    def schedule(self, coro: Coroutine) -> asyncio.Task:
+        """Schedule a coroutine to run."""
+        return create_task_wrapper(self, coro)
+
     @asynccontextmanager
-    async def planning_context_manager_async(self):
+    async def context_manager(self):
         """
         Context manager for planning and executing actions.
 
@@ -2286,24 +2278,25 @@ class Commander(BaseNode):
         self.log("Entering planning context manager", severity="DEBUG")
 
         try:
-            try:
-                async with asyncio.TaskGroup() as tg:
-                    self.tg = tg
-                    yield tg
-            except ExceptionGroup as e:
-                self.log(
-                    "Caught TaskGroup exceptions in TaskGroup context manager:",
-                    severity="WARN",
-                )
-                for exception in e.exceptions:
-                    self.log(
-                        f"Task exception: {type(exception).__name__}",
-                        severity="WARN",
-                    )
-                    self.log(f"{exception}", severity="WARN")
-                raise e.exceptions[0]  # TODO: fix this
-            finally:
-                self.tg = None
+            # try:
+            #     async with asyncio.TaskGroup() as tg:
+            #         self.tg = tg
+            #         yield tg
+            # except ExceptionGroup as e:
+            #     self.log(
+            #         "Caught TaskGroup exceptions in TaskGroup context manager:",
+            #         severity="WARN",
+            #     )
+            #     for exception in e.exceptions:
+            #         self.log(
+            #             f"Task exception: {type(exception).__name__}",
+            #             severity="WARN",
+            #         )
+            #         self.log(f"{exception}", severity="WARN")
+            #     raise e.exceptions[0]  # TODO: fix this
+            # finally:
+            #     self.tg = None
+            yield None
         except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
             self.log(
                 "Caught exception while running commander:",
@@ -2371,16 +2364,16 @@ async def run(commander: Commander, config: Mapping[str, Any]):
         commander.init_dashboard()
         i = 0
         while True:
-            async with commander.planning_context_manager_async():
+            async with commander.context_manager():
                 async with asyncio.timeout(config["plan_and_execute_timeout"]):
                     object_id = object_ids[i]
                     end_goal = waypoints[object_id]
 
-                    arm_door_future = commander.arm_door_close_and_wait()
-                    smartglass_future = commander.smartglass_occlude_and_wait()
+                    arm_door_task = commander.arm_door_close_and_wait()
+                    smartglass_task = commander.smartglass_occlude_and_wait()
 
-                    await arm_door_future
-                    await smartglass_future
+                    await arm_door_task
+                    await smartglass_task
 
                     await commander.fetch_object_async(object_id, end_goal)
 
@@ -2388,11 +2381,11 @@ async def run(commander: Commander, config: Mapping[str, Any]):
                         timeout_sec=2
                     )
 
-                    arm_door_future = commander.arm_door_open_and_wait()
-                    smartglass_future = commander.smartglass_reveal_and_wait()
+                    arm_door_task = commander.arm_door_open_and_wait()
+                    smartglass_task = commander.smartglass_reveal_and_wait()
 
-                    await arm_door_future
-                    await smartglass_future
+                    await arm_door_task
+                    await smartglass_task
 
                     await commander.return_object_async()
 
@@ -2414,12 +2407,15 @@ async def main_async(args=None):
         run_config = yaml.safe_load(f)
 
     try:
-        executor = AIOExecutor()
+        executor = SingleThreadedExecutor()
         commander = Commander()
         executor.add_node(commander)
 
         try:
-            await asyncio.gather(run(commander, run_config), executor.spin())
+            await asyncio.gather(
+                run(commander, run_config),
+                asyncio.to_thread(executor.spin),
+            )
         finally:
             print("Shutting down executor")
             executor.shutdown()
