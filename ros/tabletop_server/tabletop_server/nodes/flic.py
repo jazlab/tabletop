@@ -1,15 +1,18 @@
 import asyncio
+import logging
 import random
 import time
 from typing import Optional
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.timer import Timer
 from tabletop_msgs.srv import GetFlic
 
-from tabletop_server.executor import AIOExecutor
 from tabletop_server.flic_client import AIOFlicClient
 from tabletop_server.nodes.base import BaseNode
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_SEVERITY = "INFO"
 
@@ -22,27 +25,22 @@ class Flic(BaseNode):
 
     def __init__(self, flic_client: AIOFlicClient):
         # Initialize base node
-
         # self.log_pub = None
         super().__init__("flic")
 
         self.flic_client = flic_client
-
         # self.log_pub = self.create_publisher(String, "flic/log", 10)
 
         # Simulation parameters
-
         self.simulate: bool = self.get_parameter_wrapper("simulate")
         self.simulate_delay_sec: float = self.get_parameter_wrapper(
             "simulate_delay_sec"
         )
 
         # State variables
-
         self.flic_last_time_pressed_ms = int(time.time() * 1000)
 
         # Services
-
         self.get_flic_service = self.create_service(
             GetFlic,
             "flic/get_flic",
@@ -52,8 +50,9 @@ class Flic(BaseNode):
         )
 
         # One-shot timers for delayed state updates
-
         self.simulate_delay_timer: Optional[Timer] = None
+
+        self.log(f"Flic initialized, simulate: {self.simulate}")
 
     def log(self, message: str, severity: str = DEFAULT_LOG_SEVERITY):
         super().log(message, severity)
@@ -95,7 +94,7 @@ class Flic(BaseNode):
     ) -> GetFlic.Response:
         # Set the response message
         response.success = True
-        response.last_time_pressed_ms = (
+        response.last_time_pressed_ms = int(
             self.flic_client.last_time_button_down_sec * 1000
         )
         response.message = (
@@ -107,19 +106,28 @@ class Flic(BaseNode):
 
 
 async def main_async(args=None):
+    logging.basicConfig(level=logging.DEBUG)
     rclpy.init(args=args)
     loop = asyncio.get_event_loop()
     try:
-        executor = AIOExecutor()
+        executor = SingleThreadedExecutor()
         _, flic_client = await loop.create_connection(
             lambda: AIOFlicClient(loop=loop), "172.17.0.1", 5551
         )
+
+        # Wait for 3 buttons to be connected
         await flic_client.connect_existing_buttons()
+        while flic_client.num_buttons < 3:
+            logger.info(f"Waiting for {flic_client.num_buttons} buttons")
+            await asyncio.sleep(1)
+        logger.info(f"Connected to {flic_client.num_buttons} buttons")
+
+        # Create the flic node
         flic = Flic(flic_client)
         executor.add_node(flic)
 
         try:
-            await executor.spin()
+            await asyncio.to_thread(executor.spin)
         finally:
             print("Shutting down executor")
             executor.shutdown()

@@ -1,7 +1,9 @@
+import asyncio
 import random
 import time
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from tabletop_msgs.msg import TeensySensor
 from tabletop_msgs.srv import (
@@ -34,7 +36,6 @@ SMARTGLASS_CONTROL_PIN = 2
 REWARD_CONTROL_PIN = 3
 ARM_DOOR_STATE_PIN = 4
 SMARTGLASS_STATE_PIN = 5
-REWARD_STATE_PIN = 6
 HAND_FIXATION_STATE_PIN = 7
 SYNC_PULSE_PIN = 9
 GLOVE_STATE_PINS = [A0, A1, A2, A3, A4]
@@ -66,12 +67,32 @@ def analog_read(pin) -> int:
     return analog_pin_states[pin]
 
 
+async def monkey_loop(
+    min_press_sec: float,
+    max_press_sec: float,
+    min_release_sec: float,
+    max_release_sec: float,
+):
+    while True:
+        if digital_read(HAND_FIXATION_STATE_PIN):
+            delay = random.uniform(min_press_sec, max_press_sec)
+        else:
+            delay = random.uniform(min_release_sec, max_release_sec)
+        await asyncio.sleep(delay)
+        digital_write(
+            HAND_FIXATION_STATE_PIN, not digital_read(HAND_FIXATION_STATE_PIN)
+        )
+
+
 class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": True,
         "simulate_smartglass_max_delay_sec": 0.1,
         "simulate_arm_door_max_delay_sec": 0.5,
-        "simulate_hand_fixation_max_delay_sec": 0.6,
+        "simulate_hand_fixation_min_press_sec": 3.0,
+        "simulate_hand_fixation_max_press_sec": 5.0,
+        "simulate_hand_fixation_min_release_sec": 0.1,
+        "simulate_hand_fixation_max_release_sec": 0.6,
     }
 
     def __init__(self):
@@ -93,9 +114,32 @@ class MockTeensy(BaseNode):
         self.simulate_arm_door_max_delay_sec: float = (
             self.get_parameter_wrapper("simulate_arm_door_max_delay_sec")
         )
-        self.simulate_hand_fixation_max_delay_sec: float = (
-            self.get_parameter_wrapper("simulate_hand_fixation_max_delay_sec")
+        self.simulate_hand_fixation_min_press_sec: float = (
+            self.get_parameter_wrapper("simulate_hand_fixation_min_press_sec")
         )
+        self.simulate_hand_fixation_max_press_sec: float = (
+            self.get_parameter_wrapper("simulate_hand_fixation_max_press_sec")
+        )
+        self.simulate_hand_fixation_min_release_sec: float = (
+            self.get_parameter_wrapper(
+                "simulate_hand_fixation_min_release_sec"
+            )
+        )
+        self.simulate_hand_fixation_max_release_sec: float = (
+            self.get_parameter_wrapper(
+                "simulate_hand_fixation_max_release_sec"
+            )
+        )
+
+        if self.simulate:
+            self.monkey_loop = asyncio.create_task(
+                monkey_loop(
+                    self.simulate_hand_fixation_min_press_sec,
+                    self.simulate_hand_fixation_max_press_sec,
+                    self.simulate_hand_fixation_min_release_sec,
+                    self.simulate_hand_fixation_max_release_sec,
+                )
+            )
 
         # State variables
 
@@ -105,6 +149,9 @@ class MockTeensy(BaseNode):
 
         ## Sync pulse state
         self.sync_pulse_state = False
+
+        ## Reward state
+        self.reward_state = False
 
         # Publishers
 
@@ -167,7 +214,6 @@ class MockTeensy(BaseNode):
 
         self.simulate_arm_door_delay_timer = None
         self.simulate_smartglass_delay_timer = None
-        self.simulate_hand_fixation_delay_timer = None
         self.reward_duration_timer = None
         self.sync_start_timer = None
         self.sync_end_timer = None
@@ -201,7 +247,7 @@ class MockTeensy(BaseNode):
         self, request: GetReward.Request, response: GetReward.Response
     ):
         response.success = True
-        response.is_active = digital_read(REWARD_STATE_PIN)
+        response.is_active = self.reward_state
         response.message = (
             f"Reward is {'active' if response.is_active else 'inactive'}"
         )
@@ -213,21 +259,6 @@ class MockTeensy(BaseNode):
         request: GetHandFixation.Request,
         response: GetHandFixation.Response,
     ):
-        # Schedule a timer to update the state pin after a random delay
-        if self.simulate_hand_fixation_delay_timer is None:
-            delay = random.uniform(
-                0.0, self.simulate_hand_fixation_max_delay_sec
-            )
-            self.simulate_hand_fixation_delay_timer = self.create_timer(
-                delay,
-                lambda: self.delay_timer_callback(
-                    timer_name="simulate_hand_fixation_delay_timer",
-                    pin=HAND_FIXATION_STATE_PIN,
-                    state=not digital_read(HAND_FIXATION_STATE_PIN),
-                    delay=delay,
-                ),
-            )
-
         # Set the response message
         response.success = True
         response.is_pressed = digital_read(HAND_FIXATION_STATE_PIN)
@@ -317,8 +348,8 @@ class MockTeensy(BaseNode):
             return response
 
         # Update the control pin
-        digital_write(REWARD_CONTROL_PIN, True)
-
+        digital_write(REWARD_CONTROL_PIN, HIGH)
+        self.reward_state = True
         # Schedule a timer to update the state pin after a random delay
         duration_ms = request.duration_ms
         duration_sec = duration_ms / 1000.0
@@ -326,7 +357,7 @@ class MockTeensy(BaseNode):
             duration_sec,
             lambda: self.delay_timer_callback(
                 timer_name="reward_duration_timer",
-                pin=REWARD_STATE_PIN,
+                pin=REWARD_CONTROL_PIN,
                 state=LOW,
                 delay=duration_sec,
             ),
@@ -343,6 +374,8 @@ class MockTeensy(BaseNode):
     ):
         # Update the pin state
         digital_write(pin, state)
+        if timer_name == "reward_duration_timer":
+            self.reward_state = False
 
         timer = getattr(self, timer_name)
         assert timer is not None
@@ -393,7 +426,7 @@ class MockTeensy(BaseNode):
         if self.sync_start_timer:
             self.sync_start_timer.cancel()
             self.sync_start_timer = None
-        digital_write(SYNC_PULSE_PIN, True)
+        digital_write(SYNC_PULSE_PIN, HIGH)
         self.sync_pulse_state = True
         self.get_logger().debug("Sync pulse started")
         # Create a one-shot timer to end the sync pulse after 100 ms
@@ -405,21 +438,21 @@ class MockTeensy(BaseNode):
         if self.sync_end_timer:
             self.sync_end_timer.cancel()
             self.sync_end_timer = None
-        digital_write(SYNC_PULSE_PIN, False)
+        digital_write(SYNC_PULSE_PIN, LOW)
         self.sync_pulse_state = False
         self.get_logger().debug("Sync pulse ended")
 
 
-def main(args=None):
+async def main_async(args=None):
     rclpy.init(args=args)
 
     try:
-        executor: rclpy.Executor = rclpy.executors.SingleThreadedExecutor()  # type: ignore
+        executor = SingleThreadedExecutor()
         mock_teensy = MockTeensy()
         executor.add_node(mock_teensy)
 
         try:
-            executor.spin()
+            await asyncio.to_thread(executor.spin)
         finally:
             print("Shutting down executor")
             executor.shutdown()
@@ -428,3 +461,7 @@ def main(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.shutdown()
+
+
+def main():
+    asyncio.run(main_async())

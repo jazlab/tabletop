@@ -1363,6 +1363,7 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     async def connect_existing_buttons(self) -> None:
+        logger.info("Connecting to existing buttons")
         info = await self.get_info()
         for bd_addr in info.bd_addr_of_verified_buttons:
             cc = ButtonConnectionChannel(bd_addr, client=self)
