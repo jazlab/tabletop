@@ -202,7 +202,7 @@ def declare_arguments():
             default_value="/root/ws/src/tabletop/ros/warehouse_ros.sqlite",
             description="Path where the warehouse database should be stored",
         ),
-        # Logging
+        # Log levels
         DeclareLaunchArgument(
             "default_log_level",
             default_value="INFO",
@@ -221,11 +221,54 @@ def declare_arguments():
             description="Teensy log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
-        # VSCode Debugging
+        # Outputs
         DeclareLaunchArgument(
-            "debug",
-            default_value="false",
-            description="Debug mode",
+            "mock_dashboard_output",
+            default_value="own_log",
+            description="Mock Dashboard output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "ur_output",
+            default_value="own_log",
+            description="UR output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "commander_output",
+            default_value="both",
+            description="Commander output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "micro_ros_output",
+            default_value="own_log",
+            description="Micro ROS output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "mock_teensy_output",
+            default_value="own_log",
+            description="Mock Teensy output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "flic_output",
+            default_value="own_log",
+            description="Flic output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "rviz_output",
+            default_value="own_log",
+            description="RViz output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "bag_output",
+            default_value="own_log",
+            description="Bag output",
+            choices=["log", "both", "screen", "own_log"],
         ),
     ]
 
@@ -277,6 +320,14 @@ def generate_launch_description():
     commander_log_level = LaunchConfiguration("commander_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
 
+    mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
+    ur_output = LaunchConfiguration("ur_output")
+    commander_output = LaunchConfiguration("commander_output")
+    micro_ros_output = LaunchConfiguration("micro_ros_output")
+    mock_teensy_output = LaunchConfiguration("mock_teensy_output")
+    flic_output = LaunchConfiguration("flic_output")
+    rviz_output = LaunchConfiguration("rviz_output")
+    bag_output = LaunchConfiguration("bag_output")
     ################################################
 
     # Set ROS Log Directory
@@ -288,7 +339,7 @@ def generate_launch_description():
         [
             SetEnvironmentVariable(
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value="own_log",
+                value=ur_output,
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -324,7 +375,7 @@ def generate_launch_description():
     mock_dashboard = Node(
         package="tabletop_server",
         executable="mock_dashboard",
-        output="log",
+        output=mock_dashboard_output,
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", default_log_level],
         condition=IfCondition(use_mock_robot),
@@ -356,6 +407,7 @@ def generate_launch_description():
         executable=script_executable,
         parameters=[
             moveit_config.to_dict(),
+            warehouse_ros_config,
             ParameterFile(commander_config, allow_substs=True),
             {
                 "publish_robot_description_semantic": True,
@@ -364,7 +416,7 @@ def generate_launch_description():
         ],
         ros_arguments=["--log-level", ["commander:=", commander_log_level]],
         arguments=[script_config],
-        output="both",
+        output=commander_output,
         on_exit=[Shutdown()],
     )
 
@@ -373,7 +425,7 @@ def generate_launch_description():
         package="micro_ros_agent",
         name="micro_ros_agent",
         executable="micro_ros_agent",
-        output="both",
+        output=micro_ros_output,
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", teensy_log_level],
         arguments=[
@@ -393,7 +445,7 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
-        output="log",
+        output=mock_teensy_output,
         parameters=[{"use_sim_time": use_sim_time, "simulate": True}],
         ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
         condition=IfCondition(use_mock_teensy),
@@ -404,7 +456,7 @@ def generate_launch_description():
         name="flic",
         package="tabletop_server",
         executable="flic",
-        output="both",
+        output=flic_output,
         parameters=[
             {"use_sim_time": use_sim_time, "simulate": simulate_flic},
         ],
@@ -416,7 +468,7 @@ def generate_launch_description():
         package="rviz2",
         condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        output="own_log",
+        output=rviz_output,
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -434,7 +486,7 @@ def generate_launch_description():
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
         cwd=rosbag_dir,
-        output="both",
+        output=bag_output,
         condition=IfCondition(rosbag_record),
     )
 

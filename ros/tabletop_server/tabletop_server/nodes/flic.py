@@ -5,10 +5,10 @@ import time
 from typing import Optional
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
 from rclpy.timer import Timer
 from tabletop_msgs.srv import GetFlic
 
+from tabletop_server.executor import AIOExecutor
 from tabletop_server.flic_client import AIOFlicClient
 from tabletop_server.nodes.base import BaseNode
 
@@ -21,6 +21,7 @@ class Flic(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": False,
         "simulate_delay_sec": 6.0,
+        "num_buttons": 3,
     }
 
     def __init__(self, flic_client: AIOFlicClient):
@@ -105,29 +106,35 @@ class Flic(BaseNode):
         return response
 
 
+async def wait_for_buttons(flic_client: AIOFlicClient, num_buttons: int):
+    await flic_client.connect_existing_buttons()
+    while flic_client.num_buttons < num_buttons:
+        logger.info(f"Waiting for {flic_client.num_buttons} buttons")
+        await asyncio.sleep(0.25)
+    logger.info(f"Connected to {flic_client.num_buttons} buttons")
+
+
 async def main_async(args=None):
     logging.basicConfig(level=logging.DEBUG)
     rclpy.init(args=args)
     loop = asyncio.get_event_loop()
     try:
-        executor = SingleThreadedExecutor()
+        executor = AIOExecutor()
         _, flic_client = await loop.create_connection(
             lambda: AIOFlicClient(loop=loop), "172.17.0.1", 5551
         )
-
-        # Wait for 3 buttons to be connected
-        await flic_client.connect_existing_buttons()
-        while flic_client.num_buttons < 3:
-            logger.info(f"Waiting for {flic_client.num_buttons} buttons")
-            await asyncio.sleep(1)
-        logger.info(f"Connected to {flic_client.num_buttons} buttons")
 
         # Create the flic node
         flic = Flic(flic_client)
         executor.add_node(flic)
 
+        # Wait for 3 buttons to be connected
+        await wait_for_buttons(
+            flic_client, flic.get_parameter_wrapper("num_buttons")
+        )
+
         try:
-            await asyncio.to_thread(executor.spin)
+            await executor.spin()
         finally:
             print("Shutting down executor")
             executor.shutdown()

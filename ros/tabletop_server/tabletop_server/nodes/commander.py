@@ -44,7 +44,6 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
-from rclpy.executors import SingleThreadedExecutor
 from shape_msgs.msg import (
     Plane,
     SolidPrimitive,
@@ -86,6 +85,7 @@ from tabletop_utils.ros import (
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
+from tabletop_server.executor import AIOExecutor
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
 
 # def create_task_wrapper(self, coro: Coroutine) -> asyncio.Task:
@@ -2407,14 +2407,14 @@ async def main_async(args=None):
         run_config = yaml.safe_load(f)
 
     try:
-        executor = SingleThreadedExecutor()
+        executor = AIOExecutor()
         commander = Commander()
         executor.add_node(commander)
 
         try:
             await asyncio.gather(
                 run(commander, run_config),
-                asyncio.to_thread(executor.spin),
+                executor.spin(),
             )
         finally:
             print("Shutting down executor")
