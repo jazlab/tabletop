@@ -3,7 +3,6 @@ import random
 import time
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from tabletop_msgs.msg import TeensySensor
 from tabletop_msgs.srv import (
@@ -16,6 +15,7 @@ from tabletop_msgs.srv import (
     SetSmartglass,
 )
 
+from tabletop_server.executor import AIOExecutor
 from tabletop_server.nodes.base import BaseNode
 
 DEFAULT_LOG_SEVERITY = "INFO"
@@ -447,12 +447,12 @@ async def main_async(args=None):
     rclpy.init(args=args)
 
     try:
-        executor = SingleThreadedExecutor()
+        executor = AIOExecutor()
         mock_teensy = MockTeensy()
         executor.add_node(mock_teensy)
 
         try:
-            await asyncio.to_thread(executor.spin)
+            await executor.spin()
         finally:
             print("Shutting down executor")
             executor.shutdown()
