@@ -327,16 +327,7 @@ class ButtonScanner:
 
 
 class ScanWizard:
-    """ScanWizard class
-
-    Usage:
-    wizard = ScanWizard()
-    wizard.on_found_private_button = lambda scan_wizard: ...
-    wizard.on_found_public_button = lambda scan_wizard, bd_addr, name: ...
-    wizard.on_button_connected = lambda scan_wizard, bd_addr, name: ...
-    wizard.on_completed = lambda scan_wizard, result, bd_addr, name: ...
-    client.add_scan_wizard(wizard)
-    """
+    """ScanWizard class"""
 
     _cnt = itertools.count()
 
@@ -635,6 +626,10 @@ class FlicClient(asyncio.Protocol):
     @property
     def num_battery_status_listeners(self) -> int:
         return len(self._battery_status_listeners)
+
+    @property
+    def bd_addrs(self) -> list[str]:
+        return sorted(self._bd_addrs)
 
     ##############################################################
     # asyncio.Protocol methods
@@ -1412,7 +1407,7 @@ async def run(host: str, port: int, num_buttons: int):
         await client.connect_existing_buttons()
         while client.num_buttons < num_buttons:
             if await client.scan_and_connect():
-                break
+                continue
             else:
                 logger.warning("Scan failed, sleeping for 3 seconds")
                 await asyncio.sleep(3)
@@ -1429,7 +1424,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument("--num-buttons", type=int, default=2)
+    parser.add_argument("--num-buttons", type=int, default=9)
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
