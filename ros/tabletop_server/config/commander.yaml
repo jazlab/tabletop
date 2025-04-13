@@ -39,7 +39,7 @@
         rpy: [0.0, 0.0, 1.5707]
       pre_fetch_offset: [-0.02, 0.0, -0.01]
       pre_attach_offset: [-0.01, 0.0, 0.0]
-      post_attach_offset: [0.0, -0.10, 0.0] # relative to world. TODO: Make relative to object
+      post_attach_offset: [0.0, -0.10, 0.0]
 
     planning_scene:
       floor_coef: [0.0, 0.0, 1.0, 0.0]

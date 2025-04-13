@@ -11,7 +11,6 @@
 #include <tabletop_msgs/srv/get_arm_door.h>
 #include <tabletop_msgs/srv/get_hand_fixation.h>
 #include <tabletop_msgs/srv/get_reward.h>
-#include <tabletop_msgs/srv/get_smartglass.h>
 #include <tabletop_msgs/srv/set_arm_door.h>
 #include <tabletop_msgs/srv/set_reward.h>
 #include <tabletop_msgs/srv/set_smartglass.h>
@@ -24,18 +23,18 @@
 
 // Define pin mappings
 
-#define ARM_DOOR_CONTROL_PIN 1
-#define SMARTGLASS_CONTROL_PIN 2
-#define REWARD_CONTROL_PIN 3
-#define ARM_DOOR_STATE_PIN 4
-#define SMARTGLASS_STATE_PIN 5
-#define HAND_FIXATION_STATE_PIN 6
+#define ARM_DOOR_OPEN_CONTROL_PIN 1
+#define ARM_DOOR_CLOSE_CONTROL_PIN 1
+#define SMARTGLASS_CONTROL_PIN 3
+#define REWARD_CONTROL_PIN 4
+#define HAND_FIXATION_STATE_PIN 34
+#define ARM_DOOR_CLOSED_STATE_PIN 37
 #define SYNC_PULSE_PIN 9
 static const uint8_t GLOVE_STATE_PINS[] = {A0, A1, A2, A3, A4};
 
 // Message memory configuration
 
-#define MAX_STRING_CAPACITY 50
+#define MAX_STRING_CAPACITY 100
 #define MAX_ROS2_TYPE_SEQUENCE_CAPACITY 5
 #define MAX_BASIC_TYPE_SEQUENCE_CAPACITY 5
 static const micro_ros_utilities_memory_conf_t memory_conf = {
@@ -56,7 +55,6 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define SET_ARM_DOOR_SRV_NAME "/teensy/set_arm_door"
 #define GET_ARM_DOOR_SRV_NAME "/teensy/get_arm_door"
 #define SET_SMARTGLASS_SRV_NAME "/teensy/set_smartglass"
-#define GET_SMARTGLASS_SRV_NAME "/teensy/get_smartglass"
 #define SET_REWARD_SRV_NAME "/teensy/set_reward"
 #define GET_REWARD_SRV_NAME "/teensy/get_reward"
 #define GET_HAND_FIXATION_SRV_NAME "/teensy/get_hand_fixation"
@@ -66,15 +64,16 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_RECONNECT_PERIOD_MS 100 // Timeout for agent reconnection, in ms
 #define AGENT_RECONNECT_TIMEOUT_MS 50 // Timeout for agent reconnection, in ms
 #define EXECUTOR_SPIN_TIMEOUT_MS 20   // Timeout for executor spin, in ms
-#define AGENT_CHECK_CONNECT_PERIOD_MS \
-  1000 // Period for agent reconnection, in ms
-#define AGENT_CHECK_CONNECT_TIMEOUT_MS \
-  10                                   // Timeout for agent reconnection, in ms
+#define AGENT_CHECK_CONNECTED_PERIOD_MS \
+  1000 // Period for checking if the agent is connected, in ms
+#define AGENT_CHECK_CONNECTED_TIMEOUT_MS \
+  10 // Timeout for checking if the agent is connected, in ms
 #define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
 #define SYNC_PULSE_BASE_PERIOD_MS 1000 // Base period between sync pulses, in ms
 #define SYNC_PULSE_DELAY_RANGE_MS \
   200                              // Range of jitter in the base period, in ms
 #define SYNC_PULSE_DURATION_MS 100 // Duration of each sync pulse, in ms
+#define ARM_DOOR_PERIOD_MS 1000    // Period for arm door control, in ms
 
 // Agent reconnection parameters
 
@@ -89,7 +88,6 @@ rcl_publisher_t log_publisher;
 rcl_service_t set_arm_door_service;
 rcl_service_t get_arm_door_service;
 rcl_service_t set_smartglass_service;
-rcl_service_t get_smartglass_service;
 rcl_service_t set_reward_service;
 rcl_service_t get_reward_service;
 rcl_service_t get_hand_fixation_service;
@@ -99,6 +97,7 @@ rcl_timer_t sync_pulse_start_timer;
 rcl_timer_t sync_pulse_end_timer;
 rcl_timer_t sensor_timer;
 rcl_timer_t reward_timer;
+rcl_timer_t arm_door_timer;
 
 rcl_allocator_t allocator;
 rclc_support_t support;
@@ -114,8 +113,6 @@ tabletop_msgs__srv__GetArmDoor_Request get_arm_door_request;
 tabletop_msgs__srv__GetArmDoor_Response get_arm_door_response;
 tabletop_msgs__srv__SetSmartglass_Request set_smartglass_request;
 tabletop_msgs__srv__SetSmartglass_Response set_smartglass_response;
-tabletop_msgs__srv__GetSmartglass_Request get_smartglass_request;
-tabletop_msgs__srv__GetSmartglass_Response get_smartglass_response;
 tabletop_msgs__srv__SetReward_Request set_reward_request;
 tabletop_msgs__srv__SetReward_Response set_reward_response;
 tabletop_msgs__srv__GetReward_Request get_reward_request;
@@ -123,9 +120,9 @@ tabletop_msgs__srv__GetReward_Response get_reward_response;
 tabletop_msgs__srv__GetHandFixation_Request get_hand_fixation_request;
 tabletop_msgs__srv__GetHandFixation_Response get_hand_fixation_response;
 
+// State tracking
 static uint8_t agent_reconnect_retries;
 
-bool sync_pulse_state;
 static enum states {
   WAITING_AGENT,
   AGENT_AVAILABLE,
@@ -134,9 +131,19 @@ static enum states {
   CLIENT_ERROR
 } state;
 
-// State tracking
+static enum arm_door_states {
+  ARM_DOOR_OPEN,
+  ARM_DOOR_OPENING,
+  ARM_DOOR_CLOSED,
+  ARM_DOOR_CLOSING
+} arm_door_state;
+
+bool sync_pulse_state;
+int64_t sync_pulse_last_time_on_ms;
+int64_t sync_pulse_last_time_off_ms;
 int64_t hand_fixation_last_time_pressed_ms;
 int64_t hand_fixation_last_time_released_ms;
+bool reward_active;
 
 // Macro definitions
 
@@ -158,6 +165,17 @@ int64_t hand_fixation_last_time_released_ms;
       printf("Error: %s\n", rcl_get_error_string().str); \
     }                                                    \
   }
+// Check return code from ROS2 function, logging an error if the return code is
+// not OK
+#define RCASSERT(fn, fmt, ...)           \
+  {                                      \
+    rcl_ret_t temp_rc = fn;              \
+    if ((temp_rc != RCL_RET_OK)) {       \
+      LOG("RC Assertion failed!");       \
+      LOG("Error number: %ld", temp_rc); \
+      LOG(fmt, ##__VA_ARGS__);           \
+    }                                    \
+  }
 // Set the string message
 #define STRING_SET(str_ptr, fmt, ...)                                   \
   {                                                                     \
@@ -178,15 +196,7 @@ int64_t hand_fixation_last_time_released_ms;
       LOG(fmt, ##__VA_ARGS__);  \
     }                           \
   }
-#define RCASSERT(fn, fmt, ...)           \
-  {                                      \
-    rcl_ret_t temp_rc = fn;              \
-    if ((temp_rc != RCL_RET_OK)) {       \
-      LOG("RC Assertion failed!");       \
-      LOG("Error number: %ld", temp_rc); \
-      LOG(fmt, ##__VA_ARGS__);           \
-    }                                    \
-  }
+
 // Execute a block of code every N milliseconds
 #define EXECUTE_EVERY_N_MS(MS, X)   \
   {                                 \
@@ -222,67 +232,15 @@ void error_loop() {
   }
 }
 
-void sync_pulse_end_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
-  RCLC_UNUSED(last_call_time);
-  if (timer != NULL) {
-    DEBUG("Sync pulse end");
-
-    digitalWrite(SYNC_PULSE_PIN, LOW);
-    sync_pulse_state = false;
-
-    RCASSERT(rcl_timer_cancel(timer), "Failed to cancel sync pulse end timer");
-  }
-}
-
-void sync_pulse_start_timer_callback(rcl_timer_t* timer,
-                                     int64_t last_call_time) {
-  RCLC_UNUSED(last_call_time);
-  if (timer != NULL) {
-    DEBUG("Sync pulse start");
-
-    RCASSERT(rcl_timer_reset(&sync_pulse_end_timer),
-             "Failed to reset sync pulse end timer");
-    digitalWrite(SYNC_PULSE_PIN, HIGH);
-    sync_pulse_state = true;
-
-    RCASSERT(rcl_timer_cancel(timer),
-             "Failed to cancel sync pulse start timer");
-
-    DEBUG("Sync pulse started for %lld ms", SYNC_PULSE_DURATION_MS);
-  }
-}
-
-void sync_pulse_base_timer_callback(rcl_timer_t* timer,
-                                    int64_t last_call_time) {
-  if (timer != NULL) {
-    DEBUG("Sync pulse base timer callback");
-
-    ASSERT(sync_pulse_state == false, "Sync pulse state is true");
-
-    // Generate a random delay between 0 and SYNC_PULSE_DELAY_RANGE_MS
-    int64_t delay_ms = random(SYNC_PULSE_DELAY_RANGE_MS);
-    int64_t old_period;
-
-    // Exchange the timer period with the delay and reset the timer
-    RCASSERT(rcl_timer_exchange_period(&sync_pulse_start_timer,
-                                       RCL_MS_TO_NS(delay_ms), &old_period),
-             "Failed to exchange sync pulse start timer period");
-    RCASSERT(rcl_timer_reset(&sync_pulse_start_timer),
-             "Failed to reset sync pulse start timer");
-    digitalWrite(SYNC_PULSE_PIN, LOW);
-    sync_pulse_state = false;
-
-    DEBUG("delay: %lld ms", delay_ms);
-  }
-}
-
+// Timer callback for publishing the sensor message
 void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     DEBUG("Sensor timer callback");
     // Populate sensor message
-    sensor_msg.arm_door_state = digitalRead(ARM_DOOR_STATE_PIN);
-    sensor_msg.smartglass_state = digitalRead(SMARTGLASS_STATE_PIN);
+    // TODO: Uncomment this once we update the TeensySensor message
+    sensor_msg.arm_door_state = arm_door_state;
+    sensor_msg.arm_door_closed_state = digitalRead(ARM_DOOR_CLOSED_STATE_PIN);
     sensor_msg.fixation_button_state = digitalRead(HAND_FIXATION_STATE_PIN);
 
     // Update hand fixation timestamps
@@ -296,57 +254,129 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
       sensor_msg.tactile_glove_states[i] = analogRead(GLOVE_STATE_PINS[i]);
     }
     sensor_msg.sync_pulse_state = sync_pulse_state;
+    sensor_msg.sync_pulse_last_time_on_ms = sync_pulse_last_time_on_ms;
+    sensor_msg.sync_pulse_last_time_off_ms = sync_pulse_last_time_off_ms;
 
     RCASSERT(rcl_publish(&sensor_publisher, &sensor_msg, NULL),
              "Failed to publish sensor message");
   }
 }
 
+// Timer callback to stop the sync pulse
+void sync_pulse_end_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL) {
+    DEBUG("Sync pulse end");
+
+    digitalWrite(SYNC_PULSE_PIN, LOW);
+    sync_pulse_last_time_off_ms = rmw_uros_epoch_millis();
+    sync_pulse_state = false;
+
+    RCASSERT(rcl_timer_cancel(timer), "Failed to cancel sync pulse end timer");
+
+    DEBUG("Sync pulse ended after %lld ms",
+          sync_pulse_last_time_off_ms - sync_pulse_last_time_on_ms);
+  }
+}
+
+// Timer callback to start the sync pulse
+void sync_pulse_start_timer_callback(rcl_timer_t* timer,
+                                     int64_t last_call_time) {
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL) {
+    DEBUG("Sync pulse start");
+
+    digitalWrite(SYNC_PULSE_PIN, HIGH);
+    sync_pulse_state = true;
+    sync_pulse_last_time_on_ms = rmw_uros_epoch_millis();
+
+    RCASSERT(rcl_timer_reset(&sync_pulse_end_timer),
+             "Failed to reset sync pulse end timer");
+
+    RCASSERT(rcl_timer_cancel(timer),
+             "Failed to cancel sync pulse start timer");
+
+    DEBUG("Sync pulse started for %lld ms", SYNC_PULSE_DURATION_MS);
+  }
+}
+
+// Timer callback to start the sync pulse delay timer
+void sync_pulse_base_timer_callback(rcl_timer_t* timer,
+                                    int64_t last_call_time) {
+  if (timer != NULL) {
+    DEBUG("Sync pulse base timer callback");
+
+    ASSERT(sync_pulse_state == false, "Sync pulse state is true");
+
+    digitalWrite(SYNC_PULSE_PIN, LOW);
+    sync_pulse_state = false;
+
+    // Generate a random delay between 0 and SYNC_PULSE_DELAY_RANGE_MS
+    int64_t delay_ms = random(SYNC_PULSE_DELAY_RANGE_MS);
+    int64_t old_period;
+
+    // Exchange the timer period with the delay and reset the timer
+    RCASSERT(rcl_timer_exchange_period(&sync_pulse_start_timer,
+                                       RCL_MS_TO_NS(delay_ms), &old_period),
+             "Failed to exchange sync pulse start timer period");
+    RCASSERT(rcl_timer_reset(&sync_pulse_start_timer),
+             "Failed to reset sync pulse start timer");
+
+    DEBUG("delay: %lld ms", delay_ms);
+  }
+}
+
+// Timer callback to stop the reward control
 void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     LOG("Reward timer callback started");
 
     digitalWrite(REWARD_CONTROL_PIN, LOW);
+    reward_active = false;
+
     RCASSERT(rcl_timer_cancel(timer), "Failed to cancel reward timer");
 
     LOG("Reward timer callback completed");
   }
 }
 
-// Service callback for get_arm_door
-void get_arm_door_callback(const void* req, void* res) {
-  tabletop_msgs__srv__GetArmDoor_Request* request =
-      (tabletop_msgs__srv__GetArmDoor_Request*) req;
-  tabletop_msgs__srv__GetArmDoor_Response* response =
-      (tabletop_msgs__srv__GetArmDoor_Response*) res;
+// Service callback for controlling the reward
+void set_reward_callback(const void* req, void* res) {
+  tabletop_msgs__srv__SetReward_Request* request =
+      (tabletop_msgs__srv__SetReward_Request*) req;
+  tabletop_msgs__srv__SetReward_Response* response =
+      (tabletop_msgs__srv__SetReward_Response*) res;
 
-  LOG("Get arm door callback started");
+  LOG("Set reward callback started");
 
-  response->is_open = digitalRead(ARM_DOOR_STATE_PIN);
-  response->success = true;
-  STRING_SET(&response->message, "Arm door is %s",
-             response->is_open ? "open" : "closed");
+  bool timer_is_canceled;
+  RCASSERT(rcl_timer_is_canceled(&reward_timer, &timer_is_canceled),
+           "Failed to check if reward timer is canceled");
+  if (!timer_is_canceled) {
+    response->success = false;
+    STRING_SET(&response->message, "Error: Reward already active!");
+    LOG(response->message.data);
+    return;
+  }
+
+  digitalWrite(REWARD_CONTROL_PIN, HIGH);
+  reward_active = true;
+
+  uint32_t duration_ms = request->duration_ms;
+  int64_t old_period;
+
+  RCASSERT(rcl_timer_exchange_period(&reward_timer, RCL_MS_TO_NS(duration_ms),
+                                     &old_period),
+           "Failed to exchange reward timer period");
+  RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
+
+  STRING_SET(&response->message, "Reward started for %lu ms", duration_ms);
   LOG(response->message.data);
+  response->success = true;
 }
 
-// Service callback for get_smartglass
-void get_smartglass_callback(const void* req, void* res) {
-  tabletop_msgs__srv__GetSmartglass_Request* request =
-      (tabletop_msgs__srv__GetSmartglass_Request*) req;
-  tabletop_msgs__srv__GetSmartglass_Response* response =
-      (tabletop_msgs__srv__GetSmartglass_Response*) res;
-
-  LOG("Get smartglass callback started");
-
-  response->is_revealed = digitalRead(SMARTGLASS_STATE_PIN);
-  response->success = true;
-  STRING_SET(&response->message, "Smartglass is %s",
-             response->is_revealed ? "revealed" : "occluded");
-  LOG(response->message.data);
-}
-
-// Service callback for get_reward
+// Service callback for getting the reward state
 void get_reward_callback(const void* req, void* res) {
   tabletop_msgs__srv__GetReward_Request* request =
       (tabletop_msgs__srv__GetReward_Request*) req;
@@ -355,14 +385,173 @@ void get_reward_callback(const void* req, void* res) {
 
   LOG("Get reward callback started");
 
-  response->is_active = digitalRead(REWARD_CONTROL_PIN);
+  response->is_active = reward_active;
   response->success = true;
   STRING_SET(&response->message, "Reward is %s",
              response->is_active ? "active" : "inactive");
   LOG(response->message.data);
 }
 
-// Service callback for get_hand_fixation
+// Timer callback to stop the arm door control
+void arm_door_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL) {
+    LOG("Arm door timer callback started");
+
+    // Reset the arm door control pins
+    digitalWrite(ARM_DOOR_OPEN_CONTROL_PIN, LOW);
+    digitalWrite(ARM_DOOR_CLOSE_CONTROL_PIN, LOW);
+
+    // Check if the arm door is opening or closing
+    // TODO: Check this logic once we have the arm door switch working
+    if (arm_door_state == ARM_DOOR_OPENING) {
+      ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+             "Arm door closed state pin is not LOW after opening");
+      arm_door_state = ARM_DOOR_OPEN;
+    } else if (arm_door_state == ARM_DOOR_CLOSING) {
+      ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH,
+             "Arm door closed state pin is not HIGH after closing");
+      arm_door_state = ARM_DOOR_CLOSED;
+    } else {
+      ASSERT(false, "Arm door state is not OPENING or CLOSING when timer "
+                    "callback is called");
+    }
+
+    RCASSERT(rcl_timer_cancel(timer), "Failed to cancel arm door timer");
+    LOG("Arm door timer callback finished %s",
+        arm_door_state == ARM_DOOR_OPEN ? "opening" : "closing");
+  }
+}
+
+// Service callback for controlling the arm door
+void set_arm_door_callback(const void* req, void* res) {
+  tabletop_msgs__srv__SetArmDoor_Request* request =
+      (tabletop_msgs__srv__SetArmDoor_Request*) req;
+  tabletop_msgs__srv__SetArmDoor_Response* response =
+      (tabletop_msgs__srv__SetArmDoor_Response*) res;
+
+  LOG("Set arm door callback started");
+
+  ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+         "Arm door closed state pin is not LOW before closing");
+
+  bool timer_is_canceled;
+  RCASSERT(rcl_timer_is_canceled(&arm_door_timer, &timer_is_canceled),
+           "Failed to check if arm door timer is canceled");
+  if (!timer_is_canceled) {
+    ASSERT(arm_door_state == ARM_DOOR_CLOSING ||
+               arm_door_state == ARM_DOOR_OPENING,
+           "Arm door state is not CLOSING or OPENING when arm door timer is "
+           "still running");
+    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+           "Arm door closed state pin is not LOW when motor is still running");
+    response->success = false;
+    STRING_SET(&response->message,
+               "Error: Arm door already opening or closing!");
+    LOG(response->message.data);
+    return;
+  }
+
+  if (request->open) {
+    if (arm_door_state != ARM_DOOR_CLOSED) {
+      STRING_SET(&response->message,
+                 "Error: Arm door state is not closed before opening");
+      LOG(response->message.data);
+      response->success = false;
+      return;
+    }
+    // TODO: Uncomment this once we have the arm door switch working
+    // if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) != HIGH) {
+    //   STRING_SET(&response->message,
+    //              "Error: Arm door closed state pin is not HIGH before
+    //              opening");
+    //   LOG(response->message.data);
+    //   response->success = false;
+    //   return;
+    // }
+    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH,
+           "Arm door closed state pin is not HIGH before opening");
+    digitalWrite(ARM_DOOR_OPEN_CONTROL_PIN, HIGH);
+    arm_door_state = ARM_DOOR_OPENING;
+  } else {
+    if (arm_door_state != ARM_DOOR_OPEN) {
+      STRING_SET(&response->message,
+                 "Error: Arm door state is not open before closing");
+      LOG(response->message.data);
+      response->success = false;
+      return;
+    }
+    // TODO: Uncomment this once we have the arm door switch working
+    // if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) != LOW) {
+    //   STRING_SET(&response->message,
+    //              "Arm door closed state pin is not LOW before closing");
+    //   LOG(response->message.data);
+    //   response->success = false;
+    //   return;
+    // }
+    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+           "Arm door closed state pin is not LOW before closing");
+    digitalWrite(ARM_DOOR_CLOSE_CONTROL_PIN, HIGH);
+    arm_door_state = ARM_DOOR_CLOSING;
+  }
+
+  RCASSERT(rcl_timer_reset(&arm_door_timer), "Failed to reset arm door timer");
+
+  STRING_SET(&response->message, "Arm door %s started for %d ms",
+             request->open ? "open" : "close", ARM_DOOR_PERIOD_MS);
+  LOG(response->message.data);
+  response->success = true;
+}
+
+// Service callback for getting the arm door state
+void get_arm_door_callback(const void* req, void* res) {
+  tabletop_msgs__srv__GetArmDoor_Request* request =
+      (tabletop_msgs__srv__GetArmDoor_Request*) req;
+  tabletop_msgs__srv__GetArmDoor_Response* response =
+      (tabletop_msgs__srv__GetArmDoor_Response*) res;
+
+  LOG("Get arm door callback started");
+
+  // TODO: Uncomment this once we have the arm door switch working
+  // if ((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) !=
+  //     (arm_door_state == ARM_DOOR_CLOSED)) {
+  //   STRING_SET(&response->message,
+  //              "Error: Arm door state is not consistent with closed state
+  //              pin");
+  //   LOG(response->message.data);
+  //   response->success = false;
+  //   return;
+  // }
+  ASSERT((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) ==
+             (arm_door_state == ARM_DOOR_CLOSED),
+         "Arm door state is not consistent with closed state pin");
+  response->is_closed = digitalRead(ARM_DOOR_CLOSED_STATE_PIN);
+  response->state = arm_door_state;
+  response->success = true;
+
+  char state_str[10];
+  switch (arm_door_state) {
+  case ARM_DOOR_OPEN:
+    strcpy(state_str, "open");
+    break;
+  case ARM_DOOR_CLOSED:
+    strcpy(state_str, "closed");
+    break;
+  case ARM_DOOR_OPENING:
+    strcpy(state_str, "opening");
+    break;
+  case ARM_DOOR_CLOSING:
+    strcpy(state_str, "closing");
+    break;
+  }
+  STRING_SET(&response->message,
+             "Arm door closed state pin is %s and arm door "
+             "state is %s",
+             response->is_closed ? "HIGH" : "LOW", state_str);
+  LOG(response->message.data);
+}
+
+// Service callback for getting the hand fixation state
 void get_hand_fixation_callback(const void* req, void* res) {
   tabletop_msgs__srv__GetHandFixation_Request* request =
       (tabletop_msgs__srv__GetHandFixation_Request*) req;
@@ -380,23 +569,7 @@ void get_hand_fixation_callback(const void* req, void* res) {
   LOG(response->message.data);
 }
 
-// Service callback for arm_door
-void set_arm_door_callback(const void* req, void* res) {
-  tabletop_msgs__srv__SetArmDoor_Request* request =
-      (tabletop_msgs__srv__SetArmDoor_Request*) req;
-  tabletop_msgs__srv__SetArmDoor_Response* response =
-      (tabletop_msgs__srv__SetArmDoor_Response*) res;
-
-  LOG("Set arm door callback started");
-
-  digitalWrite(ARM_DOOR_CONTROL_PIN, request->is_open);
-  STRING_SET(&response->message, "Arm door %s started",
-             request->is_open ? "open" : "close");
-  LOG(response->message.data);
-  response->success = true;
-}
-
-// Service callback for smartglass
+// Service callback for controlling the smartglass
 void set_smartglass_callback(const void* req, void* res) {
   tabletop_msgs__srv__SetSmartglass_Request* request =
       (tabletop_msgs__srv__SetSmartglass_Request*) req;
@@ -406,41 +579,8 @@ void set_smartglass_callback(const void* req, void* res) {
   LOG("Set smartglass callback started");
 
   digitalWrite(SMARTGLASS_CONTROL_PIN, request->is_revealed);
-  STRING_SET(&response->message, "Smartglass %s started",
-             request->is_revealed ? "reveal" : "occlude");
-  LOG(response->message.data);
-  response->success = true;
-}
-
-// Service callback for reward
-void set_reward_callback(const void* req, void* res) {
-  tabletop_msgs__srv__SetReward_Request* request =
-      (tabletop_msgs__srv__SetReward_Request*) req;
-  tabletop_msgs__srv__SetReward_Response* response =
-      (tabletop_msgs__srv__SetReward_Response*) res;
-
-  LOG("Set reward callback started");
-
-  bool timer_is_canceled;
-  RCASSERT(rcl_timer_is_canceled(&reward_timer, &timer_is_canceled),
-           "Failed to check if reward timer is canceled");
-  if (!timer_is_canceled) {
-    response->success = false;
-    STRING_SET(&response->message, "Reward already active!");
-    LOG(response->message.data);
-    return;
-  }
-
-  uint32_t duration_ms = request->duration_ms;
-  int64_t old_period;
-
-  RCASSERT(rcl_timer_exchange_period(&reward_timer, RCL_MS_TO_NS(duration_ms),
-                                     &old_period),
-           "Failed to exchange reward timer period");
-  RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
-
-  digitalWrite(REWARD_CONTROL_PIN, HIGH);
-  STRING_SET(&response->message, "Reward started for %lu ms", duration_ms);
+  STRING_SET(&response->message, "Smartglass %s",
+             request->is_revealed ? "revealed" : "occluded");
   LOG(response->message.data);
   response->success = true;
 }
@@ -483,10 +623,6 @@ bool create_entities() {
       ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetSmartglass),
       SET_SMARTGLASS_SRV_NAME));
   RCCHECK(rclc_service_init_default(
-      &get_smartglass_service, &node,
-      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, GetSmartglass),
-      GET_SMARTGLASS_SRV_NAME));
-  RCCHECK(rclc_service_init_default(
       &set_reward_service, &node,
       ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_msgs, srv, SetReward),
       SET_REWARD_SRV_NAME));
@@ -515,6 +651,9 @@ bool create_entities() {
                                    sensor_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&reward_timer, &support, RCL_MS_TO_NS(1000),
                                    reward_timer_callback, false));
+  RCCHECK(rclc_timer_init_default2(&arm_door_timer, &support,
+                                   RCL_MS_TO_NS(ARM_DOOR_PERIOD_MS),
+                                   arm_door_timer_callback, false));
   LOG("Timers initialized");
 
   // create executor
@@ -524,6 +663,7 @@ bool create_entities() {
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
+  RCCHECK(rclc_executor_add_timer(&executor, &arm_door_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
 
   RCCHECK(rclc_executor_add_service(
@@ -535,9 +675,6 @@ bool create_entities() {
   RCCHECK(rclc_executor_add_service(
       &executor, &set_smartglass_service, &set_smartglass_request,
       &set_smartglass_response, &set_smartglass_callback));
-  RCCHECK(rclc_executor_add_service(
-      &executor, &get_smartglass_service, &get_smartglass_request,
-      &get_smartglass_response, &get_smartglass_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_reward_service,
                                     &set_reward_request, &set_reward_response,
                                     &set_reward_callback));
@@ -571,10 +708,10 @@ void destroy_entities() {
   RCSOFTCHECK(rcl_timer_fini(&sync_pulse_end_timer));
   RCSOFTCHECK(rcl_timer_fini(&sensor_timer));
   RCSOFTCHECK(rcl_timer_fini(&reward_timer));
+  RCSOFTCHECK(rcl_timer_fini(&arm_door_timer));
   RCSOFTCHECK(rcl_service_fini(&set_arm_door_service, &node));
   RCSOFTCHECK(rcl_service_fini(&get_arm_door_service, &node));
   RCSOFTCHECK(rcl_service_fini(&set_smartglass_service, &node));
-  RCSOFTCHECK(rcl_service_fini(&get_smartglass_service, &node));
   RCSOFTCHECK(rcl_service_fini(&set_reward_service, &node));
   RCSOFTCHECK(rcl_service_fini(&get_reward_service, &node));
   RCSOFTCHECK(rcl_service_fini(&get_hand_fixation_service, &node));
@@ -592,15 +729,15 @@ void setup() {
   printf("Serial transport initialized\n");
 
   // Initialize output pins
-  pinMode(ARM_DOOR_CONTROL_PIN, OUTPUT);
+  pinMode(ARM_DOOR_OPEN_CONTROL_PIN, OUTPUT);
+  pinMode(ARM_DOOR_CLOSE_CONTROL_PIN, OUTPUT);
   pinMode(SMARTGLASS_CONTROL_PIN, OUTPUT);
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_PIN, OUTPUT);
   digitalWrite(SYNC_PULSE_PIN, LOW);
 
   // Initialize input pins
-  pinMode(ARM_DOOR_STATE_PIN, INPUT);
-  pinMode(SMARTGLASS_STATE_PIN, INPUT);
+  pinMode(ARM_DOOR_CLOSED_STATE_PIN, INPUT);
   pinMode(HAND_FIXATION_STATE_PIN, INPUT);
 
   printf("Pins initialized\n");
@@ -609,6 +746,11 @@ void setup() {
   agent_reconnect_retries = 0;
   sync_pulse_state = false;
   state = WAITING_AGENT;
+  if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) {
+    arm_door_state = ARM_DOOR_CLOSED;
+  } else {
+    arm_door_state = ARM_DOOR_OPEN;
+  }
 
   // Initialize state tracking
   hand_fixation_last_time_pressed_ms = rmw_uros_epoch_millis();
@@ -624,9 +766,6 @@ void setup() {
   success &= micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetSmartglass_Response),
       &set_smartglass_response, memory_conf);
-  success &= micro_ros_utilities_create_message_memory(
-      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, GetSmartglass_Response),
-      &get_smartglass_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_msgs, srv, SetReward_Response),
       &set_reward_response, memory_conf);
@@ -666,9 +805,9 @@ void loop() {
   case AGENT_CONNECTED:
     static bool success = true;
     EXECUTE_EVERY_N_MS(
-        AGENT_CHECK_CONNECT_PERIOD_MS,
+        AGENT_CHECK_CONNECTED_PERIOD_MS,
         success = (RMW_RET_OK ==
-                   rmw_uros_ping_agent(AGENT_CHECK_CONNECT_TIMEOUT_MS, 1)););
+                   rmw_uros_ping_agent(AGENT_CHECK_CONNECTED_TIMEOUT_MS, 1)););
     agent_reconnect_retries = success ? 0 : agent_reconnect_retries + 1;
     if (agent_reconnect_retries < AGENT_RECONNECT_MAX_RETRIES) {
       rclc_executor_spin_some(&executor,

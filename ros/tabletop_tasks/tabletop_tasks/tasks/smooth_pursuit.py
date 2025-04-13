@@ -8,7 +8,6 @@ import numpy as np
 from geometry_msgs.msg import Point, Pose, PoseStamped
 from std_msgs.msg import Header
 from tabletop_server.nodes import Commander
-from tabletop_utils.ros import quaternion_from_euler
 
 from tabletop_tasks.tasks.base_task import BaseTask
 
@@ -32,23 +31,19 @@ class SmoothPursuit(BaseTask):
 
         # Make circular path
         self._path: List[PoseStamped] = []
-        center_x = center_pose.position.x
-        center_y = center_pose.position.y
-        center_z = center_pose.position.z
         for i in range(100):
             theta = 2 * np.pi * i / 100
-            x = center_x + radius * np.cos(theta)
-            y = center_y + radius * np.sin(theta)
-            z = center_z
-            self._path.append(
-                PoseStamped(
-                    header=Header(frame_id="world"),
-                    pose=Pose(
-                        position=Point(x=x, y=y, z=z),
-                        orientation=quaternion_from_euler(0.0, 0.0, 0.0),
-                    ),
-                )
+            x = center_pose.position.x + radius * np.cos(theta)
+            y = center_pose.position.y + radius * np.sin(theta)
+            z = center_pose.position.z
+            waypoint = PoseStamped(
+                header=Header(frame_id="world"),
+                pose=Pose(
+                    position=Point(x=x, y=y, z=z),
+                    orientation=center_pose.orientation,
+                ),
             )
+            self._path.append(waypoint)
 
     async def run(self) -> None:
         start_time = time.time()

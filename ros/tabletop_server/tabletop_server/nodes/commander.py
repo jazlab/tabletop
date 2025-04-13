@@ -1,4 +1,5 @@
 import asyncio
+import enum
 import glob
 import os
 import time
@@ -54,7 +55,6 @@ from tabletop_msgs.srv import (
     GetFlic,
     GetHandFixation,
     GetReward,
-    GetSmartglass,
     SetArmDoor,
     SetReward,
     SetSmartglass,
@@ -123,9 +123,15 @@ def asyncio_task_decorator(coro_fn: Callable[..., Coroutine]):
     return wrapper
 
 
+class ArmDoorState(enum.Enum):
+    OPEN = 0
+    CLOSED = 1
+
+
 class Commander(BaseNode):
     default_params: dict[str, Any] = BaseNode.default_params | {}
     required_params: set[str] = BaseNode.required_params | {
+        "simulate",
         "max_plan_attempts",
         "max_execution_attempts",
         "dashboard.installation",
@@ -346,14 +352,6 @@ class Commander(BaseNode):
     ########## Teensy interface ################################
     ############################################################
 
-    async def _get_smartglass_async(self) -> GetSmartglass.Response:
-        """Get the smartglass state."""
-        return await self.service_call_async(
-            srv_request=GetSmartglass.Request(),
-            srv_type=GetSmartglass,
-            srv_name="/teensy/get_smartglass",
-        )  # type: ignore
-
     async def _get_arm_door_async(self) -> GetArmDoor.Response:
         """Get the arm door state."""
         return await self.service_call_async(
@@ -386,7 +384,8 @@ class Commander(BaseNode):
             srv_name="/flic/get_flic",
         )  # type: ignore
 
-    async def _start_smartglass_reveal_async(self):
+    @asyncio_task_decorator
+    async def smartglass_reveal(self):
         """
         Coroutine to call the smartglass service to reveal the smartglass
         asynchronously.
@@ -398,7 +397,8 @@ class Commander(BaseNode):
             srv_name="/teensy/set_smartglass",
         )
 
-    async def _start_smartglass_occlude_async(self):
+    @asyncio_task_decorator
+    async def smartglass_occlude(self):
         """
         Coroutine to call the smartglass service to occlude the smartglass
         asynchronously.
@@ -417,7 +417,7 @@ class Commander(BaseNode):
         """
         self.log("Arm Door Open")
         return await self.service_call_async(
-            srv_request=SetArmDoor.Request(is_open=True),
+            srv_request=SetArmDoor.Request(open=True),
             srv_type=SetArmDoor,
             srv_name="/teensy/set_arm_door",
         )
@@ -429,7 +429,7 @@ class Commander(BaseNode):
         """
         self.log("Arm Door Close")
         return await self.service_call_async(
-            srv_request=SetArmDoor.Request(is_open=False),
+            srv_request=SetArmDoor.Request(open=False),
             srv_type=SetArmDoor,
             srv_name="/teensy/set_arm_door",
         )
@@ -448,53 +448,17 @@ class Commander(BaseNode):
             srv_name="/teensy/set_reward",
         )
 
-    async def _wait_for_smartglass_reveal_async(
-        self, timeout_s: Optional[float] = None
-    ):
-        """Wait for smartglass reveal, then return True."""
-        smartglass_state = await self._get_smartglass_async()
-        if smartglass_state.is_revealed:
-            return True
-        try:
-            async with asyncio.timeout(timeout_s):
-                while not smartglass_state.is_revealed:
-                    smartglass_state = await self._get_smartglass_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
-            return True
-        except TimeoutError:
-            return False
-
-    async def _wait_for_smartglass_occlude_async(
-        self, timeout_s: Optional[float] = None
-    ):
-        """Wait for smartglass occlusion, then return True."""
-        smartglass_state = await self._get_smartglass_async()
-        if not smartglass_state.is_revealed:
-            return True
-        try:
-            async with asyncio.timeout(timeout_s):
-                while smartglass_state.is_revealed:
-                    smartglass_state = await self._get_smartglass_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
-            return True
-        except TimeoutError:
-            return False
-
     async def _wait_for_arm_door_open_async(
         self, timeout_s: Optional[float] = None
     ):
         """Wait for arm door to open, then return True."""
-        arm_door_state = await self._get_arm_door_async()
-        if arm_door_state.is_open:
+        response = await self._get_arm_door_async()
+        if response.state == ArmDoorState.OPEN:
             return True
         try:
             async with asyncio.timeout(timeout_s):
-                while not arm_door_state.is_open:
-                    arm_door_state = await self._get_arm_door_async()
+                while response.state != ArmDoorState.OPEN:
+                    response = await self._get_arm_door_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -506,13 +470,13 @@ class Commander(BaseNode):
         self, timeout_s: Optional[float] = None
     ):
         """Wait for arm door to close, then return True."""
-        arm_door_state = await self._get_arm_door_async()
-        if not arm_door_state.is_open:
+        response = await self._get_arm_door_async()
+        if response.is_closed:
             return True
         try:
             async with asyncio.timeout(timeout_s):
-                while arm_door_state.is_open:
-                    arm_door_state = await self._get_arm_door_async()
+                while not response.is_closed:
+                    response = await self._get_arm_door_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -522,13 +486,13 @@ class Commander(BaseNode):
 
     async def _wait_for_reward_async(self, timeout_s: Optional[float] = None):
         """Wait for reward to start, then return True."""
-        reward_state = await self._get_reward_async()
-        if reward_state.is_active:
+        response = await self._get_reward_async()
+        if response.is_active:
             return True
         try:
             async with asyncio.timeout(timeout_s):
-                while not reward_state.is_active:
-                    reward_state = await self._get_reward_async()
+                while not response.is_active:
+                    response = await self._get_reward_async()
                     await asyncio.sleep(
                         self.get_parameter_wrapper("teensy.spin_period_s")
                     )
@@ -611,22 +575,6 @@ class Commander(BaseNode):
             return True
         except TimeoutError:
             return False
-
-    @asyncio_task_decorator
-    async def smartglass_reveal_and_wait(
-        self, timeout_s: Optional[float] = None
-    ):
-        """Reveal smartglass and wait for it to be revealed."""
-        await self._start_smartglass_reveal_async()
-        return await self._wait_for_smartglass_reveal_async(timeout_s)
-
-    @asyncio_task_decorator
-    async def smartglass_occlude_and_wait(
-        self, timeout_s: Optional[float] = None
-    ):
-        """Occlude smartglass and wait for it to be occluded."""
-        await self._start_smartglass_occlude_async()
-        return await self._wait_for_smartglass_occlude_async(timeout_s)
 
     @asyncio_task_decorator
     async def arm_door_open_and_wait(self, timeout_s: Optional[float] = None):
@@ -2370,7 +2318,7 @@ async def run(commander: Commander, config: Mapping[str, Any]):
                     end_goal = waypoints[object_id]
 
                     arm_door_task = commander.arm_door_close_and_wait()
-                    smartglass_task = commander.smartglass_occlude_and_wait()
+                    smartglass_task = commander.smartglass_occlude()
 
                     await arm_door_task
                     await smartglass_task
@@ -2382,7 +2330,7 @@ async def run(commander: Commander, config: Mapping[str, Any]):
                     )
 
                     arm_door_task = commander.arm_door_open_and_wait()
-                    smartglass_task = commander.smartglass_reveal_and_wait()
+                    smartglass_task = commander.smartglass_reveal()
 
                     await arm_door_task
                     await smartglass_task
