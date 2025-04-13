@@ -13,6 +13,18 @@ from client_aio import (
 )
 from mingus.containers import Note
 
+bd_addr_ordered = [
+    "80:e4:da:7c:a6:0b",
+    "80:e4:da:7e:2a:eb",
+    "80:e4:da:7e:2b:31",
+    "80:e4:da:7e:5c:af",
+    "80:e4:da:7e:64:8c",
+    "80:e4:da:7e:64:96",
+    "80:e4:da:7e:64:a0",
+    "80:e4:da:7e:5c:8e",
+]
+
+
 bd_addr_to_note = {}
 
 
@@ -35,11 +47,10 @@ def init_piano(
     scale_cls = scales.Ionian if major else scales.NaturalMinor
     scale = scale_cls(key).ascending()[:-1]
     i = 0
-    for i, bd_addr in enumerate(client.bd_addrs):
-        if "C" in scale[i] and i > 0:
+    for i, bd_addr in enumerate(bd_addr_ordered):
+        if "C" in scale[i % len(scale)] and i > 0:
             octave += 1
         bd_addr_to_note[bd_addr] = Note(scale[i % len(scale)], octave)
-        i += 1
 
 
 async def run(
@@ -119,3 +130,7 @@ def test_note():
 if __name__ == "__main__":
     # test_note()
     main()
+
+
+# sudo apt install fluidsynth
+# pip install mingus

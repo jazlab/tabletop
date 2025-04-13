@@ -1410,6 +1410,7 @@ async def run(host: str, port: int, num_buttons: int):
                 continue
             else:
                 logger.warning("Scan failed, sleeping for 3 seconds")
+                logger.info(client.bd_addrs)
                 await asyncio.sleep(3)
         logger.info(f"Connected to {client.num_buttons} buttons")
         logger.info("Spinning")
