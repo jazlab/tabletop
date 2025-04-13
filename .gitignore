@@ -33,3 +33,7 @@
 
 # Ignore venv
 **/venv/
+
+# Ignore piano stuff
+**/*.sf2
+**/*.mid
