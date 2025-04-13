@@ -140,6 +140,10 @@ class ForagingTask(BaseTask):
         else:
             self._state = ForagingState.FETCH
 
+    ############################################################
+    # Phases
+    ############################################################
+
     async def _fetch(self):
         """Fetch object for trial."""
         self.log("Fetch phase")
