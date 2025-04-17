@@ -106,56 +106,151 @@ You may experience issues with the Universal Robots Simulator otherwise.
 ## Installation
 
 1. Create a new ROS 2 workspace directory:
-
     ```bash
     mkdir -p ~/ws/src
     ```
 
 2. Clone the TableTop repository:
-
     ```bash
     cd ~/ws/src
     git clone https://github.com/jazlab/tabletop.git
+    ```
 
-3. Update udev rules:
+3. Download the submodules:
+    ```bash
+    git submodule update --init --recursive
+    ```
+
+4. Clone the `moveit2` fork:
+    ```bash
+    ./scripts/moveit_download.sh
+    ```
+
+## [Optional] Teensy Micro-Controller Setup:
+This is only required if you want to use the real Teensy micro-controller.
+If you intend only to simulate the Teensy, you can skip this section.
+
+1. Update udev rules:
     ```bash
     ./scripts/udev_update.sh
     ```
 
-3. [Optional] Install PlatformIO Core:
-
+2. Install PlatformIO Core:
     ```bash
     ./scripts/install_platformio.sh
     ```
 
-    **Note**: This script will add PlatformIO to your PATH. You may need to
+    **Note**: This script will add PlatformIO to your `PATH`. You may need to
     restart your shell or open a new terminal session to use it.
 
-    **Note**: This is only required if you want to build and upload the
-    micro-controller firmware. If you are developing in the included dev
-    container, this is not necessary, as the dev container will install
-    PlatformIO Core (the CLI) automatically, as well as the corresponding
-    VSCode extension. The latter option requires you to run the docker
-    container in `--privileged` mode, which may pose security risks. This
-    security risk is not imposed by other containers in the project and is
-    only required for the Teensy upload functionality while developing in the
-    dev container.
+3. Build and upload the Teensy firmware:
+    ```bash
+    ./scripts/teensy_build.sh
+    ```
 
-    If you plan on only simulating the system, you can skip this step and
-    instead use a "mock Teensy," as described below.
+    **Note**: This requires PlatformIO Core to be installed. See [step 3](#optional-install-platformio-core)
+    for more information.
+
+
+    **Note (again)**: The build may fail with permission errors. If this is the case,
+    you can use the mighty `sudo chown -R $USER:$USER .` command to change the
+    ownership of the files to your user account. If you are not so bold (or if
+    that doesn't work), you can run `./scripts/upload_teensy.sh --clean` to
+    clean the build directory and try again. Requires `sudo` permissions.
+
+    **Note (once again)**: You can do this in either the container or on your host machine.
+    If you do it in the container, you will have to modify `compose.yaml` for
+    the desired container as follows (note that this modification is already
+    made for the Dev Container in `.devcontainer/compose.devcontainer.yaml`):
+    This will mount the `/dev` directory from the host machine to the container,
+    allowing you to upload the Teensy firmware. Note that this will also require
+    you to run the container in `privileged` mode, which may pose security risks.
+
+    **Note (last I promise)**: Make sure you press the reset button on the Teensy before running
+    this script. Regardless, this command **will fail** in the uploading stage.
+    This is expected behavior, as is most failure. Just run the script again
+    and again (for a max of three total attempts). If it still fails, give up
+    and go home. Alternatively, figure out what else is wrong (possible reasons
+    for failure: you forgot to plug in your teensy, you forgot to follow the
+    instructions above, *I* forgot to update the instructions above, etc.).
+
 
 ## Setting up the physical UR5e Robot
 
-You must enable **Remote Control Mode** on the robot's Teach Pendant in order
-to connect to the robot from the host machine (or any docker containers).
+### Creating the robot subnetwork
 
-1. On the Teach Pendant (the "tablet" included with the robot),
-click the "hamburger" (menu) icon in the top right corner of the window.
+To create a local network over which to communicate with the robot, run the
+following:
+```bash
+./scripts/robot_network.sh
+```
+This will create a new network interface with the first 3 octets of the
+`ROBOT_IP` (found in `env_files/robot.env`) and set the host machines
+IP address to the `REVERSE_IP` (also found in `env_files/robot.env`).
+These two IP addresses will be used for the remainder of the instructions.
+
+### Setting the robot IP address
+
+With the network created, you can must now 
+
+1. On the Teach Pendant, click the "hamburger" (menu) icon in the top right
+    corner of the window.
 2. Click **Settings**.
-3. Under **System->Remote Control**, click **Enable**.
-4. Click **Exit** in the lower left corner of the menu.
-5. Click the **Local** button in the top right corner of the URSim window.
-6. Select **Remote Control** from the dropdown.
+3. Go to **System->Network**
+4. Change the network method to **Static Address**
+5. Fill out the fields with the following values (the rest can remain default):
+    * **IP Address**: `ROBOT_IP`
+    * **Subnet Mask**: `255.255.255.0`
+6. Click **Apply**.
+
+### Installing and configuring the `external_control` URCap
+
+The `external_control` URCap is required to command the robot from the host
+machine (or in our case, the docker container).
+To copy it to the robot, call the following command:
+```bash
+./scripts/robot_scp.sh
+```
+This will copy any `*.urcap` files in the `ursim/programs/` directory to the robot.
+
+You must then install them on the robot using the Teach Pendant:
+1. In the **Settings** menu, go to **System->URCaps**
+2. Click the **+** icon and select the urcap file you wish to install (e.g.
+    `external_control.urcap`)
+3. Click **Restart**. This will restart the robot and load the new URCap.
+
+*You must do this for each URCap you wish to use.*
+
+You must now configure the URCap with the appropriate IP settings:
+1. In the **Installation** tab, go to **URCaps->External Control**
+2. Fill out the fields with the following values:
+    * **Host IP**: `REVERSE_IP`
+    * **Custom Port**: `50002`
+    * **Host Name**: `REVERSE_IP`
+
+Okay last step. You have to create a program to use the URCap.
+1. Click **New->Program** at the top of the window. This should pull up the 
+**Program** tab.
+2. Click **URCaps->External Control** in the left sidebar. This will add the
+    `external_control` URCap to the program.
+
+After you have done all of the above, save the program and installation by
+clicking **Save->Save All** at the top of the window. Make sure to save the
+program with the name `external_control.urp` and the installation with the name
+`default.installation` so that the commander loads the correct program and
+installation when the server program is started.
+
+
+### Enabling Remote Control Mode
+
+You must enable **Remote Control Mode** on the robot's Teach Pendant in order
+to control the robot using the `external_control` URCap.
+
+1. In the **Settings** menu, go to **System->Remote Control**
+2. Click **Enable**
+3. Click **Exit** to exit the settings menu.
+4. Click the **Local** button in the top right corner of the window.
+5. Select **Remote Control** from the dropdown.
 
 *You should not need to do this for the simulator.*
 
@@ -187,31 +282,14 @@ To run the entire software stack using Docker:
     networks, images, and build cache associated with the TableTop project
     (except the ursim image).
 
-4. Build the Docker containers:
 
+4. Build the Docker containers:
     ```bash
     docker compose build [--no-cache]
     ```
-
     Use `--no-cache` to force a rebuild of the Docker images and install the
     latest versions of the dependencies.
-
-5. [Optional] Upload the Teensy firmware:
-    ```bash
-    ./scripts/upload_teensy.sh
-    ```
-
-    **Note**: This requires PlatformIO Core to be installed. See [above](#installation)
-    for more information.
-
-    **Note**: The build may fail with permission errors. If this is the case,
-    you can try the following command:
-    ```bash
-    ./scripts/upload_teensy.sh --clean
-    ```
-    This will clean the build directory and try again. Requires `sudo`
-    permissions.
-
+#TODO: Update to include build troubleshooting, git submodule update, moveit build memory issues, connecting to container, etc.
 6. Build the tabletop packages:
     You may opt to build the tabletop packages once before starting the
     `server` container, instead of every time you start it, allowing
@@ -398,6 +476,29 @@ launch the `tabletop_tasks` node, you can run:
 ros2 launch tabletop_tasks run_tasks.launch.py --task_config:=<path_to_task_config> use_mock_teensy:=<true|false>
 ```
 
+### Uploading Teensy Firmware from the Dev Container
+
+Attempting to upload the Teensy firmware from the dev container requires you
+to explicitly mount `/dev` from the host machine and run the docker container
+in `privileged` mode. This can be achieved by modifying (or uncommenting) the
+following line in `.devcontainer/compose.devcontainer.yaml`:
+```yaml
+services:
+    ...
+    devcontainer:
+        ...
+        volumes:
+            - /dev:/dev
+        privileged: true
+```
+**Note**: Running the container in `privileged` mode may pose security risks,
+as it gives the container root access to the host machine.
+This security risk is not imposed by other containers in the project and is only
+required for the Teensy upload functionality while developing in the dev
+container.
+
+To avoid this, simply upload the Teensy firmware from your host machine
+following the instructions in [Optional Teensy Micro-Controller Setup](#optional-teensy-micro-controller-setup)).
 
 ## Project Structure
 
@@ -470,3 +571,7 @@ you may need to rebuild the project:
 ```bash
 ./scripts/build.sh --clean
 ```
+
+## Troubleshooting
+
+See [musings.md](musings.md) for a thoroughly disorganized and incomplete list of troubleshooting tips.

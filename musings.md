@@ -6,7 +6,7 @@ My thoughts/frustrations/notes as I work on the TableTop project.
 Unable to connect to VS Code server: Error in request.
 Error: connect ENOENT
 ```
-when trying to open another directory in the dev container using the cli
+when trying to open another directory in the Dev Container using the CLI
 command:
 ```bash
 code <path>
@@ -17,7 +17,7 @@ cursor <path>
 ```
 simply open a new terminal and run the command again.
 
-2. If you want to visualize the urdf, you can run:
+2. If you want to visualize the URDF, you can run:
 ```bash
 ros2 launch tabletop_description view_robot.launch.py
 ```
@@ -58,9 +58,16 @@ it in its own container, that's hard enough as it is.
 you need to connect via the host machine's IP address (with respect to the
 docker internal network). E.g.
 ```bash
-./flic_client/simple_client 172.17.0.1 [5551]
+./flic_client/simple_client 172.17.0.1 [5551] 
 ```
-(port `5551` is the default and therefore optional).
+*Port `5551` is the default and therefore optional.*
+
+Or 
+```bash
+ros2 run tabletop_server <flic_connect|flic_delete> [--host 172.17.0.1] [--port 5551]
+```
+*Both `host` and `port` are optional and default to `172.17.0.1` and `5551` respectively.*
+
 
 10. The `-w` flag in the `flic` container command is necessary to fix the
 `Error: No HCI devices are available` error. It waits for a bluetooth device
@@ -69,3 +76,18 @@ to be made available.
 11. If your shit (specifically you're getting a bluetooth device not found
 error, or your flic client refuses to connect to the server) still isn't
 working, just restart your computer. Maybe even twice.
+
+
+10. If you have issues building the docker container (like this one time we
+were trying to build the `server` container and even though all the `server`
+containers extend `server_base`, they were all building independently,
+absolutely maddening), you should start first by stopping any running 
+containers (`docker compose down` and/or `docker container stop $(docker container ls -q)`) 
+and then call:
+```bash
+./scripts/docker_prune.sh -a
+```
+This will remove all containers, networks, images, and build cache associated
+with the TableTop project (except the ursim image). After that, trying building
+the containers again. If that doesn't work, wipe your computer, reinstall
+ubuntu, and try again (that's what I did anyway)
