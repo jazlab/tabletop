@@ -356,7 +356,6 @@ class BaseNode(Node):
                 srv_request, timeout_sec=timeout_sec
             )  # type: ignore
             validate_service_response(response, service_client)
-
             return response
         finally:
             # Destroy the service client if it was created by this function
@@ -399,6 +398,13 @@ class BaseNode(Node):
                 else self.get_parameter_wrapper("default_service_call_timeout")
             ):
                 response: SrvTypeResponse = await future  # type: ignore
+            self.log(
+                f"Service call to {srv_name} finished with response:",
+                severity="DEBUG",
+            )
+            self.log_ros_msg(
+                response, title=f"{srv_name} response", severity="DEBUG"
+            )
             validate_service_response(response, service_client)
             return response
         # except asyncio.CancelledError as e:

@@ -127,7 +127,7 @@ services:
     pull_policy: always
     volumes:
       - ./flic_server:/flic_server
-    command: bash -c "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0"
+    command: bash -c "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0 -w" # -w necessary, see musings.md
 
 networks:
   tabletop_net:

@@ -126,6 +126,10 @@ class ServiceCallError(Exception):
     pass
 
 
+class ServiceCallUnsuccessfulError(Exception):
+    pass
+
+
 # ROS2 utility functions
 def load_yaml_from_package(
     package_name: str, file_path: str
@@ -162,8 +166,11 @@ def validate_service_response(
         error_msg = f"{service_client.service_name} service call timed out!"
         raise TimeoutError(error_msg)
     elif hasattr(response, "success") and not response.success:  # type: ignore
-        error_msg = f"{service_client.service_name} service call failed!"
-        raise ServiceCallError(error_msg)
+        error_msg = (
+            f"{service_client.service_name} service call returned "
+            f"unsuccessfully with response: {msg_to_dict(response)}"
+        )
+        raise ServiceCallUnsuccessfulError(error_msg)
 
 
 def msg_to_dict(msg: Any):

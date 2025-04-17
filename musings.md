@@ -61,3 +61,11 @@ docker internal network). E.g.
 ./flic_client/simple_client 172.17.0.1 [5551]
 ```
 (port `5551` is the default and therefore optional).
+
+10. The `-w` flag in the `flic` container command is necessary to fix the
+`Error: No HCI devices are available` error. It waits for a bluetooth device
+to be made available.
+
+11. If your shit (specifically you're getting a bluetooth device not found
+error, or your flic client refuses to connect to the server) still isn't
+working, just restart your computer. Maybe even twice.

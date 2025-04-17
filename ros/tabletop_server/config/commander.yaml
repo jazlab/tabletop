@@ -1,5 +1,7 @@
 /commander:
   ros__parameters:
+    simulate: false
+
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
@@ -15,10 +17,11 @@
       init_timeout: 20.0
 
     teensy:
-      spin_period_s: 0.05
+      spin_period: 0.05
+      arm_door_timeout: 2.0
 
     flic:
-      spin_period_s: 0.05
+      spin_period: 0.05
 
     planning:
       group_name: ur_manipulator
@@ -38,7 +41,7 @@
         position: [0.3, 0.6, 0.6]
         rpy: [0.0, 0.0, 1.5707]
       pre_fetch_offset: [-0.02, 0.0, -0.01]
-      pre_attach_offset: [-0.01, 0.0, 0.0]
+      pre_attach_offset: [-0.02, 0.0, 0.0]
       post_attach_offset: [0.0, -0.10, 0.0]
 
     planning_scene:
@@ -64,7 +67,7 @@
         poses:
           simple_object:
             # position: [0.0, 0.76474, 0.42036]
-            position: [0.0, 0.76474, 0.42236]
+            position: [-0.001, 0.76474, 0.42236]
             rpy: [3.1416, 0.0, -1.5707]
             # position: [0.0,
             #            35.6*0.0254 - (0.108 + 0.0315),

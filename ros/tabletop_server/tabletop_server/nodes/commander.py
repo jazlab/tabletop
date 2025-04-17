@@ -4,11 +4,7 @@ import glob
 import os
 import time
 import traceback
-from collections.abc import (
-    AsyncGenerator,
-    Iterable,
-    Mapping,
-)
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any, Callable, Coroutine, Optional
@@ -68,6 +64,7 @@ from tabletop_utils.mesh import (
 from tabletop_utils.ros import (
     MaxAttemptsReachedError,
     ServiceCallError,
+    ServiceCallUnsuccessfulError,
     arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
@@ -125,7 +122,9 @@ def asyncio_task_decorator(coro_fn: Callable[..., Coroutine]):
 
 class ArmDoorState(enum.Enum):
     OPEN = 0
-    CLOSED = 1
+    OPENING = 1
+    CLOSED = 2
+    CLOSING = 3
 
 
 class Commander(BaseNode):
@@ -138,8 +137,9 @@ class Commander(BaseNode):
         "dashboard.program",
         "dashboard.init_timeout",
         "rig.init_timeout",
-        "teensy.spin_period_s",
-        "flic.spin_period_s",
+        "teensy.spin_period",
+        "teensy.arm_door_timeout",
+        "flic.spin_period",
         "planning.group_name",
         "planning.default_pipeline",
         "planning.linear_pipeline",
@@ -315,23 +315,15 @@ class Commander(BaseNode):
             self.get_parameter_wrapper("dashboard.program"),
         )
         await self.dashboard_trigger_async("/dashboard_client/brake_release")
-        await self.dashboard_trigger_async("/dashboard_client/close_popup")
-        await self.dashboard_trigger_async(
-            "/dashboard_client/close_safety_popup"
-        )
         await self.dashboard_trigger_async("/dashboard_client/play")
-        await self.dashboard_trigger_async("/dashboard_client/close_popup")
-        await self.dashboard_trigger_async(
-            "/dashboard_client/close_safety_popup"
-        )
 
-    def init_dashboard(self, timeout_s: Optional[float] = None):
+    def init_dashboard(self, timeout: Optional[float] = None):
         """
         Initialize the robot dashboard.
         """
         self.log("Initializing dashboard")
-        if timeout_s is None:
-            timeout_s = self.get_parameter_wrapper("dashboard.init_timeout")
+        if timeout is None:
+            timeout = self.get_parameter_wrapper("dashboard.init_timeout")
 
         start_time = time.time()
         while True:
@@ -339,12 +331,16 @@ class Commander(BaseNode):
                 self.wait_for_service(Trigger, "/dashboard_client/close_popup")
                 self.reset_dashboard()
                 break
-            except (TimeoutError, ServiceCallError) as e:
+            except (
+                TimeoutError,
+                ServiceCallError,
+                ServiceCallUnsuccessfulError,
+            ) as e:
                 self.log(
                     f"Error initializing dashboard: {type(e).__name__}: {e}",
                     severity="ERROR",
                 )
-                if time.time() - start_time > timeout_s:  # type: ignore
+                if time.time() - start_time > timeout:  # type: ignore
                     raise TimeoutError("Dashboard initialization timed out")
                 time.sleep(1)
 
@@ -434,122 +430,129 @@ class Commander(BaseNode):
             srv_name="/teensy/set_arm_door",
         )
 
-    async def _start_reward_async(self, duration_s: float):
+    async def _start_reward_async(self, duration: float):
         """
         Coroutine to call the reward service to deliver a reward for a given
         duration.
         """
-        self.log(f"Delivering reward for {duration_s} s")
-        if duration_s < 0:
+        self.log(f"Delivering reward for {duration} s")
+        if duration < 0:
             raise ValueError("Duration must be greater than 0!")
         return await self.service_call_async(
-            srv_request=SetReward.Request(duration_ms=int(duration_s * 1000)),
+            srv_request=SetReward.Request(duration_ms=int(duration * 1000)),
             srv_type=SetReward,
             srv_name="/teensy/set_reward",
         )
 
     async def _wait_for_arm_door_open_async(
-        self, timeout_s: Optional[float] = None
-    ):
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Wait for arm door to open, then return True."""
-        response = await self._get_arm_door_async()
-        if response.state == ArmDoorState.OPEN:
-            return True
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        timeout = (
+            timeout
+            if timeout is not None
+            else self.get_parameter_wrapper("teensy.arm_door_timeout")
+        )
         try:
-            async with asyncio.timeout(timeout_s):
+            async with asyncio.timeout(timeout):
+                response = await self._get_arm_door_async()
+                if response.state == ArmDoorState.OPEN:
+                    return True
+
                 while response.state != ArmDoorState.OPEN:
                     response = await self._get_arm_door_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
 
     async def _wait_for_arm_door_close_async(
-        self, timeout_s: Optional[float] = None
-    ):
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Wait for arm door to close, then return True."""
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        timeout = (
+            timeout
+            if timeout is not None
+            else self.get_parameter_wrapper("teensy.arm_door_timeout")
+        )
         response = await self._get_arm_door_async()
         if response.is_closed:
             return True
         try:
-            async with asyncio.timeout(timeout_s):
+            async with asyncio.timeout(timeout):
                 while not response.is_closed:
                     response = await self._get_arm_door_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
 
-    async def _wait_for_reward_async(self, timeout_s: Optional[float] = None):
+    async def _wait_for_reward_async(self, duration: float) -> bool:
         """Wait for reward to start, then return True."""
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        timeout = duration + 2 * spin_period  # TODO: 2 is arbitrary, check
         response = await self._get_reward_async()
         if response.is_active:
             return True
         try:
-            async with asyncio.timeout(timeout_s):
+            async with asyncio.timeout(timeout):
                 while not response.is_active:
                     response = await self._get_reward_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
 
     @asyncio_task_decorator
     async def wait_for_hand_fixation_press_async(
-        self, timeout_sec: Optional[float] = None
-    ):
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Wait for hand fixation state to turn on, then return True."""
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
         initial_fixation = await self._get_hand_fixation_async()
         if initial_fixation.is_pressed:
             return True
         fixation = initial_fixation
         try:
-            async with asyncio.timeout(timeout_sec):
+            async with asyncio.timeout(timeout):
                 while (
                     fixation.last_time_pressed_ms
                     == initial_fixation.last_time_pressed_ms
                 ):
                     fixation = await self._get_hand_fixation_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
 
     @asyncio_task_decorator
     async def wait_for_hand_fixation_release_async(
-        self, timeout_sec: Optional[float] = None
-    ):
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Wait for hand fixation to be released
 
         Args:
-            timeout_sec: Timeout in seconds.
+            timeout: Timeout in seconds.
 
         Returns:
             bool: True if hand fixation was released within the timeout,
             False otherwise.
         """
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
         initial_fixation = await self._get_hand_fixation_async()
         if not initial_fixation.is_pressed:
             return True
         fixation = initial_fixation
         try:
-            async with asyncio.timeout(timeout_sec):
+            async with asyncio.timeout(timeout):
                 while (
                     fixation.last_time_released_ms
                     == initial_fixation.last_time_released_ms
                 ):
                     fixation = await self._get_hand_fixation_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("teensy.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
@@ -557,51 +560,49 @@ class Commander(BaseNode):
     # TODO: Potential race condition (between monkey and get_flic_async lol)
     @asyncio_task_decorator
     async def wait_for_flic_press_async(
-        self, timeout_s: Optional[float] = None
-    ):
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Wait for flic button press, then return True."""
+        spin_period = self.get_parameter_wrapper("flic.spin_period")
+
         initial_flic = await self._get_flic_async()
         flic = initial_flic
         try:
-            async with asyncio.timeout(timeout_s):
+            async with asyncio.timeout(timeout):
                 while (
                     flic.last_time_pressed_ms
                     == initial_flic.last_time_pressed_ms
                 ):
                     flic = await self._get_flic_async()
-                    await asyncio.sleep(
-                        self.get_parameter_wrapper("flic.spin_period_s")
-                    )
+                    await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False
 
     @asyncio_task_decorator
-    async def arm_door_open_and_wait(self, timeout_s: Optional[float] = None):
+    async def arm_door_open_and_wait(
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Open arm door and wait for it to be open."""
         await self._start_arm_door_open_async()
-        return await self._wait_for_arm_door_open_async(timeout_s)
+        return await self._wait_for_arm_door_open_async(timeout)
 
     @asyncio_task_decorator
-    async def arm_door_close_and_wait(self, timeout_s: Optional[float] = None):
+    async def arm_door_close_and_wait(
+        self, timeout: Optional[float] = None
+    ) -> bool:
         """Close arm door and wait for it to be closed."""
         await self._start_arm_door_close_async()
-        return await self._wait_for_arm_door_close_async(timeout_s)
+        return await self._wait_for_arm_door_close_async(timeout)
 
     @asyncio_task_decorator
-    async def reward_and_wait(
-        self, duration_s: float, timeout_s: Optional[float] = None
-    ):
+    async def reward_and_wait(self, duration: float):
         """Start reward and wait for it to be active."""
-        await self._start_reward_async(duration_s)
+        await self._start_reward_async(duration)
         # Default timeout is duration plus spin period if not specified
-        if timeout_s is None:
-            timeout_s = duration_s + self.get_parameter_wrapper(
-                "teensy.spin_period_s"
-            )
-        if await self._wait_for_reward_async(timeout_s):
-            return True
-        else:
+        timeout = duration + self.get_parameter_wrapper("teensy.spin_period")
+
+        if not await self._wait_for_reward_async(timeout):
             raise RuntimeError("Reward took longer than expected timeout")
 
     ############################################################
@@ -2109,11 +2110,21 @@ class Commander(BaseNode):
     ########## Reset rig #######################################
     ############################################################
 
-    def move_out_of_collision(
+    def move_simulation_out_of_collision(
         self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ):
-        """Move the robot out of collision with the scene."""
+        """Move the robot out of collision with the scene.
+
+        This function is only available in simulation.
+        Otherwise, you'll break your robot.
+        """
         self.log("Moving out of collision")
+        if not self.get_parameter_wrapper("simulate"):
+            raise RuntimeError(
+                "Can't move out of collision with real robot! "
+                "Please move the robot away from the collision objects "
+                "manually via the teach pendant."
+            )
         self.remove_all_collision_objects()
         self.plan_and_execute(goal=goal, pose_link=pose_link)
         self.setup_planning_scene()
@@ -2136,17 +2147,15 @@ class Commander(BaseNode):
         self.setup_planning_scene()
 
     def reset_rig(self, end_goal: Optional[PoseStamped | str] = None):
-        """Reset the robot to the idle pose."""
+        """Move the robot out of collision if necessary and return any attached
+        objects to their original positions.
+        """
         self.log("Resetting rig")
         if self.is_state_colliding(self.planning_group_name):
-            self.log(
-                "Resetting rig: Moving out of collision",
-                severity="DEBUG",
-            )
-            self.move_out_of_collision(goal="idle")
+            self.move_simulation_out_of_collision(goal="semi")
         if len(self.attached_collision_object_ids) > 0:
             self.log(
-                "Resetting rig: Returning object to original pose",
+                "Returning object to original pose",
                 severity="DEBUG",
             )
             self.return_object(end_goal=end_goal)
@@ -2160,14 +2169,21 @@ class Commander(BaseNode):
         """
         self.log("Resetting rig asynchronously")
         if self.is_state_colliding(self.planning_group_name):
-            self.log(
-                "Resetting rig asynchronously: Moving out of collision",
-                severity="DEBUG",
-            )
-            await self.move_out_of_collision_async(goal="idle")
+            if self.get_parameter_wrapper("simulate"):
+                self.log(
+                    "Moving out of collision (simulation only)",
+                    severity="DEBUG",
+                )
+                await self.move_out_of_collision_async(goal="semi")
+            else:
+                raise RuntimeError(
+                    "Can't move out of collision with real robot! "
+                    "Please move the robot away from the collision objects "
+                    "manually via the teach pendant."
+                )
         if len(self.attached_collision_object_ids) > 0:
             self.log(
-                "Resetting rig asynchronously: Returning object to original pose",
+                "Returning object to original pose",
                 severity="DEBUG",
             )
             await self.return_object_async(end_goal=end_goal)
@@ -2176,43 +2192,65 @@ class Commander(BaseNode):
     ########## Initialize ######################################
     ############################################################
 
-    def init_rig(self, timeout_s: Optional[float] = None):
-        """Initialize the robot to the idle pose."""
+    def init_rig(
+        self,
+        timeout: Optional[float] = None,
+        end_goal: PoseStamped | str = "semi",
+    ):
+        """Initialize the robot."""
         self.log("Initializing rig")
-        if timeout_s is None:
-            timeout_s = self.get_parameter_wrapper("rig.init_timeout")
+        if timeout is None:
+            timeout = self.get_parameter_wrapper("rig.init_timeout")
 
         start_time = time.time()
         while True:
             try:
-                self.reset_rig()
+                self.reset_rig(end_goal=end_goal)
                 break
-            except (TimeoutError, MaxAttemptsReachedError) as e:
+            except (
+                TimeoutError,
+                ServiceCallError,
+                ServiceCallUnsuccessfulError,
+                MaxAttemptsReachedError,
+            ) as e:
                 self.log(
                     f"Error resetting rig: {type(e).__name__}: {e}",
                     severity="WARN",
                 )
-                if time.time() - start_time > timeout_s:  # type: ignore
-                    raise e
-                time.sleep(1)
+                self.log("Trying again...", severity="WARN")
+            if time.time() - start_time > timeout:  # type: ignore
+                raise TimeoutError(
+                    f"Failed to initialize rig after {timeout} seconds"
+                )
 
     def init_commander(
         self,
-        dashboard_timeout_s: Optional[float] = None,
-        rig_timeout_s: Optional[float] = None,
+        dashboard_timeout: Optional[float] = None,
+        rig_timeout: Optional[float] = None,
+        end_goal: PoseStamped | str = "semi",
     ):
         """Initialize the commander."""
         self.log("Initializing commander")
-        self.init_dashboard(dashboard_timeout_s)
-        self.init_rig(rig_timeout_s)
+        self.init_dashboard(dashboard_timeout)
+        self.init_rig(rig_timeout, end_goal=end_goal)
 
     ############################################################
     ########## Context manager #################################
     ############################################################
 
-    def schedule(self, coro: Coroutine) -> asyncio.Task:
-        """Schedule a coroutine to run."""
-        return create_task_wrapper(self, coro)
+    def schedule(self, *coros: Coroutine) -> asyncio.Task | list[asyncio.Task]:
+        """Schedule coroutines to run.
+
+        Args:
+            *coros: Coroutines to schedule.
+
+        Returns:
+            List of scheduled tasks.
+        """
+        tasks = []
+        for coro in coros:
+            tasks.append(create_task_wrapper(self, coro))
+        return tasks[0] if len(tasks) == 1 else tasks
 
     @asynccontextmanager
     async def context_manager(self):
@@ -2245,12 +2283,17 @@ class Commander(BaseNode):
             # finally:
             #     self.tg = None
             yield None
-        except (TimeoutError, MaxAttemptsReachedError, ServiceCallError) as e:
+        except (
+            TimeoutError,
+            MaxAttemptsReachedError,
+            ServiceCallError,
+            ServiceCallUnsuccessfulError,
+        ) as e:
             self.log(
-                "Caught exception while running commander:",
-                severity="WARN",
+                "Caught exception while running commander:", severity="WARN"
             )
-            self.log(f"{type(e).__name__}: {e}")
+            self.log(f"{type(e).__name__}: {e}", severity="WARN")
+            self.log(f"Traceback: {traceback.format_exc()}", severity="WARN")
 
             # TODO: This is a hack to ensure the robot is reset and moved out of
             # collision before the context manager is entered. Only needed for
@@ -2264,6 +2307,7 @@ class Commander(BaseNode):
                     TimeoutError,
                     MaxAttemptsReachedError,
                     ServiceCallError,
+                    ServiceCallUnsuccessfulError,
                 ) as e:
                     self.log(
                         "Caught exception while resetting robot:",
@@ -2326,7 +2370,7 @@ async def run(commander: Commander, config: Mapping[str, Any]):
                     await commander.fetch_object_async(object_id, end_goal)
 
                     await commander.wait_for_hand_fixation_press_async(
-                        timeout_sec=2
+                        timeout=2
                     )
 
                     arm_door_task = commander.arm_door_open_and_wait()

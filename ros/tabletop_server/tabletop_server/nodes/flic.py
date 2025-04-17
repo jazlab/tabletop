@@ -21,7 +21,7 @@ class Flic(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": False,
         "simulate_delay_sec": 6.0,
-        "num_buttons": 3,
+        "num_buttons": 1,
     }
 
     def __init__(self, flic_client: AIOFlicClient):
@@ -133,6 +133,7 @@ async def main_async(args=None):
             flic_client, flic.get_parameter_wrapper("num_buttons")
         )
 
+        # Spin indefinitely
         try:
             await executor.spin()
         finally:
