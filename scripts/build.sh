@@ -20,8 +20,8 @@ while [[ $# -gt 0 ]]; do
             clean=true
             shift
             ;;
-        --clean-moveit)
-            clean_moveit=true
+        --clean-all)
+            clean_all=true
             shift
             ;;
         --workers)
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--debug] [--clean] [--clean-moveit] [--workers <num_workers>]"
+            echo "Usage: $0 [--debug] [--clean] [--clean-all] [--workers <num_workers>]"
             exit 1
             ;;
     esac
@@ -42,8 +42,8 @@ done
 # build_paths=("$ws_dir/src/tabletop")
 
 # Clean workspace
-if [ "$clean_moveit" = "true" ]; then
-    $script_dir/clean_ws.sh --moveit
+if [ "$clean_all" = "true" ]; then
+    $script_dir/clean_ws.sh --all
 elif [ "$clean" = "true" ]; then
     $script_dir/clean_ws.sh
 fi
