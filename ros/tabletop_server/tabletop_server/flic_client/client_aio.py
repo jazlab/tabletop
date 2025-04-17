@@ -20,7 +20,7 @@ import time
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -770,6 +770,9 @@ class FlicClient(asyncio.Protocol):
             case "EvtScanWizardCompleted":
                 items["result"] = ScanWizardResult(items["result"])
 
+            case "EvtButtonDeleted":
+                pass  # EvtButtonDeleted starts with EvtButton but has no click_type
+
             case _ if event_name.startswith("EvtButton"):
                 items["click_type"] = ClickType(items["click_type"])
 
@@ -1341,6 +1344,11 @@ class FlicClient(asyncio.Protocol):
         logger.info("Force disconnecting")
         self._send_command("CmdForceDisconnect", {"bd_addr": bd_addr})
 
+    def delete_button(self, bd_addr: str):
+        """Delete a button."""
+        logger.info("Deleting button")
+        self._send_command("CmdDeleteButton", {"bd_addr": bd_addr})
+
     async def get_button_info(self, bd_addr: str) -> ButtonInfo:
         """Get button info for a verified button."""
         logger.info("Getting button info")
@@ -1397,7 +1405,7 @@ class FlicClient(asyncio.Protocol):
         await self._closed_event.wait()
 
 
-async def run(host: str, port: int, num_buttons: int):
+async def delete_async(host: str, port: int, bd_addr: Optional[str] = None):
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
         lambda: FlicClient(loop=loop), host, port
@@ -1405,33 +1413,64 @@ async def run(host: str, port: int, num_buttons: int):
 
     try:
         await client.connect_existing_buttons()
-        while client.num_buttons < num_buttons:
-            if await client.scan_and_connect():
-                continue
-            else:
-                logger.warning("Scan failed, sleeping for 3 seconds")
-                logger.info(client.bd_addrs)
-                await asyncio.sleep(3)
-        logger.info(f"Connected to {client.num_buttons} buttons")
-        logger.info("Spinning")
-        await client.wait_for_closed()
+        initial_num_buttons = client.num_buttons
+        logger.info(f"Connected to {initial_num_buttons} buttons")
+
+        if bd_addr:
+            client.delete_button(bd_addr)
+        else:
+            while client.num_buttons > 0:
+                client.delete_button(client.bd_addrs[0])
+                await asyncio.sleep(0.1)
+        logger.info(f"Deleted {initial_num_buttons} buttons")
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
     finally:
         await client.close()
 
 
-def main():
+def delete():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument("--num-buttons", type=int, default=9)
+    parser.add_argument("--log-level", type=str, default="INFO")
+    parser.add_argument("--bd-addr", type=str, default="")
+    args = parser.parse_args()
+    logging.basicConfig(level=args.log_level)
+    asyncio.run(delete_async(args.host, args.port, args.bd_addr))
+
+
+async def connect_async(host: str, port: int):
+    loop = asyncio.get_event_loop()
+    _, client = await loop.create_connection(
+        lambda: FlicClient(loop=loop), host, port
+    )
+
+    try:
+        await client.connect_existing_buttons()
+        while True:
+            if await client.scan_and_connect():
+                continue
+            else:
+                logger.warning("Scan failed, sleeping for 3 seconds")
+                logger.info(client.bd_addrs)
+                await asyncio.sleep(3)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt")
+    finally:
+        await client.close()
+
+
+def connect():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default="172.17.0.1")
+    parser.add_argument("--port", type=int, default=5551)
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
-    asyncio.run(run(args.host, args.port, args.num_buttons))
+    asyncio.run(connect_async(args.host, args.port))
 
 
 if __name__ == "__main__":
-    main()
+    connect()

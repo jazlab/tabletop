@@ -21,7 +21,21 @@
             "type": "ros",
             "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "arguments": [
-                "use_mock_teensy:=true",
+                "robot_mode:=ursim",
+                "commander_log_level:=DEBUG"
+            ],
+            "attachDebugger": [
+                "run_tasks"
+            ],
+            "postDebugTask": "kill_ros"
+        },
+        {
+            "name": "ROS: Launch Real Robot",
+            "request": "launch",
+            "type": "ros",
+            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
+            "arguments": [
+                "robot_mode:=real",
                 "commander_log_level:=DEBUG"
             ],
             "attachDebugger": [

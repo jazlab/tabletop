@@ -55,8 +55,9 @@ class BaseTask(ABC):
         """Log a message."""
         self.commander.log(message, severity)
 
-    def schedule_sleep(self, delay_sec: float):
-        return self.commander.schedule(asyncio.sleep(delay_sec))
+    def schedule_sleep(self, delay: float) -> asyncio.Task:
+        """Schedule a sleep."""
+        return self.commander.schedule(asyncio.sleep(delay))  # type: ignore
 
     @abstractmethod
     async def run(self) -> None:

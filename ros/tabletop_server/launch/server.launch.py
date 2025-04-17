@@ -4,12 +4,15 @@ from launch.actions import (
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
+    OpaqueFunction,
     SetEnvironmentVariable,
     Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    EqualsSubstitution,
+    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -26,6 +29,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
+            choices=["true", "false"],
             description="Using or not time from simulation",
         ),
         DeclareLaunchArgument(
@@ -46,36 +50,42 @@ def declare_arguments():
         ),
         # UR Robot Driver
         DeclareLaunchArgument(
-            "robot_ip",
-            default_value="192.168.12.10",
-            description="IP address of the robot",
+            "robot_mode",
+            default_value="ursim",
+            choices=["mock", "ursim", "real"],
+            description="Whether to use the mock robot, URSim, or real robot",
         ),
-        DeclareLaunchArgument(
-            "reverse_ip",
-            default_value="192.168.12.12",
-            description="Reverse IP address",
-        ),
-        DeclareLaunchArgument(
-            "use_mock_robot",
-            default_value="false",
-            description="Use mock robot",
-        ),
+        # DeclareLaunchArgument(
+        #     "robot_ip",
+        #     default_value="192.168.12.10",
+        #     description="IP address of the robot",
+        # ),
+        # DeclareLaunchArgument(
+        #     "reverse_ip",
+        #     default_value="192.168.12.12",
+        #     description="Reverse IP address",
+        # ),
+        # DeclareLaunchArgument(
+        #     "use_mock_robot",
+        #     default_value="false",
+        #     description="Use mock robot",
+        # ),
         DeclareLaunchArgument(
             "controller_spawner_timeout",
             default_value="120",
             description="Controller spawner timeout",
         ),
-        DeclareLaunchArgument(
-            "kinematics_params_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_description"),
-                    "config",
-                    "ursim_calibration.yaml",
-                ]
-            ),
-            description="Calibration file",
-        ),
+        # DeclareLaunchArgument(
+        #     "kinematics_params_file",
+        #     default_value=PathJoinSubstitution(
+        #         [
+        #             FindPackageShare("tabletop_description"),
+        #             "config",
+        #             "ur5e_calibration.yaml",
+        #         ]
+        #     ),
+        #     description="Calibration file",
+        # ),
         DeclareLaunchArgument(
             "description_launchfile",
             default_value=PathJoinSubstitution(
@@ -155,18 +165,21 @@ def declare_arguments():
         DeclareLaunchArgument(
             "use_mock_teensy",
             default_value="false",
+            choices=["true", "false"],
             description="Use mock TeensyBoard",
         ),
         # Flic
         DeclareLaunchArgument(
             "simulate_flic",
-            default_value="true",
+            default_value="false",
+            choices=["true", "false"],
             description="Simulate Flic",
         ),
         # RViz
         DeclareLaunchArgument(
             "launch_rviz_server",
             default_value="true",
+            choices=["true", "false"],
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
@@ -184,6 +197,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "rosbag_record",
             default_value="false",
+            choices=["true", "false"],
             description="Record rosbag?",
         ),
         DeclareLaunchArgument(
@@ -279,15 +293,16 @@ def generate_launch_description():
     ur_type = LaunchConfiguration("ur_type")
 
     # UR Robot Driver
+    robot_mode = LaunchConfiguration("robot_mode")
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
-    robot_ip = LaunchConfiguration("robot_ip")
-    reverse_ip = LaunchConfiguration("reverse_ip")
-    kinematics_params_file = LaunchConfiguration("kinematics_params_file")
+    # kinematics_params_file = LaunchConfiguration("kinematics_params_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
-    use_mock_robot = LaunchConfiguration("use_mock_robot")
+    # robot_ip = LaunchConfiguration("robot_ip")
+    # reverse_ip = LaunchConfiguration("reverse_ip")
+    # use_mock_robot = LaunchConfiguration("use_mock_robot")
 
     # Commander
     commander_config = LaunchConfiguration("commander_config")
@@ -332,6 +347,51 @@ def generate_launch_description():
 
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+
+    # Conditional substitutions
+    robot_ip = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "192.168.13.10",
+        "192.168.12.10",
+    )
+    reverse_ip = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "192.168.13.11",
+        "192.168.12.12",
+    )
+    use_mock_robot = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "mock"), "true", "false"
+    )
+    simulate_commander = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"), "false", "true"
+    )
+    kinematics_params_file = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "ur5e_calibration.yaml",
+        "ursim_calibration.yaml",
+    )
+    kinematics_params_file = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_description"),
+            "config",
+            kinematics_params_file,
+        ]
+    )
+
+    def print_substitutions(context):
+        print(f"robot_ip: {robot_ip.perform(context)}")
+        print(f"reverse_ip: {reverse_ip.perform(context)}")
+        print(f"use_mock_robot: {use_mock_robot.perform(context)}")
+        print(
+            f"controller_spawner_timeout: {controller_spawner_timeout.perform(context)}"
+        )
+        print(
+            f"kinematics_params_file: {kinematics_params_file.perform(context)}"
+        )
+
+    print_substitutions_action = OpaqueFunction(
+        function=print_substitutions,
+    )
 
     # UR Robot Driver
     # Use group action to isolate the launch file
@@ -382,6 +442,11 @@ def generate_launch_description():
     )
 
     # Commander
+    commander_overrides = {"simulate": simulate_commander}
+    commander_overrides_scoped = {}
+    for key, value in commander_overrides.items():
+        commander_overrides_scoped[f"/commander.ros__parameters.{key}"] = value
+
     moveit_config = (
         MoveItConfigsBuilder(
             robot_name="ur", package_name="tabletop_moveit_config"
@@ -409,6 +474,7 @@ def generate_launch_description():
             moveit_config.to_dict(),
             warehouse_ros_config,
             ParameterFile(commander_config, allow_substs=True),
+            commander_overrides_scoped,
             {
                 "publish_robot_description_semantic": True,
                 "use_sim_time": use_sim_time,
@@ -492,6 +558,7 @@ def generate_launch_description():
 
     launch_actions = [
         set_ros_log_dir,
+        print_substitutions_action,
         ur_robot_driver,
         mock_dashboard,
         commander,

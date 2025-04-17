@@ -19,6 +19,7 @@
 #  error This code only supports serial transport.
 #endif
 
+// #define ARM_DOOR_ASSERTIONS
 // #define DEBUG_LOGGING
 
 // Define pin mappings
@@ -65,7 +66,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_RECONNECT_TIMEOUT_MS 50 // Timeout for agent reconnection, in ms
 #define EXECUTOR_SPIN_TIMEOUT_MS 20   // Timeout for executor spin, in ms
 #define AGENT_CHECK_CONNECTED_PERIOD_MS \
-  1000 // Period for checking if the agent is connected, in ms
+  5000 // Period for checking if the agent is connected, in ms
 #define AGENT_CHECK_CONNECTED_TIMEOUT_MS \
   10 // Timeout for checking if the agent is connected, in ms
 #define SENSOR_PERIOD_MS 10            // Sensor update period, in ms
@@ -78,7 +79,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 // Agent reconnection parameters
 
 // Maximum number of retries for agent reconnect before giving up
-#define AGENT_RECONNECT_MAX_RETRIES 5
+#define AGENT_RECONNECT_MAX_RETRIES 10
 
 // Global variables
 
@@ -217,6 +218,13 @@ bool reward_active;
     }                                                  \
   }
 
+// Assertion for arm door closed state pin
+#ifdef ARM_DOOR_ASSERTIONS
+#  define ASSERT_ARM_DOOR ASSERT
+#else
+#  define ASSERT_ARM_DOOR(...)
+#endif
+
 // DEBUG: Log a message to the ROS2 log topic
 #ifdef DEBUG_LOGGING
 #  define DEBUG LOG
@@ -238,7 +246,6 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   if (timer != NULL) {
     DEBUG("Sensor timer callback");
     // Populate sensor message
-    // TODO: Uncomment this once we update the TeensySensor message
     sensor_msg.arm_door_state = arm_door_state;
     sensor_msg.arm_door_closed_state = digitalRead(ARM_DOOR_CLOSED_STATE_PIN);
     sensor_msg.fixation_button_state = digitalRead(HAND_FIXATION_STATE_PIN);
@@ -371,7 +378,7 @@ void set_reward_callback(const void* req, void* res) {
            "Failed to exchange reward timer period");
   RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
 
-  STRING_SET(&response->message, "Reward started for %lu ms", duration_ms);
+  STRING_SET(&response->message, "Reward started for %u ms", duration_ms);
   LOG(response->message.data);
   response->success = true;
 }
@@ -383,7 +390,7 @@ void get_reward_callback(const void* req, void* res) {
   tabletop_msgs__srv__GetReward_Response* response =
       (tabletop_msgs__srv__GetReward_Response*) res;
 
-  LOG("Get reward callback started");
+  DEBUG("Get reward callback started");
 
   response->is_active = reward_active;
   response->success = true;
@@ -398,21 +405,24 @@ void arm_door_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   if (timer != NULL) {
     LOG("Arm door timer callback started");
 
-    // Reset the arm door control pins
+    // Stop the arm door motors
     digitalWrite(ARM_DOOR_OPEN_CONTROL_PIN, LOW);
     digitalWrite(ARM_DOOR_CLOSE_CONTROL_PIN, LOW);
 
     // Check if the arm door is opening or closing
     // TODO: Check this logic once we have the arm door switch working
-    if (arm_door_state == ARM_DOOR_OPENING) {
-      ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
-             "Arm door closed state pin is not LOW after opening");
+    switch (arm_door_state) {
+    case ARM_DOOR_OPENING:
+      ASSERT_ARM_DOOR(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+                      "Arm door closed state pin is not LOW after opening");
       arm_door_state = ARM_DOOR_OPEN;
-    } else if (arm_door_state == ARM_DOOR_CLOSING) {
-      ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH,
-             "Arm door closed state pin is not HIGH after closing");
+      break;
+    case ARM_DOOR_CLOSING:
+      ASSERT_ARM_DOOR(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH,
+                      "Arm door closed state pin is not HIGH after closing");
       arm_door_state = ARM_DOOR_CLOSED;
-    } else {
+      break;
+    default:
       ASSERT(false, "Arm door state is not OPENING or CLOSING when timer "
                     "callback is called");
     }
@@ -432,9 +442,13 @@ void set_arm_door_callback(const void* req, void* res) {
 
   LOG("Set arm door callback started");
 
-  ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
-         "Arm door closed state pin is not LOW before closing");
+  // Check if the arm door state is consistent with the closed state pin
+  ASSERT_ARM_DOOR((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) ==
+                      (arm_door_state == ARM_DOOR_CLOSED),
+                  "Arm door state is not consistent with closed state pin");
 
+  // Check if the arm door timer is canceled and the arm door state is CLOSING
+  // or OPENING and the arm door closed state pin is LOW (door is not closed)
   bool timer_is_canceled;
   RCASSERT(rcl_timer_is_canceled(&arm_door_timer, &timer_is_canceled),
            "Failed to check if arm door timer is canceled");
@@ -443,62 +457,84 @@ void set_arm_door_callback(const void* req, void* res) {
                arm_door_state == ARM_DOOR_OPENING,
            "Arm door state is not CLOSING or OPENING when arm door timer is "
            "still running");
-    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
-           "Arm door closed state pin is not LOW when motor is still running");
-    response->success = false;
-    STRING_SET(&response->message,
-               "Error: Arm door already opening or closing!");
-    LOG(response->message.data);
-    return;
+    ASSERT_ARM_DOOR(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
+                    "Arm door closed state pin is not LOW when motor is still "
+                    "running");
   }
 
+  // Check if the time since the last arm door timer call is between 0 and
+  // ARM_DOOR_PERIOD_MS
+  int64_t time_since_last_call;
+  RCASSERT(rcl_timer_get_time_since_last_call(&arm_door_timer,
+                                              &time_since_last_call),
+           "Failed to get time since last arm door timer call");
+  DEBUG("Time since last arm door timer call: %lld ms", time_since_last_call);
+  ASSERT(0 < time_since_last_call && time_since_last_call <= ARM_DOOR_PERIOD_MS,
+         "Time since last arm door timer call is not between 0 and %d ms",
+         ARM_DOOR_PERIOD_MS);
+
+  // Duration to set the arm door control pin high for
+  int64_t duration_ms;
+
   if (request->open) {
-    if (arm_door_state != ARM_DOOR_CLOSED) {
-      STRING_SET(&response->message,
-                 "Error: Arm door state is not closed before opening");
+    switch (arm_door_state) {
+    case ARM_DOOR_OPEN:
+      STRING_SET(&response->message, "Arm door already open");
       LOG(response->message.data);
-      response->success = false;
+      response->success = true;
       return;
+    case ARM_DOOR_OPENING:
+      STRING_SET(&response->message, "Arm door is already opening");
+      LOG(response->message.data);
+      response->success = true;
+      return;
+    case ARM_DOOR_CLOSED:
+      LOG("Arm door is closed, opening");
+      duration_ms = ARM_DOOR_PERIOD_MS;
+      break;
+    case ARM_DOOR_CLOSING:
+      LOG("Arm door is closing, reversing");
+      duration_ms = time_since_last_call;
+      break;
     }
-    // TODO: Uncomment this once we have the arm door switch working
-    // if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) != HIGH) {
-    //   STRING_SET(&response->message,
-    //              "Error: Arm door closed state pin is not HIGH before
-    //              opening");
-    //   LOG(response->message.data);
-    //   response->success = false;
-    //   return;
-    // }
-    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH,
-           "Arm door closed state pin is not HIGH before opening");
+    digitalWrite(ARM_DOOR_CLOSE_CONTROL_PIN, LOW);
     digitalWrite(ARM_DOOR_OPEN_CONTROL_PIN, HIGH);
     arm_door_state = ARM_DOOR_OPENING;
   } else {
-    if (arm_door_state != ARM_DOOR_OPEN) {
-      STRING_SET(&response->message,
-                 "Error: Arm door state is not open before closing");
+    switch (arm_door_state) {
+    case ARM_DOOR_OPEN:
+      LOG("Arm door is open, closing");
+      duration_ms = ARM_DOOR_PERIOD_MS;
+      break;
+    case ARM_DOOR_OPENING:
+      LOG("Arm door is opening, reversing");
+      duration_ms = time_since_last_call;
+      break;
+    case ARM_DOOR_CLOSED:
+      STRING_SET(&response->message, "Arm door already closed");
       LOG(response->message.data);
-      response->success = false;
+      response->success = true;
+      return;
+    case ARM_DOOR_CLOSING:
+      STRING_SET(&response->message, "Arm door is already closing");
+      LOG(response->message.data);
+      response->success = true;
       return;
     }
-    // TODO: Uncomment this once we have the arm door switch working
-    // if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) != LOW) {
-    //   STRING_SET(&response->message,
-    //              "Arm door closed state pin is not LOW before closing");
-    //   LOG(response->message.data);
-    //   response->success = false;
-    //   return;
-    // }
-    ASSERT(digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == LOW,
-           "Arm door closed state pin is not LOW before closing");
+    digitalWrite(ARM_DOOR_OPEN_CONTROL_PIN, LOW);
     digitalWrite(ARM_DOOR_CLOSE_CONTROL_PIN, HIGH);
     arm_door_state = ARM_DOOR_CLOSING;
   }
 
+  int64_t old_period;
+  RCASSERT(rcl_timer_exchange_period(&arm_door_timer, RCL_MS_TO_NS(duration_ms),
+                                     &old_period),
+           "Failed to exchange arm door timer period");
   RCASSERT(rcl_timer_reset(&arm_door_timer), "Failed to reset arm door timer");
 
-  STRING_SET(&response->message, "Arm door %s started for %d ms",
-             request->open ? "open" : "close", ARM_DOOR_PERIOD_MS);
+  STRING_SET(&response->message, "Arm door %s started for %ld ms",
+             request->open ? "open" : "close", duration_ms);
+
   LOG(response->message.data);
   response->success = true;
 }
@@ -510,7 +546,7 @@ void get_arm_door_callback(const void* req, void* res) {
   tabletop_msgs__srv__GetArmDoor_Response* response =
       (tabletop_msgs__srv__GetArmDoor_Response*) res;
 
-  LOG("Get arm door callback started");
+  DEBUG("Get arm door callback started");
 
   // TODO: Uncomment this once we have the arm door switch working
   // if ((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) !=
@@ -522,12 +558,11 @@ void get_arm_door_callback(const void* req, void* res) {
   //   response->success = false;
   //   return;
   // }
-  ASSERT((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) ==
-             (arm_door_state == ARM_DOOR_CLOSED),
-         "Arm door state is not consistent with closed state pin");
+  ASSERT_ARM_DOOR((digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) ==
+                      (arm_door_state == ARM_DOOR_CLOSED),
+                  "Arm door state is not consistent with closed state pin");
   response->is_closed = digitalRead(ARM_DOOR_CLOSED_STATE_PIN);
   response->state = arm_door_state;
-  response->success = true;
 
   char state_str[10];
   switch (arm_door_state) {
@@ -548,7 +583,8 @@ void get_arm_door_callback(const void* req, void* res) {
              "Arm door closed state pin is %s and arm door "
              "state is %s",
              response->is_closed ? "HIGH" : "LOW", state_str);
-  LOG(response->message.data);
+  DEBUG(response->message.data);
+  response->success = true;
 }
 
 // Service callback for getting the hand fixation state
@@ -558,15 +594,15 @@ void get_hand_fixation_callback(const void* req, void* res) {
   tabletop_msgs__srv__GetHandFixation_Response* response =
       (tabletop_msgs__srv__GetHandFixation_Response*) res;
 
-  LOG("Get hand fixation callback started");
+  DEBUG("Get hand fixation callback started");
 
   response->is_pressed = digitalRead(HAND_FIXATION_STATE_PIN);
   response->last_time_pressed_ms = hand_fixation_last_time_pressed_ms;
   response->last_time_released_ms = hand_fixation_last_time_released_ms;
-  response->success = true;
   STRING_SET(&response->message, "Hand fixation is %s",
              response->is_pressed ? "pressed" : "released");
-  LOG(response->message.data);
+  DEBUG(response->message.data);
+  response->success = true;
 }
 
 // Service callback for controlling the smartglass
@@ -746,11 +782,13 @@ void setup() {
   agent_reconnect_retries = 0;
   sync_pulse_state = false;
   state = WAITING_AGENT;
-  if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) {
-    arm_door_state = ARM_DOOR_CLOSED;
-  } else {
-    arm_door_state = ARM_DOOR_OPEN;
-  }
+  // TODO: Uncomment this once we have the arm door switch working
+  // if (digitalRead(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) {
+  //   arm_door_state = ARM_DOOR_CLOSED;
+  // } else {
+  //   arm_door_state = ARM_DOOR_OPEN;
+  // }
+  arm_door_state = ARM_DOOR_CLOSED;
 
   // Initialize state tracking
   hand_fixation_last_time_pressed_ms = rmw_uros_epoch_millis();
