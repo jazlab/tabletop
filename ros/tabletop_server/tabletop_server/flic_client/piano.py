@@ -38,13 +38,11 @@ def on_button_up_or_down(self, click_type, was_queued, time_diff):
 ButtonConnectionChannel.on_button_up_or_down = on_button_up_or_down
 
 
-def init_piano(
-    client: FlicClient, soundfont: str, key: str, octave: int, major: bool
-):
+def init_piano(soundfont: str, key: str, octave: int, scale: str):
     if not fluidsynth.init(soundfont, driver="pulseaudio"):
         raise RuntimeError("Failed to initialize fluidsynth")
 
-    scale_cls = scales.Ionian if major else scales.NaturalMinor
+    scale_cls = getattr(scales, scale)
     scale = scale_cls(key).ascending()[:-1]
     i = 0
     for i, bd_addr in enumerate(bd_addr_ordered):
@@ -60,7 +58,7 @@ async def run(
     driver: str,
     key: str,
     octave: int,
-    major: bool,
+    scale: str,
 ):
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
@@ -77,7 +75,7 @@ async def run(
             await asyncio.sleep(1)
         print(f"Connected to {client.num_buttons} buttons")
 
-        init_piano(client, soundfont, key, octave, major)
+        init_piano(soundfont, key, octave, scale)
 
         print("Spinning")
         await client.wait_for_closed()
@@ -96,24 +94,24 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument(
-        "--soundfont", type=str, default=os.path.join(dir_path, "lyzen.sf2")
-    )
+    parser.add_argument("--soundfont", type=str, default="lyzen.sf2")
     parser.add_argument("--key", type=str, default="C")
     parser.add_argument("--octave", type=int, default=4)
-    parser.add_argument("--major", action="store_true")
+    parser.add_argument("--scale", type=str, default="HarmonicMinor")
     parser.add_argument("--driver", type=str, default="pulseaudio")
     args = parser.parse_args()
+
+    soundfont_path = os.path.join(dir_path, args.soundfont)
 
     asyncio.run(
         run(
             host=args.host,
             port=args.port,
-            soundfont=args.soundfont,
+            soundfont=soundfont_path,
             driver=args.driver,
             key=args.key,
             octave=args.octave,
-            major=args.major,
+            scale=args.scale,
         )
     )
 
