@@ -89,6 +89,8 @@ building and running the project:
 * [Docker](https://docs.docker.com/get-docker/)
 * [[Optional] Visual Studio Code](https://code.visualstudio.com/) (for Dev
     Container usage)
+* [[Optional] PlatformIO](https://platformio.org/install/) (for Teensy
+    Micro-Controller usage)
 
 Follow the installation instructions in the links above.
 
@@ -102,8 +104,9 @@ option in the Docker settings:
 
 You may experience issues with the Universal Robots Simulator otherwise.
 
+## Setup
 
-## Installation
+### Minimal Installation
 
 1. Create a new ROS 2 workspace directory:
     ```bash
@@ -121,12 +124,12 @@ You may experience issues with the Universal Robots Simulator otherwise.
     git submodule update --init --recursive
     ```
 
-4. Clone the `moveit2` fork:
+4. Clone the [`moveit2` fork](https://github.com/jazlab/moveit2):
     ```bash
     ./scripts/moveit_download.sh
     ```
 
-## [Optional] Teensy Micro-Controller Setup:
+### Teensy Micro-Controller Setup
 This is only required if you want to use the real Teensy micro-controller.
 If you intend only to simulate the Teensy, you can skip this section.
 
@@ -175,9 +178,12 @@ If you intend only to simulate the Teensy, you can skip this section.
     instructions above, *I* forgot to update the instructions above, etc.).
 
 
-## Setting up the physical UR5e Robot
+### Setting up the physical UR5e Robot
 
-### Creating the robot subnetwork
+This section is only relevant if you want to control the real robot. If you
+intend only to simulate the robot, you can skip this section.
+
+#### Creating the robot subnetwork
 
 To create a local network over which to communicate with the robot, run the
 following:
@@ -189,9 +195,9 @@ This will create a new network interface with the first 3 octets of the
 IP address to the `REVERSE_IP` (also found in `env_files/robot.env`).
 These two IP addresses will be used for the remainder of the instructions.
 
-### Setting the robot IP address
+#### Setting the robot IP address
 
-With the network created, you can must now 
+With the network created, you can must now
 
 1. On the Teach Pendant, click the "hamburger" (menu) icon in the top right
     corner of the window.
@@ -203,7 +209,7 @@ With the network created, you can must now
     * **Subnet Mask**: `255.255.255.0`
 6. Click **Apply**.
 
-### Installing and configuring the `external_control` URCap
+#### Installing and configuring the `external_control` URCap
 
 The `external_control` URCap is required to command the robot from the host
 machine (or in our case, the docker container).
@@ -229,7 +235,7 @@ You must now configure the URCap with the appropriate IP settings:
     * **Host Name**: `REVERSE_IP`
 
 Okay last step. You have to create a program to use the URCap.
-1. Click **New->Program** at the top of the window. This should pull up the 
+1. Click **New->Program** at the top of the window. This should pull up the
 **Program** tab.
 2. Click **URCaps->External Control** in the left sidebar. This will add the
     `external_control` URCap to the program.
@@ -241,7 +247,7 @@ program with the name `external_control.urp` and the installation with the name
 installation when the server program is started.
 
 
-### Enabling Remote Control Mode
+#### Enabling Remote Control Mode
 
 You must enable **Remote Control Mode** on the robot's Teach Pendant in order
 to control the robot using the `external_control` URCap.
@@ -289,16 +295,14 @@ To run the entire software stack using Docker:
     ```
     Use `--no-cache` to force a rebuild of the Docker images and install the
     latest versions of the dependencies.
-#TODO: Update to include build troubleshooting, git submodule update, moveit build memory issues, connecting to container, etc.
-6. Build the tabletop packages:
-    You may opt to build the tabletop packages once before starting the
-    `server` container, instead of every time you start it, allowing
-    you to iterate more quickly:
+
+5. Build the tabletop and moveit packages:
     ```bash
     docker compose --env-file env_files/build.env up ...
     ```
-    This will build the tabletop packages and install any dependencies.
-    See [here](#choosing-launch-file) for more information on using environment
+    This will build the tabletop packages and install any dependencies in your
+    [colcon workspace](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Colcon-Tutorial.html.
+    See [here](#choosing-launch-command) for more information on using environment
     files to set variables.
 
 7. Start the Docker containers:
@@ -398,15 +402,10 @@ ROS 2 driver.
 
 ### Choosing Launch Command
 
-The default behavior of the `server` container is to build and source the ROS2
-environment then launch `server.launch.py`. To change this default behavior,
-you can set the `LAUNCH_COMMAND` environment variable to your desired bash command.
-You can do this by:
-* Setting the variable from the command line:
-    ```bash
-    LAUNCH_COMMAND="ros2 launch tabletop_tasks run_tasks.launch.py" \
-    docker compose up --build --force-recreate
-    ```
+The default behavior of the `server` container is to sleep indefinitely, which
+is useful if you want to interactively launch the ROS processes and inspect the
+container state. To change this default behavior, you can set the `LAUNCH_COMMAND`
+environment variable to your desired bash command. You can do this by:
 * [Preferred] Using an environment file (commonly used such files in
     `env_files/`):
     ```bash
@@ -415,11 +414,15 @@ You can do this by:
     **Note**: The order of the environment files matters. Here, the `robot.env`
     file sets variables that are used by the `launch_tasks.env` file.
 
-    **Note**: You may not use a log file that depends on the default environment
-    variables in the compose file. For example, if your environment file sets
-    `LAUNCH_COMMAND` whose value depends on `ROBOT_IP` and you do not first provide
-    another environment file that sets `ROBOT_IP` (like `robot.env`), the `compose`
-    command will fail.
+    **Note**: You may not use an environment file that depends on the default
+    environment variables in the compose file. For example, if your environment
+    file sets `LAUNCH_COMMAND` whose value depends on `ROBOT_IP` and you do not
+    first provide another environment file that sets `ROBOT_IP` (like `robot.env`),
+    the `compose` command will fail.
+* Setting the variable from the command line for a single command:
+    ```bash
+    LAUNCH_COMMAND="ros2 launch tabletop_tasks run_tasks.launch.py" docker compose up --build --force-recreate
+    ```
 * Editing the `compose.yaml` file (make sure to edit the default value so that
     you can overwrite `LAUNCH_COMMAND` from the command line later):
 
@@ -436,7 +439,7 @@ You can do this by:
                 # - LAUNCH_COMMAND=ros2 launch tabletop_moveit_config tabletop_moveit.launch.py
     ```
 
-### VSCode Development using docker Dev Containers
+### Container Development
 
 To be able to develop within the ROS 2 environment (giving you syntax
 highlighting, intellisense, debugging, etc.) you can use the VSCode Dev
@@ -460,21 +463,26 @@ IP address. This setting can be found in *Installation->URCaps->External
 Control->Host IP* and *Installation->URCaps->External Control->Host Name*.
 If you then save the installation, you will not have to do this again.
 
+
 You can now run any of the scripts in the `scripts/` directory. A few useful
 ones are:
 * `scripts/bashrc_update.sh [--display novnc|x11]` to update your bashrc file to
     with the correct ROS 2 environment variables and optionally set the `DISPLAY`
     variable to the correct value for the noVNC or X11 display.
-* `scripts/build.sh [--clean]` to optionally clean the build artifacts and then
-    rebuild the project.
+* `scripts/build.sh ...` to build the ROS 2 workspace (including the MoveIt and
+    TableTop packages).
 * `scripts/clean_ws.sh` to clean the workspace directory.
-* `scripts/teensy_build.sh` to build the Teensy firmware.
+* `scripts/teensy_build.sh` to build and upload the Teensy firmware.
 
 You can also run any ROS 2 commands as you normally would. For example, to
 launch the `tabletop_tasks` node, you can run:
 ```bash
 ros2 launch tabletop_tasks run_tasks.launch.py --task_config:=<path_to_task_config> use_mock_teensy:=<true|false>
 ```
+*The above commands will also work for the `server` and `server_novnc` containers if
+you choose to interact with them through the terminal (i.e. call `docker exec -it
+<container_name> bash` after starting the container `docker compose up server` with
+the default launch command that sleeps indefinitely).*
 
 ### Uploading Teensy Firmware from the Dev Container
 
@@ -505,19 +513,20 @@ following the instructions in [Optional Teensy Micro-Controller Setup](#optional
 The TableTop meta-package consists of the following ROS 2 packages, located in
 the repository's root directory:
 
-- `tabletop_msgs`: TableTop message definitions
-- `tabletop_moveit_interface`: TableTop MoveIt interface
-- `tabletop_moveit_config`: TableTop MoveIt configurations
 - `tabletop_description`: TableTop URDF description
+- `tabletop_moveit_config`: TableTop MoveIt configurations
+- `tabletop_msgs`: TableTop message definitions
 - `tabletop_server`: TableTop server nodes and launch files
+- `tabletop_tasks`: TableTop task nodes and launch files
 - `tabletop_teensy`: TableTop Teensy nodes and launch files
+- `tabletop_utils`: TableTop utility nodes and launch files
 
-Additional non-ROS 2 packages (also located in the repository's root directory):
+Additional non-ROS 2 packages/directories (also located in the repository's root directory):
 - `novnc`: Context for building and running noVNC Docker container
-- `ursim`: Contains the URCAPs and programs for starting the Universal Robots
+- `ur_robot`: Contains the URCAPs and programs for starting the Universal Robots
     Simulator and interfacing with the simulator or physical robot
-- `scripts`: Utility scripts for setting up the environment (locally and
-    in Docker)
+- `scripts`: Utility scripts for setting up the environment and running the
+    project (locally and in Docker)
 
 ## Contributing
 
