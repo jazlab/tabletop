@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
 
@@ -10,35 +10,69 @@ ws_dir=$(get_parent_dir $script_dir 3)
 pushd $ws_dir
 
 # Parse arguments
-debug=false
-build_moveit=false
-clean=false
-clean_moveit=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --debug)
             debug=true
             shift
             ;;
-        --build-moveit)
-            build_moveit=true
-            shift
-            ;;
         --clean)
             clean=true
             shift
             ;;
-        --clean-moveit)
-            clean_moveit=true
+        --clean-all)
+            clean_all=true
+            shift
+            ;;
+        --workers)
+            workers=$2
+            shift
             shift
             ;;
         *)
             echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--debug] [--clean] [--clean-moveit]"
+            echo "Usage: $0 [--debug] [--clean] [--clean-all] [--workers <num_workers>]"
             exit 1
             ;;
     esac
 done
+
+
+# Set build paths
+# build_paths=("$ws_dir/src/tabletop")
+
+# Clean workspace
+if [ "$clean_all" = "true" ]; then
+    $script_dir/clean_ws.sh --all
+elif [ "$clean" = "true" ]; then
+    $script_dir/clean_ws.sh
+fi
+
+# Upgrade apt packages
+print_status "Upgrading apt packages"
+sudo apt update
+sudo apt upgrade -y
+# sudo apt dist-upgrade -y
+
+# Set ROS distro to jazzy if not set
+ros_distro=${ROS_DISTRO:-jazzy}
+
+# Remove any existing MoveIt2 debian packages
+# print_status "Removing any existing MoveIt2 debian packages"
+# sudo apt remove -y ros-${ros_distro}-moveit* || true
+
+# VCS import moveit2 repos
+$script_dir/moveit_vcs.sh
+
+# Install ROS 2 dependencies
+print_status "Installing ROS 2 dependencies"
+source /opt/ros/${ros_distro}/setup.bash
+rosdep update
+rosdep install --from-paths src --ignore-src --rosdistro ${ros_distro} -y
+
+# Install Python dependencies
+print_status "Installing extra Python dependencies using pip"
+pip install -r src/tabletop/ros/requirements.txt
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
@@ -47,48 +81,19 @@ if [ "$debug" = "true" ]; then
 else
     cmake_args+=("-DCMAKE_BUILD_TYPE=Release")
 fi
-echo "CMake args: ${cmake_args[@]}"
-
-# Set build paths
-build_paths=("$ws_dir/src/tabletop")
-if [ "$build_moveit" = "true" ]; then
-    build_paths+=("$ws_dir/src/moveit2")
-fi
-echo "Build paths: ${build_paths[@]}"
-
-# Clean workspace
-if [ "$clean" = "true" ]; then
-    if [ "$clean_moveit" = "true" ]; then
-        $script_dir/clean_ws.sh --moveit
-    else
-        $script_dir/clean_ws.sh
-    fi
-fi
-
-# Remove any existing MoveIt2 debian packages
-if [ "$build_moveit" = "true" ]; then
-    print_status "Removing any existing MoveIt2 debian packages..."
-    sudo apt remove -y ros-$ROS_DISTRO-moveit* || true
-fi
-
-
-# Install ROS 2 dependencies
-print_status "Installing ROS 2 dependencies"
-source /opt/ros/$ROS_DISTRO/setup.bash
-rosdep update
-rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
-
-# Install Python dependencies
-print_status "Installing extra Python dependencies using pip"
-pip install -r src/tabletop/ros/requirements.txt
 
 # Build ROS 2 packages
 print_status "Building ROS 2 packages"
+if [ -n "$workers" ]; then
+    export MAKEFLAGS="-j$workers"
+    parallel_workers="--parallel-workers $workers"
+fi
 colcon build \
     --symlink-install \
     --event-handlers console_cohesion+ \
-    --base-paths "${build_paths[@]}" \
-    --cmake-args "${cmake_args[@]}"
+    --cmake-args "${cmake_args[@]}" \
+    $parallel_workers
+    # --base-paths "${build_paths[@]}"
 
 print_status "Creating bags directory"
 mkdir -p bags

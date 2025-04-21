@@ -1,4 +1,5 @@
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.srv import Load
 
@@ -110,7 +111,7 @@ def main(args=None):
     rclpy.init(args=args)
 
     try:
-        executor: rclpy.Executor = rclpy.executors.SingleThreadedExecutor()  # type: ignore
+        executor: rclpy.Executor = SingleThreadedExecutor()
         mock_dashboard = MockDashboard()
         executor.add_node(mock_dashboard)
 

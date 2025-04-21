@@ -7,8 +7,7 @@ Panels:
         - /PlanningScene1
         - /PlanningScene1/Scene Geometry1
         - /PlanningScene1/Scene Robot1
-        - /PlanningScene1/Scene Robot1/Links1
-      Splitter Ratio: 0.5
+      Splitter Ratio: 0.570588231086731
     Tree Height: 764
 Visualization Manager:
   Class: ""
@@ -40,14 +39,14 @@ Visualization Manager:
       Scene Geometry:
         Scene Alpha: 0.8999999761581421
         Scene Color: 50; 230; 50
-        Scene Display Time: 0.0010000000474974513
+        Scene Display Time: 9.999999747378752e-05
         Show Scene Geometry: true
         Voxel Coloring: Z-Axis
         Voxel Rendering: Occupied Voxels
       Scene Robot:
         Attached Body Color: 150; 50; 150
         Links:
-          All Links Enabled: false
+          All Links Enabled: true
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
@@ -96,7 +95,7 @@ Visualization Manager:
             Alpha: 1
             Show Axes: false
             Show Trail: false
-            Value: false
+            Value: true
           tool0:
             Alpha: 1
             Show Axes: false
@@ -165,10 +164,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.49039795994758606
+      Pitch: 0.46039772033691406
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 6.160431861877441
+      Yaw: 5.970428466796875
     Saved: ~
 Window Geometry:
   Displays:
@@ -179,4 +178,4 @@ Window Geometry:
   QMainWindow State: 000000ff00000000fd0000000100000000000001560000037dfc0200000001fb000000100044006900730070006c006100790073010000003b0000037d000000c700ffffff0000024c0000037d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Width: 936
   X: 968
-  Y: 605
+  Y: 48

@@ -1,15 +1,26 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Get workspace directory
 script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
 source $script_dir/utils.sh
 ws_dir=$(get_parent_dir $script_dir 3)
 
+
+moveit_ws_dir=$HOME/moveit_ws
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --display)
             display=$2
+            shift
+            shift
+            ;;
+        --moveit)
+            moveit=true
+            shift
+            ;;
+        --moveit-ws)
+            moveit_ws_dir=$2
             shift
             shift
             ;;
@@ -40,6 +51,10 @@ elif [ "$display" == "x11" ]; then
 elif [ -n "$display" ]; then
     echo "Error: Invalid display argument: $display"
     exit 1
+fi
+
+if [ "$moveit" == "true" ]; then
+    commands+=("source $moveit_ws_dir/install/setup.bash")
 fi
 
 for command in "${commands[@]}"; do

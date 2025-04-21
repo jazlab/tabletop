@@ -25,11 +25,11 @@ services:
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
-  robot_base:
+  ursim_base:
     restart: unless-stopped
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
-    platform: linux/amd64
+    # platform: linux/amd64
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -38,20 +38,20 @@ services:
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
-    hostname: robot
+    hostname: ursim
     environment:
       - ROBOT_MODEL=ur5e
 
-  robot_novnc:
-    extends: robot_base
+  ursim_novnc:
+    extends: ursim_base
     depends_on:
       novnc:
         condition: service_healthy
     environment:
       - DISPLAY=novnc:0.0
 
-  robot:
-    extends: robot_base
+  ursim:
+    extends: ursim_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
     environment:
@@ -63,15 +63,25 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
+    # device_cgroup_rules:
+    #   - c 160:* rmw
+    devices:
+      - /dev/dri:/dev/dri
+      # - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - ../..:/root/ws
-      - ${MOVEIT_WS_DIR:-$HOME/moveit_ws}:/root/moveit_ws
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.11
     hostname: server
     environment:
       - BUILD_COMMAND=${BUILD_COMMAND:-:}
+      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-echo "No launch command provided, sleeping..." && sleep infinity}
     command: bash -c
       "$$BUILD_COMMAND
       && source /opt/ros/jazzy/setup.bash
@@ -79,41 +89,38 @@ services:
       && $$LAUNCH_COMMAND"
 
   server_novnc:
+    build:
+      context: ./novnc
+      pull: true
+    pull_policy: build
     extends: server_base
     depends_on:
       novnc:
         condition: service_healthy
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
     environment:
       - DISPLAY=novnc:0.0
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py
-        use_mock_teensy:=true
-        robot_ip:=${ROBOT_IP:-192.168.12.10}
-        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
 
   server:
     extends: server_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev/dri:/dev/dri
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
     environment:
       - DISPLAY=$DISPLAY
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-
-        ros2 launch tabletop_server server.launch.py
-        robot_ip:=${ROBOT_IP:-192.168.12.10}
-        reverse_ip:=${REVERSE_IP:-192.168.12.11}}
+
+  flic:
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    image: ubuntu:latest
+    pull_policy: always
+    volumes:
+      - ./flic_server:/flic_server
+    command: bash -c
+      "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0 -h hci0 -w" # -w necessary, see musings.md
 
 networks:
   tabletop_net:

@@ -190,10 +190,18 @@ planner_configs:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
-    max_hybrid_paths: 36 # Number of hybrid paths generated per iteration
-    num_planners: 8 # The number of default planners to use for planning
-    # termination_condition: CostConvergence[10,0.1]
-    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    max_hybrid_paths: 64 # Number of hybrid paths generated per iteration
+    num_planners: 16 # The number of default planners to use for planning
+    termination_condition: CostConvergence[5,0.5]
+    # termination_condition: Iteration[100]
+    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+  APSRRTstarConnect:
+    type: geometric::AnytimePathShortening
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
+    max_hybrid_paths: 4 # Number of hybrid paths generated per iteration
+    num_planners: 4 # The number of default planners to use for planning
+    planners: RRTstar,RRTstar,RRTstar,RRTstar
 
 ur_manipulator:
   planner_configs:
@@ -228,6 +236,47 @@ ur_manipulator:
     - APSNotPersistent
     - APSPersistent
     - APSRRTConnect
-  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint,elbow_joint)
-  # enforce_constrained_state_space: true
+    - APSRRTstarConnect
+  projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
+  enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005
+  # maximum_waypoint_distance: 0.005
+
+ur_wrist_2:
+  planner_configs:
+    - AnytimePathShortening
+    - SBL
+    - EST
+    - LBKPIECE
+    - BKPIECE
+    - KPIECE
+    - RRT
+    - RRTConnect
+    - RRTstar
+    - TRRT
+    - PRM
+    - PRMstar
+    - FMT
+    - BFMT
+    - PDST
+    - STRIDE
+    - BiTRRT
+    - LBTRRT
+    - BiEST
+    - ProjEST
+    - LazyPRM
+    - LazyPRMstar
+    - SPARS
+    - SPARStwo
+    - PersistentPRMstar
+    - PersistentLoadingPRM
+    - PersistentLazyPRMstar
+    - PersistentLoadingLazyPRM
+    - APSNotPersistent
+    - APSPersistent
+    - APSRRTConnect
+    - APSRRTstarConnect
+  projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
+  enforce_constrained_state_space: true
+  longest_valid_segment_fraction: 0.005
+  # maximum_waypoint_distance: 0.005

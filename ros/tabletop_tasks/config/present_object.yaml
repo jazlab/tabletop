@@ -1,8 +1,8 @@
 tasks:
   - class: PresentObjectTask
     kwargs:
-      delay_duration_s: 0.5
-      stimulus_duration_s: 0.5
+      delay_duration_sec: 0.5
+      stimulus_duration_sec: 0.5
       trial_generator:
         class: RandomChoice
         kwargs:

@@ -23,3 +23,17 @@
 
 # Ignore cursor files
 **/.cursorignore
+
+# Ignore meshes
+**/meshes/test/
+
+# Ignore flic files
+/flic_server/sqlite.db
+/flic_client/simpleclient
+
+# Ignore venv
+**/venv/
+
+# Ignore piano stuff
+**/*.sf2
+**/*.mid

@@ -19,8 +19,8 @@
     force_abs_paths
     ">
 
-    <xacro:property name="robot_offset_xyz" value="0 0 0.05" />
-    <xacro:property name="robot_offset_rpy" value="0 0 ${pi/2}" />
+    <xacro:property name="robot_offset_xyz" value="0 0 0.04" />
+    <xacro:property name="robot_offset_rpy" value="0 0 -1.5707" />
     <xacro:property name="eef_offset_xyz" value="0 0 -0.005" />
     <xacro:property name="eef_offset_rpy" value="0 0 0" />
 

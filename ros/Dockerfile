@@ -2,13 +2,13 @@ FROM ros:jazzy AS server
 
 SHELL ["/bin/bash", "-c"]
 
-COPY ./packages.txt /tmp/packages.txt
+COPY ./apt.list /tmp/apt.list
 
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y \
-    $(cat /tmp/packages.txt) \
-    && rm /tmp/packages.txt
+    $(cat /tmp/apt.list) \
+    && rm /tmp/apt.list
 
 WORKDIR $HOME
 
@@ -38,4 +38,3 @@ RUN mkdir -p $HOME/.config \
 ENV ROS_LOG_DIR=/root/ws/src/tabletop/ros/logs
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV PYTHONUNBUFFERED=1
-ENV XDG_RUNTIME_DIR=/tmp/runtime-root

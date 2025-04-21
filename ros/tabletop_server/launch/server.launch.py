@@ -4,12 +4,15 @@ from launch.actions import (
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
+    OpaqueFunction,
     SetEnvironmentVariable,
     Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    EqualsSubstitution,
+    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -26,6 +29,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
+            choices=["true", "false"],
             description="Using or not time from simulation",
         ),
         DeclareLaunchArgument(
@@ -46,36 +50,42 @@ def declare_arguments():
         ),
         # UR Robot Driver
         DeclareLaunchArgument(
-            "robot_ip",
-            default_value="192.168.12.10",
-            description="IP address of the robot",
+            "robot_mode",
+            default_value="ursim",
+            choices=["mock", "ursim", "real"],
+            description="Whether to use the mock robot, URSim, or real robot",
         ),
-        DeclareLaunchArgument(
-            "reverse_ip",
-            default_value="192.168.12.12",
-            description="Reverse IP address",
-        ),
-        DeclareLaunchArgument(
-            "use_mock_robot",
-            default_value="false",
-            description="Use mock robot",
-        ),
+        # DeclareLaunchArgument(
+        #     "robot_ip",
+        #     default_value="192.168.12.10",
+        #     description="IP address of the robot",
+        # ),
+        # DeclareLaunchArgument(
+        #     "reverse_ip",
+        #     default_value="192.168.12.12",
+        #     description="Reverse IP address",
+        # ),
+        # DeclareLaunchArgument(
+        #     "use_mock_robot",
+        #     default_value="false",
+        #     description="Use mock robot",
+        # ),
         DeclareLaunchArgument(
             "controller_spawner_timeout",
             default_value="120",
             description="Controller spawner timeout",
         ),
-        DeclareLaunchArgument(
-            "kinematics_params_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_description"),
-                    "config",
-                    "ursim_calibration.yaml",
-                ]
-            ),
-            description="Calibration file",
-        ),
+        # DeclareLaunchArgument(
+        #     "kinematics_params_file",
+        #     default_value=PathJoinSubstitution(
+        #         [
+        #             FindPackageShare("tabletop_description"),
+        #             "config",
+        #             "ur5e_calibration.yaml",
+        #         ]
+        #     ),
+        #     description="Calibration file",
+        # ),
         DeclareLaunchArgument(
             "description_launchfile",
             default_value=PathJoinSubstitution(
@@ -155,18 +165,21 @@ def declare_arguments():
         DeclareLaunchArgument(
             "use_mock_teensy",
             default_value="false",
+            choices=["true", "false"],
             description="Use mock TeensyBoard",
         ),
         # Flic
         DeclareLaunchArgument(
             "simulate_flic",
-            default_value="true",
+            default_value="false",
+            choices=["true", "false"],
             description="Simulate Flic",
         ),
         # RViz
         DeclareLaunchArgument(
             "launch_rviz_server",
             default_value="true",
+            choices=["true", "false"],
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
@@ -184,6 +197,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "rosbag_record",
             default_value="false",
+            choices=["true", "false"],
             description="Record rosbag?",
         ),
         DeclareLaunchArgument(
@@ -202,7 +216,7 @@ def declare_arguments():
             default_value="/root/ws/src/tabletop/ros/warehouse_ros.sqlite",
             description="Path where the warehouse database should be stored",
         ),
-        # Logging
+        # Log levels
         DeclareLaunchArgument(
             "default_log_level",
             default_value="INFO",
@@ -221,11 +235,54 @@ def declare_arguments():
             description="Teensy log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
-        # VSCode Debugging
+        # Outputs
         DeclareLaunchArgument(
-            "debug",
-            default_value="false",
-            description="Debug mode",
+            "mock_dashboard_output",
+            default_value="own_log",
+            description="Mock Dashboard output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "ur_output",
+            default_value="own_log",
+            description="UR output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "commander_output",
+            default_value="both",
+            description="Commander output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "micro_ros_output",
+            default_value="own_log",
+            description="Micro ROS output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "mock_teensy_output",
+            default_value="own_log",
+            description="Mock Teensy output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "flic_output",
+            default_value="own_log",
+            description="Flic output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "rviz_output",
+            default_value="own_log",
+            description="RViz output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "bag_output",
+            default_value="own_log",
+            description="Bag output",
+            choices=["log", "both", "screen", "own_log"],
         ),
     ]
 
@@ -236,15 +293,16 @@ def generate_launch_description():
     ur_type = LaunchConfiguration("ur_type")
 
     # UR Robot Driver
+    robot_mode = LaunchConfiguration("robot_mode")
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
-    robot_ip = LaunchConfiguration("robot_ip")
-    reverse_ip = LaunchConfiguration("reverse_ip")
-    kinematics_params_file = LaunchConfiguration("kinematics_params_file")
+    # kinematics_params_file = LaunchConfiguration("kinematics_params_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
-    use_mock_robot = LaunchConfiguration("use_mock_robot")
+    # robot_ip = LaunchConfiguration("robot_ip")
+    # reverse_ip = LaunchConfiguration("reverse_ip")
+    # use_mock_robot = LaunchConfiguration("use_mock_robot")
 
     # Commander
     commander_config = LaunchConfiguration("commander_config")
@@ -276,9 +334,64 @@ def generate_launch_description():
     default_log_level = LaunchConfiguration("default_log_level")
     commander_log_level = LaunchConfiguration("commander_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
+
+    mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
+    ur_output = LaunchConfiguration("ur_output")
+    commander_output = LaunchConfiguration("commander_output")
+    micro_ros_output = LaunchConfiguration("micro_ros_output")
+    mock_teensy_output = LaunchConfiguration("mock_teensy_output")
+    flic_output = LaunchConfiguration("flic_output")
+    rviz_output = LaunchConfiguration("rviz_output")
+    bag_output = LaunchConfiguration("bag_output")
     ################################################
+
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+
+    # Conditional substitutions
+    robot_ip = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "192.168.13.10",
+        "192.168.12.10",
+    )
+    reverse_ip = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "192.168.13.11",
+        "192.168.12.12",
+    )
+    use_mock_robot = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "mock"), "true", "false"
+    )
+    simulate_commander = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"), "false", "true"
+    )
+    kinematics_params_file = IfElseSubstitution(
+        EqualsSubstitution(robot_mode, "real"),
+        "ur5e_calibration.yaml",
+        "ursim_calibration.yaml",
+    )
+    kinematics_params_file = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_description"),
+            "config",
+            kinematics_params_file,
+        ]
+    )
+
+    def print_substitutions(context):
+        print(f"robot_ip: {robot_ip.perform(context)}")
+        print(f"reverse_ip: {reverse_ip.perform(context)}")
+        print(f"use_mock_robot: {use_mock_robot.perform(context)}")
+        print(
+            f"controller_spawner_timeout: {controller_spawner_timeout.perform(context)}"
+        )
+        print(
+            f"kinematics_params_file: {kinematics_params_file.perform(context)}"
+        )
+
+    print_substitutions_action = OpaqueFunction(
+        function=print_substitutions,
+    )
 
     # UR Robot Driver
     # Use group action to isolate the launch file
@@ -286,7 +399,7 @@ def generate_launch_description():
         [
             SetEnvironmentVariable(
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value="own_log",
+                value=ur_output,
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -322,13 +435,18 @@ def generate_launch_description():
     mock_dashboard = Node(
         package="tabletop_server",
         executable="mock_dashboard",
-        output="log",
+        output=mock_dashboard_output,
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", default_log_level],
         condition=IfCondition(use_mock_robot),
     )
 
     # Commander
+    commander_overrides = {"simulate": simulate_commander}
+    commander_overrides_scoped = {}
+    for key, value in commander_overrides.items():
+        commander_overrides_scoped[f"/commander.ros__parameters.{key}"] = value
+
     moveit_config = (
         MoveItConfigsBuilder(
             robot_name="ur", package_name="tabletop_moveit_config"
@@ -354,7 +472,9 @@ def generate_launch_description():
         executable=script_executable,
         parameters=[
             moveit_config.to_dict(),
+            warehouse_ros_config,
             ParameterFile(commander_config, allow_substs=True),
+            commander_overrides_scoped,
             {
                 "publish_robot_description_semantic": True,
                 "use_sim_time": use_sim_time,
@@ -362,7 +482,7 @@ def generate_launch_description():
         ],
         ros_arguments=["--log-level", ["commander:=", commander_log_level]],
         arguments=[script_config],
-        output="both",
+        output=commander_output,
         on_exit=[Shutdown()],
     )
 
@@ -371,7 +491,7 @@ def generate_launch_description():
         package="micro_ros_agent",
         name="micro_ros_agent",
         executable="micro_ros_agent",
-        output="both",
+        output=micro_ros_output,
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", teensy_log_level],
         arguments=[
@@ -391,7 +511,7 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
-        output="both",
+        output=mock_teensy_output,
         parameters=[{"use_sim_time": use_sim_time, "simulate": True}],
         ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
         condition=IfCondition(use_mock_teensy),
@@ -402,7 +522,7 @@ def generate_launch_description():
         name="flic",
         package="tabletop_server",
         executable="flic",
-        output="both",
+        output=flic_output,
         parameters=[
             {"use_sim_time": use_sim_time, "simulate": simulate_flic},
         ],
@@ -414,7 +534,7 @@ def generate_launch_description():
         package="rviz2",
         condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        output="own_log",
+        output=rviz_output,
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -432,12 +552,13 @@ def generate_launch_description():
     bag = ExecuteProcess(
         cmd=["ros2", "bag", "record", rosbag_args],
         cwd=rosbag_dir,
-        output="both",
+        output=bag_output,
         condition=IfCondition(rosbag_record),
     )
 
     launch_actions = [
         set_ros_log_dir,
+        print_substitutions_action,
         ur_robot_driver,
         mock_dashboard,
         commander,

@@ -41,6 +41,8 @@ setup(
             "mock_teensy = tabletop_server.nodes.mock_teensy:main",
             "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
             "flic = tabletop_server.nodes.flic:main",
+            "flic_connect = tabletop_server.flic_client.client_aio:connect",
+            "flic_delete = tabletop_server.flic_client.client_aio:delete",
         ],
     },
 )

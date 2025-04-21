@@ -17,6 +17,9 @@ from rclpy.client import Client
 from shape_msgs.msg import Mesh, MeshTriangle
 from std_msgs.msg import ColorRGBA, Header
 from tf_transformations import (
+    euler_from_quaternion,
+    inverse_matrix,
+    quaternion_about_axis,
     quaternion_from_euler,
     quaternion_from_matrix,
     quaternion_matrix,
@@ -123,6 +126,10 @@ class ServiceCallError(Exception):
     pass
 
 
+class ServiceCallUnsuccessfulError(Exception):
+    pass
+
+
 # ROS2 utility functions
 def load_yaml_from_package(
     package_name: str, file_path: str
@@ -159,8 +166,11 @@ def validate_service_response(
         error_msg = f"{service_client.service_name} service call timed out!"
         raise TimeoutError(error_msg)
     elif hasattr(response, "success") and not response.success:  # type: ignore
-        error_msg = f"{service_client.service_name} service call failed!"
-        raise ServiceCallError(error_msg)
+        error_msg = (
+            f"{service_client.service_name} service call returned "
+            f"unsuccessfully with response: {msg_to_dict(response)}"
+        )
+        raise ServiceCallUnsuccessfulError(error_msg)
 
 
 def msg_to_dict(msg: Any):
@@ -178,7 +188,11 @@ def msg_to_dict(msg: Any):
 
 
 def quaternion_msg_from_euler(
-    roll: float, pitch: float, yaw: float, *, axes: str = "sxyz"
+    roll: float = 0.0,
+    pitch: float = 0.0,
+    yaw: float = 0.0,
+    *,
+    axes: str = "sxyz",
 ) -> Quaternion:
     """
     Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
@@ -192,23 +206,56 @@ def quaternion_msg_from_euler(
     )
 
 
+def quaternion_msg_from_axis_angle(
+    axis: Iterable[float], angle: float
+) -> Quaternion:
+    """
+    Convert an axis and angle to a geometry_msgs/Quaternion message.
+    """
+    quaternion = quaternion_about_axis(angle, axis)
+    return Quaternion(
+        x=quaternion[0], y=quaternion[1], z=quaternion[2], w=quaternion[3]
+    )
+
+
+def euler_from_quaternion_msg(
+    quaternion: Quaternion,
+) -> tuple[float, float, float]:
+    """
+    Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians).
+    """
+    return euler_from_quaternion(
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
+        axes="sxyz",
+    )
+
+
 def pose_msg(
-    position: Optional[Iterable[float] | Mapping[str, float]] = None,
-    orientation: Optional[Iterable[float] | Mapping[str, float]] = None,
+    position: Optional[Point | Iterable[float] | Mapping[str, float]] = None,
+    x: float = 0.0,
+    y: float = 0.0,
+    z: float = 0.0,
+    orientation: Optional[
+        Quaternion | Iterable[float] | Mapping[str, float]
+    ] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
+    roll: float = 0.0,
+    pitch: float = 0.0,
+    yaw: float = 0.0,
 ) -> Pose:
     """
     Convert a dictionary of parameters to a geometry_msgs/Pose message.
     """
     pose = Pose()
-    if position is None and orientation is None and rpy is None:
-        raise ValueError(
-            "No position or orientation parameters found in input dictionary"
-        )
 
     # Position extraction
     if position is not None:
-        if isinstance(position, Mapping):
+        if any((x, y, z)):
+            raise ValueError("position and x, y, z cannot both be provided")
+
+        if isinstance(position, Point):
+            pose.position = position
+        elif isinstance(position, Mapping):
             pose.position = Point(**position)  # type: ignore
         elif is_iterable(position):
             x, y, z = position
@@ -217,28 +264,35 @@ def pose_msg(
             raise ValueError(
                 f"Invalid position type: expected Mapping or Iterable, got {type(position)}"
             )
+    elif any((x, y, z)):
+        pose.position = Point(x=x, y=y, z=z)
 
     # Orientation extraction
     if rpy is not None:
+        if any((roll, pitch, yaw)):
+            raise ValueError(
+                "rpy and roll, pitch, yaw cannot both be provided"
+            )
+        if orientation is not None:
+            raise ValueError("orientation and rpy cannot both be provided")
         if isinstance(rpy, Mapping):
             pose.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
-        elif is_iterable(rpy):
-            pose.orientation = quaternion_msg_from_euler(*rpy)
         else:
+            pose.orientation = quaternion_msg_from_euler(*rpy)
+    elif any((roll, pitch, yaw)):
+        if orientation is not None:
             raise ValueError(
-                f"Invalid rpy type: expected Mapping or Iterable, got {type(rpy)}"
+                "orientation and roll, pitch, yaw cannot both be provided"
             )
-
+        pose.orientation = quaternion_msg_from_euler(roll, pitch, yaw)
     elif orientation is not None:
-        if isinstance(orientation, Mapping):
+        if isinstance(orientation, Quaternion):
+            pose.orientation = orientation
+        elif isinstance(orientation, Mapping):
             pose.orientation = Quaternion(**orientation)  # type: ignore
-        elif is_iterable(orientation):
+        else:
             x, y, z, w = orientation
             pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
-        else:
-            raise ValueError(
-                f"Invalid orientation type: expected Mapping or Iterable, got {type(orientation)}"
-            )
 
     return pose
 
@@ -249,9 +303,11 @@ def pose_stamped_msg(
     frame_id: Optional[str] = None,
     timestamp: Optional[float] = None,
     pose: Optional[Pose | Mapping[str, Any]] = None,
-    position: Optional[Iterable[float] | Mapping[str, float]] = None,
+    position: Optional[Point | Iterable[float] | Mapping[str, float]] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
-    orientation: Optional[Iterable[float] | Mapping[str, float]] = None,
+    orientation: Optional[
+        Quaternion | Iterable[float] | Mapping[str, float]
+    ] = None,
 ) -> PoseStamped:
     """
     Create a PoseStamped message from:
@@ -305,11 +361,6 @@ def pose_stamped_msg(
         pose_stamped.pose = pose_msg(
             position=position, rpy=rpy, orientation=orientation
         )
-    else:
-        raise ValueError(
-            "Either pose or at least one of position, rpy, or orientation "
-            "must be provided, but not both"
-        )
 
     return pose_stamped
 
@@ -328,19 +379,102 @@ def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
     return pose
 
 
+def array_from_point_msg(point: Point) -> np.ndarray:
+    return np.array([point.x, point.y, point.z])
+
+
+def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    return np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+
+
+def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
+    position = array_from_point_msg(pose.position)
+    orientation = array_from_quaternion_msg(pose.orientation)
+    return position, orientation
+
+
+def all_close_points(p1: Point, p2: Point, **all_close_kwargs: Any) -> bool:
+    """
+    Check if two points are close to each other.
+    """
+    p1_array = array_from_point_msg(p1)
+    p2_array = array_from_point_msg(p2)
+    return np.allclose(p1_array, p2_array, **all_close_kwargs)
+
+
+def all_close_quaternions(
+    q1: Quaternion, q2: Quaternion, **all_close_kwargs: Any
+) -> bool:
+    """
+    Check if two quaternions are close to each other.
+    """
+    q1_array = array_from_quaternion_msg(q1)
+    q2_array = array_from_quaternion_msg(q2)
+    return np.allclose(q1_array, q2_array, **all_close_kwargs)
+
+
+def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
+    """
+    Check if two poses are close to each other.
+    """
+    return all_close_points(
+        pose1.position, pose2.position, **all_close_kwargs
+    ) and all_close_quaternions(
+        pose1.orientation, pose2.orientation, **all_close_kwargs
+    )
+
+
+def matrix_from_point_msg(point: Point) -> np.ndarray:
+    return translation_matrix([point.x, point.y, point.z])
+
+
+def matrix_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    return quaternion_matrix(
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+    )
+
+
 def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
-    translation = translation_matrix(
-        [pose.position.x, pose.position.y, pose.position.z]
-    )
-    rotation = quaternion_matrix(
-        [
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-    )
+    translation = matrix_from_point_msg(pose.position)
+    rotation = matrix_from_quaternion_msg(pose.orientation)
     return translation @ rotation
+
+
+def change_reference_frame_pose_stamped(
+    old_pose_stamped: PoseStamped,
+    old_frame_transform: np.ndarray,
+    new_frame_transform: np.ndarray,
+    new_frame_id: str,
+) -> PoseStamped:
+    """
+    Transforms a pose from one frame to another.
+
+    Args:
+        old_pose_stamped (PoseStamped): The pose to transform.
+        old_frame_transform (np.ndarray): The transform from the old frame to the world frame.
+        new_frame_transform (np.ndarray): The transform from the world frame to the new frame.
+        new_frame_id (str): The ID of the new frame.
+    """
+
+    old_pose_matrix = matrix_from_pose_msg(old_pose_stamped.pose)
+
+    # Compute the new pose in the transformed frame
+    reference_frame_transform = (
+        inverse_matrix(new_frame_transform) @ old_frame_transform
+    )
+    new_pose_matrix = reference_frame_transform @ old_pose_matrix
+
+    # Convert back to Pose message
+    new_pose = pose_msg_from_matrix(new_pose_matrix)
+
+    # Create new PoseStamped message with updated frame_id
+    new_pose_stamped = pose_stamped_msg(
+        header=old_pose_stamped.header,
+        pose=new_pose,
+    )
+    new_pose_stamped.header.frame_id = new_frame_id
+
+    return new_pose_stamped
 
 
 def mesh_collision_object_msg(

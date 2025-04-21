@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 sudo apt-get install -y cpufrequtils
 sudo systemctl enable cpufrequtils

@@ -29,8 +29,8 @@ class PresentObjectTask(BaseTask):
         self,
         commander: Commander,
         trial_generator: BaseTrialGenerator | Mapping[str, Any],
-        delay_duration_s: float = 0.5,
-        stimulus_duration_s: float = 0.5,
+        stimulus_duration_sec: float = 0.5,
+        delay_duration_sec: float = 0.5,
     ):
         super().__init__(commander)
 
@@ -38,8 +38,8 @@ class PresentObjectTask(BaseTask):
         self.log(
             "PresentObjectTask(\n"
             f"  trial_generator={trial_generator},\n"
-            f"  stimulus_duration_s={stimulus_duration_s},\n"
-            f"  delay_duration_s={delay_duration_s},\n"
+            f"  stimulus_duration_sec={stimulus_duration_sec},\n"
+            f"  delay_duration_sec={delay_duration_sec},\n"
             ")"
         )
 
@@ -53,8 +53,8 @@ class PresentObjectTask(BaseTask):
             trial_generator_tmp = trial_generator
 
         self._trial_generator = trial_generator_tmp
-        self._stimulus_duration_s = stimulus_duration_s
-        self._delay_duration_s = delay_duration_s
+        self._stimulus_duration_sec = stimulus_duration_sec
+        self._delay_duration_sec = delay_duration_sec
         self._state = PresentObjectState.IDLE
 
     def _next_trial_spec(self):
@@ -82,7 +82,7 @@ class PresentObjectTask(BaseTask):
         """Present stimulus."""
         self.log("Presenting stimulus")
 
-        await asyncio.sleep(self._stimulus_duration_s)
+        await asyncio.sleep(self._stimulus_duration_sec)
 
         self._state = PresentObjectState.DELAY
 
@@ -90,7 +90,7 @@ class PresentObjectTask(BaseTask):
         """Delay phase."""
         self.log("Delay phase")
 
-        await asyncio.sleep(self._delay_duration_s)
+        await asyncio.sleep(self._delay_duration_sec)
 
         self._state = PresentObjectState.RETURN
 

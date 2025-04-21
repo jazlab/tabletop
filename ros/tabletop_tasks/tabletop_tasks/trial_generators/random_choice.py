@@ -25,6 +25,7 @@ class RandomChoice(BaseTrialGenerator):
         self,
         commander: Commander,
         object_ids: list[str],
+        occlude_prob: float,
         poses: list[Mapping[str, Any]],
         num_trials: int,
     ):
@@ -33,6 +34,7 @@ class RandomChoice(BaseTrialGenerator):
         self._poses = [
             self._commander.create_pose_stamped(**pose) for pose in poses
         ]
+        self._occlude_prob = occlude_prob
         self._num_trials = num_trials
         self._trial_counter = 0
 
@@ -47,11 +49,16 @@ class RandomChoice(BaseTrialGenerator):
         # Sample object id
         object_id = np.random.choice(self._object_ids)
 
+        # Sample occlude
+        occlude = np.random.choice(
+            [True, False], p=[self._occlude_prob, 1 - self._occlude_prob]
+        )
+
         # Make trial spec
         trial_spec = TrialSpec(
             object_id=object_id,
             object_pose=object_pose,
-            occlude=True,
+            occlude=occlude,
         )
 
         self._trial_counter += 1
