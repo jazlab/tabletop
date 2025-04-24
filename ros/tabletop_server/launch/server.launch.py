@@ -512,7 +512,7 @@ def generate_launch_description():
         package="tabletop_server",
         executable="mock_teensy",
         output=mock_teensy_output,
-        parameters=[{"use_sim_time": use_sim_time, "simulate": True}],
+        parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
         condition=IfCondition(use_mock_teensy),
     )

@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import enum
 import glob
 import os
@@ -41,6 +42,7 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
+from rclpy.executors import SingleThreadedExecutor
 from shape_msgs.msg import (
     Plane,
     SolidPrimitive,
@@ -82,7 +84,6 @@ from tabletop_utils.ros import (
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.executor import AIOExecutor
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
 
 # def create_task_wrapper(self, coro: Coroutine) -> asyncio.Task:
@@ -182,8 +183,6 @@ class Commander(BaseNode):
         self.planning_scene_monitor: PlanningSceneMonitor = (
             self.moveit_py.get_planning_scene_monitor()
         )
-
-        self.tg: Optional[asyncio.TaskGroup] = None
 
         self.setup_planning_scene()
 
@@ -287,8 +286,8 @@ class Commander(BaseNode):
         Call a sequence of dashboard client services to reset dashboard.
         """
         self.log("Resetting dashboard")
-        self.dashboard_trigger("/dashboard_client/close_safety_popup")
         self.dashboard_trigger("/dashboard_client/close_popup")
+        self.dashboard_trigger("/dashboard_client/close_safety_popup")
         self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
         self.dashboard_load(
             "/dashboard_client/load_program",
@@ -527,6 +526,7 @@ class Commander(BaseNode):
         except TimeoutError:
             return False
 
+    # TODO: Consider reimplementing using action server model (unsure if this is possible with the teensy)
     @asyncio_task_decorator
     async def wait_for_hand_fixation_release_async(
         self, timeout: Optional[float] = None
@@ -1227,6 +1227,9 @@ class Commander(BaseNode):
     ########## Planning and execution ##########################
     ############################################################
 
+    def get_empty_trajectory(self) -> RobotTrajectory:
+        return RobotTrajectory(self.robot_model)
+
     def cartesian_path_constraints(
         self,
         goal_pose_stamped: PoseStamped,
@@ -1343,9 +1346,10 @@ class Commander(BaseNode):
 
         return constraints
 
-    def plan_once(
+    def _plan_once(
         self,
         goal: PoseStamped | str | RobotState,
+        start_state: Optional[RobotState] = None,
         path_constraints: Optional[Constraints] = None,
         pose_link: Optional[str] = None,
         planning_pipeline: str | list[str] = "default",
@@ -1369,6 +1373,14 @@ class Commander(BaseNode):
         self.log("Planning trajectory once:", severity="DEBUG")
 
         planning_component = self.get_planning_component(group_name)
+
+        # Set start state to current state
+        if start_state is not None:
+            assert isinstance(start_state, RobotState)
+            if not planning_component.set_start_state(robot_state=start_state):
+                raise ValueError(f"Invalid start state: {start_state}")
+        else:
+            planning_component.set_start_state_to_current_state()
 
         # Set goal state from pose or configuration name
         original_pose_link = pose_link
@@ -1405,27 +1417,9 @@ class Commander(BaseNode):
                     raise ValueError(
                         "Linear pipeline requires a PoseStamped goal"
                     )
-
                 planning_pipeline = self.get_parameter_wrapper(
                     "planning.linear_pipeline"
                 )
-
-                try:
-                    linear_path_constraints = self.get_parameter_wrapper(
-                        "planning.default_linear_path_constraints"
-                    )
-                    if path_constraints is None:
-                        path_constraints = self.cartesian_path_constraints(
-                            goal_pose_stamped=goal,
-                            **linear_path_constraints,
-                        )
-                except ParameterNotDeclaredException:
-                    pass
-
-                if path_constraints is not None:
-                    path_constraints = self.cartesian_path_constraints(
-                        goal_pose_stamped=goal
-                    )
             else:
                 try:
                     planning_pipeline = self.get_parameter_wrapper(
@@ -1437,9 +1431,6 @@ class Commander(BaseNode):
         # Set path constraints
         if path_constraints is not None:
             planning_component.set_path_constraints(path_constraints)
-
-        # Set start state to current state
-        planning_component.set_start_state_to_current_state()
 
         # Plan
         self.log(
@@ -1483,7 +1474,7 @@ class Commander(BaseNode):
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
             try:
-                plan_response = self.plan_once(*args, **kwargs)
+                plan_response = self._plan_once(*args, **kwargs)
                 if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
                     self.log(
                         f"Planning attempt {i + 1}/{max_attempts} succeeded"
@@ -1528,6 +1519,8 @@ class Commander(BaseNode):
         """
         return await asyncio.to_thread(self.plan, *args, **kwargs)
 
+    # TODO: Use asyncio queues to support planning multiple trajectories and
+    # pushing them to the execution queue
     async def plan_generator_async(
         self, *args, goals: list[PoseStamped | str], **kwargs
     ) -> AsyncGenerator[MotionPlanResponse, None]:
@@ -1555,7 +1548,7 @@ class Commander(BaseNode):
             if new_goals:
                 goals.extend(new_goals)
 
-    def execute_once(
+    def _execute_once(
         self, robot_trajectory: RobotTrajectory
     ) -> ExecutionStatus:
         """
@@ -1572,8 +1565,7 @@ class Commander(BaseNode):
         )
         return self.trajectory_execution_manager.execute_and_wait()
 
-    @asyncio_task_decorator
-    async def execute_once_async(
+    async def _execute_once_async(
         self, robot_trajectory: RobotTrajectory
     ) -> ExecutionStatus:
         """
@@ -1588,17 +1580,17 @@ class Commander(BaseNode):
         Returns:
             ExecutionStatus: The status of the execution.
         """
-        future = asyncio.Future()
+        future = concurrent.futures.Future()
 
-        def done_callback():
-            future.set_result(
-                self.trajectory_execution_manager.get_last_execution_status()
-            )
+        def done_callback(status: ExecutionStatus):
+            future.set_result(status)
 
-        self.trajectory_execution_manager.push(robot_trajectory)
+        self.trajectory_execution_manager.push(
+            robot_trajectory.get_robot_trajectory_msg()
+        )
         self.trajectory_execution_manager.execute(done_callback)
 
-        return await future
+        return await asyncio.wrap_future(future)
 
     def execute(
         self, *args, max_attempts: Optional[int] = None, **kwargs
@@ -1620,7 +1612,7 @@ class Commander(BaseNode):
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
             try:
-                execution_status = self.execute_once(*args, **kwargs)
+                execution_status = self._execute_once(*args, **kwargs)
                 if execution_status:
                     self.log(
                         f"Execution attempt {i + 1}/{max_attempts} succeeded"
@@ -1665,7 +1657,7 @@ class Commander(BaseNode):
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
             try:
-                execution_status = await self.execute_once_async(
+                execution_status = await self._execute_once_async(
                     *args, **kwargs
                 )
                 if execution_status:
@@ -2354,6 +2346,7 @@ async def run(commander: Commander, config: Mapping[str, Any]):
         object_ids: list[str] = config["object_ids"]
 
         commander.init_dashboard()
+        # await commander.reset_dashboard_async()
         i = 0
         while True:
             async with commander.context_manager():
@@ -2389,7 +2382,36 @@ async def run(commander: Commander, config: Mapping[str, Any]):
         raise e
 
 
-async def main_async(args=None):
+# async def main_async(args=None):
+#     rclpy.init(args=args)
+
+#     non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
+#     config_file = non_ros_args[1]
+
+#     with open(config_file, "r") as f:
+#         run_config = yaml.safe_load(f)
+
+#     try:
+#         executor = SingleThreadedExecutor()
+#         commander = Commander()
+#         executor.add_node(commander)
+#         thread = Thread(target=executor.spin)
+#         thread.start()
+
+#         try:
+#             await run(commander, run_config)
+#         finally:
+#             thread.join()
+#             print("Shutting down executor")
+#             executor.shutdown()
+#             print("Shutting down commander")
+#             commander.destroy_node()
+#     finally:
+#         print("Shutting down rclpy")
+#         rclpy.shutdown()
+
+
+def main(args=None):
     rclpy.init(args=args)
 
     non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
@@ -2399,15 +2421,17 @@ async def main_async(args=None):
         run_config = yaml.safe_load(f)
 
     try:
-        executor = AIOExecutor()
         commander = Commander()
+        executor = SingleThreadedExecutor()
         executor.add_node(commander)
 
         try:
-            await asyncio.gather(
-                run(commander, run_config),
-                executor.spin(),
-            )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
+                run_future = tpe.submit(
+                    asyncio.run, run(commander, run_config)
+                )
+                run_future.add_done_callback(lambda _: executor.shutdown())
+                executor.spin()
         finally:
             print("Shutting down executor")
             executor.shutdown()
@@ -2416,7 +2440,3 @@ async def main_async(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.shutdown()
-
-
-def main():
-    asyncio.run(main_async())

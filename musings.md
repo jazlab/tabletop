@@ -1,5 +1,6 @@
 # Musings
-My thoughts/frustrations/notes as I work on the TableTop project.
+My thoughts/frustrations/notes as I work on the TableTop project (now
+organized as troubleshooting guide!).
 
 ## Docker
 
@@ -51,14 +52,14 @@ My thoughts/frustrations/notes as I work on the TableTop project.
     simply open a new terminal and run the command again.
 
 2. Don't mess with the VSCode debugger. You already figured it out bro. Stop
-    forgetting you spent fucking hours figuring it out. No need for `gdb -ex`
+    forgetting you spent at least 10 hours figuring it out. No need for `gdb -ex`
     this and `build_debug` that. Just use the debugger and be happy about it.
     If you *really* need some info, check out this [video](https://www.youtube.com/watch?v=PBbEhRf8QjE&list=PL2dJBq8ig-vihvDVw-D5zAYOArTMIX0FA&index=1).
 
 3. As a follow up to 2, if you forget why something is somewhere (or not
-    somewhere), you spent fucking hours determining that the presence (or lack
-    thereof) of that something at that somewhere was the optimal solution. Don't
-    re-invent the wheel. You already invented it 5 times.
+    somewhere), you spent at least 10 hours determining that the presence (or
+    lack thereof) of that something at that somewhere was the optimal solution.
+    Don't re-invent the wheel. You already invented it 5 times.
 
 
 ## ROS
@@ -72,6 +73,11 @@ My thoughts/frustrations/notes as I work on the TableTop project.
     ```bash
     ros2 launch tabletop_server server.launch.py robot_mode:=mock use_mock_teensy:=true simulate_flic:=true
     ```
+
+3. Don't try to use the `AIOExecutor` to run the `commander` node. You will be
+    stuck trying to figure out why your little ROS services aren't responding
+    and why you keep going through intermittent periods of successful ROS node
+    execution and complete radio silence. It is because ROS
 
 ## Flic
 
@@ -107,9 +113,9 @@ This gets its own section because it's a pain in the ass.
     `Error: No HCI devices are available` error. It waits for a bluetooth device
     to be made available.
 
-5. If your shit (specifically you're getting a bluetooth device not found
-    error, or your flic client refuses to connect to the server) still isn't
-    working, just restart your computer. Maybe even twice.
+5. If your shit still isn't working (specifically you're getting a bluetooth
+    device not found error, or your flic client refuses to connect to the server),
+    just restart your computer. Maybe even twice.
 
 6. "If you're ever stressed out, have a panic attack" (courtesy of CursorAI)
 

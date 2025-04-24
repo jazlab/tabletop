@@ -1,12 +1,11 @@
 """SmoothPursuit task."""
 
-import asyncio
-import time
-from typing import List
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
-from geometry_msgs.msg import Point, Pose, PoseStamped
-from std_msgs.msg import Header
+from moveit.core.robot_state import RobotState  # type: ignore
+from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from tabletop_server.nodes import Commander
 
 from tabletop_tasks.tasks.base_task import BaseTask
@@ -16,60 +15,99 @@ class SmoothPursuit(BaseTask):
     def __init__(
         self,
         commander: Commander,
-        center_pose: Pose,
+        center_pose: Mapping[str, Any],
         radius: float,
-        total_time: float,
-        reward_period_s: float = 1.0,
-        reward_duration_s: float = 0.1,
-        loop_period: float = 0.01,
+        length: float,
+        num_revolutions: int,
+        num_segments: int = 100,
+        velocity_scaling_factor: float = 0.5,
+        acceleration_scaling_factor: float = 0.5,
+        reward_period: float = 1.0,
+        reward_duration: float = 0.1,
+        num_cycles: int = 1,
     ):
         super().__init__(commander)
-        self._total_time = total_time
-        self._reward_period_s = reward_period_s
-        self._reward_duration_s = reward_duration_s
-        self._loop_period = loop_period
+        self._center_pose = self.commander.create_pose_stamped(**center_pose)
+        self._radius = radius
+        self._length = length
+        self._num_revolutions = num_revolutions
+        self._num_segments = num_segments
+        self._reward_period = reward_period
+        self._reward_duration = reward_duration
+        self._velocity_scaling_factor = velocity_scaling_factor
+        self._acceleration_scaling_factor = acceleration_scaling_factor
+        self._num_cycles = num_cycles
 
-        # Make circular path
-        self._path: List[PoseStamped] = []
-        for i in range(100):
-            theta = 2 * np.pi * i / 100
-            x = center_pose.position.x + radius * np.cos(theta)
-            y = center_pose.position.y + radius * np.sin(theta)
-            z = center_pose.position.z
-            waypoint = PoseStamped(
-                header=Header(frame_id="world"),
-                pose=Pose(
-                    position=Point(x=x, y=y, z=z),
-                    orientation=center_pose.orientation,
-                ),
+    async def generate_trajectories(self) -> RobotTrajectory:
+        """Generate spiral trajectory
+
+        Returns:
+            pre_trajectory: Trajectory to move to the start of the spiral
+            spiral_trajectory: Spiral trajectory
+        """
+        self.log(f"Generating {self._num_revolutions} revolutions")
+
+        last_waypoint: RobotState | None = None
+        for i in range(self._num_segments):
+            self.log(f"Generating segment {i} of {self._num_segments}")
+            # Calculate x and z coordinates of spiral (circular motion)
+            theta_xz = (
+                2 * np.pi * i * self._num_revolutions
+            ) / self._num_segments
+            x = self._center_pose.pose.position.x + self._radius * np.cos(
+                theta_xz
             )
-            self._path.append(waypoint)
+            z = self._center_pose.pose.position.z + self._radius * np.sin(
+                theta_xz
+            )
+            # Calculate y coordinate of spiral (forward-backward motion)
+            theta_y = (2 * np.pi * i) / self._num_segments
+            y = self._center_pose.pose.position.y + (
+                self._length / 2
+            ) * np.sin(theta_y)
+            waypoint_pose_stamped = self.commander.create_pose_stamped(
+                position=[x, y, z],
+                orientation=self._center_pose.pose.orientation,
+            )
 
-    async def run(self) -> None:
-        start_time = time.time()
-        last_reward_time = start_time
-
-        try:
-            plan_result = self._commander.plan(self._path[0])
-        except Exception as e:
-            self._commander.log(f"Failed to plan path: {e}", severity="ERROR")
-
-        future = asyncio.create_task(
-            self._commander.execute_async(plan_result.trajectory)
-        )
-
-        while time.time() - start_time < self._total_time:
-            # TODO: Reward logic
-            if future.done():
-                await future
-                future = asyncio.create_task(
-                    self._commander.execute_async(plan_result.trajectory)
+            if i == 0:
+                # Plan to start of spiral
+                response = await self.commander.plan_async(
+                    goal=waypoint_pose_stamped
                 )
             else:
-                if time.time() - last_reward_time > self._reward_period_s:
-                    await self._commander.reward_async(self._reward_duration_s)
-                    last_reward_time = time.time()
+                # Plan segment of spiral
+                response = await self.commander.plan_async(
+                    goal=waypoint_pose_stamped,
+                    start_state=last_waypoint,
+                    planning_pipeline="linear",
+                )
+                if i == 1:
+                    spiral_trajectory: RobotTrajectory = response.trajectory
+                else:
+                    spiral_trajectory.append(
+                        response.trajectory, dt=0.01, start_index=1
+                    )
 
-            await asyncio.sleep(self._loop_period)
+            last_waypoint = response.trajectory[len(response.trajectory) - 1]
 
-        await future
+        if not spiral_trajectory.apply_totg_time_parameterization(
+            velocity_scaling_factor=self._velocity_scaling_factor,
+            acceleration_scaling_factor=self._acceleration_scaling_factor,
+        ):
+            raise RuntimeError("Failed to apply time parameterization")
+        # trajectory.apply_ruckig_smoothing()
+        return spiral_trajectory
+
+    async def run(self) -> None:
+        self.log("Starting smooth pursuit task")
+        async with self.commander.context_manager():
+            spiral_trajectory = await self.generate_trajectories()
+            for i in range(self._num_cycles):
+                self.log(f"Executing cycle {i} of {self._num_cycles}")
+                self.log("Executing pre-trajectory")
+                await self.commander.plan_and_execute_async(
+                    spiral_trajectory[0]
+                )
+                self.log("Executing spiral trajectory")
+                await self.commander.execute_async(spiral_trajectory)

@@ -32,7 +32,7 @@ class RandomChoice(BaseTrialGenerator):
         super().__init__(commander)
         self._object_ids = object_ids
         self._poses = [
-            self._commander.create_pose_stamped(**pose) for pose in poses
+            self.commander.create_pose_stamped(**pose) for pose in poses
         ]
         self._occlude_prob = occlude_prob
         self._num_trials = num_trials

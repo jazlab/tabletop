@@ -128,7 +128,7 @@ async def main_async(args=None):
         flic = Flic(flic_client)
         executor.add_node(flic)
 
-        # Wait for 3 buttons to be connected
+        # Wait for num_buttons to be connected
         await wait_for_buttons(
             flic_client, flic.get_parameter_wrapper("num_buttons")
         )

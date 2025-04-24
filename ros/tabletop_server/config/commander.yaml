@@ -11,10 +11,10 @@
     dashboard:
       installation: default.installation
       program: external_control.urp
-      init_timeout: 20.0
+      init_timeout: 60.0
 
     rig:
-      init_timeout: 20.0
+      init_timeout: 60.0
 
     teensy:
       spin_period: 0.05
@@ -46,7 +46,7 @@
 
     planning_scene:
       floor_coef: [0.0, 0.0, 1.0, 0.0]
-      divider_coef: [1.0, 0.0, 0.0, -0.35]
+      divider_coef: [1.0, 0.0, 0.0, -1.0]
 
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:

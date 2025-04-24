@@ -1,0 +1,15 @@
+tasks:
+  - class: SmoothPursuit
+    kwargs:
+      center_pose:
+        position: [0.0, -0.5, 0.8]
+        rpy: [1.5707, 0.0, 0.0]
+      radius: 0.1
+      length: 0.3
+      num_revolutions: 10
+      num_segments: 200
+      velocity_scaling_factor: 0.5
+      acceleration_scaling_factor: 0.5
+      reward_period: 1.0
+      reward_duration: 0.1
+      num_cycles: 20

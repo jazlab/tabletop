@@ -22,7 +22,9 @@
             "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "arguments": [
                 "robot_mode:=ursim",
-                "commander_log_level:=DEBUG"
+                "use_mock_teensy:=true",
+                "simulate_flic:=true",
+                "task_config:=smooth_pursuit.yaml"
             ],
             "attachDebugger": [
                 "run_tasks"

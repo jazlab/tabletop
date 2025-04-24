@@ -20,13 +20,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "task_config",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_tasks"),
-                    "config",
-                    "foraging_random.yaml",
-                ]
-            ),
+            default_value="foraging_random.yaml",
             description="Path to the task configuration file",
         ),
     ]
@@ -34,7 +28,13 @@ def declare_arguments():
 
 def generate_launch_description():
     task_executable = LaunchConfiguration("task_executable")
-    task_config = LaunchConfiguration("task_config")
+    task_config = PathJoinSubstitution(
+        [
+            FindPackageShare("tabletop_tasks"),
+            "config",
+            LaunchConfiguration("task_config"),
+        ]
+    )
 
     server_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

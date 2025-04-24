@@ -284,6 +284,7 @@ class ForagingTask(BaseTask):
 
     async def run(self):
         """Run a trial."""
+        self.log("Starting foraging task")
         while True:
             async with self.commander.context_manager():
                 try:
