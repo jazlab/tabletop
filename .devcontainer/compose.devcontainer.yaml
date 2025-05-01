@@ -5,10 +5,12 @@ services:
     extends:
       file: ../compose.yaml
       service: server_base
-    privileged: true
+    # privileged: true
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - /dev:/dev
+      # - /dev:/dev
     environment:
       - DISPLAY=$DISPLAY
     networks:

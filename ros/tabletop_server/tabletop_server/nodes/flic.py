@@ -2,10 +2,8 @@ import asyncio
 import logging
 import random
 import time
-from typing import Optional
 
 import rclpy
-from rclpy.timer import Timer
 from tabletop_msgs.srv import GetFlic
 
 from tabletop_server.executor import AIOExecutor
@@ -20,22 +18,20 @@ DEFAULT_LOG_SEVERITY = "INFO"
 class Flic(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": False,
-        "simulate_delay_sec": 6.0,
+        "simulate_delay": 6.0,
         "num_buttons": 1,
     }
 
     def __init__(self, flic_client: AIOFlicClient):
         # Initialize base node
-        # self.log_pub = None
         super().__init__("flic")
 
         self.flic_client = flic_client
-        # self.log_pub = self.create_publisher(String, "flic/log", 10)
 
         # Simulation parameters
         self.simulate: bool = self.get_parameter_wrapper("simulate")
-        self.simulate_delay_sec: float = self.get_parameter_wrapper(
-            "simulate_delay_sec"
+        self.simulate_delay: float = self.get_parameter_wrapper(
+            "simulate_delay"
         )
 
         # State variables
@@ -51,24 +47,20 @@ class Flic(BaseNode):
         )
 
         # One-shot timers for delayed state updates
-        self.simulate_delay_timer: Optional[Timer] = None
+        self.simulate_delay_timer = self.create_timer(
+            0.0, self.simulated_delay_timer_callback, autostart=False
+        )
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
-
-    def log(self, message: str, severity: str = DEFAULT_LOG_SEVERITY):
-        super().log(message, severity)
-        # if self.log_pub is not None:
-        #     self.log_pub.publish(String(data=message))
 
     def simulated_get_flic_callback(
         self, request: GetFlic.Request, response: GetFlic.Response
     ) -> GetFlic.Response:
         # Schedule a timer to update the state pin after a random delay
-        if self.simulate_delay_timer is None:
-            delay = random.uniform(0.0, self.simulate_delay_sec)
-            self.simulate_delay_timer = self.create_timer(
-                delay, lambda: self.simulated_delay_timer_callback(delay=delay)
-            )
+        if self.simulate_delay_timer.is_canceled():
+            delay = random.uniform(0.0, self.simulate_delay)
+            self.simulate_delay_timer.timer_period_ns = delay * 1e9
+            self.simulate_delay_timer.reset()
 
         # Set the response message
         response.success = True
@@ -86,7 +78,6 @@ class Flic(BaseNode):
 
         assert self.simulate_delay_timer is not None
         self.simulate_delay_timer.cancel()
-        self.simulate_delay_timer = None
 
         self.log(f"Flic simulated delay for {delay} seconds")
 

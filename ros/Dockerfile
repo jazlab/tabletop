@@ -1,8 +1,13 @@
-FROM ros:jazzy AS server
+FROM ros:jazzy
 
 SHELL ["/bin/bash", "-c"]
 
 COPY ./apt.list /tmp/apt.list
+
+RUN apt-get update \
+    && apt-get install -y ca-certificates software-properties-common \
+    && apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key \
+    && add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
 
 RUN apt-get update \
     && apt-get upgrade -y \

@@ -37,3 +37,12 @@
 # Ignore piano stuff
 **/*.sf2
 **/*.mid
+
+# Ignore results
+**/results/
+
+# Ignore testing files
+**/testing/
+
+# Ignore copied eyelink files
+/eyelink_stuff/

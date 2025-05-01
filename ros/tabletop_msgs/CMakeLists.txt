@@ -21,6 +21,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetArmDoor.srv"
   "srv/SetReward.srv"
   "srv/SetSmartglass.srv"
+  "srv/GetSmoothPursuit.srv"
 )
 
 # uncomment the following section in order to fill in

@@ -483,10 +483,10 @@ class MockTeensy(BaseNode):
     def set_smartglass_callback(
         self, request: SetSmartglass.Request, response: SetSmartglass.Response
     ):
-        digital_write(SMARTGLASS_CONTROL_PIN, request.is_revealed)
+        digital_write(SMARTGLASS_CONTROL_PIN, request.reveal)
         response.success = True
         response.message = (
-            f"Smartglass {'revealed' if request.is_revealed else 'occluded'}"
+            f"Smartglass {'revealed' if request.reveal else 'occluded'}"
         )
         self.log(response.message)
 

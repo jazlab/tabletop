@@ -1,4 +1,4 @@
-bool reveal
 ---
 bool success
+bool is_smoothly_pursuing
 string message

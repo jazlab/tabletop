@@ -1,6 +1,7 @@
-int32 left_diameter
-int32 right_diameter
-int32 left_x
-int32 left_y
-int32 right_x
-int32 right_y
+uint32 timestamp
+float32 left_x
+float32 left_y
+float32 left_diameter
+float32 right_x
+float32 right_y
+float32 right_diameter

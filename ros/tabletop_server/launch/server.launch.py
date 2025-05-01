@@ -230,6 +230,12 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "moveit_log_level",
+            default_value="WARN",
+            description="MoveIt log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "teensy_log_level",
             default_value="INFO",
             description="Teensy log level",
@@ -333,6 +339,7 @@ def generate_launch_description():
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
     commander_log_level = LaunchConfiguration("commander_log_level")
+    moveit_log_level = LaunchConfiguration("moveit_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
 
     mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
@@ -480,7 +487,12 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
             },
         ],
-        ros_arguments=["--log-level", ["commander:=", commander_log_level]],
+        ros_arguments=[
+            "--log-level",
+            ["commander:=", commander_log_level],
+            "--log-level",
+            ["moveit*:=", moveit_log_level],
+        ],
         arguments=[script_config],
         output=commander_output,
         on_exit=[Shutdown()],

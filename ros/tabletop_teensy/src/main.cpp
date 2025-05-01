@@ -459,7 +459,6 @@ void set_arm_door_callback(const void* req, void* res) {
                     "running");
   }
 
-
   int64_t time_since_last_call;
   RCASSERT(rcl_timer_get_time_since_last_call(&arm_door_timer,
                                               &time_since_last_call),
@@ -592,11 +591,11 @@ void set_smartglass_callback(const void* req, void* res) {
   tabletop_msgs__srv__SetSmartglass_Response* response =
       (tabletop_msgs__srv__SetSmartglass_Response*) res;
 
-  digitalWrite(SMARTGLASS_CONTROL_PIN, request->is_revealed);
+  digitalWrite(SMARTGLASS_CONTROL_PIN, request->reveal);
 
   response->success = true;
   STRING_SET(&response->message, "Smartglass %s",
-             request->is_revealed ? "revealed" : "occluded");
+             request->reveal ? "revealed" : "occluded");
   LOG(response->message.data);
 }
 
