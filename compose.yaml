@@ -63,11 +63,11 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
-    # device_cgroup_rules:
-    #   - c 160:* rmw
-    devices:
-      - /dev/dri:/dev/dri
-      # - /dev/ttyACM0:/dev/ttyACM0
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.11
+    hostname: server
+
     volumes:
       - ../..:/root/ws
     ports:
@@ -75,11 +75,6 @@ services:
       - 50002:50002
       - 50003:50003
       - 50004:50004
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.11
-    hostname: server
-    runtime: nvidia
     environment:
       - BUILD_COMMAND=${BUILD_COMMAND:-:}
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-echo "No launch command provided, sleeping..." && sleep infinity}
@@ -104,10 +99,13 @@ services:
 
   server:
     extends: server_base
+    runtime: nvidia
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
+    # device_cgroup_rules:
+    #   - c 160:* rmw
     environment:
       - DISPLAY=$DISPLAY
 

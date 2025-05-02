@@ -91,10 +91,15 @@ building and running the project:
     Container usage)
 * [[Optional] PlatformIO](https://platformio.org/install/) (for Teensy
     Micro-Controller usage)
+* [[Optional] Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+    (for using Nvidia GPUs in Docker containers)
 
-Follow the installation instructions in the links above.
+Follow the installation instructions in the links above for each requirement
+(or use the helper scripts `scripts/docker_install.sh`,
+`scripts/platformio_install.sh`, and `scripts/nvidia_ctk_install.sh` in the
+`scripts/` directory).
 
-**Note**: If you are running MacOS on Apple Silicon (All M-series chips),
+**Note**: If you are running MacOS on Apple Silicon (all M-series chips),
 you should enable the **Use Rosetta for x86/amd64 for emulation on Mac Silicon**
 option in the Docker settings:
 * Open Docker Desktop
@@ -102,7 +107,13 @@ option in the Docker settings:
 * Go to General
 * Make sure **Use Rosetta x86/amd64 for emulation on Mac Silicon** is enabled
 
-You may experience issues with the Universal Robots Simulator otherwise.
+You may experience issues with the `ursim` container otherwise.
+
+**Note**: If you are running a system without an Nvidia GPU, or if you do not
+want to permit the container GPU access, you can comment out the `runtime: nvidia`
+line in the `server` service in the `compose.yaml` file (see [Starting Docker
+Containers](#starting-docker-containers) for more information on the different
+containers and their associated services).
 
 ## Setup
 
@@ -309,18 +320,18 @@ To run the entire software stack using Docker:
 
     All at once:
     ```bash
-    docker compose up [--force-recreate] robot|robot_novnc server|server_novnc
+    docker compose up [--force-recreate] ursim|ursim_novnc server|server_novnc
     ```
 
     Individually:
     ```bash
-    docker compose up [--force-recreate] robot
-    docker compose up [--force-recreate] robot_novnc
+    docker compose up [--force-recreate] ursim
+    docker compose up [--force-recreate] ursim_novnc
     docker compose up [--force-recreate] server
     docker compose up [--force-recreate] server_novnc
     ```
 
-    Running the `robot` or `server` containers will use your host machine's
+    Running the `ursim` or `server` containers will use your host machine's
     X server, in which case you may first need to run:
     ```bash
     xhost +
@@ -353,9 +364,9 @@ containers (and their variants):
     difference between `server` and `server_novnc` is that the former uses the
     host machine's X server to display the GUI, while the latter uses the noVNC
     web interface.
-- `robot*`: The container for the Universal Robots simulator, which simulates the
-    safety constraints of the real robot. The difference between `robot` and
-    `robot_novnc` is that the former uses the host machine's X server to display
+- `ursim*`: The container for the Universal Robots simulator, which simulates the
+    safety constraints of the real robot. The difference between `ursim` and
+    `ursim_novnc` is that the former uses the host machine's X server to display
     the simulator GUI, while the latter uses the noVNC web interface.
 
 **Note**: Be careful not to run more than one of each type of container at
@@ -379,7 +390,7 @@ To get started:
 
 1. Make sure any previous containers have been destroyed (call `docker compose
     down` in the root directory of the project).
-2. Start the `robot_novnc` container, as above.
+2. Start the `ursim_novnc` container, as above.
     - It is currently necessary to do this before the `server_novnc` in order
       to give the URSim time to spin up.
 3. Start the `server_novnc` container, as above.

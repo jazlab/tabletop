@@ -45,4 +45,4 @@
 **/testing/
 
 # Ignore copied eyelink files
-/eyelink_stuff/
+/eyelink/docs/

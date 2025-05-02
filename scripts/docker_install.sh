@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Function to display usage information
+show_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Install Docker on Ubuntu."
+    echo ""
+    echo "Options:"
+    echo "  -r, --repo    Use repository-based installation instead of convenience script"
+    echo "  -h, --help    Display this help message and exit"
+}
+
+# Function for repository-based installation
+install_docker_repo() {
+    echo "Using repository-based installation method..."
+
+    # Set up Docker's apt repository
+    echo "Setting up Docker's apt repository..."
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    # Add the repository to Apt sources
+    echo "Adding Docker repository to apt sources..."
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # Update apt package index
+    sudo apt-get update
+
+    # Install Docker Engine, containerd, and Docker Compose
+    echo "Installing Docker Engine, containerd, and Docker Compose..."
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+# Function for convenience script installation
+install_docker_convenience() {
+    echo "Using convenience script installation method..."
+
+    # Download and run the Docker convenience script
+    echo "Downloading and running Docker convenience script..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+
+    # Clean up the installation script
+    echo "Cleaning up..."
+    rm -f get-docker.sh
+}
+
+# Parse command line arguments
+use_repo=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --repo)
+            use_repo=true
+            shift
+            ;;
+        --help|-h)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+echo "Starting Docker installation process..."
+
+# Uninstall old versions
+echo "Removing old Docker packages if they exist..."
+for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
+    sudo apt-get remove -y $pkg 2>/dev/null || true
+done
+
+# Install Docker using the selected method
+if [ "$use_repo" = true ]; then
+    install_docker_repo
+else
+    install_docker_convenience
+fi
+
+# Verify that Docker Engine is installed correctly
+echo "Verifying Docker installation..."
+sudo docker run hello-world
+
+# Post-installation steps
+
+# Create the docker group if it doesn't exist
+echo "Setting up Docker to run without sudo..."
+sudo groupadd docker 2>/dev/null || true
+
+# Add your user to the docker group
+echo "Adding current user to docker group..."
+sudo usermod -aG docker $USER
+
+# Configure Docker to start on boot with systemd
+echo "Configuring Docker to start on boot..."
+sudo systemctl enable docker.service
+sudo systemctl enable containerd.service
+
+# Configure logging driver with log rotation
+echo "Configuring Docker logging driver with log rotation..."
+docker_daemon_config="/etc/docker/daemon.json"
+
+# Create the file if it doesn't exist
+if [ ! -f "$docker_daemon_config" ]; then
+    sudo mkdir -p /etc/docker
+    echo "{}" | sudo tee "$docker_daemon_config" > /dev/null
+fi
+
+# Get current content and check if logging configuration exists
+if ! sudo cat "$docker_daemon_config" | jq -e '.log-driver' >/dev/null 2>&1; then
+    # Create configuration with logging settings if it doesn't exist
+    sudo cat "$docker_daemon_config" | \
+    jq '. + {
+        "log-driver": "json-file",
+        "log-opts": {
+            "max-size": "10m",
+            "max-file": "3"
+        }
+    }' | sudo tee "$docker_daemon_config" > /dev/null
+
+    # Restart Docker to apply changes
+    sudo systemctl restart docker
+fi
+
+echo "Docker installation and setup complete!"
+echo "Log out and log back in (or run 'newgrp docker') for the docker group changes to take effect."
+echo "You can then run Docker commands without sudo."

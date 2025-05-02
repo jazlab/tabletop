@@ -42,10 +42,12 @@ class Eyelink(BaseNode):
         "smooth_pursuit_min_samples": 100,
         "conversion_script_path": "/root/ws/src/tabletop/scripts/eyelink_convert.sh",
         "results_dir": "/root/ws/src/tabletop/results/eyelink",
-        "file_event_flags": "LEFT,RIGHT,FIXATION,SACCADE,BLINK,MESSAGE,BUTTON,INPUT",
-        "file_sample_flags": "LEFT,RIGHT,RAW,AREA,STATUS,INPUT",
-        "link_event_flags": "LEFT,RIGHT,FIXATION,SACCADE,BLINK,BUTTON,FIXUPDATE,INPUT",
-        "link_sample_flags": "LEFT,RIGHT,RAW,AREA,STATUS,INPUT",
+        "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
+        "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
+        "file_event_filter": "",
+        "link_event_filter": "",
+        "file_event_data": "",
+        "link_event_data": "",
     }
 
     ###########################################################################
@@ -160,18 +162,17 @@ class Eyelink(BaseNode):
 
         self.tracker.setPupilSizeDiameter("YES")
 
-        self.tracker.sendCommand(
-            f"file_event_filter = {self.get_parameter_wrapper('file_event_flags')}"
-        )
-        self.tracker.sendCommand(
-            f"file_sample_data = {self.get_parameter_wrapper('file_sample_flags')}"
-        )
-        self.tracker.sendCommand(
-            f"link_event_filter = {self.get_parameter_wrapper('link_event_flags')}"
-        )
-        self.tracker.sendCommand(
-            f"link_sample_data = {self.get_parameter_wrapper('link_sample_flags')}"
-        )
+        for key in [
+            "file_sample_data",
+            "link_sample_data",
+            "file_event_filter",
+            "link_event_filter",
+            "file_event_data",
+            "link_event_data",
+        ]:
+            value = self.get_parameter_wrapper(key)
+            if value is not None:
+                self.tracker.sendCommand(f"{key} = {value}")
 
     def close_data_file(self):
         """Closes the data file and transfers it to the local machine.
@@ -221,7 +222,7 @@ class Eyelink(BaseNode):
             self.log(f"Error converting EDF to ASC: {e}", severity="ERROR")
             raise RuntimeError("Error converting EDF to ASC") from e
 
-    def eyeAvailable(self) -> int:
+    def eye_available(self) -> int:
         """Get the eye available from the tracker.
 
         This function will return one of the following values:
@@ -234,11 +235,11 @@ class Eyelink(BaseNode):
 
     def left_eye_available(self) -> bool:
         """Check if the left eye is available."""
-        return self.eyeAvailable() in [LEFT_EYE, BINOCULAR]
+        return self.eye_available() in [LEFT_EYE, BINOCULAR]
 
     def right_eye_available(self) -> bool:
         """Check if the right eye is available."""
-        return self.eyeAvailable() in [RIGHT_EYE, BINOCULAR]
+        return self.eye_available() in [RIGHT_EYE, BINOCULAR]
 
     ###########################################################################
     # Sample retrieval
@@ -327,7 +328,7 @@ class Eyelink(BaseNode):
         left_sample: SampleData | None = sample.getLeftEye()
         right_sample: SampleData | None = sample.getRightEye()
 
-        eye_used = self.eyeAvailable()
+        eye_used = self.eye_available()
         if eye_used == LEFT_EYE:
             assert left_sample is not None
             assert right_sample is None

@@ -4,21 +4,16 @@ services:
   devcontainer:
     extends:
       file: ../compose.yaml
-      service: server_base
+      service: server
     # privileged: true
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      # - /dev:/dev
-    environment:
-      - DISPLAY=$DISPLAY
+    # volumes:
+    #   - /dev:/dev
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.12
     hostname: devcontainer
-    ports:
-      - 8008:8008 # PlatformIO HTTP port
+    # ports:
+    #   - 8008:8008 # PlatformIO HTTP port
     command: sleep infinity
 
 networks:

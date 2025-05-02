@@ -9,6 +9,7 @@ source $script_dir/utils.sh
 
 # Parse command line arguments
 results_dir=$(get_parent_dir $script_dir 1)/results/eyelink
+edf2asc_args=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         -o|--output)
@@ -21,9 +22,9 @@ while [[ $# -gt 0 ]]; do
             shift # past value
             ;;
         *)
-            print_error "Unknown option: $1"
-            print_error "Usage: $0 [-o|--output results_directory]"
-            exit 1
+            # Add remaining arguments to array for edf2asc
+            edf2asc_args+=("$1")
+            shift
             ;;
     esac
 done
@@ -48,7 +49,8 @@ find "$results_dir" -maxdepth 1 -name '*.edf' -print0 | while IFS= read -r -d $'
     # Run the edf2asc conversion tool
     # Assumes edf2asc is in the PATH and outputs the .asc file
     # in the same directory as the input .edf file.
-    edf2asc "$edf_file" || true
+    echo "${edf2asc_args[@]}" "$edf_file"
+    edf2asc "${edf2asc_args[@]}" "$edf_file" || true
     print_status "Conversion attempt completed for '$edf_file'."
   else
     print_status "Skipping '$edf_file', already converted ('$asc_file' exists)."
