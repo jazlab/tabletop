@@ -12,27 +12,34 @@ results_dir=$(get_parent_dir $script_dir 1)/results/eyelink
 edf2asc_args=()
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -o|--output)
-            if [[ -z "$2" ]]; then
-                print_error "Error: --output requires a results directory argument."
+        --dir)
+            shift # past argument
+            if [[ -z "$1" ]]; then
+                print_error "Error: --dir requires a results directory argument."
                 exit 1
             fi
-            results_dir="$2"
-            shift # past argument
-            shift # past value
+            results_dir="$1"
+            ;;
+        --clean)
+            clean=true
             ;;
         *)
             # Add remaining arguments to array for edf2asc
             edf2asc_args+=("$1")
-            shift
             ;;
     esac
+    shift
 done
 
 # Check if the results directory exists
 if [ ! -d "$results_dir" ]; then
   print_error "Error: Results directory '$results_dir' not found."
   exit 1
+fi
+
+if [ "$clean" = true ]; then
+    print_status "Cleaning up existing .asc files in $results_dir..."
+    find "$results_dir" -maxdepth 1 -name '*.asc' -delete
 fi
 
 print_status "Checking for EDF files to convert in $results_dir..."
@@ -59,9 +66,9 @@ done
 
 print_status "Conversion complete."
 
-# Remove existing latest.asc symlink if it exists
-if [ -L "$results_dir/latest.asc" ]; then
-    print_status "Removing existing latest.asc symlink..."
+# Remove existing latest.asc if it exists
+if [ -f "$results_dir/latest.asc" ]; then
+    print_status "Removing existing latest.asc..."
     rm "$results_dir/latest.asc"
 fi
 

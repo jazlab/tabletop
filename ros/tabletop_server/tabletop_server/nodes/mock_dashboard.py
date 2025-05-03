@@ -117,14 +117,18 @@ def main(args=None):
 
         try:
             executor.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt")
         finally:
-            print("Shutting down executor")
-            executor.shutdown()
             print("Shutting down mock dashboard")
             mock_dashboard.destroy_node()
+            print("Shutting down executor")
+            executor.shutdown()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
     finally:
         print("Shutting down rclpy")
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

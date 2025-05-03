@@ -8,6 +8,7 @@ from rclpy.exceptions import (
     ParameterAlreadyDeclaredException,
     ParameterNotDeclaredException,
 )
+from rclpy.logging import LoggingSeverity
 from rclpy.node import Node
 from tabletop_utils.common import BracketedListDumper
 from tabletop_utils.ros import (
@@ -52,23 +53,32 @@ class BaseNode(Node):
         self,
         message: Any,
         severity: str = DEFAULT_LOG_SEVERITY,
+        **kwargs,
     ):
         """
         Log a message with the given severity.
         """
-        match severity:
-            case "DEBUG":
-                self.get_logger().debug(message)
-            case "INFO":
-                self.get_logger().info(message)
-            case "WARN":
-                self.get_logger().warning(message)
-            case "ERROR":
-                self.get_logger().error(message)
-            case "FATAL":
-                self.get_logger().fatal(message)
-            case _:
-                raise ValueError(f"Invalid severity: {severity}")
+        kwargs["throttle_duration_sec"] = None
+        if True:
+            match severity:
+                case "DEBUG":
+                    self.get_logger().debug(message, **kwargs)
+                case "INFO":
+                    self.get_logger().info(message, **kwargs)
+                case "WARN":
+                    self.get_logger().warning(message, **kwargs)
+                case "ERROR":
+                    self.get_logger().error(message, **kwargs)
+                case "FATAL":
+                    self.get_logger().fatal(message, **kwargs)
+                case _:
+                    raise ValueError(f"Invalid severity: {severity}")
+        else:
+            if (
+                LoggingSeverity[severity]
+                >= self.get_logger().get_effective_level()
+            ):
+                print(f"{severity}: {message}")
 
     def _check_parameters(self):
         """
@@ -167,96 +177,6 @@ class BaseNode(Node):
             return value if value != "null" else None
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
-
-    # @staticmethod
-    # def _rclpy_task_wrapper(
-    #     handle: Callable,
-    #     *args,
-    #     **kwargs,
-    # ):
-    #     try:
-    #         return handle(*args, **kwargs)
-    #     except Exception as e:
-    #         print(f"Error in {handle.__name__} during callback:")
-    #         print(e)
-    #         return e
-
-    # @staticmethod
-    # async def _rclpy_task_wrapper_coroutine(handle: Coroutine):
-    #     try:
-    #         return await handle
-    #     except Exception as e:
-    #         try:
-    #             print(f"Error in {handle.__name__} during callback:")  # type: ignore
-    #         except AttributeError:
-    #             print(f"Error in {handle} during callback:")
-    #         print(e)
-    #         return e
-
-    # async def create_rclpy_task(
-    #     self,
-    #     handle: Callable | Coroutine,
-    #     *args,
-    #     done_callback: Optional[Callable] = None,
-    #     timeout_sec: Optional[float] = None,
-    #     **kwargs,
-    # ) -> Any:
-    #     """
-    #     Create an rclpy task is finished.
-    #     To wait for the task to finish, await the coroutine.
-    #     """
-    #     if iscoroutine(handle):
-    #         if args or kwargs:
-    #             raise ValueError(
-    #                 "Arguments and keyword arguments are not allowed for awaitable handles"
-    #             )
-    #         rclpy_task = self.executor.create_task(  # type: ignore
-    #             self._rclpy_task_wrapper_coroutine(handle)
-    #         )
-    #     elif iscoroutinefunction(handle):
-    #         rclpy_task = self.executor.create_task(  # type: ignore
-    #             self._rclpy_task_wrapper_coroutine(handle(*args, **kwargs))
-    #         )
-    #     else:
-    #         rclpy_task = self.executor.create_task(  # type: ignore
-    #             self._rclpy_task_wrapper, handle, *args, **kwargs
-    #         )
-
-    #     if done_callback is not None:
-    #         rclpy_task.add_done_callback(done_callback)
-
-    #     try:
-    #         async with asyncio.timeout(timeout_sec):
-    #             result = await rclpy_task
-    #             if isinstance(result, Exception):
-    #                 raise result
-    #             else:
-    #                 return result
-    #     except (asyncio.CancelledError, TimeoutError) as e:
-    #         # Cancel the future to invoke the done callback
-    #         rclpy_task.cancel()
-
-    #         # Check if the future was successfully cancelled (avoids race
-    #         # condition)
-    #         if rclpy_task.cancelled():
-    #             if isinstance(e, asyncio.CancelledError):
-    #                 self.log(
-    #                     f"Rclpy task {handle.__name__} was cancelled by asyncio",
-    #                     severity="ERROR",
-    #                 )
-    #             else:
-    #                 self.log(
-    #                     f"Rclpy task {handle.__name__} timed out",
-    #                     severity="ERROR",
-    #                 )
-    #         else:
-    #             self.log(
-    #                 f"Rclpy task {handle.__name__} finished before cancellation",
-    #                 severity="WARN",
-    #             )
-    #             return rclpy_task.result()
-
-    #         raise e
 
     def _create_client(
         self,

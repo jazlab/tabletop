@@ -1,5 +1,4 @@
 import concurrent.futures
-import logging
 import os
 import subprocess
 import threading
@@ -8,7 +7,7 @@ import traceback
 from collections import deque
 from datetime import datetime
 from threading import Lock
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pylink
@@ -16,18 +15,27 @@ import rclpy
 from pylink import EyeLink as EyeLinkTracker
 from pylink.constants import MISSING_DATA
 from pylink.tracker import Sample, SampleData
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from std_srvs.srv import Trigger
 from tabletop_msgs.srv import GetSmoothPursuit
 
 from tabletop_server.nodes.base import BaseNode
 
-DEFAULT_LOG_SEVERITY = "INFO"
 TRACEBACK = False
 NO_EYE = -1
 LEFT_EYE = 0
 RIGHT_EYE = 1
 BINOCULAR = 2
+
+type EyeData = (
+    tuple[
+        int,
+        tuple[float, float, float] | None,
+        tuple[float, float, float] | None,
+    ]
+    | None
+)
 
 
 class Eyelink(BaseNode):
@@ -35,19 +43,22 @@ class Eyelink(BaseNode):
         "tracker_address": "100.1.1.1",
         "do_tracker_setup": True,
         "wait_for_data_timeout": 1.0,
-        "log_periodic_interval": 0.5,
         "sample_rate": 1000,
-        "smooth_pursuit_window": 0.5,
-        "smooth_pursuit_default_threshold": 100.0,
-        "smooth_pursuit_min_samples": 100,
-        "conversion_script_path": "/root/ws/src/tabletop/scripts/eyelink_convert.sh",
-        "results_dir": "/root/ws/src/tabletop/results/eyelink",
+        "smooth_pursuit_window": 0.1,
+        "smooth_pursuit_default_threshold": 4e4,
+        "smooth_pursuit_min_samples": 75,
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
-        "file_event_filter": "",
-        "link_event_filter": "",
-        "file_event_data": "",
-        "link_event_data": "",
+        "file_event_filter": "null",
+        "link_event_filter": "null",
+        "file_event_data": "null",
+        "link_event_data": "null",
+        "results_dir": "/root/ws/src/tabletop/results/eyelink",
+        "conversion_script_path": "/root/ws/src/tabletop/scripts/eyelink_convert.sh",
+        "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
+        "log_periodic_interval": 0.05,
+        "log_samples": False,
+        "log_smooth_pursuit": True,
     }
 
     ###########################################################################
@@ -62,12 +73,14 @@ class Eyelink(BaseNode):
         )
         pylink.endRealTimeMode()
 
-        self.setup_ros()
-        self.setup_sample_queue()
+        self._init_ros()
+        self._init_sample_retrieval()
 
         self.destroyed = False
+        self.i = 0
+        self.start_time = time.time()
 
-    def setup_ros(self):
+    def _init_ros(self):
         """Setup the ROS node.
 
         This function will setup the ROS node. It will create a timer to log
@@ -76,6 +89,7 @@ class Eyelink(BaseNode):
         self.log_periodic_timer = self.create_timer(
             self.get_parameter_wrapper("log_periodic_interval"),
             self.log_periodic_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.get_smooth_pursuit_service = self.create_service(
             GetSmoothPursuit,
@@ -103,28 +117,26 @@ class Eyelink(BaseNode):
             self.close_data_file_callback,
         )
 
-    def setup_sample_queue(self):
-        """Setup the sample queue.
+    def _init_sample_retrieval(self):
+        """Setup the sample retrieval.
 
-        This function will setup the sample queue. The sample queue is used
-        to store a window of the most recent samples from the tracker.
+        This function will setup the sample queue and thread pool, as well as
+        the stop event and sample retrieval loop future.
         """
         sample_rate = self.get_parameter_wrapper("sample_rate")
         smooth_pursuit_window = self.get_parameter_wrapper(
             "smooth_pursuit_window"
         )
-        self.sample_queue: deque[Sample] = deque(
+        self.eye_data_queue: deque[EyeData] = deque(
             maxlen=int(sample_rate * smooth_pursuit_window)
         )
-        self.sample_queue_lock = Lock()
-        self.stop_get_samples_event = threading.Event()
-        self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        self.get_samples_future = self.tpe.submit(
-            self.get_samples, stop_event=self.stop_get_samples_event
-        )
-        self.get_samples_future.add_done_callback(
-            lambda _: self.executor.shutdown()  # type: ignore
-        )
+        self.eye_data_queue_lock = Lock()
+        # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.stop_sample_retrieval_event = threading.Event()
+        self.stop_sample_retrieval_event.set()
+        self.sample_retrieval_future = concurrent.futures.Future()
+        self.sample_retrieval_future.set_result(None)
+        self.recording = False
 
     ###########################################################################
     # Tracker utilities
@@ -141,11 +153,14 @@ class Eyelink(BaseNode):
         Ctrl+C) from this machine. Make sure to press the "ESC" key to end
         the setup.
         """
+        self.log("Starting tracker setup on the Eyelink PC")
         try:
             self.tracker.doTrackerSetup()
         except RuntimeError as e:
             self.log(f"Error doing tracker setup: {e}", severity="WARN")
             self.tracker.exitCalibration()
+
+        self.log("Eyelink PC tracker setup complete")
 
     def open_data_file(self):
         """Opens a data file on the EyeLink PC.
@@ -154,6 +169,7 @@ class Eyelink(BaseNode):
         This file will be named "last.edf" and will store the data from the
         current recording session.
         """
+        self.log("Opening data file")
         edf_file_name = "last.edf"
         self.tracker.openDataFile(edf_file_name)
 
@@ -174,13 +190,80 @@ class Eyelink(BaseNode):
             if value is not None:
                 self.tracker.sendCommand(f"{key} = {value}")
 
+    def start_sample_retrieval(self):
+        """Start the sample retrieval loop."""
+        self.log("Starting sample retrieval")
+        assert self.stop_sample_retrieval_event.is_set()
+        assert self.sample_retrieval_future.done(), "Sample retrieval already running, may be in the process of stopping"
+
+        with self.eye_data_queue_lock:
+            self.eye_data_queue.clear()
+
+        self.stop_sample_retrieval_event.clear()
+        # self.sample_retrieval_future = self.tpe.submit(
+        #     self.sample_retrieval_loop,
+        #     stop_event=self.stop_sample_retrieval_event,
+        # )
+        self.sample_retrieval_future = self.executor.create_task(  # type: ignore
+            self.sample_retrieval_loop,
+            stop_event=self.stop_sample_retrieval_event,
+        )
+
+    def start_recording(self):
+        """Start the tracker recording and sample retrieval."""
+        self.log("Starting recording")
+        if self.recording:
+            self.log("Already recording, skipping start", severity="WARN")
+            return
+
+        self.start_sample_retrieval()
+        self.tracker.setOfflineMode()
+        self.tracker.startRecording(1, 0, 1, 0)
+        pylink.endRealTimeMode()
+        self.tracker.sendMessage("SYNCTIME")
+        self.recording = True
+
+    def stop_sample_retrieval(self):
+        """Stop the sample retrieval loop."""
+        self.log("Stopping sample retrieval")
+        self.stop_sample_retrieval_event.set()
+
+    def stop_recording(self):
+        """Stop the recording."""
+        self.log("Stopping recording")
+        if not self.recording:
+            self.log("Not recording, skipping stop", severity="WARN")
+            return
+
+        self.stop_sample_retrieval()
+        self.tracker.stopRecording()
+        self.recording = False
+
+    def edf_to_asc(self):
+        """Convert the EDF file to ASC format using the eyelink_convert.sh script."""
+        try:
+            script_path = self.get_parameter_wrapper("conversion_script_path")
+            results_dir = self.get_parameter_wrapper("results_dir")
+            extra_args = self.get_parameter_wrapper("edf2asc_extra_args")
+            subprocess.run(
+                [script_path, "--dir", results_dir, *extra_args], check=True
+            )
+            self.log("Successfully converted EDF to ASC")
+        except subprocess.CalledProcessError as e:
+            self.log(f"Error converting EDF to ASC: {e}", severity="ERROR")
+            raise RuntimeError("Error converting EDF to ASC") from e
+
     def close_data_file(self):
         """Closes the data file and transfers it to the local machine.
 
-        This function will close the data file on the EyeLink PC and transfer
-        it to the local machine. It will then convert the EDF file to ASC
-        format.
+        This function will stop the recording (if it is running), close the
+        data file on the EyeLink PC and transfer it to the local machine. It
+        will then convert the EDF file to ASC format.
         """
+        self.log("Closing data file")
+        if self.recording:
+            self.stop_recording()
+
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
@@ -195,32 +278,7 @@ class Eyelink(BaseNode):
             self.log(f"Error receiving data file: {e}", severity="ERROR")
             raise RuntimeError("Error receiving data file") from e
 
-        self.convert_edf_to_asc()
-
-    def start_recording(self):
-        """Start the tracker recording."""
-        self.tracker.setOfflineMode()
-        self.tracker.startRecording(1, 0, 1, 0)
-        pylink.endRealTimeMode()
-        self.tracker.sendMessage("SYNCTIME")
-
-        with self.sample_queue_lock:
-            self.sample_queue.clear()
-
-    def stop_recording(self):
-        """Stop the recording."""
-        self.tracker.stopRecording()
-
-    def convert_edf_to_asc(self):
-        """Convert the EDF file to ASC format using the eyelink_convert.sh script."""
-        try:
-            script_path = self.get_parameter_wrapper("conversion_script_path")
-            results_dir = self.get_parameter_wrapper("results_dir")
-            subprocess.run([script_path, "-o", results_dir], check=True)
-            self.log("Successfully converted EDF to ASC")
-        except subprocess.CalledProcessError as e:
-            self.log(f"Error converting EDF to ASC: {e}", severity="ERROR")
-            raise RuntimeError("Error converting EDF to ASC") from e
+        self.edf_to_asc()
 
     def eye_available(self) -> int:
         """Get the eye available from the tracker.
@@ -245,62 +303,7 @@ class Eyelink(BaseNode):
     # Sample retrieval
     ###########################################################################
 
-    def get_samples(self, stop_event: threading.Event):
-        """Get samples from the tracker.
-
-        This function will loop indefinitely, getting samples from the
-        tracker and adding them to the sample queue. This function is
-        thread-safe and should be run in a separate thread (or you'll not
-        be able to do anything else).
-
-        Args:
-            stop_event: A threading event that can be used to stop the thread
-            from another thread.
-        """
-        try:
-            wait_for_data_timeout_ms = int(
-                self.get_parameter_wrapper("wait_for_data_timeout") * 1000
-            )
-            while not stop_event.is_set():
-                if not self.tracker.isConnected():
-                    self.log("Tracker is not connected", severity="WARN")
-                    time.sleep(1)
-                    continue
-                try:
-                    self.tracker.waitForData(wait_for_data_timeout_ms, 1, 1)
-                except RuntimeError as e:
-                    self.log(
-                        f"No data from tracker with error: {e}",
-                        severity="WARN",
-                    )
-                    continue
-
-                test_sample: Sample | None = self.tracker.getSample()
-                if test_sample is not None:
-                    sample: Any | None = self.tracker.getFloatData()
-                    assert sample is not None and isinstance(sample, Sample)
-                    with self.sample_queue_lock:
-                        self.sample_queue.append(sample)
-        except Exception as e:
-            self.log(
-                f"Error in get_samples: type={type(e)}, value={e}",
-                severity="ERROR",
-            )
-            if TRACEBACK:
-                traceback_str = traceback.format_exc()
-                self.log(f"Traceback: {traceback_str}", severity="ERROR")
-            raise e
-
-    def get_last_samples(self) -> list[Sample]:
-        """Get the latest samples from the eyelink tracker.
-
-        This function will return a copy of the contents of the sample queue
-        as a list.
-        """
-        with self.sample_queue_lock:
-            return list(self.sample_queue)
-
-    def get_valid_eye_data(
+    def get_eye_data(
         self, sample: Sample
     ) -> (
         tuple[
@@ -324,6 +327,8 @@ class Eyelink(BaseNode):
             available/valid, the other eye will be None. If no eye data is
             available/valid, the function will return None.
         """
+        # self.log("Getting valid eye data", severity="DEBUG")
+
         timestamp: int = sample.getTime()
         left_sample: SampleData | None = sample.getLeftEye()
         right_sample: SampleData | None = sample.getRightEye()
@@ -371,11 +376,105 @@ class Eyelink(BaseNode):
 
         return timestamp, left_data, right_data
 
+    def sample_retrieval_loop(self, stop_event: threading.Event):
+        """Get samples from the tracker.
+
+        This function will loop indefinitely, getting samples from the
+        tracker and adding them to the sample queue. This function is
+        thread-safe and should be run in a separate thread (or you'll not
+        be able to do anything else).
+
+        Args:
+            stop_event: A threading event that can be used to stop the thread
+            from another thread.
+        """
+        self.log("Starting sample retrieval loop")
+        try:
+            wait_for_data_timeout_ms = int(
+                self.get_parameter_wrapper("wait_for_data_timeout") * 1000
+            )
+            i = 0
+            start_time = time.time()
+            while not stop_event.is_set():
+                if not self.tracker.isConnected():
+                    self.log("Tracker is not connected", severity="WARN")
+                    time.sleep(1)
+                    continue
+                try:
+                    self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
+                except RuntimeError as e:
+                    self.log(
+                        f"No data from tracker with error: {e}",
+                        severity="WARN",
+                    )
+                    continue
+
+                test_sample: Sample | None = self.tracker.getSample()
+                if test_sample is not None:
+                    sample: Any | None = self.tracker.getFloatData()
+                    assert sample is not None and isinstance(sample, Sample)
+                    eye_data = self.get_eye_data(sample)
+                    with self.eye_data_queue_lock:
+                        self.eye_data_queue.append(eye_data)
+                #     with self.sample_queue_lock:
+                #         self.sample_queue.append(sample)
+                # sample = Sample(
+                #     time=time.time(),
+                #     type=0,
+                #     flags=0x8000,
+                #     px=[1, 2],
+                #     py=[3, 4],
+                #     hx=[5, 6],
+                #     hy=[7, 8],
+                #     pa=[9, 10],
+                #     gx=[11, 12],
+                #     gy=[13, 14],
+                #     rx=[15, 16],
+                #     ry=[17, 18],
+                #     status=0,
+                #     input=0,
+                #     buttons=0,
+                #     htype=0,
+                #     hdata=0,
+                # )
+                # eye_data = self.get_valid_eye_data(sample)
+                # if eye_data is not None:
+                #     with self.sample_queue_lock:
+                #         self.sample_queue.append(eye_data)
+                i += 1
+                self.log("loop", severity="DEBUG")
+                if i % 100 == 0:
+                    self.log(
+                        f"Sample retrieval loop time: {(time.time() - start_time) / 100:.5f} s",
+                        severity="DEBUG",
+                    )
+                    start_time = time.time()
+                    i = 0
+        except Exception as e:
+            self.log(
+                f"Error in sample retrieval loop: type={type(e)}, value={e}",
+                severity="ERROR",
+            )
+            if TRACEBACK:
+                traceback_str = traceback.format_exc()
+                self.log(f"Traceback: {traceback_str}", severity="ERROR")
+            raise e
+
+    # def get_last_samples(self) -> list[Sample]:
+    def get_last_eye_data(self) -> list[EyeData]:
+        """Get the latest samples from the eyelink tracker.
+
+        This function will return a copy of the contents of the sample queue
+        as a list.
+        """
+        with self.eye_data_queue_lock:
+            return list(self.eye_data_queue)
+
     ###########################################################################
     # Smooth pursuit
     ###########################################################################
 
-    def get_smooth_pursuit(self, threshold: Optional[float] = None) -> bool:
+    def get_smooth_pursuit(self, threshold: float | None = None) -> bool:
         """Check if the subject is smoothly pursuing.
 
         This function will check if the subject is smoothly pursuing by
@@ -383,8 +482,10 @@ class Eyelink(BaseNode):
         (the eye can only move smoothly if it is following a smoothly moving
         object, so we check if the speed remains below a threshold).
         """
-        samples = self.get_last_samples()
-        if len(samples) == 0:
+        self.log("Checking for smooth pursuit", severity="DEBUG")
+
+        eye_data = self.get_last_eye_data()
+        if len(eye_data) == 0:
             raise RuntimeError("No samples in queue")
 
         # Track duration of smooth pursuit extraction, for logging purposes
@@ -394,10 +495,10 @@ class Eyelink(BaseNode):
         timestamps = []
         left_positions = []
         right_positions = []
-        for sample in samples:
-            if (eye_data := self.get_valid_eye_data(sample)) is None:
+        for eye_datapoint in eye_data:
+            if eye_datapoint is None:
                 continue
-            timestamp, left_data, right_data = eye_data
+            timestamp, left_data, right_data = eye_datapoint
 
             timestamps.append(timestamp)
             if self.left_eye_available():
@@ -411,7 +512,7 @@ class Eyelink(BaseNode):
             else:
                 right_positions.append((MISSING_DATA, MISSING_DATA))
 
-        timestamps = np.array(timestamps)
+        timestamps = np.array(timestamps) / 1000.0  # Convert to seconds
         left_positions = np.array(left_positions)
         right_positions = np.array(right_positions)
 
@@ -455,30 +556,28 @@ class Eyelink(BaseNode):
         ).item()
 
         # Log the smooth pursuit status and statistics about the eye speed data
-        if self.get_logger().get_effective_level() <= logging.DEBUG:
+        # if self.get_logger().get_effective_level() <= logging.DEBUG:
+        self.log(f"Time taken: {time.time() - start_time}", severity="DEBUG")
+        if self.left_eye_available():
+            left_speed_rounded = left_speed.round(2)
+            # self.log(
+            #     f"Left speed: {left_speed_rounded.tolist()}",
+            #     severity="DEBUG",
+            # )
             self.log(
-                f"Time taken: {time.time() - start_time}", severity="DEBUG"
+                f"Left speed min: {left_speed_rounded.min()}, max: {left_speed_rounded.max()}, mean: {left_speed_rounded.mean()}",
+                severity="DEBUG",
             )
-            if self.left_eye_available():
-                left_speed_rounded = left_speed.round(2)
-                self.log(
-                    f"Left speed: {left_speed_rounded.tolist()}",
-                    severity="DEBUG",
-                )
-                self.log(
-                    f"Left speed min: {left_speed_rounded.min()}, max: {left_speed_rounded.max()}, mean: {left_speed_rounded.mean()}",
-                    severity="DEBUG",
-                )
-            if self.right_eye_available():
-                right_speed_rounded = right_speed.round(2)
-                self.log(
-                    f"Right speed: {right_speed_rounded.tolist()}",
-                    severity="DEBUG",
-                )
-                self.log(
-                    f"Right speed min: {right_speed_rounded.min()}, max: {right_speed_rounded.max()}, mean: {right_speed_rounded.mean()}",
-                    severity="DEBUG",
-                )
+        if self.right_eye_available():
+            right_speed_rounded = right_speed.round(2)
+            # self.log(
+            #     f"Right speed: {right_speed_rounded.tolist()}",
+            #     severity="DEBUG",
+            # )
+            self.log(
+                f"Right speed min: {right_speed_rounded.min()}, max: {right_speed_rounded.max()}, mean: {right_speed_rounded.mean()}",
+                severity="DEBUG",
+            )
 
         return is_smoothly_pursuing
 
@@ -488,38 +587,48 @@ class Eyelink(BaseNode):
 
     def log_periodic_callback(self):
         """Periodically log the smooth pursuit status and the newest valid sample."""
-        self.log("Logging samples", severity="DEBUG")
-
-        samples = self.get_last_samples()
-
-        if len(samples) == 0:
+        self.log("Logging", severity="DEBUG")
+        self.i += 1
+        if self.i % 10 == 0:
             self.log(
-                "No samples in queue during periodic log", severity="WARN"
+                f"Log interval: {(time.time() - self.start_time) / 10:.5f} s",
+                severity="INFO",
             )
-            return
+            self.start_time = time.time()
+            self.i = 0
 
-        try:
-            is_smoothly_pursuing = self.get_smooth_pursuit()
-            self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
-        except RuntimeError as e:
-            self.log(f"Error getting smooth pursuit: {e}", severity="ERROR")
-
-        for sample in reversed(samples):
-            if (eye_data := self.get_valid_eye_data(sample)) is None:
-                continue
-            _, left_data, right_data = eye_data
-
-            if left_data is not None:
+        if self.get_parameter_wrapper("log_smooth_pursuit"):
+            try:
+                is_smoothly_pursuing = self.get_smooth_pursuit()
+                self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
+            except RuntimeError as e:
                 self.log(
-                    f"Left eye x: {left_data[0]}, y: {left_data[1]}, diameter: {left_data[2]}"
+                    f"Error getting smooth pursuit: {e}", severity="ERROR"
                 )
-            if right_data is not None:
-                self.log(
-                    f"Right eye x: {right_data[0]}, y: {right_data[1]}, diameter: {right_data[2]}"
-                )
-            return
 
-        self.log("Found no adequate samples", severity="WARN")
+        if self.get_parameter_wrapper("log_samples"):
+            eye_data = self.get_last_eye_data()
+            if len(eye_data) == 0:
+                self.log(
+                    "No samples in queue during periodic log", severity="WARN"
+                )
+                return
+            for eye_datapoint in reversed(eye_data):
+                if eye_datapoint is None:
+                    continue
+                timestamp, left_data, right_data = eye_datapoint
+
+                self.log(f"Timestamp: {timestamp}")
+                if left_data is not None:
+                    self.log(
+                        f"Left eye x: {left_data[0]}, y: {left_data[1]}, diameter: {left_data[2]}"
+                    )
+                if right_data is not None:
+                    self.log(
+                        f"Right eye x: {right_data[0]}, y: {right_data[1]}, diameter: {right_data[2]}"
+                    )
+                return
+            self.log("Found no adequate samples", severity="WARN")
 
     def open_data_file_callback(
         self, request: Trigger.Request, response: Trigger.Response
@@ -613,29 +722,22 @@ class Eyelink(BaseNode):
     def destroy_node(self):
         """Destroy the node.
 
-        This function will stop the get_samples loop, stop the recording,
+        This function will stop the sample retrieval loop, stop the recording,
         close the data file, and close the tracker.
         """
-        print("Stopping get_samples loop")
-        self.stop_get_samples_event.set()
-        try:
-            self.get_samples_future.result(timeout=1.5)
-        except Exception as e:
-            print(f"Error in get_samples loop: {e}")
 
-        print("Stopping recording")
-        try:
-            self.stop_recording()
-        except Exception as e:
-            print(f"Error stopping recording: {e}")
-
-        print("Closing data file")
         try:
             self.close_data_file()
         except Exception as e:
-            print(f"Error closing data file: {e}")
+            self.log(f"Error closing data file: {e}", severity="ERROR")
 
-        print("Closing tracker")
+        self.log("Shutting down thread pool")
+        # try:
+        #     self.tpe.shutdown()
+        # except Exception as e:
+        #     self.log(f"Error shutting down thread pool: {e}", severity="ERROR")
+
+        self.log("Closing tracker")
         self.tracker.close()
 
         super().destroy_node()
@@ -647,10 +749,11 @@ class Eyelink(BaseNode):
 
 
 def main(args=None):
-    logging.basicConfig(level=logging.DEBUG)
     rclpy.init(args=args)
     try:
-        executor = SingleThreadedExecutor()
+        executor: MultiThreadedExecutor | SingleThreadedExecutor = (
+            MultiThreadedExecutor(num_threads=2)
+        )
         eyelink = Eyelink()
         executor.add_node(eyelink)
 
@@ -660,11 +763,19 @@ def main(args=None):
             print("Starting recording")
             eyelink.start_recording()
             print("Spinning")
+            # eyelink.tpe.submit(executor.spin).result()
             executor.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt")
         finally:
             eyelink.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
     finally:
         print("Shutting down rclpy")
-        rclpy.shutdown()
+        rclpy.try_shutdown()
+
+
+# TODO: Something is fucking wrong, help me

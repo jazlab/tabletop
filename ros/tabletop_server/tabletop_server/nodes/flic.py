@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 import time
 
@@ -10,10 +9,6 @@ from tabletop_server.executor import AIOExecutor
 from tabletop_server.flic_client import AIOFlicClient
 from tabletop_server.nodes.base import BaseNode
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_LOG_SEVERITY = "INFO"
-
 
 class Flic(BaseNode):
     default_params = BaseNode.default_params | {
@@ -22,11 +17,9 @@ class Flic(BaseNode):
         "num_buttons": 1,
     }
 
-    def __init__(self, flic_client: AIOFlicClient):
+    def __init__(self):
         # Initialize base node
         super().__init__("flic")
-
-        self.flic_client = flic_client
 
         # Simulation parameters
         self.simulate: bool = self.get_parameter_wrapper("simulate")
@@ -53,6 +46,21 @@ class Flic(BaseNode):
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
 
+    def get_flic_callback(
+        self, request: GetFlic.Request, response: GetFlic.Response
+    ) -> GetFlic.Response:
+        # Set the response message
+        response.success = True
+        response.last_time_pressed_ms = int(
+            self.flic_client.last_time_button_down_sec * 1000
+        )
+        response.message = (
+            f"Flic last pressed at {response.last_time_pressed_ms} ms"
+        )
+        self.log(response.message)
+
+        return response
+
     def simulated_get_flic_callback(
         self, request: GetFlic.Request, response: GetFlic.Response
     ) -> GetFlic.Response:
@@ -73,68 +81,50 @@ class Flic(BaseNode):
         return response
 
     def simulated_delay_timer_callback(self, delay: float):
-        # Update the pin state
         self.flic_last_time_pressed_ms = int(time.time() * 1000)
-
-        assert self.simulate_delay_timer is not None
         self.simulate_delay_timer.cancel()
-
         self.log(f"Flic simulated delay for {delay} seconds")
 
-    def get_flic_callback(
-        self, request: GetFlic.Request, response: GetFlic.Response
-    ) -> GetFlic.Response:
-        # Set the response message
-        response.success = True
-        response.last_time_pressed_ms = int(
-            self.flic_client.last_time_button_down_sec * 1000
-        )
-        response.message = (
-            f"Flic last pressed at {response.last_time_pressed_ms} ms"
-        )
-        self.log(response.message)
-
-        return response
-
-
-async def wait_for_buttons(flic_client: AIOFlicClient, num_buttons: int):
-    await flic_client.connect_existing_buttons()
-    while flic_client.num_buttons < num_buttons:
-        logger.info(f"Waiting for {flic_client.num_buttons} buttons")
-        await asyncio.sleep(0.25)
-    logger.info(f"Connected to {flic_client.num_buttons} buttons")
-
-
-async def main_async(args=None):
-    logging.basicConfig(level=logging.DEBUG)
-    rclpy.init(args=args)
-    loop = asyncio.get_event_loop()
-    try:
-        executor = AIOExecutor()
-        _, flic_client = await loop.create_connection(
+    async def start_flic_client(self):
+        """Start the flic client."""
+        loop = asyncio.get_event_loop()
+        _, self.flic_client = await loop.create_connection(
             lambda: AIOFlicClient(loop=loop), "172.17.0.1", 5551
         )
 
-        # Create the flic node
-        flic = Flic(flic_client)
+    async def wait_for_buttons(self):
+        """Wait for the specified number of buttons to be connected."""
+        await self.flic_client.connect_existing_buttons()
+        num_buttons = self.get_parameter_wrapper("num_buttons")
+        while self.flic_client.num_buttons < num_buttons:
+            self.log(f"Waiting for {self.flic_client.num_buttons} buttons")
+            await asyncio.sleep(0.25)
+        self.log(f"Connected to {self.flic_client.num_buttons} buttons")
+
+
+async def main_async(args=None):
+    rclpy.init(args=args)
+    try:
+        executor = AIOExecutor()
+        flic = Flic()
         executor.add_node(flic)
 
-        # Wait for num_buttons to be connected
-        await wait_for_buttons(
-            flic_client, flic.get_parameter_wrapper("num_buttons")
-        )
-
-        # Spin indefinitely
         try:
+            await flic.start_flic_client()
+            await flic.wait_for_buttons()
             await executor.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt")
         finally:
-            print("Shutting down executor")
-            executor.shutdown()
             print("Shutting down flic")
             flic.destroy_node()
+            print("Shutting down executor")
+            executor.shutdown()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
     finally:
         print("Shutting down rclpy")
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def main():

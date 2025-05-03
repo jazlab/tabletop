@@ -503,14 +503,18 @@ async def main_async(args=None):
 
         try:
             await executor.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt")
         finally:
-            print("Shutting down executor")
-            executor.shutdown()
             print("Shutting down mock teensy")
             mock_teensy.destroy_node()
+            print("Shutting down executor")
+            executor.shutdown()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
     finally:
         print("Shutting down rclpy")
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def main():

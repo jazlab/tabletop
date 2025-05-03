@@ -2432,11 +2432,14 @@ def main(args=None):
                 )
                 run_future.add_done_callback(lambda _: executor.shutdown())
                 executor.spin()
+        except KeyboardInterrupt:
+            print("Keyboard interrupt")
         finally:
+            commander.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
-            print("Shutting down commander")
-            commander.destroy_node()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
     finally:
         print("Shutting down rclpy")
-        rclpy.shutdown()
+        rclpy.try_shutdown()
