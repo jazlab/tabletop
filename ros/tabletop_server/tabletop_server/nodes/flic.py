@@ -1,6 +1,5 @@
 import asyncio
 import random
-import time
 
 import rclpy
 from tabletop_msgs.srv import GetFlic
@@ -22,13 +21,11 @@ class Flic(BaseNode):
         super().__init__("flic")
 
         # Simulation parameters
-        self.simulate: bool = self.get_parameter_wrapper("simulate")
-        self.simulate_delay: float = self.get_parameter_wrapper(
-            "simulate_delay"
-        )
+        self.simulate: bool = self.get_parameter("simulate")
+        self.simulate_delay: float = self.get_parameter("simulate_delay")
 
         # State variables
-        self.flic_last_time_pressed_ms = int(time.time() * 1000)
+        self.flic_last_time_pressed_ms = int(self.time() * 1000)
 
         # Services
         self.get_flic_service = self.create_service(
@@ -81,7 +78,7 @@ class Flic(BaseNode):
         return response
 
     def simulated_delay_timer_callback(self, delay: float):
-        self.flic_last_time_pressed_ms = int(time.time() * 1000)
+        self.flic_last_time_pressed_ms = int(self.time() * 1000)
         self.simulate_delay_timer.cancel()
         self.log(f"Flic simulated delay for {delay} seconds")
 
@@ -95,7 +92,7 @@ class Flic(BaseNode):
     async def wait_for_buttons(self):
         """Wait for the specified number of buttons to be connected."""
         await self.flic_client.connect_existing_buttons()
-        num_buttons = self.get_parameter_wrapper("num_buttons")
+        num_buttons = self.get_parameter("num_buttons")
         while self.flic_client.num_buttons < num_buttons:
             self.log(f"Waiting for {self.flic_client.num_buttons} buttons")
             await asyncio.sleep(0.25)

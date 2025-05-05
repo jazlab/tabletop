@@ -2,7 +2,6 @@ import concurrent.futures
 import os
 import subprocess
 import threading
-import time
 import traceback
 from collections import deque
 from datetime import datetime
@@ -10,7 +9,6 @@ from threading import Lock
 from typing import Any
 
 import numpy as np
-import pylink
 import rclpy
 from pylink import EyeLink as EyeLinkTracker
 from pylink.constants import MISSING_DATA
@@ -56,7 +54,7 @@ class Eyelink(BaseNode):
         "results_dir": "/root/ws/src/tabletop/results/eyelink",
         "conversion_script_path": "/root/ws/src/tabletop/scripts/eyelink_convert.sh",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
-        "log_periodic_interval": 0.05,
+        "log_periodic_interval": 0.1,
         "log_samples": False,
         "log_smooth_pursuit": True,
     }
@@ -68,17 +66,13 @@ class Eyelink(BaseNode):
     def __init__(self):
         super().__init__("eyelink")
 
-        self.tracker = EyeLinkTracker(
-            self.get_parameter_wrapper("tracker_address")
-        )
-        pylink.endRealTimeMode()
+        self.tracker = EyeLinkTracker(self.get_parameter("tracker_address"))
+        # pylink.endRealTimeMode()
 
         self._init_ros()
         self._init_sample_retrieval()
 
         self.destroyed = False
-        self.i = 0
-        self.start_time = time.time()
 
     def _init_ros(self):
         """Setup the ROS node.
@@ -87,7 +81,7 @@ class Eyelink(BaseNode):
         the eyelink status and a series of services to control the tracker.
         """
         self.log_periodic_timer = self.create_timer(
-            self.get_parameter_wrapper("log_periodic_interval"),
+            self.get_parameter("log_periodic_interval"),
             self.log_periodic_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
@@ -123,10 +117,8 @@ class Eyelink(BaseNode):
         This function will setup the sample queue and thread pool, as well as
         the stop event and sample retrieval loop future.
         """
-        sample_rate = self.get_parameter_wrapper("sample_rate")
-        smooth_pursuit_window = self.get_parameter_wrapper(
-            "smooth_pursuit_window"
-        )
+        sample_rate = self.get_parameter("sample_rate")
+        smooth_pursuit_window = self.get_parameter("smooth_pursuit_window")
         self.eye_data_queue: deque[EyeData] = deque(
             maxlen=int(sample_rate * smooth_pursuit_window)
         )
@@ -186,7 +178,7 @@ class Eyelink(BaseNode):
             "file_event_data",
             "link_event_data",
         ]:
-            value = self.get_parameter_wrapper(key)
+            value = self.get_parameter(key)
             if value is not None:
                 self.tracker.sendCommand(f"{key} = {value}")
 
@@ -219,7 +211,7 @@ class Eyelink(BaseNode):
         self.start_sample_retrieval()
         self.tracker.setOfflineMode()
         self.tracker.startRecording(1, 0, 1, 0)
-        pylink.endRealTimeMode()
+        # pylink.endRealTimeMode()
         self.tracker.sendMessage("SYNCTIME")
         self.recording = True
 
@@ -242,9 +234,9 @@ class Eyelink(BaseNode):
     def edf_to_asc(self):
         """Convert the EDF file to ASC format using the eyelink_convert.sh script."""
         try:
-            script_path = self.get_parameter_wrapper("conversion_script_path")
-            results_dir = self.get_parameter_wrapper("results_dir")
-            extra_args = self.get_parameter_wrapper("edf2asc_extra_args")
+            script_path = self.get_parameter("conversion_script_path")
+            results_dir = self.get_parameter("results_dir")
+            extra_args = self.get_parameter("edf2asc_extra_args")
             subprocess.run(
                 [script_path, "--dir", results_dir, *extra_args], check=True
             )
@@ -267,7 +259,7 @@ class Eyelink(BaseNode):
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
-        results_dir = self.get_parameter_wrapper("results_dir")
+        results_dir = self.get_parameter("results_dir")
         os.makedirs(results_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -391,14 +383,14 @@ class Eyelink(BaseNode):
         self.log("Starting sample retrieval loop")
         try:
             wait_for_data_timeout_ms = int(
-                self.get_parameter_wrapper("wait_for_data_timeout") * 1000
+                self.get_parameter("wait_for_data_timeout") * 1000
             )
             i = 0
-            start_time = time.time()
+            start_time = self.time()
             while not stop_event.is_set():
                 if not self.tracker.isConnected():
                     self.log("Tracker is not connected", severity="WARN")
-                    time.sleep(1)
+                    self.sleep(1)
                     continue
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
@@ -419,7 +411,7 @@ class Eyelink(BaseNode):
                 #     with self.sample_queue_lock:
                 #         self.sample_queue.append(sample)
                 # sample = Sample(
-                #     time=time.time(),
+                #     time=self.time(),
                 #     type=0,
                 #     flags=0x8000,
                 #     px=[1, 2],
@@ -445,11 +437,15 @@ class Eyelink(BaseNode):
                 self.log("loop", severity="DEBUG")
                 if i % 100 == 0:
                     self.log(
-                        f"Sample retrieval loop time: {(time.time() - start_time) / 100:.5f} s",
+                        f"Sample retrieval loop time: {(self.time() - start_time) / 100:.5f} s",
                         severity="DEBUG",
                     )
-                    start_time = time.time()
+                    start_time = self.time()
                     i = 0
+
+                # Sleep for a short period to avoid busy-waiting (necessary
+                # for avoiding delayed execution in other threads)
+                self.sleep(1e-5)
         except Exception as e:
             self.log(
                 f"Error in sample retrieval loop: type={type(e)}, value={e}",
@@ -489,7 +485,7 @@ class Eyelink(BaseNode):
             raise RuntimeError("No samples in queue")
 
         # Track duration of smooth pursuit extraction, for logging purposes
-        start_time = time.time()
+        start_time = self.time()
 
         # Extract eye data from samples
         timestamps = []
@@ -525,7 +521,7 @@ class Eyelink(BaseNode):
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
-        if timestamps.shape[0] < self.get_parameter_wrapper(
+        if timestamps.shape[0] < self.get_parameter(
             "smooth_pursuit_min_samples"
         ):
             raise RuntimeError("Not enough valid samples")
@@ -548,16 +544,14 @@ class Eyelink(BaseNode):
         # Ensure that smooth pursuit is occuring by checking if the speeds of
         # the left and right eyes are below a threshold
         if threshold is None:
-            threshold = self.get_parameter_wrapper(
-                "smooth_pursuit_default_threshold"
-            )
+            threshold = self.get_parameter("smooth_pursuit_default_threshold")
         is_smoothly_pursuing = np.all(
             np.stack([left_speed, right_speed], axis=1) < threshold
         ).item()
 
         # Log the smooth pursuit status and statistics about the eye speed data
         # if self.get_logger().get_effective_level() <= logging.DEBUG:
-        self.log(f"Time taken: {time.time() - start_time}", severity="DEBUG")
+        self.log(f"Time taken: {self.time() - start_time}", severity="DEBUG")
         if self.left_eye_available():
             left_speed_rounded = left_speed.round(2)
             # self.log(
@@ -588,16 +582,20 @@ class Eyelink(BaseNode):
     def log_periodic_callback(self):
         """Periodically log the smooth pursuit status and the newest valid sample."""
         self.log("Logging", severity="DEBUG")
-        self.i += 1
-        if self.i % 10 == 0:
-            self.log(
-                f"Log interval: {(time.time() - self.start_time) / 10:.5f} s",
-                severity="INFO",
-            )
-            self.start_time = time.time()
+        try:
+            self.i += 1
+            if self.i % 10 == 0:
+                self.log(
+                    f"Log interval: {(self.get_clock().now() - self.start_time).nanoseconds / 1e9 / 10:.5f} s",
+                    severity="INFO",
+                )
+                self.start_time = self.get_clock().now()
+                self.i = 0
+        except AttributeError:
             self.i = 0
+            self.start_time = self.get_clock().now()
 
-        if self.get_parameter_wrapper("log_smooth_pursuit"):
+        if self.get_parameter("log_smooth_pursuit"):
             try:
                 is_smoothly_pursuing = self.get_smooth_pursuit()
                 self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
@@ -606,7 +604,7 @@ class Eyelink(BaseNode):
                     f"Error getting smooth pursuit: {e}", severity="ERROR"
                 )
 
-        if self.get_parameter_wrapper("log_samples"):
+        if self.get_parameter("log_samples"):
             eye_data = self.get_last_eye_data()
             if len(eye_data) == 0:
                 self.log(

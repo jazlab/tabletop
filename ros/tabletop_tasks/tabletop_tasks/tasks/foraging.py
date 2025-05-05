@@ -3,7 +3,6 @@
 import asyncio
 import enum
 import importlib
-import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -232,12 +231,14 @@ class ForagingTask(BaseTask):
         await self.commander.arm_door_open_and_wait()
 
         # Wait for response
-        response_start_time = time.time()
+        # Use the ROS2 clock to measure reaction time (for consistency with
+        # ROS2 synchronization)
+        response_start_time = self.commander.time()
         if await self.commander.wait_for_flic_press_async(
             self._response_timeout
         ):
             # Response received
-            reaction_time = time.time() - response_start_time
+            reaction_time = self.commander.time() - response_start_time
             self._trial_feedback["reaction_time"] = reaction_time
             self.log(f"Reaction time: {reaction_time}")
             await self.commander.reward_and_wait(self._reward_duration)

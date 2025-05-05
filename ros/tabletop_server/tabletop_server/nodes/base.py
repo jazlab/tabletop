@@ -1,9 +1,11 @@
 import asyncio
 from typing import Any, Optional
 
+import rclpy
 import yaml
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
+from rclpy.duration import Duration
 from rclpy.exceptions import (
     ParameterAlreadyDeclaredException,
     ParameterNotDeclaredException,
@@ -59,7 +61,7 @@ class BaseNode(Node):
         Log a message with the given severity.
         """
         kwargs["throttle_duration_sec"] = None
-        if True:
+        if rclpy.ok():
             match severity:
                 case "DEBUG":
                     self.get_logger().debug(message, **kwargs)
@@ -95,7 +97,7 @@ class BaseNode(Node):
         # Check for required parameters
         for name in self.required_params:
             try:
-                self.get_parameter_wrapper(name)
+                self.get_parameter(name)
             except ParameterNotDeclaredException:
                 msg = (
                     f"Required parameter {name} not declared "
@@ -135,19 +137,21 @@ class BaseNode(Node):
         title: Optional[str] = None,
         severity: str = DEFAULT_LOG_SEVERITY,
     ):
+        """Log a ROS message as a YAML string."""
         string = yaml.dump(
             msg_to_dict(msg),
             Dumper=BracketedListDumper,
-            width=self.get_parameter_wrapper("yaml_width"),
+            width=self.get_parameter("yaml_width"),
         )
         if title is not None:
             string = f"{title}\n{string}"
         self.log(string, severity=severity)
 
     def get_nested_parameters(self, prefix: str = "") -> dict:
-        """
-        Retrieves all parameters from a ROS2 node and structures them into a nested dictionary.
-        Namespaces are represented as nested dictionaries.
+        """Get a nested dictionary of parameters with the given prefix.
+
+        Retrieves all parameters from a ROS2 node and structures them into a
+        nested dictionary. Namespaces are represented as nested dictionaries.
         """
         params = self.get_parameters_by_prefix(prefix)
         if len(params) == 0:
@@ -168,15 +172,22 @@ class BaseNode(Node):
 
         return nested_params
 
-    def get_parameter_wrapper(self, name: str) -> Any:
-        """
-        Get a parameter from the node.
-        """
+    def get_parameter(self, name: str) -> Any:
+        """Get a parameter from the node."""
         try:
-            value = self.get_parameter(name).value
+            value = super().get_parameter(name).value
             return value if value != "null" else None
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
+
+    def time(self) -> float:
+        """Get the current time in seconds from the ROS2 clock."""
+        return float(self.get_clock().now().nanoseconds) / 1e9
+
+    def sleep(self, seconds: float):
+        """Sleep for the given number of seconds."""
+        if not self.get_clock().sleep_for(Duration(seconds=seconds)):
+            raise RuntimeError("ROS2 clock did not sleep correctly")
 
     def _create_client(
         self,
@@ -227,7 +238,7 @@ class BaseNode(Node):
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_wait_timeout")
+                else self.get_parameter("default_service_wait_timeout")
             )
             if not service_client.wait_for_service(timeout_sec=timeout_sec):
                 error_msg = f"{srv_name} not available!"
@@ -270,7 +281,7 @@ class BaseNode(Node):
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_call_timeout")
+                else self.get_parameter("default_service_call_timeout")
             )
             response: SrvTypeResponse = service_client.call(
                 srv_request, timeout_sec=timeout_sec
@@ -315,7 +326,7 @@ class BaseNode(Node):
             async with asyncio.timeout(
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_call_timeout")
+                else self.get_parameter("default_service_call_timeout")
             ):
                 response: SrvTypeResponse = await future  # type: ignore
             self.log(

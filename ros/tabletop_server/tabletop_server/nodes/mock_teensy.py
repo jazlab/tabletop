@@ -1,6 +1,5 @@
 import asyncio
 import random
-import time
 from enum import Enum
 
 import rclpy
@@ -123,21 +122,17 @@ class MockTeensy(BaseNode):
         self.log_pub = self.create_publisher(String, "teensy/log", 10)
 
         # Simulation parameters
-        self.simulate_hand_fixation_min_press_sec: float = (
-            self.get_parameter_wrapper("simulate_hand_fixation_min_press_sec")
+        self.simulate_hand_fixation_min_press_sec: float = self.get_parameter(
+            "simulate_hand_fixation_min_press_sec"
         )
-        self.simulate_hand_fixation_max_press_sec: float = (
-            self.get_parameter_wrapper("simulate_hand_fixation_max_press_sec")
+        self.simulate_hand_fixation_max_press_sec: float = self.get_parameter(
+            "simulate_hand_fixation_max_press_sec"
         )
         self.simulate_hand_fixation_min_release_sec: float = (
-            self.get_parameter_wrapper(
-                "simulate_hand_fixation_min_release_sec"
-            )
+            self.get_parameter("simulate_hand_fixation_min_release_sec")
         )
         self.simulate_hand_fixation_max_release_sec: float = (
-            self.get_parameter_wrapper(
-                "simulate_hand_fixation_max_release_sec"
-            )
+            self.get_parameter("simulate_hand_fixation_max_release_sec")
         )
 
         # Monkey loop
@@ -151,12 +146,12 @@ class MockTeensy(BaseNode):
         )
 
         # State variables
-        self.hand_fixation_last_time_pressed_ms = int(time.time() * 1000)
-        self.hand_fixation_last_time_released_ms = int(time.time() * 1000)
+        self.hand_fixation_last_time_pressed_ms = int(self.time() * 1000)
+        self.hand_fixation_last_time_released_ms = int(self.time() * 1000)
 
         self.sync_pulse_state = False
-        self.sync_pulse_last_time_on_ms = int(time.time() * 1000)
-        self.sync_pulse_last_time_off_ms = int(time.time() * 1000)
+        self.sync_pulse_last_time_on_ms = int(self.time() * 1000)
+        self.sync_pulse_last_time_off_ms = int(self.time() * 1000)
 
         self.reward_active = False
 
@@ -249,9 +244,9 @@ class MockTeensy(BaseNode):
 
         # Update hand fixation timestamps
         if sensor_msg.fixation_button_state:
-            self.hand_fixation_last_time_pressed_ms = int(time.time() * 1000)
+            self.hand_fixation_last_time_pressed_ms = int(self.time() * 1000)
         else:
-            self.hand_fixation_last_time_released_ms = int(time.time() * 1000)
+            self.hand_fixation_last_time_released_ms = int(self.time() * 1000)
 
         # Update tactile glove states
         for i, p in enumerate(GLOVE_STATE_PINS):
@@ -269,7 +264,7 @@ class MockTeensy(BaseNode):
     def sync_pulse_end_timer_callback(self):
         digital_write(SYNC_PULSE_PIN, LOW)
         self.sync_pulse_state = False
-        self.sync_pulse_last_time_off_ms = int(time.time() * 1000)
+        self.sync_pulse_last_time_off_ms = int(self.time() * 1000)
 
         self.sync_pulse_end_timer.cancel()
 
@@ -281,7 +276,7 @@ class MockTeensy(BaseNode):
     def sync_pulse_start_timer_callback(self):
         digital_write(SYNC_PULSE_PIN, HIGH)
         self.sync_pulse_state = True
-        self.sync_pulse_last_time_on_ms = int(time.time() * 1000)
+        self.sync_pulse_last_time_on_ms = int(self.time() * 1000)
 
         self.sync_pulse_start_timer.cancel()
 

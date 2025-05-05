@@ -22,7 +22,7 @@ class Camera(BaseNode):
         self.bridge = CvBridge()
         self.cap = cv2.VideoCapture(0)
 
-        timer_period = 1 / (2 * self.get_parameter_wrapper("camera_fps"))
+        timer_period = 1 / (2 * self.get_parameter("camera_fps"))
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def timer_callback(self):

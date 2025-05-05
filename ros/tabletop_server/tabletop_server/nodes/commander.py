@@ -3,7 +3,6 @@ import concurrent.futures
 import enum
 import glob
 import os
-import time
 import traceback
 from collections.abc import AsyncGenerator, Iterable, Mapping
 from contextlib import asynccontextmanager
@@ -41,6 +40,7 @@ from moveit_msgs.msg import (
 from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
+from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
 from shape_msgs.msg import (
@@ -192,7 +192,7 @@ class Commander(BaseNode):
         self, group_name: Optional[str] = None
     ) -> PlanningComponent:
         if group_name is None:
-            group_name = self.get_parameter_wrapper("planning.group_name")
+            group_name = self.get_parameter("planning.group_name")
         return self.moveit_py.get_planning_component(group_name)
 
     ############################################################
@@ -291,7 +291,7 @@ class Commander(BaseNode):
         self.dashboard_trigger("/dashboard_client/unlock_protective_stop")
         self.dashboard_load(
             "/dashboard_client/load_program",
-            self.get_parameter_wrapper("dashboard.program"),
+            self.get_parameter("dashboard.program"),
         )
         self.dashboard_trigger("/dashboard_client/brake_release")
         self.dashboard_trigger("/dashboard_client/play")
@@ -311,7 +311,7 @@ class Commander(BaseNode):
         )
         await self.dashboard_load_async(
             "/dashboard_client/load_program",
-            self.get_parameter_wrapper("dashboard.program"),
+            self.get_parameter("dashboard.program"),
         )
         await self.dashboard_trigger_async("/dashboard_client/brake_release")
         await self.dashboard_trigger_async("/dashboard_client/play")
@@ -322,9 +322,9 @@ class Commander(BaseNode):
         """
         self.log("Initializing dashboard")
         if timeout is None:
-            timeout = self.get_parameter_wrapper("dashboard.init_timeout")
+            timeout = self.get_parameter("dashboard.init_timeout")
 
-        start_time = time.time()
+        start_time = self.get_clock().now()
         while True:
             try:
                 self.wait_for_service(Trigger, "/dashboard_client/close_popup")
@@ -339,9 +339,11 @@ class Commander(BaseNode):
                     f"Error initializing dashboard: {type(e).__name__}: {e}",
                     severity="ERROR",
                 )
-                if time.time() - start_time > timeout:  # type: ignore
+                if (
+                    self.get_clock().now() - start_time
+                ).nanoseconds / 1e9 > timeout:  # type: ignore
                     raise TimeoutError("Dashboard initialization timed out")
-                time.sleep(1)
+                self.get_clock().sleep_for(Duration(seconds=1))
 
     ############################################################
     ########## Teensy interface ################################
@@ -447,11 +449,11 @@ class Commander(BaseNode):
         self, timeout: Optional[float] = None
     ) -> bool:
         """Wait for arm door to open, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.get_parameter("teensy.spin_period")
         timeout = (
             timeout
             if timeout is not None
-            else self.get_parameter_wrapper("teensy.arm_door_timeout")
+            else self.get_parameter("teensy.arm_door_timeout")
         )
         try:
             async with asyncio.timeout(timeout):
@@ -470,11 +472,11 @@ class Commander(BaseNode):
         self, timeout: Optional[float] = None
     ) -> bool:
         """Wait for arm door to close, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.get_parameter("teensy.spin_period")
         timeout = (
             timeout
             if timeout is not None
-            else self.get_parameter_wrapper("teensy.arm_door_timeout")
+            else self.get_parameter("teensy.arm_door_timeout")
         )
         response = await self._get_arm_door_async()
         if response.is_closed:
@@ -490,7 +492,7 @@ class Commander(BaseNode):
 
     async def _wait_for_reward_async(self, duration: float) -> bool:
         """Wait for reward to start, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.get_parameter("teensy.spin_period")
         timeout = duration + 2 * spin_period  # TODO: 2 is arbitrary, check
         response = await self._get_reward_async()
         if response.is_active:
@@ -509,7 +511,7 @@ class Commander(BaseNode):
         self, timeout: Optional[float] = None
     ) -> bool:
         """Wait for hand fixation state to turn on, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.get_parameter("teensy.spin_period")
         initial_fixation = await self._get_hand_fixation_async()
         if initial_fixation.is_pressed:
             return True
@@ -540,7 +542,7 @@ class Commander(BaseNode):
             bool: True if hand fixation was released within the timeout,
             False otherwise.
         """
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.get_parameter("teensy.spin_period")
         initial_fixation = await self._get_hand_fixation_async()
         if not initial_fixation.is_pressed:
             return True
@@ -563,7 +565,7 @@ class Commander(BaseNode):
         self, timeout: Optional[float] = None
     ) -> bool:
         """Wait for flic button press, then return True."""
-        spin_period = self.get_parameter_wrapper("flic.spin_period")
+        spin_period = self.get_parameter("flic.spin_period")
 
         initial_flic = await self._get_flic_async()
         flic = initial_flic
@@ -600,7 +602,7 @@ class Commander(BaseNode):
         """Start reward and wait for it to be active."""
         await self._start_reward_async(duration)
         # Default timeout is duration plus spin period if not specified
-        timeout = duration + self.get_parameter_wrapper("teensy.spin_period")
+        timeout = duration + self.get_parameter("teensy.spin_period")
 
         if not await self._wait_for_reward_async(timeout):
             raise RuntimeError("Reward took longer than expected timeout")
@@ -611,11 +613,11 @@ class Commander(BaseNode):
 
     @property
     def eef_link(self) -> str:
-        return self.get_parameter_wrapper("planning.eef_link")
+        return self.get_parameter("planning.eef_link")
 
     @property
     def touch_links(self) -> list[str]:
-        return self.get_parameter_wrapper("planning.object_touch_links")
+        return self.get_parameter("planning.object_touch_links")
 
     @property
     def planning_frame(self) -> str:
@@ -631,7 +633,7 @@ class Commander(BaseNode):
         """
         Get the planning group name from the parameter server.
         """
-        return self.get_parameter_wrapper("planning.group_name")
+        return self.get_parameter("planning.group_name")
 
     def create_pose(self, **kwargs) -> Pose:
         """
@@ -701,7 +703,7 @@ class Commander(BaseNode):
         Get the idle pose from the planning scene.
         """
         return self.create_pose_stamped(
-            **self.get_parameter_wrapper("planning.idle_pose")
+            **self.get_parameter("planning.idle_pose")
         )
 
     def eef_pose_stamped(self, frame_id: Optional[str] = None) -> PoseStamped:
@@ -740,7 +742,7 @@ class Commander(BaseNode):
         Get the initial pose of an object from the parameters.
         """
         return self.create_pose_stamped(
-            **self.get_parameter_wrapper(
+            **self.get_parameter(
                 f"planning_scene.dynamic_meshes.poses.{object_id}"
             )
         )
@@ -750,7 +752,7 @@ class Commander(BaseNode):
     ) -> PoseStamped:
         return self.create_pose_stamped(
             frame_id=object_id + f"/{subframe_name}",
-            position=self.get_parameter_wrapper("planning.pre_fetch_offset"),
+            position=self.get_parameter("planning.pre_fetch_offset"),
         )
 
     def pre_attach_pose_stamped(
@@ -758,7 +760,7 @@ class Commander(BaseNode):
     ) -> PoseStamped:
         return self.create_pose_stamped(
             frame_id=object_id + f"/{subframe_name}",
-            position=self.get_parameter_wrapper("planning.pre_attach_offset"),
+            position=self.get_parameter("planning.pre_attach_offset"),
         )
 
     def attach_pose_stamped(
@@ -770,9 +772,7 @@ class Commander(BaseNode):
 
     def post_attach_pose_stamped(self, object_id: str) -> PoseStamped:
         post_attach_pose = self.object_init_pose_stamped(object_id)
-        post_attach_offset = self.get_parameter_wrapper(
-            "planning.post_attach_offset"
-        )
+        post_attach_offset = self.get_parameter("planning.post_attach_offset")
         post_attach_pose.pose.position.x += post_attach_offset[0]
         post_attach_pose.pose.position.y += post_attach_offset[1]
         post_attach_pose.pose.position.z += post_attach_offset[2]
@@ -914,7 +914,7 @@ class Commander(BaseNode):
         collision_object.id = "floor"
 
         plane = Plane()
-        plane.coef = self.get_parameter_wrapper("planning_scene.floor_coef")
+        plane.coef = self.get_parameter("planning_scene.floor_coef")
 
         collision_object.planes.append(plane)  # type: ignore
         collision_object.operation = CollisionObject.ADD
@@ -939,7 +939,7 @@ class Commander(BaseNode):
         collision_object.id = "divider"
 
         plane = Plane()
-        plane.coef = self.get_parameter_wrapper("planning_scene.divider_coef")
+        plane.coef = self.get_parameter("planning_scene.divider_coef")
         collision_object.planes.append(plane)  # type: ignore
 
         collision_object.operation = CollisionObject.ADD
@@ -1150,7 +1150,7 @@ class Commander(BaseNode):
         for mesh_type in ["static_meshes", "dynamic_meshes"]:
             # Get parameters
             prefix = f"planning_scene.{mesh_type}"
-            meshes_config = self.get_parameter_wrapper(prefix)
+            meshes_config = self.get_parameter(prefix)
             meshes_path: str = meshes_config["path"]
             if not os.path.exists(meshes_path):
                 raise FileNotFoundError(
@@ -1409,7 +1409,7 @@ class Commander(BaseNode):
         # Set planning pipeline
         if isinstance(planning_pipeline, str):
             if "default" in planning_pipeline:
-                planning_pipeline = self.get_parameter_wrapper(
+                planning_pipeline = self.get_parameter(
                     "planning.default_pipeline"
                 )
             elif "linear" in planning_pipeline.lower():
@@ -1417,12 +1417,12 @@ class Commander(BaseNode):
                     raise ValueError(
                         "Linear pipeline requires a PoseStamped goal"
                     )
-                planning_pipeline = self.get_parameter_wrapper(
+                planning_pipeline = self.get_parameter(
                     "planning.linear_pipeline"
                 )
             else:
                 try:
-                    planning_pipeline = self.get_parameter_wrapper(
+                    planning_pipeline = self.get_parameter(
                         f"planning.{planning_pipeline}"
                     )
                 except ParameterNotDeclaredException:
@@ -1469,7 +1469,7 @@ class Commander(BaseNode):
         """
 
         if max_attempts is None:
-            max_attempts = self.get_parameter_wrapper("max_plan_attempts")
+            max_attempts = self.get_parameter("max_plan_attempts")
 
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
@@ -1607,7 +1607,7 @@ class Commander(BaseNode):
             ExecutionStatus: The status of the execution.
         """
         if max_attempts is None:
-            max_attempts = self.get_parameter_wrapper("max_execution_attempts")
+            max_attempts = self.get_parameter("max_execution_attempts")
 
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
@@ -1652,7 +1652,7 @@ class Commander(BaseNode):
             ExecutionStatus: The status of the execution.
         """
         if max_attempts is None:
-            max_attempts = self.get_parameter_wrapper("max_execution_attempts")
+            max_attempts = self.get_parameter("max_execution_attempts")
 
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
@@ -2111,7 +2111,7 @@ class Commander(BaseNode):
         Otherwise, you'll break your robot.
         """
         self.log("Moving out of collision")
-        if not self.get_parameter_wrapper("simulate"):
+        if not self.get_parameter("simulate"):
             raise RuntimeError(
                 "Can't move out of collision with real robot! "
                 "Please move the robot away from the collision objects "
@@ -2161,7 +2161,7 @@ class Commander(BaseNode):
         """
         self.log("Resetting rig asynchronously")
         if self.is_state_colliding(self.planning_group_name):
-            if self.get_parameter_wrapper("simulate"):
+            if self.get_parameter("simulate"):
                 self.log(
                     "Moving out of collision (simulation only)",
                     severity="DEBUG",
@@ -2192,9 +2192,10 @@ class Commander(BaseNode):
         """Initialize the robot."""
         self.log("Initializing rig")
         if timeout is None:
-            timeout = self.get_parameter_wrapper("rig.init_timeout")
+            timeout = self.get_parameter("rig.init_timeout")
+        assert timeout is not None
 
-        start_time = time.time()
+        start_time = self.time()
         while True:
             try:
                 self.reset_rig(end_goal=end_goal)
@@ -2210,7 +2211,8 @@ class Commander(BaseNode):
                     severity="WARN",
                 )
                 self.log("Trying again...", severity="WARN")
-            if time.time() - start_time > timeout:  # type: ignore
+
+            if self.time() - start_time > timeout:
                 raise TimeoutError(
                     f"Failed to initialize rig after {timeout} seconds"
                 )
