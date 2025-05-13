@@ -102,8 +102,8 @@ services:
     runtime: nvidia
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
     # device_cgroup_rules:
     #   - c 160:* rmw
     environment:

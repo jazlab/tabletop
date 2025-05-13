@@ -122,17 +122,21 @@ class MockTeensy(BaseNode):
         self.log_pub = self.create_publisher(String, "teensy/log", 10)
 
         # Simulation parameters
-        self.simulate_hand_fixation_min_press_sec: float = self.get_parameter(
-            "simulate_hand_fixation_min_press_sec"
+        self.simulate_hand_fixation_min_press_sec: float = (
+            self.get_parameter_wrapper("simulate_hand_fixation_min_press_sec")
         )
-        self.simulate_hand_fixation_max_press_sec: float = self.get_parameter(
-            "simulate_hand_fixation_max_press_sec"
+        self.simulate_hand_fixation_max_press_sec: float = (
+            self.get_parameter_wrapper("simulate_hand_fixation_max_press_sec")
         )
         self.simulate_hand_fixation_min_release_sec: float = (
-            self.get_parameter("simulate_hand_fixation_min_release_sec")
+            self.get_parameter_wrapper(
+                "simulate_hand_fixation_min_release_sec"
+            )
         )
         self.simulate_hand_fixation_max_release_sec: float = (
-            self.get_parameter("simulate_hand_fixation_max_release_sec")
+            self.get_parameter_wrapper(
+                "simulate_hand_fixation_max_release_sec"
+            )
         )
 
         # Monkey loop

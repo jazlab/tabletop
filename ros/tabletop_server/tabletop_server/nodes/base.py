@@ -97,7 +97,7 @@ class BaseNode(Node):
         # Check for required parameters
         for name in self.required_params:
             try:
-                self.get_parameter(name)
+                self.get_parameter_wrapper(name)
             except ParameterNotDeclaredException:
                 msg = (
                     f"Required parameter {name} not declared "
@@ -141,7 +141,7 @@ class BaseNode(Node):
         string = yaml.dump(
             msg_to_dict(msg),
             Dumper=BracketedListDumper,
-            width=self.get_parameter("yaml_width"),
+            width=self.get_parameter_wrapper("yaml_width"),
         )
         if title is not None:
             string = f"{title}\n{string}"
@@ -172,7 +172,7 @@ class BaseNode(Node):
 
         return nested_params
 
-    def get_parameter(self, name: str) -> Any:
+    def get_parameter_wrapper(self, name: str) -> Any:
         """Get a parameter from the node."""
         try:
             value = super().get_parameter(name).value
@@ -238,7 +238,7 @@ class BaseNode(Node):
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter("default_service_wait_timeout")
+                else self.get_parameter_wrapper("default_service_wait_timeout")
             )
             if not service_client.wait_for_service(timeout_sec=timeout_sec):
                 error_msg = f"{srv_name} not available!"
@@ -281,7 +281,7 @@ class BaseNode(Node):
             timeout_sec = (
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter("default_service_call_timeout")
+                else self.get_parameter_wrapper("default_service_call_timeout")
             )
             response: SrvTypeResponse = service_client.call(
                 srv_request, timeout_sec=timeout_sec
@@ -326,7 +326,7 @@ class BaseNode(Node):
             async with asyncio.timeout(
                 timeout_sec
                 if timeout_sec is not None
-                else self.get_parameter("default_service_call_timeout")
+                else self.get_parameter_wrapper("default_service_call_timeout")
             ):
                 response: SrvTypeResponse = await future  # type: ignore
             self.log(
