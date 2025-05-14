@@ -45,8 +45,14 @@ def main(args=None):
         try:
             executor.spin()
         finally:
-            executor.shutdown()
+            print("Shutting down camera")
             camera.destroy_node()
+            print("Shutting down executor")
+            executor.shutdown()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
+    except SystemExit:
+        print("System exit")
     finally:
         rclpy.shutdown()
 

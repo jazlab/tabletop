@@ -25,5 +25,3 @@ if ! grep -q "HostName $ROBOT_IP" ~/.ssh/config; then
 else
     print_status "SSH config entry for $ROBOT_IP already exists"
 fi
-
-# Password: jazlab

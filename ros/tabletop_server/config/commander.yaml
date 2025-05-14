@@ -50,13 +50,13 @@
 
       # TODO: Maybe combine static and dynamic meshes
       static_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_v2.dae
-        scale: 0.01
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_full_test.dae
+        scale: 1.0
         simplification: convex_hull
         color: pink
         correction:
           position: [0.0, 0.0, 0.045] # corrects the origin of the rig to be at the floor
-          rpy: [0.0, 0.0, -1.5707]
+          rpy: [0.0, 0.0, 0.0]
       dynamic_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/simple_object.dae
         scale: 0.001

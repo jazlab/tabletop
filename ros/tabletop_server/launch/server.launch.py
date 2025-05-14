@@ -1,3 +1,4 @@
+import yaml
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -21,6 +22,11 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
+
+
+def save_yaml(file_path, data):
+    with open(file_path, "w") as file:
+        yaml.dump(data, file, sort_keys=False)
 
 
 def declare_arguments():
@@ -57,12 +63,12 @@ def declare_arguments():
         ),
         # DeclareLaunchArgument(
         #     "robot_ip",
-        #     default_value="192.168.12.10",
+        #     default_value="192.168.12.20",
         #     description="IP address of the robot",
         # ),
         # DeclareLaunchArgument(
         #     "reverse_ip",
-        #     default_value="192.168.12.12",
+        #     default_value="192.168.12.10",
         #     description="Reverse IP address",
         # ),
         # DeclareLaunchArgument(
@@ -358,13 +364,13 @@ def generate_launch_description():
     # Conditional substitutions
     robot_ip = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "real"),
-        "192.168.13.10",
-        "192.168.12.10",
+        "192.168.13.20",
+        "192.168.12.20",
     )
     reverse_ip = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "real"),
-        "192.168.13.11",
-        "192.168.12.12",
+        "192.168.13.10",
+        "192.168.12.10",
     )
     use_mock_robot = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "mock"), "true", "false"
@@ -449,10 +455,21 @@ def generate_launch_description():
     )
 
     # Commander
-    commander_overrides = {"simulate": simulate_commander}
-    commander_overrides_scoped = {}
-    for key, value in commander_overrides.items():
-        commander_overrides_scoped[f"/commander.ros__parameters.{key}"] = value
+    commander_overrides_path = "/tmp/commander_overrides.yaml"
+
+    def save_commander_overrides(context):
+        simulate = simulate_commander.perform(context).lower() == "true"
+        commander_overrides = {
+            "simulate": simulate,
+        }
+        commander_overrides_scoped = {
+            "/commander": {"ros__parameters": commander_overrides}
+        }
+        save_yaml(commander_overrides_path, commander_overrides_scoped)
+
+    commander_overrides_action = OpaqueFunction(
+        function=save_commander_overrides,
+    )
 
     moveit_config = (
         MoveItConfigsBuilder(
@@ -481,7 +498,7 @@ def generate_launch_description():
             moveit_config.to_dict(),
             warehouse_ros_config,
             ParameterFile(commander_config, allow_substs=True),
-            commander_overrides_scoped,
+            ParameterFile(commander_overrides_path, allow_substs=True),
             {
                 "publish_robot_description_semantic": True,
                 "use_sim_time": use_sim_time,
@@ -571,6 +588,7 @@ def generate_launch_description():
     launch_actions = [
         set_ros_log_dir,
         print_substitutions_action,
+        commander_overrides_action,
         ur_robot_driver,
         mock_dashboard,
         commander,

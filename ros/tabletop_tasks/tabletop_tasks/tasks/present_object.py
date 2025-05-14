@@ -107,7 +107,7 @@ class PresentObjectTask(BaseTask):
     async def run(self):
         """Run a trial."""
         while True:
-            async with self.commander.planning_context_manager_async():
+            async with self.commander.context_manager():
                 try:
                     while True:
                         match self._state:

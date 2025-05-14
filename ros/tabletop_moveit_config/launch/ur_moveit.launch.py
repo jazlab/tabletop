@@ -22,8 +22,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             "ur_type": "ur5e",
-            "robot_ip": "192.168.12.10",
-            "reverse_ip": "192.168.12.11",
+            "robot_ip": "192.168.12.20",
+            "reverse_ip": "192.168.12.10",
             "use_mock_hardware": "false",
             "controller_spawner_timeout": "120",
             "launch_rviz": "false",

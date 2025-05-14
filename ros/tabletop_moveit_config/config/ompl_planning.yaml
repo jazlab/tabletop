@@ -190,11 +190,11 @@ planner_configs:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
-    max_hybrid_paths: 64 # Number of hybrid paths generated per iteration
-    num_planners: 16 # The number of default planners to use for planning
+    max_hybrid_paths: 128 # Number of hybrid paths generated per iteration
+    num_planners: 32 # The number of default planners to use for planning
     termination_condition: CostConvergence[5,0.5]
     # termination_condition: Iteration[100]
-    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
   APSRRTstarConnect:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
@@ -237,8 +237,8 @@ ur_manipulator:
     - APSPersistent
     - APSRRTConnect
     - APSRRTstarConnect
-  projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
-  enforce_constrained_state_space: true
+  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
+  # enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005
   # maximum_waypoint_distance: 0.005
 
@@ -276,7 +276,7 @@ ur_wrist_2:
     - APSPersistent
     - APSRRTConnect
     - APSRRTstarConnect
-  projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
-  enforce_constrained_state_space: true
+  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
+  # enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005
   # maximum_waypoint_distance: 0.005

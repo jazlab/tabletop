@@ -769,14 +769,14 @@ def main(args=None):
             print("Spinning")
             # eyelink.tpe.submit(executor.spin).result()
             executor.spin()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt")
         finally:
             eyelink.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
+    except SystemExit:
+        print("System exit")
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()

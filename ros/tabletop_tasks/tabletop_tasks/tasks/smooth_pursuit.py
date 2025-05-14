@@ -11,7 +11,7 @@ from tabletop_server.nodes import Commander
 from tabletop_tasks.tasks.base_task import BaseTask
 
 
-class SmoothPursuit(BaseTask):
+class SmoothPursuitTask(BaseTask):
     def __init__(
         self,
         commander: Commander,

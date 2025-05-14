@@ -53,14 +53,14 @@ def main(args=None):
                 )
                 run_future.add_done_callback(lambda _: executor.shutdown())
                 executor.spin()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt")
         finally:
             commander.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
+    except SystemExit:
+        print("System exit")
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()

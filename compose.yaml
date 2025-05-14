@@ -37,7 +37,7 @@ services:
     entrypoint: ["/entrypoint.sh"]
     networks:
       tabletop_net:
-        ipv4_address: 192.168.12.10
+        ipv4_address: 192.168.12.20
     hostname: ursim
     environment:
       - ROBOT_MODEL=ur5e
@@ -65,7 +65,7 @@ services:
     image: tabletop-server
     networks:
       tabletop_net:
-        ipv4_address: 192.168.12.11
+        ipv4_address: 192.168.12.10
     hostname: server
 
     volumes:

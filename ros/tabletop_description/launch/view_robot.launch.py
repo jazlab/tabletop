@@ -66,7 +66,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "robot_ip",
-            default_value="192.168.12.11",
+            default_value="192.168.12.20",
             description="The IP address of the robot",
         ),
         DeclareLaunchArgument(

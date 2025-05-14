@@ -117,8 +117,6 @@ def main(args=None):
 
         try:
             executor.spin()
-        except KeyboardInterrupt:
-            print("Keyboard interrupt")
         finally:
             print("Shutting down mock dashboard")
             mock_dashboard.destroy_node()
@@ -126,6 +124,8 @@ def main(args=None):
             executor.shutdown()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
+    except SystemExit:
+        print("System exit")
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()
