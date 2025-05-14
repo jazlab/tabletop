@@ -548,12 +548,13 @@ Contributions are welcome! To contribute, follow these steps:
 2. Clone the forked repository to your local machine using the command
     `git clone <url>`.
 3. Install the dependencies using the command `pip install -r requirements-dev.txt`.
-4. Create a new branch for your changes using the command
+4. Install pre-commit hooks using the command `pre-commit install`.
+5. Create a new branch for your changes using the command
     `git checkout -b <branch-name>`.
-5. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
+6. Make your changes, commit them using the command `git commit -am "<commit-message>"`,
     and push them to your forked repository using the command
     `git push origin <branch-name>`.
-6. Create a pull request to the original repository by clicking the
+7. Create a pull request to the original repository by clicking the
     "New pull request" button.
 
 Please follow the coding standards and best practices described in the
