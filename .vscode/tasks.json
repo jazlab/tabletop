@@ -27,8 +27,8 @@
 		},
 		{
 			"type": "shell",
-			"label": "view_mesh",
-			"command": "${workspaceFolder}/scripts/view_mesh.py",
+			"label": "mesh_view",
+			"command": "${workspaceFolder}/scripts/mesh_view.py",
 			"args": [
 				"${file}"
 			],

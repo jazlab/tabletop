@@ -26,6 +26,10 @@ def main():
     print(mesh)
     print(mesh.extents)
 
+    # mesh = simplify_convex_hull(mesh)
+    if isinstance(mesh, trimesh.Scene):
+        mesh.lights = []
+
     visualize_geometry(mesh)
 
 
