@@ -1,3 +1,4 @@
 jupyter
 mingus
 pre-commit
+tqdm

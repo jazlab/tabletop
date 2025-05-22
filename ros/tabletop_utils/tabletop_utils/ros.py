@@ -452,7 +452,7 @@ def change_reference_frame_pose_stamped(
     Args:
         old_pose_stamped (PoseStamped): The pose to transform.
         old_frame_transform (np.ndarray): The transform from the old frame to the world frame.
-        new_frame_transform (np.ndarray): The transform from the world frame to the new frame.
+        new_frame_transform (np.ndarray): The transform from the new frame to the world frame.
         new_frame_id (str): The ID of the new frame.
     """
 
