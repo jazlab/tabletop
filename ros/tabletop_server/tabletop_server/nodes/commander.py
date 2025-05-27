@@ -70,6 +70,7 @@ from tabletop_utils.ros import (
     arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
+    matrix_from_pose_msg,
     mesh_collision_object_msg,
     moveit_error_code_map,
     object_color_msg,
@@ -179,6 +180,10 @@ class Commander(BaseNode):
         "planning_scene.object_meshes",
     }
 
+    ############################################################
+    ########## Init ############################################
+    ############################################################
+
     def __init__(self):
         """Initializes the Commander node.
 
@@ -213,7 +218,7 @@ class Commander(BaseNode):
     def setup_attributes(self):
         """Setup variables for the commander."""
         self.last_post_attach_state: RobotState | None = None
-        self.dynamic_object_poses_stamped: dict[str, PoseStamped] = {}
+        self.dynamic_object_init_poses_stamped: dict[str, PoseStamped] = {}
         self.static_object_ids: set[str] = set()
 
     # TODO: Add services
@@ -403,7 +408,7 @@ class Commander(BaseNode):
         await self.dashboard_trigger_async("/dashboard_client/brake_release")
         await self.dashboard_trigger_async("/dashboard_client/play")
 
-    def init_dashboard(self, timeout: Optional[int | float] = None):
+    def init_dashboard(self, *, timeout: Optional[int | float] = None):
         """Initialize the robot dashboard.
 
         Args:
@@ -423,7 +428,9 @@ class Commander(BaseNode):
         start_time = self.get_clock().now()
         while True:
             try:
-                self.wait_for_service(Trigger, "/dashboard_client/close_popup")
+                self.wait_for_service(
+                    srv_type=Trigger, srv_name="/dashboard_client/close_popup"
+                )
                 self.reset_dashboard()
                 break
             except (
@@ -810,7 +817,7 @@ class Commander(BaseNode):
 
     def object_init_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the initial pose of an object from the parameters."""
-        return deepcopy(self.dynamic_object_poses_stamped[object_id])
+        return deepcopy(self.dynamic_object_init_poses_stamped[object_id])
 
     def pre_fetch_pose_stamped(
         self, object_id: str, subframe_name: str
@@ -958,18 +965,100 @@ class Commander(BaseNode):
 
             return matrix_df
 
+    def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
+        """Log the collision matrix."""
+        # TODO: Make it so that I don't load the collision matrix into memory
+        # unless I need to log it
+        self.log(
+            f"Allowed collision matrix: \n{self.collision_matrix_df.to_string()}",
+            severity=severity,
+        )
+
+    def allow_collision(self, id_1: str, id_2: str):
+        """Allow collision between two collision objects."""
+        self.log(f"Allowing collision between {id_1} and {id_2}")
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            scene.allowed_collision_matrix.set_entry(id_1, id_2, True)
+            scene.current_state.update()
+
+    def disallow_collision(self, id_1: str, id_2: str):
+        """Disallow collision between two collision objects."""
+        self.log(f"Disallowing collision between {id_1} and {id_2}")
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            scene.allowed_collision_matrix.set_entry(id_1, id_2, False)
+            scene.current_state.update()
+
+    def process_collision_object(
+        self,
+        collision_object: CollisionObject,
+        *,
+        dynamic: bool,
+        pose_stamped: Optional[PoseStamped] = None,
+        color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
+        allowed_collision_ids: Optional[list[str]] = None,
+    ):
+        """Process a collision object.
+
+        Adds the collision object to the planning scene and
+        adds the object to the dynamic object poses stamped or
+        static object ids.
+
+        Args:
+            collision_object: The collision object to process.
+            dynamic: Whether the collision object is dynamic.
+            pose_stamped: The pose of the collision object (only used if dynamic).
+            color: The color of the collision object.
+            allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
+        """
+        self.log(
+            f"Processing collision object: {collision_object.id}",
+            severity="DEBUG",
+        )
+        color_msg = (
+            object_color_msg(collision_object.id, color)
+            if color is not None
+            else None
+        )
+        self.planning_scene_monitor.process_collision_object(
+            collision_object, color_msg
+        )
+
+        if dynamic:
+            if pose_stamped is None:
+                raise ValueError(
+                    "Pose stamped is required for dynamic collision objects"
+                )
+            self.dynamic_object_init_poses_stamped[collision_object.id] = (
+                deepcopy(pose_stamped)
+            )
+        else:
+            self.log(
+                f"Ignoring pose stamped for static collision object: {collision_object.id}",
+                severity="DEBUG",
+            )
+            self.static_object_ids.add(collision_object.id)
+
+        if allowed_collision_ids is not None:
+            for allowed_collision_id in allowed_collision_ids:
+                self.allow_collision(allowed_collision_id, collision_object.id)
+
     def add_plane_collision_object(
         self,
-        *,
         object_id: str,
+        *,
         coef: list[float],
         header_frame_id: Optional[str] = None,
+        dynamic: bool,
+        allowed_collision_ids: Optional[list[str]] = None,
     ):
         """Add a plane collision object to the planning scene.
 
         Args:
             object_id: The id for the collision object.
             coef: The coefficients of the plane.
+            dynamic: Whether the collision object is dynamic.
             header_frame_id: The frame id of the header. If not specified, the
                 planning frame will be used.
         """
@@ -984,16 +1073,22 @@ class Commander(BaseNode):
             operation="ADD",
         )
 
-        self.planning_scene_monitor.process_collision_object(collision_object)
+        self.process_collision_object(
+            collision_object=collision_object,
+            dynamic=dynamic,
+            allowed_collision_ids=allowed_collision_ids,
+        )
 
     def add_primitive_collision_object(
         self,
-        *,
         object_id: str,
+        *,
         type: str,
         dimensions: list[float],
         pose_stamped: PoseStamped | Mapping[str, Any],
+        dynamic: bool,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
+        allowed_collision_ids: Optional[list[str]] = None,
     ):
         """Add a primitive collision object to the planning scene.
 
@@ -1002,7 +1097,9 @@ class Commander(BaseNode):
             type: The type of the primitive.
             dimensions: The dimensions of the primitive.
             pose_stamped: The stamped pose of the collision object.
+            dynamic: Whether the collision object is dynamic.
             color: The color of the collision object.
+            allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
         """
         self.log(f"Adding primitive collision object: {object_id}")
 
@@ -1017,25 +1114,28 @@ class Commander(BaseNode):
             operation="ADD",
         )
 
-        color_msg = (
-            object_color_msg(object_id, color) if color is not None else None
-        )
-
-        self.planning_scene_monitor.process_collision_object(
-            collision_object, color_msg
+        self.process_collision_object(
+            collision_object=collision_object,
+            dynamic=dynamic,
+            pose_stamped=pose_stamped,
+            color=color,
+            allowed_collision_ids=allowed_collision_ids,
         )
 
     def add_mesh_collision_object(
         self,
-        *,
         object_id: str,
         path: str,
-        pose_stamped: PoseStamped | Mapping[str, Any],
+        *,
         scale: Optional[float] = None,
         correction: Optional[Pose | Mapping[str, Any]] = None,
         simplification: Optional[str] = None,
-        add_default_subframe: bool = False,
+        pose_stamped: PoseStamped | Mapping[str, Any],
+        dynamic: bool,
+        additional_subframe_names: Optional[list[str]] = None,
+        additional_subframe_poses: Optional[list[Pose]] = None,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
+        allowed_collision_ids: Optional[list[str]] = None,
     ):
         """Add a mesh collision object at a given path to the planning scene.
 
@@ -1046,7 +1146,9 @@ class Commander(BaseNode):
             scale: The scale of the mesh.
             correction: The correction to apply to the mesh.
             simplification: The simplification method to use.
-            add_default_subframe: Whether to add a default subframe.
+            dynamic: Whether the collision object is dynamic.
+            additional_subframe_names: The names of the additional subframes.
+            additional_subframe_poses: The poses of the additional subframes.
             color: The color of the collision object.
         """
         self.log(f"Adding mesh collision object: {object_id}")
@@ -1074,30 +1176,56 @@ class Commander(BaseNode):
 
         # Apply correction
         if correction is not None:
-            geometry = transform_geometry(geometry, correction)
+            if not isinstance(correction, Pose):
+                correction = pose_msg(**correction)
+            tf = matrix_from_pose_msg(correction)
+            geometry = transform_geometry(geometry, tf)
+
+        # Add subframes
+        subframe_names = ["default"]
+        subframe_poses = [Pose()]
+
+        if (
+            additional_subframe_names is not None
+            or additional_subframe_poses is not None
+        ):
+            if (
+                additional_subframe_names is None
+                or additional_subframe_poses is None
+            ):
+                raise ValueError(
+                    "Both additional subframe names and poses must be provided if one is provided"
+                )
+            if len(additional_subframe_names) != len(
+                additional_subframe_poses
+            ):
+                raise ValueError(
+                    "Number of additional subframe names and poses must match"
+                )
+            subframe_names.extend(additional_subframe_names)
+            subframe_poses.extend(additional_subframe_poses)
 
         # Create collision object
         collision_object = mesh_collision_object_msg(
             object_id=object_id,
             geometry=geometry,
             pose_stamped=pose_stamped,
-            subframe_names=["default"] if add_default_subframe else [],
-            subframe_poses=[Pose()] if add_default_subframe else [],
+            subframe_names=subframe_names,
+            subframe_poses=subframe_poses,
             operation="ADD",
         )
 
-        # Add color to collision object
-        color_msg = (
-            object_color_msg(object_id, color) if color is not None else None
-        )
-
-        # Add collision object to planning scene
-        self.planning_scene_monitor.process_collision_object(
-            collision_object, color_msg
+        self.process_collision_object(
+            collision_object=collision_object,
+            dynamic=dynamic,
+            pose_stamped=pose_stamped,
+            color=color,
+            allowed_collision_ids=allowed_collision_ids,
         )
 
     def add_dynamic_mesh_collision_objects(
         self,
+        *,
         path: str,
         origin: list[float],
         delta: list[float],
@@ -1153,8 +1281,8 @@ class Commander(BaseNode):
             kwargs: dict[str, Any] = deepcopy(common_kwargs)
 
             # Get index from per-object configurations and calculate position
-            i, j = overrides.pop("idx")
-            idx_arr = np.array([i, j, 0], dtype=float)
+            y, x = overrides.pop("idx")
+            idx_arr = np.array([x, y, 0], dtype=float)
             position = origin_arr + delta_arr * idx_arr
 
             # Override common configurations with per-object configurations
@@ -1167,75 +1295,23 @@ class Commander(BaseNode):
                 "pose_stamped", {}
             )
             pose_stamped = self.create_pose_stamped(
-                position=position.copy(), **pose_stamped_kwargs
-            )
-
-            # Copy pose stamped to avoid modifying the original
-            self.dynamic_object_poses_stamped[object_id] = (
-                self.create_pose_stamped(
-                    position=position.copy(), **pose_stamped_kwargs
-                )
+                position=position, **pose_stamped_kwargs
             )
 
             self.add_mesh_collision_object(
                 object_id=object_id,
                 path=object_id_to_path[object_id],
                 pose_stamped=pose_stamped,
-                add_default_subframe=True,
+                dynamic=True,
                 **kwargs,
             )
 
-        # Allow collision between sphere and dynamic objects
-        for dynamic_object_id in self.dynamic_object_poses_stamped.keys():
-            self.allow_collision("sphere", dynamic_object_id)
-
-    def remove_collision_object(self, object_id: str):
-        """Remove a collision object from the planning scene."""
-        self.log(f"Removing collision object: {object_id}")
-        collision_object = CollisionObject(
-            id=object_id, operation=CollisionObject.REMOVE
-        )
-        self.planning_scene_monitor.process_collision_object(collision_object)
-        if object_id in self.dynamic_object_poses_stamped:
-            del self.dynamic_object_poses_stamped[object_id]
-        elif object_id in self.static_object_ids:
-            self.static_object_ids.remove(object_id)
-        else:
-            raise ValueError(
-                f"Object {object_id} not found in dynamic or static object ids"
-            )
-
-    def remove_all_collision_objects(self):
-        self.log("Removing all collision objects", severity="DEBUG")
-        with self.planning_scene_monitor.read_write() as scene:
-            scene: PlanningScene = scene
-            scene.remove_all_collision_objects()
-            scene.current_state.update()
-
-        # Update dynamic object poses stamped and static object ids
-        dynamic_object_poses_stamped_new: dict[str, PoseStamped] = {}
-        static_object_ids_new: set[str] = set()
-        for collision_object_id in self.collision_object_ids:
-            if collision_object_id in self.dynamic_object_poses_stamped:
-                dynamic_object_poses_stamped_new[collision_object_id] = (
-                    self.dynamic_object_poses_stamped[collision_object_id]
-                )
-            elif collision_object_id in self.static_object_ids:
-                static_object_ids_new.add(collision_object_id)
-            else:
-                raise ValueError(
-                    f"Remaining object {collision_object_id} not found in old dynamic or static object ids"
-                )
-
-        self.dynamic_object_poses_stamped = dynamic_object_poses_stamped_new
-        self.static_object_ids = static_object_ids_new
-
     def attach_collision_object(
         self,
-        *,
         object_id: str,
         link_name: str,
-        touch_links: list[str] = [],
+        *,
+        touch_links: Optional[list[str]] = None,
     ):
         """Attach an object to the robot."""
         self.log(f"Attaching object {object_id}")
@@ -1259,6 +1335,69 @@ class Commander(BaseNode):
         )
         self.planning_scene_monitor.process_attached_collision_object(
             attached_collision_object
+        )
+
+    def remove_collision_object(self, object_id: str):
+        """Remove a collision object from the planning scene."""
+        self.log(f"Removing collision object: {object_id}")
+
+        if object_id in self.attached_collision_object_ids:
+            self.log(
+                f"Object {object_id} is attached to the robot! "
+                "Detaching it first.",
+                severity="WARNING",
+            )
+            self.detach_collision_object(object_id)
+
+        collision_object = CollisionObject(
+            id=object_id, operation=CollisionObject.REMOVE
+        )
+        self.planning_scene_monitor.process_collision_object(collision_object)
+
+        # Remove object from dynamic object poses stamped or static object ids
+        if object_id in self.dynamic_object_init_poses_stamped:
+            del self.dynamic_object_init_poses_stamped[object_id]
+        elif object_id in self.static_object_ids:
+            self.static_object_ids.remove(object_id)
+        else:
+            assert (
+                False
+            ), f"Object {object_id} not found in dynamic or static object ids"
+
+    def remove_all_collision_objects(self):
+        self.log("Removing all collision objects", severity="DEBUG")
+        with self.planning_scene_monitor.read_write() as scene:
+            scene: PlanningScene = scene
+            scene.remove_all_collision_objects()
+            scene.current_state.update()
+
+        # Check that the only remaining collision objects are the ones that
+        # are attached to the robot
+        assert set(self.collision_object_ids) == set(
+            self.attached_collision_object_ids
+        )
+
+        # Check that there are no static collision objects left (there shouldn't be any)
+        assert (
+            len(set(self.collision_object_ids) & self.static_object_ids) == 0
+        )
+        self.static_object_ids = set()
+
+        # Update dynamic object poses stamped
+        dynamic_object_init_poses_stamped_new: dict[str, PoseStamped] = {}
+        for collision_object_id in self.collision_object_ids:
+            if collision_object_id in self.dynamic_object_init_poses_stamped:
+                assert (
+                    collision_object_id in self.attached_collision_object_ids
+                )
+                dynamic_object_init_poses_stamped_new[collision_object_id] = (
+                    self.dynamic_object_init_poses_stamped[collision_object_id]
+                )
+            else:
+                assert False, f"Remaining object {collision_object_id} not found in old dynamic or static object ids"
+
+        self.dynamic_object_init_poses_stamped = (
+            dynamic_object_init_poses_stamped_new
         )
 
     def log_collision_objects(self, severity: str = DEFAULT_LOG_SEVERITY):
@@ -1293,28 +1432,30 @@ class Commander(BaseNode):
                 )
                 self.log("=" * 80, severity=severity)
 
-    def allow_collision(self, id_1: str, id_2: str):
-        """Allow collision between two collision objects."""
-        self.log(f"Allowing collision between {id_1} and {id_2}")
-        with self.planning_scene_monitor.read_write() as scene:
-            scene: PlanningScene = scene
-            scene.allowed_collision_matrix.set_entry(id_1, id_2, True)
-            scene.current_state.update()
+        # Log static collision objects
+        self.log("Static collision objects:", severity=severity)
+        for collision_object_id in self.static_object_ids:
+            self.log(
+                f"Static collision object id: {collision_object_id}",
+                severity=severity,
+            )
+        self.log("=" * 80, severity=severity)
 
-    def disallow_collision(self, id_1: str, id_2: str):
-        """Disallow collision between two collision objects."""
-        self.log(f"Disallowing collision between {id_1} and {id_2}")
-        with self.planning_scene_monitor.read_write() as scene:
-            scene: PlanningScene = scene
-            scene.allowed_collision_matrix.set_entry(id_1, id_2, False)
-            scene.current_state.update()
-
-    def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
-        """Log the collision matrix."""
-        self.log(
-            f"Allowed collision matrix: \n{self.collision_matrix_df.to_string()}",
-            severity=severity,
-        )
+        # Log dynamic collision objects
+        self.log("Dynamic collision objects:", severity=severity)
+        for (
+            object_id,
+            pose_stamped,
+        ) in self.dynamic_object_init_poses_stamped.items():
+            self.log(
+                f"Dynamic collision object id: {object_id}",
+                severity=severity,
+            )
+            self.log(
+                f"Dynamic collision object pose: {pose_stamped}",
+                severity=severity,
+            )
+            self.log("=" * 80, severity=severity)
 
     def log_planning_scene(self, severity: str = DEFAULT_LOG_SEVERITY):
         """Log the planning scene."""
@@ -1352,7 +1493,9 @@ class Commander(BaseNode):
         else:
             for object_id, kwargs in planes_config.items():
                 self.static_object_ids.add(object_id)
-                self.add_plane_collision_object(object_id=object_id, **kwargs)
+                self.add_plane_collision_object(
+                    object_id=object_id, dynamic=False, **kwargs
+                )
 
         # Add primitive collision objects
         try:
@@ -1364,28 +1507,30 @@ class Commander(BaseNode):
         else:
             for object_id, kwargs in primitives_config.items():
                 self.add_primitive_collision_object(
-                    object_id=object_id, **kwargs
+                    object_id=object_id, dynamic=False, **kwargs
                 )
                 self.static_object_ids.add(object_id)
-
-        # Add rig mesh collision objects
-        rig_meshes_config: dict[str, Any] = self.get_parameter_wrapper(
-            "planning_scene.rig_meshes"
-        )
-        for object_id, kwargs in rig_meshes_config.items():
-            self.add_mesh_collision_object(object_id=object_id, **kwargs)
-            self.static_object_ids.add(object_id)
-
-        # Update planning scene
-        for static_object_id in self.static_object_ids:
-            self.allow_collision("base_link_inertia", static_object_id)
-            self.allow_collision("sphere", static_object_id)
 
         # Add dynamic object meshes
         object_meshes_config: dict[str, Any] = self.get_parameter_wrapper(
             "planning_scene.object_meshes"
         )
         self.add_dynamic_mesh_collision_objects(**object_meshes_config)
+
+        # Add rig mesh collision objects
+        rig_meshes_config: dict[str, Any] = self.get_parameter_wrapper(
+            "planning_scene.rig_meshes"
+        )
+        for object_id, kwargs in rig_meshes_config.items():
+            self.add_mesh_collision_object(
+                object_id=object_id, dynamic=False, **kwargs
+            )
+            self.static_object_ids.add(object_id)
+
+        # Update planning scene
+        for static_object_id in self.static_object_ids:
+            self.allow_collision("base_link_inertia", static_object_id)
+            self.allow_collision("sphere", static_object_id)
 
         # Log planning scene
         self.log_planning_scene(severity="DEBUG")
@@ -1408,6 +1553,7 @@ class Commander(BaseNode):
         self,
         goal_pose_stamped: PoseStamped,
         start_pose_stamped: Optional[PoseStamped] = None,
+        *,
         line_width: float = 0.0005,
         line_length_tolerance: float = 0.001,
         line_weight: float = 1.0,
@@ -1524,6 +1670,7 @@ class Commander(BaseNode):
         self,
         goal: PoseStamped | str | RobotState,
         start_state: Optional[RobotState] = None,
+        *,
         path_constraints: Optional[Constraints] = None,
         pose_link: Optional[str] = None,
         planning_pipeline: str | list[str] = "default",
@@ -1919,6 +2066,7 @@ class Commander(BaseNode):
         self,
         object_id: str,
         end_goal: PoseStamped | str,
+        *,
         subframe_name: str = "default",
     ):
         """Synchronous version of fetch_object_async.
@@ -2002,6 +2150,7 @@ class Commander(BaseNode):
         self,
         object_id: str,
         end_goal: PoseStamped | str,
+        *,
         subframe_name: str = "default",
     ) -> None:
         """
@@ -2053,128 +2202,132 @@ class Commander(BaseNode):
             touch_links=self.touch_links,
         )
 
-        # Allow collision between object and static objects
-        # Needed to prevent errors when removing object from its tool pocket
-        for static_object_id in self.static_object_ids:
-            self.allow_collision(object_id, static_object_id)
+        try:
+            # Allow collision between object and static objects
+            # Needed to prevent errors when removing object from its tool pocket
+            for static_object_id in self.static_object_ids:
+                self.allow_collision(object_id, static_object_id)
 
-        self.log_collision_matrix(severity="DEBUG")
+            self.log_collision_matrix(severity="DEBUG")
 
-        # Post-attach pose
-        post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
-        self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
-        await self._plan_and_execute_async(
-            goal=post_attach_pose_stamped,
-            planning_pipeline="linear",
-        )
+            # Post-attach pose
+            post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
+            self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
+            await self._plan_and_execute_async(
+                goal=post_attach_pose_stamped,
+                planning_pipeline="linear",
+            )
+        finally:
+            # Save the current state as the last post-attach state
+            self.last_post_attach_state = self.current_state
 
-        self.last_post_attach_state = self.current_state
-
-        # Disallow collision between object and static objects
-        for static_object_id in self.static_object_ids:
-            self.disallow_collision(object_id, static_object_id)
+            # Disallow collision between object and static objects
+            for static_object_id in self.static_object_ids:
+                self.disallow_collision(object_id, static_object_id)
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
         await self._plan_and_execute_async(goal=end_goal)
 
-    def return_object(
-        self,
-        subframe_name: str = "default",
-        end_goal: Optional[PoseStamped | str] = None,
-    ) -> None:
-        """Synchronous version of return_object_async.
+    # def return_object(
+    #     self,
+    #     end_goal: Optional[PoseStamped | str] = None,
+    #     *,
+    #     subframe_name: str = "default",
+    # ) -> None:
+    #     """Synchronous version of return_object_async.
 
-        Returns an object to its original position.
+    #     Returns an object to its original position.
 
-        Args:
-            subframe_name: The subframe name of the object (default: "default")
-            end_goal: Optional pose to move to after returning the object
-        """
-        self.log("Returning object")
+    #     Args:
+    #         subframe_name: The subframe name of the object (default: "default")
+    #         end_goal: Optional pose to move to after returning the object
+    #     """
+    #     self.log("Returning object")
 
-        # Get object ID from planning scene and check that there is exactly one
-        # attached collision object
-        attached_collision_object_ids = self.attached_collision_object_ids
-        if len(attached_collision_object_ids) != 1:
-            raise RuntimeError(
-                f"Expected exactly one attached collision object, "
-                f"but got {len(attached_collision_object_ids)}"
-            )
+    #     # Get object ID from planning scene and check that there is exactly one
+    #     # attached collision object
+    #     attached_collision_object_ids = self.attached_collision_object_ids
+    #     if len(attached_collision_object_ids) != 1:
+    #         raise RuntimeError(
+    #             f"Expected exactly one attached collision object, "
+    #             f"but got {len(attached_collision_object_ids)}"
+    #         )
 
-        object_id = attached_collision_object_ids[0]
+    #     object_id = attached_collision_object_ids[0]
 
-        # Move to saved post-attach state
-        if self.last_post_attach_state is not None:
-            self.log(
-                f"Moving to saved post-attach state {self.last_post_attach_state}"
-            )
-            self.plan_and_execute(goal=self.last_post_attach_state)
-            self.last_post_attach_state = None
-        else:
-            self.log(
-                "No saved post-attach state found, moving to initial pose",
-                severity="WARNING",
-            )
-            self.plan_and_execute(goal=self.pre_detach_pose_stamped(object_id))
+    #     # Move to saved post-attach state
+    #     if self.last_post_attach_state is not None:
+    #         self.log(
+    #             f"Moving to saved post-attach state {self.last_post_attach_state}"
+    #         )
+    #         self.plan_and_execute(goal=self.last_post_attach_state)
+    #         self.last_post_attach_state = None
+    #     else:
+    #         self.log(
+    #             "No saved post-attach state found, moving to pre-detach pose",
+    #             severity="WARNING",
+    #         )
+    #         self.plan_and_execute(goal=self.pre_detach_pose_stamped(object_id))
 
-        # Allow collision between object and static objects
-        # Needed to prevent errors when inserting object into its tool pocket
-        for static_object_id in self.static_object_ids:
-            self.allow_collision(object_id, static_object_id)
+    #     # Allow collision between object and static objects
+    #     # Needed to prevent errors when inserting object into its tool pocket
+    #     for static_object_id in self.static_object_ids:
+    #         self.allow_collision(object_id, static_object_id)
 
-        # Move to the detach pose
-        self.log(
-            f"Moving to detach pose {self.detach_pose_stamped(object_id)}"
-        )
-        self.plan_and_execute(
-            goal=self.detach_pose_stamped(object_id),
-            planning_pipeline="linear",
-        )
+    #     # Move to the detach pose
+    #     self.log(
+    #         f"Moving to detach pose {self.detach_pose_stamped(object_id)}"
+    #     )
+    #     self.plan_and_execute(
+    #         goal=self.detach_pose_stamped(object_id),
+    #         planning_pipeline="linear",
+    #     )
 
-        # Detach the object
-        self.detach_collision_object(object_id=object_id)
+    #     # Detach the object
+    #     self.detach_collision_object(object_id=object_id)
 
-        # Disallow collision between object and static objects
-        for static_object_id in self.static_object_ids:
-            self.disallow_collision(object_id, static_object_id)
+    #     # Disallow collision between object and static objects
+    #     for static_object_id in self.static_object_ids:
+    #         self.disallow_collision(object_id, static_object_id)
 
-        # Allow collision between robot and object
-        for touch_link in self.touch_links:
-            self.allow_collision(touch_link, object_id)
+    #     # Allow collision between robot and object
+    #     for touch_link in self.touch_links:
+    #         self.allow_collision(touch_link, object_id)
 
-        # Move to the post-detach pose
-        self.log(
-            f"Moving to post-detach pose {self.post_detach_pose_stamped(object_id, subframe_name)}"
-        )
-        self.plan_and_execute(
-            goal=self.post_detach_pose_stamped(object_id, subframe_name),
-            planning_pipeline="linear",
-        )
+    #     # Move to the post-detach pose
+    #     self.log(
+    #         f"Moving to post-detach pose {self.post_detach_pose_stamped(object_id, subframe_name)}"
+    #     )
+    #     self.plan_and_execute(
+    #         goal=self.post_detach_pose_stamped(object_id, subframe_name),
+    #         planning_pipeline="linear",
+    #     )
 
-        # Move to the post-return (pre-fetch) pose
-        self.log(
-            f"Moving to post-return pose {self.post_return_pose_stamped(object_id, subframe_name)}"
-        )
-        self.plan_and_execute(
-            goal=self.post_return_pose_stamped(object_id, subframe_name),
-            planning_pipeline="linear",
-        )
+    #     # Move to the post-return (pre-fetch) pose
+    #     self.log(
+    #         f"Moving to post-return pose {self.post_return_pose_stamped(object_id, subframe_name)}"
+    #     )
+    #     self.plan_and_execute(
+    #         goal=self.post_return_pose_stamped(object_id, subframe_name),
+    #         planning_pipeline="linear",
+    #     )
 
-        # Disallow collision between touch links and object
-        for touch_link in self.touch_links:
-            self.disallow_collision(touch_link, object_id)
+    #     # Disallow collision between touch links and object
+    #     for touch_link in self.touch_links:
+    #         self.disallow_collision(touch_link, object_id)
 
-        # Move to end pose if specified
-        if end_goal is not None:
-            self.log(f"Moving to end goal {end_goal}")
-            self.plan_and_execute(goal=end_goal)
+    #     # Move to end pose if specified
+    #     if end_goal is not None:
+    #         self.log(f"Moving to end goal {end_goal}")
+    #         self.plan_and_execute(goal=end_goal)
 
     @asyncio_task_decorator
     async def return_object_async(
         self,
-        subframe_name: str = "default",
         end_goal: Optional[PoseStamped | str] = None,
+        *,
+        subframe_name: str = "default",
     ):
         """Return an object to its original position.
 
@@ -2184,8 +2337,6 @@ class Commander(BaseNode):
             subframe_name: The subframe name of the object (default: "default")
             end_goal: Optional pose to move to after returning the object
         """
-        self.log("Returning object")
-
         # Get object ID from planning scene and check that there is exactly one
         # attached collision object
         attached_collision_object_ids = self.attached_collision_object_ids
@@ -2196,6 +2347,8 @@ class Commander(BaseNode):
             )
 
         object_id = attached_collision_object_ids[0]
+
+        self.log(f"Returning object {object_id}")
 
         # Move to saved post-attach state
         if self.last_post_attach_state is not None:
@@ -2208,7 +2361,7 @@ class Commander(BaseNode):
             self.last_post_attach_state = None
         else:
             self.log(
-                "No saved post-attach state found, moving to initial pose",
+                "No saved post-attach state found, moving to pre-detach pose",
                 severity="WARN",
             )
             await self._plan_and_execute_async(
@@ -2271,26 +2424,21 @@ class Commander(BaseNode):
     ########## Reset rig #######################################
     ############################################################
 
-    def move_simulation_out_of_collision(
-        self, goal: PoseStamped | str, pose_link: Optional[str] = None
-    ):
-        """Move the robot out of collision with the scene.
+    # def move_simulation_out_of_collision(
+    #     self, goal: PoseStamped | str, pose_link: Optional[str] = None
+    # ):
+    #     """Move the robot out of collision with the scene.
 
-        This function is only available in simulation.
-        Otherwise, you'll break your robot.
-        """
-        self.log("Moving out of collision")
-        if not self.get_parameter_wrapper("simulate"):
-            raise RuntimeError(
-                "Can't move out of collision with real robot! "
-                "Please move the robot away from the collision objects "
-                "manually via the teach pendant."
-            )
-        self.remove_all_collision_objects()
-        self.plan_and_execute(goal=goal, pose_link=pose_link)
-        self.setup_planning_scene()
+    #     This function is only available in simulation.
+    #     Otherwise, you'll break your robot.
+    #     """
+    #     assert self.get_parameter_wrapper("simulate")
+    #     self.log("Moving out of collision")
+    #     self.remove_all_collision_objects()
+    #     self.plan_and_execute(goal=goal, pose_link=pose_link)
+    #     self.setup_planning_scene()
 
-    async def move_out_of_collision_async(
+    async def move_simulation_out_of_collision_async(
         self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ):
         """
@@ -2303,99 +2451,91 @@ class Commander(BaseNode):
         pendant) move the robot away from the collision objects.
         """
         self.log("Moving out of collision asynchronously")
+        assert self.get_parameter_wrapper("simulate")
         self.remove_all_collision_objects()
         await self._plan_and_execute_async(goal=goal, pose_link=pose_link)
         self.setup_planning_scene()
 
-    def reset_rig(self, end_goal: Optional[PoseStamped | str] = None):
+    # def reset_rig(self, end_goal: Optional[PoseStamped | str] = None):
+    #     """Reset the rig.
+
+    #     Move the robot out of collision if necessary and return any attached
+    #     objects to their original positions.
+    #     """
+    #     self.log("Resetting rig")
+    #     if self.is_state_colliding():
+    #         if self.get_parameter_wrapper("simulate"):
+    #             self.move_simulation_out_of_collision(goal="semi")
+    #         else:
+    #             raise RuntimeError(
+    #                 "Robot is in collision with the scene! "
+    #                 "Please move the robot away from the collision objects manually."
+    #             )
+    #     if len(self.attached_collision_object_ids) > 0:
+    #         self.log(
+    #             "Returning object to original pose in order to reset rig",
+    #             severity="DEBUG",
+    #         )
+    #         self.return_object(end_goal=end_goal)
+
+    async def reset_rig_async(
+        self,
+        end_goal: Optional[PoseStamped | str] = None,
+        severity: str = "INFO",
+    ):
         """Move the robot out of collision if necessary and return any attached
         objects to their original positions.
         """
-        self.log("Resetting rig")
-        if self.is_state_colliding():
-            self.move_simulation_out_of_collision(goal="semi")
-        if len(self.attached_collision_object_ids) > 0:
-            self.log(
-                "Returning object to original pose",
-                severity="DEBUG",
-            )
-            self.return_object(end_goal=end_goal)
-
-    async def reset_rig_async(
-        self, end_goal: Optional[PoseStamped | str] = None
-    ):
-        """
-        Move the robot out of collision if necessary and return any attached
-        objects to their original positions.
-        """
-        self.log("Resetting rig asynchronously")
+        self.log("Resetting rig asynchronously", severity=severity)
         if self.is_state_colliding(self.planning_group_name):
             if self.get_parameter_wrapper("simulate"):
-                self.log(
-                    "Moving out of collision (simulation only)",
-                    severity="DEBUG",
-                )
-                await self.move_out_of_collision_async(goal="semi")
+                await self.move_simulation_out_of_collision_async(goal="semi")
             else:
                 raise RuntimeError(
-                    "Can't move out of collision with real robot! "
-                    "Please move the robot away from the collision objects "
-                    "manually via the teach pendant."
+                    "Robot is in collision with the scene! "
+                    "Please move the robot away from the collision objects manually."
                 )
         if len(self.attached_collision_object_ids) > 0:
-            self.log(
-                "Returning object to original pose",
-                severity="DEBUG",
-            )
             await self.return_object_async(end_goal=end_goal)
+        else:
+            await self.plan_and_execute_async(goal="semi")
 
     ############################################################
     ########## Initialize ######################################
     ############################################################
 
-    def init_rig(
-        self,
-        timeout: Optional[float] = None,
-        end_goal: PoseStamped | str = "semi",
-    ) -> None:
-        """Initialize the robot."""
-        self.log("Initializing rig")
-        if timeout is None:
-            timeout = self.get_parameter_wrapper("rig.init_timeout")
-        assert timeout is not None
-
-        start_time = self.time()
-        while True:
-            try:
-                self.reset_rig(end_goal=end_goal)
-                break
-            except (
-                TimeoutError,
-                ServiceCallError,
-                ServiceCallUnsuccessfulError,
-                MaxAttemptsReachedError,
-            ) as e:
-                self.log(
-                    f"Error resetting rig: {type(e).__name__}: {e}",
-                    severity="WARN",
-                )
-                self.log("Trying again...", severity="WARN")
-
-            if self.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Failed to initialize rig after {timeout} seconds"
-                )
-
-    def init_commander(
-        self,
-        dashboard_timeout: Optional[float] = None,
-        rig_timeout: Optional[float] = None,
-        end_goal: PoseStamped | str = "semi",
-    ) -> None:
+    def init_commander(self, timeout: Optional[float] = None):
         """Initialize the commander."""
-        self.log("Initializing commander")
-        self.init_dashboard(dashboard_timeout)
-        self.init_rig(rig_timeout, end_goal=end_goal)
+        self.init_dashboard(timeout=timeout)
+
+    # async def init_rig_async(
+    #     self,
+    #     *,
+    #     end_goal: PoseStamped | str = "semi",
+    #     timeout: Optional[float] = None,
+    # ):
+    #     """Initialize the rig asynchronously."""
+    #     self.log("Initializing rig asynchronously")
+    #     if timeout is None:
+    #         timeout = self.get_parameter_wrapper("rig.init_timeout")
+    #     assert timeout is not None
+
+    #     async with asyncio.timeout(timeout):
+    #         while True:
+    #             try:
+    #                 await self.reset_rig_async(end_goal=end_goal)
+    #                 return
+    #             except (
+    #                 TimeoutError,
+    #                 MaxAttemptsReachedError,
+    #                 ServiceCallError,
+    #                 ServiceCallUnsuccessfulError,
+    #             ) as e:
+    #                 self.log(
+    #                     f"Error initializing rig: {type(e).__name__}: {e}",
+    #                     severity="WARN",
+    #                 )
+    #                 self.log("Trying again...", severity="WARN")
 
     ############################################################
     ########## Context manager #################################
@@ -2425,6 +2565,8 @@ class Commander(BaseNode):
         of collision if necessary.
         """
         self.log("Entering planning context manager", severity="DEBUG")
+
+        await self.reset_rig_async(end_goal="semi", severity="DEBUG")
 
         try:
             # try:

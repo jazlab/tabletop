@@ -3,17 +3,15 @@
 from collections.abc import Mapping
 from typing import Any
 
-import numpy as np
 from tabletop_server.nodes import Commander
 
 from tabletop_tasks.trial_generators.base import BaseTrialGenerator, TrialSpec
 
 
-class RandomChoice(BaseTrialGenerator):
-    """
-    Random choice trial generator.
+class OrderedChoice(BaseTrialGenerator):
+    """Ordered choice trial generator.
 
-    Randomly chooses an object from a list of objects and a pose from a list of poses.
+    Chooses an object from a list of objects and a pose from a list of poses in order.
 
     Args:
         object_ids: List of object ids to choose from.
@@ -25,7 +23,7 @@ class RandomChoice(BaseTrialGenerator):
         self,
         commander: Commander,
         object_ids: list[str],
-        occlude_prob: float,
+        occlude: list[bool],
         poses: list[Mapping[str, Any]],
         num_trials: int,
     ):
@@ -34,7 +32,7 @@ class RandomChoice(BaseTrialGenerator):
         self._poses = [
             self.commander.create_pose_stamped(**pose) for pose in poses
         ]
-        self._occlude_prob = occlude_prob
+        self._occlude = occlude
         self._num_trials = num_trials
         self._trial_counter = 0
 
@@ -44,15 +42,15 @@ class RandomChoice(BaseTrialGenerator):
             raise StopIteration
 
         # Sample object pose
-        object_pose = np.random.choice(self._poses)  # type: ignore
+        object_pose = self._poses[self._trial_counter % len(self._poses)]
 
         # Sample object id
-        object_id = np.random.choice(self._object_ids)
+        object_id = self._object_ids[
+            self._trial_counter % len(self._object_ids)
+        ]
 
         # Sample occlude
-        occlude = np.random.choice(
-            [True, False], p=[self._occlude_prob, 1 - self._occlude_prob]
-        )
+        occlude = self._occlude[self._trial_counter % len(self._occlude)]
 
         # Make trial spec
         trial_spec = TrialSpec(

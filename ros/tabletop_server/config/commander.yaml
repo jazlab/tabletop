@@ -42,6 +42,9 @@
       planes:
         floor:
           coef: [0.0, 0.0, 1.0, 0.309]
+          allowed_collision_ids:
+            - base_link_inertia
+            - sphere
 
       primitives:
         left_robot_box:
@@ -49,12 +52,17 @@
           dimensions: [0.8, 0.4, 0.6]
           pose_stamped:
             position: [0.2945, 1.1178, 0.609]
+          allowed_collision_ids:
+            - sphere
           color: blue
         robot_platform:
           type: BOX
           dimensions: [0.9135, 0.9135, 0.005]
           pose_stamped:
             position: [0.9144, 1.1178, 0.3065]
+          allowed_collision_ids:
+            - base_link_inertia
+            - sphere
           color: pink
 
       rig_meshes:
@@ -62,6 +70,9 @@
           path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig_mod.dae
           scale: 1.0
           simplification: convex_hull
+          allowed_collision_ids:
+            - base_link_inertia
+            - sphere
           pose_stamped:
             position: [0.0, 0.0, 0.0]
           color: pink
@@ -71,26 +82,103 @@
         origin: [0.2464, 0.7993, 1.25]
         delta: [0.1489, 0.3771, 0.0]
         common_kwargs:
+          allowed_collision_ids:
+            - sphere
           pose_stamped:
             rpy: [0.0, 0.0, -1.5707]
-          simplification: null
+          simplification: convex_hull
           color: orange
         object_kwargs:
           simple_object_0:
-            color: red
-            idx: [5, 0]
+            color: [1.0, 0.0, 0.0, 1.0] # red
+            idx: [0, 0]
           simple_object_1:
-            color: green
-            idx: [4, 2]
+            color: [0.0, 1.0, 0.0, 1.0] # green
+            idx: [0, 1]
           simple_object_2:
-            color: blue
-            idx: [8, 0]
+            color: [0.0, 0.0, 1.0, 1.0] # blue
+            idx: [0, 2]
           simple_object_3:
-            color: yellow
-            idx: [9, 2]
+            color: [1.0, 1.0, 0.0, 1.0] # yellow
+            idx: [0, 3]
           simple_object_4:
-            color: purple
-            idx: [6, 1]
+            color: [1.0, 0.0, 1.0, 1.0] # purple
+            idx: [0, 4]
+          simple_object_5:
+            color: [0.0, 1.0, 1.0, 1.0] # cyan
+            idx: [0, 5]
+          simple_object_6:
+            color: [1.0, 0.5, 0.0, 1.0] # orange
+            idx: [0, 6]
+          simple_object_7:
+            color: [0.5, 0.0, 0.5, 1.0] # magenta
+            idx: [0, 7]
+          simple_object_8:
+            color: [0.5, 0.5, 0.0, 1.0] # olive
+            idx: [0, 8]
+          simple_object_9:
+            color: [0.0, 0.5, 0.5, 1.0] # teal
+            idx: [0, 9]
+          simple_object_10:
+            color: [0.5, 0.0, 0.0, 1.0] # maroon
+            idx: [1, 0]
+          simple_object_11:
+            color: [0.0, 0.5, 0.0, 1.0] # lime
+            idx: [1, 1]
+          simple_object_12:
+            color: [0.0, 0.0, 0.5, 1.0] # navy
+            idx: [1, 2]
+          simple_object_13:
+            color: [0.5, 0.5, 0.5, 1.0] # gray
+            idx: [1, 3]
+          simple_object_14:
+            color: [0.75, 0.75, 0.75, 1.0] # light gray
+            idx: [1, 4]
+          simple_object_15:
+            color: [0.5, 0.25, 0.0, 1.0] # brown
+            idx: [1, 5]
+          simple_object_16:
+            color: [0.25, 0.5, 0.0, 1.0] # dark green
+            idx: [1, 6]
+          simple_object_17:
+            color: [0.0, 0.25, 0.5, 1.0] # dark blue
+            idx: [1, 7]
+          simple_object_18:
+            color: [0.5, 0.0, 0.25, 1.0] # dark red
+            idx: [1, 8]
+          simple_object_19:
+            color: [0.25, 0.0, 0.5, 1.0] # dark purple
+            idx: [1, 9]
+          simple_object_20:
+            color: [0.0, 0.5, 0.25, 1.0] # dark cyan
+            idx: [2, 0]
+          simple_object_21:
+            color: [0.75, 0.25, 0.0, 1.0] # dark orange
+            idx: [2, 1]
+          simple_object_22:
+            color: [0.25, 0.75, 0.0, 1.0] # light green
+            idx: [2, 2]
+          simple_object_23:
+            color: [0.0, 0.25, 0.75, 1.0] # light blue
+            idx: [2, 3]
+          simple_object_24:
+            color: [0.75, 0.0, 0.25, 1.0] # light red
+            idx: [2, 4]
+          simple_object_25:
+            color: [0.25, 0.0, 0.75, 1.0] # light purple
+            idx: [2, 5]
+          simple_object_26:
+            color: [0.0, 0.75, 0.25, 1.0] # light cyan
+            idx: [2, 6]
+          simple_object_27:
+            color: [0.75, 0.5, 0.25, 1.0] # peach
+            idx: [2, 7]
+          simple_object_28:
+            color: [0.25, 0.75, 0.5, 1.0] # mint
+            idx: [2, 8]
+          simple_object_29:
+            color: [0.5, 0.25, 0.75, 1.0] # lavender
+            idx: [2, 9]
 
           # position: [0.0,
           #            35.6*0.0254 - (0.108 + 0.0315),

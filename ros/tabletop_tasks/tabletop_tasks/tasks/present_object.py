@@ -8,7 +8,7 @@ from typing import Any
 
 from tabletop_server.nodes import Commander
 
-from tabletop_tasks.tasks.base_task import BaseTask
+from tabletop_tasks.tasks.base import BaseTask
 from tabletop_tasks.trial_generators import BaseTrialGenerator
 
 

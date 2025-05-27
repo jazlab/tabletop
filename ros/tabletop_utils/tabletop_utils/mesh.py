@@ -1,15 +1,13 @@
 import logging
 import os
 from collections import OrderedDict
-from typing import Any, Mapping, Optional, TypeVar, cast
+from typing import Any, Optional, TypeVar, cast
 
+import numpy as np
 import pyfqmr
 import pyglet
 import trimesh
-from geometry_msgs.msg import Pose
 from trimesh.exchange.dae import export_collada
-
-from tabletop_utils.ros import matrix_from_pose_msg, pose_msg
 
 GeometryT = TypeVar("GeometryT", bound=trimesh.Trimesh | trimesh.Scene)
 
@@ -30,7 +28,7 @@ def copy_geometry(geometry: GeometryT) -> GeometryT:
 
 
 def scale_geometry(geometry: GeometryT, scale: float) -> GeometryT:
-    """Scale a mesh or scene.
+    """Scale a mesh or scene (not in-place).
 
     Args:
         geometry: The mesh or scene to scale.
@@ -40,24 +38,17 @@ def scale_geometry(geometry: GeometryT, scale: float) -> GeometryT:
     return geometry.apply_scale(scale)
 
 
-def transform_geometry(
-    geometry: GeometryT, pose: Pose | Mapping[str, Any]
-) -> GeometryT:
-    """Transform a mesh or scene by a pose.
+def transform_geometry(geometry: GeometryT, tf: np.ndarray) -> GeometryT:
+    """Transform a mesh or scene by a transformation matrix (not in-place).
 
     Args:
         geometry: The mesh or scene to transform.
-        pose: The pose to transform the mesh or scene by.
+        tf: The transformation matrix to apply to the mesh or scene.
 
     Returns:
         The transformed mesh or scene.
     """
     geometry = copy_geometry(geometry)
-
-    if not isinstance(pose, Pose):
-        pose = pose_msg(**pose)
-    tf = matrix_from_pose_msg(pose)
-
     return geometry.apply_transform(tf)
 
 
@@ -85,6 +76,10 @@ def load_geometry(
         geometry = trimesh.load_scene(path)
         if len(geometry.geometry) == 1:
             geometry = cast(trimesh.Trimesh, geometry.to_mesh())
+        else:
+            # Dump the scene to a new scene to "bake" any metadata
+            # into each mesh
+            geometry = trimesh.Scene(geometry.dump())
     elif extension == ".stl":
         geometry = trimesh.load_mesh(path)
     else:

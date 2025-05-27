@@ -30,6 +30,7 @@ from tf_transformations import (
 from tabletop_utils.common import is_iterable
 
 # Constants
+
 """
 MoveIt error code map from error code to string, for logging.
 """
@@ -114,6 +115,9 @@ solid_primitive_type_map = {
 }
 
 
+# Protocol definitions
+
+
 class SrvTypeRequest(Protocol):
     pass
 
@@ -122,13 +126,14 @@ class SrvTypeResponse(Protocol):
     success: bool
 
 
-# Protocol definitions
 class SrvType(Protocol):
     Request: Any
     Response: Any
 
 
 # Exception definitions
+
+
 class MaxAttemptsReachedError(Exception):
     pass
 
@@ -141,7 +146,9 @@ class ServiceCallUnsuccessfulError(Exception):
     pass
 
 
-# ROS2 utility functions
+# Generic ROS2 utilities
+
+
 def load_yaml_from_package(package_name: str, file_path: str) -> Any:
     """Load a YAML file from a ROS package share directory.
 
@@ -202,6 +209,26 @@ def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
         return msg
 
 
+# Geometric ROS2 message utilities
+
+
+def array_from_point_msg(point: Point) -> np.ndarray:
+    """Convert a geometry_msgs/Point message to a numpy array."""
+    return np.array([point.x, point.y, point.z])
+
+
+def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    """Convert a geometry_msgs/Quaternion message to a numpy array."""
+    return np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+
+
+def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
+    """Convert a geometry_msgs/Pose message to position and orientation arrays."""
+    position = array_from_point_msg(pose.position)
+    orientation = array_from_quaternion_msg(pose.orientation)
+    return position, orientation
+
+
 def quaternion_msg_from_euler(
     roll: float = 0.0,
     pitch: float = 0.0,
@@ -240,12 +267,11 @@ def quaternion_msg_from_axis_angle(
 
 
 def euler_from_quaternion_msg(
-    quaternion: Quaternion,
+    quaternion: Quaternion, axes: str = "sxyz"
 ) -> tuple[float, float, float]:
     """Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians)."""
     return euler_from_quaternion(
-        [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
-        axes="sxyz",
+        [quaternion.x, quaternion.y, quaternion.z, quaternion.w], axes=axes
     )
 
 
@@ -379,34 +405,10 @@ def pose_stamped_msg(
 
 def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
     """Convert a 4x4 transformation matrix to a geometry_msgs/Pose message."""
-    translation = translation_from_matrix(matrix)
-    quaternion = quaternion_from_matrix(matrix)
-    pose = Pose()
-    pose.position.x = translation[0]
-    pose.position.y = translation[1]
-    pose.position.z = translation[2]
-    pose.orientation.x = quaternion[0]
-    pose.orientation.y = quaternion[1]
-    pose.orientation.z = quaternion[2]
-    pose.orientation.w = quaternion[3]
-    return pose
-
-
-def array_from_point_msg(point: Point) -> np.ndarray:
-    """Convert a geometry_msgs/Point message to a numpy array."""
-    return np.array([point.x, point.y, point.z])
-
-
-def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
-    """Convert a geometry_msgs/Quaternion message to a numpy array."""
-    return np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
-
-
-def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
-    """Convert a geometry_msgs/Pose message to a tuple of numpy arrays."""
-    position = array_from_point_msg(pose.position)
-    orientation = array_from_quaternion_msg(pose.orientation)
-    return position, orientation
+    return pose_msg(
+        position=translation_from_matrix(matrix),
+        orientation=quaternion_from_matrix(matrix),
+    )
 
 
 def all_close_points(p1: Point, p2: Point, **all_close_kwargs: Any) -> bool:
@@ -491,27 +493,6 @@ def change_reference_frame_pose_stamped(
     return new_pose_stamped
 
 
-# def collision_object_msg(
-#     *,
-#     header: Optional[Header | Mapping[str, Any]] = None,
-#     id: str,
-#     operation: str,
-#     pose_stamped: PoseStamped,
-#     primitives: list[SolidPrimitive] = [],
-#     primitive_poses: list[Pose] = [],
-#     subframe_names: list[str] = [],
-#     subframe_poses: list[Pose] = [],
-#     meshes: list[Mesh] = [],
-#     mesh_poses: list[Pose] = [],
-# ) -> CollisionObject:
-#     """Create a collision object message."""
-
-#     collision_object = CollisionObject()
-#     collision_object.header.frame_id = pose_stamped.header.frame_id
-#     collision_object.id = object_id
-#     collision_object.operation = collision_object_operation_map[operation]
-
-
 def plane_collision_object_msg(
     object_id: str,
     coef: list[float],
@@ -535,8 +516,8 @@ def primitive_collision_object_msg(
     type: str,
     dimensions: list[float],
     pose_stamped: PoseStamped,
-    subframe_names: list[str] = [],
-    subframe_poses: list[Pose] = [],
+    subframe_names: Optional[list[str]] = None,
+    subframe_poses: Optional[list[Pose]] = None,
     operation: str = "ADD",
 ) -> CollisionObject:
     """Create a collision object from a primitive."""
@@ -551,9 +532,12 @@ def primitive_collision_object_msg(
     )
     collision_object.primitive_poses.append(pose_stamped.pose)  # type: ignore
 
-    for subframe_name, subframe_pose in zip(subframe_names, subframe_poses):
-        collision_object.subframe_names.append(subframe_name)  # type: ignore
-        collision_object.subframe_poses.append(subframe_pose)  # type: ignore
+    if subframe_names is not None and subframe_poses is not None:
+        for subframe_name, subframe_pose in zip(
+            subframe_names, subframe_poses
+        ):
+            collision_object.subframe_names.append(subframe_name)  # type: ignore
+            collision_object.subframe_poses.append(subframe_pose)  # type: ignore
 
     collision_object.operation = collision_object_operation_map[operation]
     return collision_object
@@ -563,8 +547,8 @@ def mesh_collision_object_msg(
     object_id: str,
     geometry: trimesh.Trimesh | trimesh.Scene,
     pose_stamped: PoseStamped,
-    subframe_names: list[str] = [],
-    subframe_poses: list[Pose] = [],
+    subframe_names: Optional[list[str]] = None,
+    subframe_poses: Optional[list[Pose]] = None,
     operation: str = "ADD",
 ) -> CollisionObject:
     """Create a collision object from a trimesh geometry.
@@ -600,9 +584,12 @@ def mesh_collision_object_msg(
     collision_object.meshes.append(msg)  # type: ignore
     collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
 
-    for subframe_name, subframe_pose in zip(subframe_names, subframe_poses):
-        collision_object.subframe_names.append(subframe_name)  # type: ignore
-        collision_object.subframe_poses.append(subframe_pose)  # type: ignore
+    if subframe_names is not None and subframe_poses is not None:
+        for subframe_name, subframe_pose in zip(
+            subframe_names, subframe_poses
+        ):
+            collision_object.subframe_names.append(subframe_name)  # type: ignore
+            collision_object.subframe_poses.append(subframe_pose)  # type: ignore
 
     collision_object.operation = collision_object_operation_map[operation]
     return collision_object
@@ -612,7 +599,7 @@ def attached_collision_object_msg(
     object_id: str,
     operation: str,
     link_name: str = "",
-    touch_links: list[str] = [],
+    touch_links: Optional[list[str]] = None,
 ) -> AttachedCollisionObject:
     """Create an AttachedCollisionObject message."""
     attached_collision_object = AttachedCollisionObject()
@@ -622,7 +609,8 @@ def attached_collision_object_msg(
     if not link_name and operation == "ADD":
         raise ValueError("link_name must be provided for ADD operation")
 
-    attached_collision_object.touch_links = touch_links
+    if touch_links is not None:
+        attached_collision_object.touch_links = touch_links
 
     attached_collision_object.object.operation = (
         collision_object_operation_map[operation]

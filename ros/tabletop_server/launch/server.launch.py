@@ -11,6 +11,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitution import Substitution
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -236,8 +237,14 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
-            "moveit_log_level",
+            "moveit_py_log_level",
             default_value="WARN",
+            description="MoveItPy log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "moveit_log_level",
+            default_value="FATAL",
             description="MoveIt log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
@@ -299,6 +306,11 @@ def declare_arguments():
     ]
 
 
+def print_substitutions(context, substitutions: dict[str, Substitution]):
+    for name, substitution in substitutions.items():
+        print(f"{name}: {substitution.perform(context)}")
+
+
 def generate_launch_description():
     # Common
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -345,6 +357,7 @@ def generate_launch_description():
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
     commander_log_level = LaunchConfiguration("commander_log_level")
+    moveit_py_log_level = LaunchConfiguration("moveit_py_log_level")
     moveit_log_level = LaunchConfiguration("moveit_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
 
@@ -378,32 +391,30 @@ def generate_launch_description():
     simulate_commander = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "real"), "false", "true"
     )
-    kinematics_params_file = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "real"),
-        "ur5e_calibration.yaml",
-        "ursim_calibration.yaml",
-    )
     kinematics_params_file = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_description"),
             "config",
-            kinematics_params_file,
+            IfElseSubstitution(
+                EqualsSubstitution(robot_mode, "real"),
+                "ur5e_calibration.yaml",
+                "ursim_calibration.yaml",
+            ),
         ]
     )
 
-    def print_substitutions(context):
-        print(f"robot_ip: {robot_ip.perform(context)}")
-        print(f"reverse_ip: {reverse_ip.perform(context)}")
-        print(f"use_mock_robot: {use_mock_robot.perform(context)}")
-        print(
-            f"controller_spawner_timeout: {controller_spawner_timeout.perform(context)}"
-        )
-        print(
-            f"kinematics_params_file: {kinematics_params_file.perform(context)}"
-        )
-
+    # Print substitutions
     print_substitutions_action = OpaqueFunction(
-        function=print_substitutions,
+        function=lambda context: print_substitutions(
+            context,
+            {
+                "robot_ip": robot_ip,
+                "reverse_ip": reverse_ip,
+                "use_mock_robot": use_mock_robot,
+                "kinematics_params_file": kinematics_params_file,
+                "simulate_commander": simulate_commander,
+            },
+        ),
         condition=IfCondition(
             EqualsSubstitution(commander_log_level, "DEBUG")
         ),
@@ -509,9 +520,11 @@ def generate_launch_description():
         ],
         ros_arguments=[
             "--log-level",
-            ["commander:=", commander_log_level],
+            moveit_log_level,
             "--log-level",
-            ["moveit*:=", moveit_log_level],
+            ["moveit_py:=", moveit_py_log_level],
+            "--log-level",
+            ["commander:=", commander_log_level],
         ],
         arguments=[script_config],
         output=commander_output,

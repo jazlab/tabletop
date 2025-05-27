@@ -1,4 +1,4 @@
-from .base_task import BaseTask
+from .base import BaseTask
 from .dummy import DummyTask
 from .foraging import ForagingTask
 from .present_object import PresentObjectTask

@@ -8,7 +8,7 @@ from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from tabletop_server.nodes import Commander
 
-from tabletop_tasks.tasks.base_task import BaseTask
+from tabletop_tasks.tasks.base import BaseTask
 
 
 class SmoothPursuitTask(BaseTask):

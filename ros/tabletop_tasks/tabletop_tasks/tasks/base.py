@@ -18,8 +18,6 @@ class BaseTask(ABC):
         """
         self._commander = commander
 
-        self._commander.init_commander()
-
     @property
     def commander(self) -> Commander:
         """Get the commander instance."""

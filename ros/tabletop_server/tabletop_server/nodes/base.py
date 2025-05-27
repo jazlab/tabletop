@@ -34,11 +34,13 @@ class BaseNode(Node):
     parameter declaration, logging, and service calls.
     """
 
+    # Optional parameters with default values
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
         "yaml_width": 120,
     }
+    # Required parameters
     required_params: set[str] = set()
 
     def __init__(
@@ -216,6 +218,7 @@ class BaseNode(Node):
         self,
         srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
+        *,
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ):
@@ -267,6 +270,7 @@ class BaseNode(Node):
         srv_request: SrvTypeRequest,
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
+        *,
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ) -> SrvTypeResponse:
@@ -321,6 +325,7 @@ class BaseNode(Node):
         srv_request: SrvTypeRequest,
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
+        *,
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ) -> SrvTypeResponse:
@@ -346,6 +351,10 @@ class BaseNode(Node):
             service_client = self._create_client(srv_type, srv_name)
             destroy_service_client = True
         else:
+            if srv_type is not None or srv_name is not None:
+                raise ValueError(
+                    "srv_type and srv_name must be None if service_client is provided"
+                )
             destroy_service_client = False
 
         # Call the service asynchronously
@@ -365,11 +374,13 @@ class BaseNode(Node):
             ):
                 response: SrvTypeResponse = await future  # type: ignore
             self.log(
-                f"Service call to {srv_name} finished with response:",
+                f"Service call to {service_client.service_name} finished with response:",
                 severity="DEBUG",
             )
             self.log_ros_msg(
-                response, title=f"{srv_name} response", severity="DEBUG"
+                response,
+                title=f"{service_client.service_name} response",
+                severity="DEBUG",
             )
             validate_service_response(response, service_client)
             return response
