@@ -3,7 +3,6 @@
 
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
   <xacro:include filename="$(find tabletop_description)/urdf/eef_macro.xacro" />
-  <xacro:include filename="$(find tabletop_description)/urdf/scene_macro.xacro" />
 
   <xacro:macro name="tabletop"
     params="
@@ -19,8 +18,8 @@
     force_abs_paths
     ">
 
-    <xacro:property name="robot_offset_xyz" value="0 0 0.04" />
-    <xacro:property name="robot_offset_rpy" value="0 0 -1.5707" />
+    <xacro:property name="robot_offset_xyz" value="1.2143 1.1178 0.309" />
+    <xacro:property name="robot_offset_rpy" value="0 0 0" />
     <xacro:property name="eef_offset_xyz" value="0 0 -0.005" />
     <xacro:property name="eef_offset_rpy" value="0 0 0" />
 

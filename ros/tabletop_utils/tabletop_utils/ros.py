@@ -14,7 +14,7 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from rclpy.client import Client
-from shape_msgs.msg import Mesh, MeshTriangle
+from shape_msgs.msg import Mesh, MeshTriangle, Plane, SolidPrimitive
 from std_msgs.msg import ColorRGBA, Header
 from tf_transformations import (
     euler_from_quaternion,
@@ -96,10 +96,21 @@ rgba_map = {
 Collision object operation map from operation name to collision object operation.
 """
 collision_object_operation_map = {
-    "add": CollisionObject.ADD,
-    "remove": CollisionObject.REMOVE,
-    "append": CollisionObject.APPEND,
-    "move": CollisionObject.MOVE,
+    "ADD": CollisionObject.ADD,
+    "REMOVE": CollisionObject.REMOVE,
+    "APPEND": CollisionObject.APPEND,
+    "MOVE": CollisionObject.MOVE,
+}
+
+"""
+Solid primitive type map from type name to solid primitive type.
+"""
+solid_primitive_type_map = {
+    "BOX": SolidPrimitive.BOX,
+    "SPHERE": SolidPrimitive.SPHERE,
+    "CYLINDER": SolidPrimitive.CYLINDER,
+    "CONE": SolidPrimitive.CONE,
+    "PRISM": SolidPrimitive.PRISM,
 }
 
 
@@ -131,11 +142,15 @@ class ServiceCallUnsuccessfulError(Exception):
 
 
 # ROS2 utility functions
-def load_yaml_from_package(
-    package_name: str, file_path: str
-) -> dict[str, Any]:
-    """
-    Load a YAML file from a package.
+def load_yaml_from_package(package_name: str, file_path: str) -> Any:
+    """Load a YAML file from a ROS package share directory.
+
+    Args:
+        package_name: The name of the ROS package.
+        file_path: The path to the YAML file within the package.
+
+    Returns:
+        The loaded YAML data.
     """
     package_path = get_package_share_directory(package_name)
     absolute_file_path = os.path.join(package_path, file_path)
@@ -148,8 +163,7 @@ def validate_service_response(
     response: Optional[SrvTypeResponse],
     service_client: Client,
 ) -> None:
-    """
-    Validate the response from a service call.
+    """Validate the response from a service call.
 
     Args:
         response: The response from a service call.
@@ -173,16 +187,17 @@ def validate_service_response(
         raise ServiceCallUnsuccessfulError(error_msg)
 
 
-def msg_to_dict(msg: Any):
+def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
+    """Convert a ROS message to a dictionary."""
     if isinstance(msg, Mapping):
         return {k: msg_to_dict(v) for k, v in msg.items()}
     elif is_iterable(msg):
         return [msg_to_dict(item) for item in msg]
     elif hasattr(msg, "get_fields_and_field_types"):
-        nested_dict = {}
-        for field in msg.get_fields_and_field_types().keys():
-            nested_dict[field] = msg_to_dict(getattr(msg, field))
-        return nested_dict
+        return {
+            field: msg_to_dict(getattr(msg, field))
+            for field in msg.get_fields_and_field_types().keys()
+        }
     else:
         return msg
 
@@ -194,8 +209,16 @@ def quaternion_msg_from_euler(
     *,
     axes: str = "sxyz",
 ) -> Quaternion:
-    """
-    Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
+    """Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
+
+    Args:
+        roll: The roll angle in radians.
+        pitch: The pitch angle in radians.
+        yaw: The yaw angle in radians.
+        axes: The axes scheme to use for the rotation.
+
+    Returns:
+        The quaternion message.
     """
     quaternion = quaternion_from_euler(roll, pitch, yaw, axes)
     return Quaternion(
@@ -209,9 +232,7 @@ def quaternion_msg_from_euler(
 def quaternion_msg_from_axis_angle(
     axis: Iterable[float], angle: float
 ) -> Quaternion:
-    """
-    Convert an axis and angle to a geometry_msgs/Quaternion message.
-    """
+    """Convert an axis and angle to a geometry_msgs/Quaternion message."""
     quaternion = quaternion_about_axis(angle, axis)
     return Quaternion(
         x=quaternion[0], y=quaternion[1], z=quaternion[2], w=quaternion[3]
@@ -221,9 +242,7 @@ def quaternion_msg_from_axis_angle(
 def euler_from_quaternion_msg(
     quaternion: Quaternion,
 ) -> tuple[float, float, float]:
-    """
-    Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians).
-    """
+    """Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians)."""
     return euler_from_quaternion(
         [quaternion.x, quaternion.y, quaternion.z, quaternion.w],
         axes="sxyz",
@@ -243,9 +262,7 @@ def pose_msg(
     pitch: float = 0.0,
     yaw: float = 0.0,
 ) -> Pose:
-    """
-    Convert a dictionary of parameters to a geometry_msgs/Pose message.
-    """
+    """Convert a dictionary of parameters to a geometry_msgs/Pose message."""
     pose = Pose()
 
     # Position extraction
@@ -309,25 +326,20 @@ def pose_stamped_msg(
         Quaternion | Iterable[float] | Mapping[str, float]
     ] = None,
 ) -> PoseStamped:
-    """
-    Create a PoseStamped message from:
-    - a header or frame_id, but not both
-    - a pose or at least one of position, rpy, or orientation, but not both
+    """Create a PoseStamped message from:
+    - a header or frame_id, but not both,
+    - a pose or at least one of position, rpy, or orientation, but not both.
 
     Args:
-        position (Iterable[float] | Mapping[str, float], optional): The
-            position of the pose.
-        header (Header | Mapping[str, Any], optional): The header of the
-            pose.
-        frame_id (str, optional): The frame id of the pose.
-        pose (Pose | Mapping[str, Any], optional): The pose of the pose.
-        rpy (Iterable[float] | Mapping[str, float], optional): The roll,
-            pitch, and yaw of the pose.
-        orientation (Iterable[float] | Mapping[str, float], optional): The
-            orientation of the pose.
+        header: The header of the pose.
+        frame_id: The frame id of the pose.
+        timestamp: The timestamp of the pose.
+        position: The position of the pose.
+        rpy: The roll, pitch, and yaw of the pose.
+        orientation: The orientation of the pose.
 
     Returns:
-        PoseStamped: The PoseStamped message.
+        The PoseStamped message.
     """
 
     pose_stamped = PoseStamped()
@@ -366,6 +378,7 @@ def pose_stamped_msg(
 
 
 def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
+    """Convert a 4x4 transformation matrix to a geometry_msgs/Pose message."""
     translation = translation_from_matrix(matrix)
     quaternion = quaternion_from_matrix(matrix)
     pose = Pose()
@@ -380,23 +393,24 @@ def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
 
 
 def array_from_point_msg(point: Point) -> np.ndarray:
+    """Convert a geometry_msgs/Point message to a numpy array."""
     return np.array([point.x, point.y, point.z])
 
 
 def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    """Convert a geometry_msgs/Quaternion message to a numpy array."""
     return np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
 
 
 def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
+    """Convert a geometry_msgs/Pose message to a tuple of numpy arrays."""
     position = array_from_point_msg(pose.position)
     orientation = array_from_quaternion_msg(pose.orientation)
     return position, orientation
 
 
 def all_close_points(p1: Point, p2: Point, **all_close_kwargs: Any) -> bool:
-    """
-    Check if two points are close to each other.
-    """
+    """Check if two points are close to each other."""
     p1_array = array_from_point_msg(p1)
     p2_array = array_from_point_msg(p2)
     return np.allclose(p1_array, p2_array, **all_close_kwargs)
@@ -405,18 +419,14 @@ def all_close_points(p1: Point, p2: Point, **all_close_kwargs: Any) -> bool:
 def all_close_quaternions(
     q1: Quaternion, q2: Quaternion, **all_close_kwargs: Any
 ) -> bool:
-    """
-    Check if two quaternions are close to each other.
-    """
+    """Check if two quaternions are close to each other."""
     q1_array = array_from_quaternion_msg(q1)
     q2_array = array_from_quaternion_msg(q2)
     return np.allclose(q1_array, q2_array, **all_close_kwargs)
 
 
 def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
-    """
-    Check if two poses are close to each other.
-    """
+    """Check if two poses are close to each other."""
     return all_close_points(
         pose1.position, pose2.position, **all_close_kwargs
     ) and all_close_quaternions(
@@ -425,16 +435,21 @@ def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
 
 
 def matrix_from_point_msg(point: Point) -> np.ndarray:
+    """Convert a geometry_msgs/Point message to a 4x4 transformation matrix."""
     return translation_matrix([point.x, point.y, point.z])
 
 
 def matrix_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
+    """Convert a geometry_msgs/Quaternion message to a 4x4 transformation matrix."""
     return quaternion_matrix(
         [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
     )
 
 
-def matrix_from_pose_msg(pose: Pose) -> np.ndarray:
+def matrix_from_pose_msg(pose: Pose | Mapping[str, Any]) -> np.ndarray:
+    """Convert a geometry_msgs/Pose message to a 4x4 transformation matrix."""
+    if not isinstance(pose, Pose):
+        pose = pose_msg(**pose)
     translation = matrix_from_point_msg(pose.position)
     rotation = matrix_from_quaternion_msg(pose.orientation)
     return translation @ rotation
@@ -446,8 +461,7 @@ def change_reference_frame_pose_stamped(
     new_frame_transform: np.ndarray,
     new_frame_id: str,
 ) -> PoseStamped:
-    """
-    Transforms a pose from one frame to another.
+    """Transforms a pose from one frame to another.
 
     Args:
         old_pose_stamped (PoseStamped): The pose to transform.
@@ -477,16 +491,83 @@ def change_reference_frame_pose_stamped(
     return new_pose_stamped
 
 
-def mesh_collision_object_msg(
-    geometry: trimesh.Trimesh | trimesh.Scene,
+# def collision_object_msg(
+#     *,
+#     header: Optional[Header | Mapping[str, Any]] = None,
+#     id: str,
+#     operation: str,
+#     pose_stamped: PoseStamped,
+#     primitives: list[SolidPrimitive] = [],
+#     primitive_poses: list[Pose] = [],
+#     subframe_names: list[str] = [],
+#     subframe_poses: list[Pose] = [],
+#     meshes: list[Mesh] = [],
+#     mesh_poses: list[Pose] = [],
+# ) -> CollisionObject:
+#     """Create a collision object message."""
+
+#     collision_object = CollisionObject()
+#     collision_object.header.frame_id = pose_stamped.header.frame_id
+#     collision_object.id = object_id
+#     collision_object.operation = collision_object_operation_map[operation]
+
+
+def plane_collision_object_msg(
     object_id: str,
-    operation: str,
+    coef: list[float],
+    header_frame_id: str,
+    operation: str = "ADD",
+) -> CollisionObject:
+    """Create a collision object from a plane."""
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = header_frame_id
+    collision_object.id = object_id
+
+    collision_object.planes.append(Plane(coef=coef))  # type: ignore
+
+    collision_object.operation = collision_object_operation_map[operation]
+
+    return collision_object
+
+
+def primitive_collision_object_msg(
+    object_id: str,
+    type: str,
+    dimensions: list[float],
     pose_stamped: PoseStamped,
     subframe_names: list[str] = [],
     subframe_poses: list[Pose] = [],
+    operation: str = "ADD",
 ) -> CollisionObject:
-    """
-    Create a collision object from a trimesh geometry.
+    """Create a collision object from a primitive."""
+    collision_object = CollisionObject()
+    collision_object.header.frame_id = pose_stamped.header.frame_id
+    collision_object.id = object_id
+
+    collision_object.primitives.append(  # type: ignore
+        SolidPrimitive(
+            type=solid_primitive_type_map[type], dimensions=dimensions
+        )
+    )
+    collision_object.primitive_poses.append(pose_stamped.pose)  # type: ignore
+
+    for subframe_name, subframe_pose in zip(subframe_names, subframe_poses):
+        collision_object.subframe_names.append(subframe_name)  # type: ignore
+        collision_object.subframe_poses.append(subframe_pose)  # type: ignore
+
+    collision_object.operation = collision_object_operation_map[operation]
+    return collision_object
+
+
+def mesh_collision_object_msg(
+    object_id: str,
+    geometry: trimesh.Trimesh | trimesh.Scene,
+    pose_stamped: PoseStamped,
+    subframe_names: list[str] = [],
+    subframe_poses: list[Pose] = [],
+    operation: str = "ADD",
+) -> CollisionObject:
+    """Create a collision object from a trimesh geometry.
 
     Args:
         geometry (trimesh.Trimesh | trimesh.Scene): The trimesh geometry to create the collision object from.
@@ -496,8 +577,8 @@ def mesh_collision_object_msg(
         subframe_names (list[str]): The names of the subframes.
         subframe_poses (list[Pose]): The poses of the subframes (defined relative to `pose_stamped`).
     """
-    if hasattr(geometry, "to_mesh"):
-        mesh = geometry.to_mesh()  # type: ignore
+    if isinstance(geometry, trimesh.Scene):
+        mesh = geometry.to_mesh()
     else:
         mesh = geometry
 
@@ -530,29 +611,29 @@ def mesh_collision_object_msg(
 def attached_collision_object_msg(
     object_id: str,
     operation: str,
-    link_name: Optional[str] = None,
-    touch_links: Optional[list[str]] = None,
+    link_name: str = "",
+    touch_links: list[str] = [],
 ) -> AttachedCollisionObject:
+    """Create an AttachedCollisionObject message."""
     attached_collision_object = AttachedCollisionObject()
     attached_collision_object.object.id = object_id
+
+    attached_collision_object.link_name = link_name
+    if not link_name and operation == "ADD":
+        raise ValueError("link_name must be provided for ADD operation")
+
+    attached_collision_object.touch_links = touch_links
+
     attached_collision_object.object.operation = (
         collision_object_operation_map[operation]
     )
-
-    if link_name is not None:
-        attached_collision_object.link_name = link_name
-    elif operation == "add":
-        raise ValueError("link_name must be provided for add operation")
-
-    if touch_links is not None:
-        attached_collision_object.touch_links = touch_links
-
     return attached_collision_object
 
 
 def object_color_msg(
     object_id: str, color: str | Iterable[float] | Mapping[str, float]
 ) -> ObjectColor:
+    """Create an ObjectColor message."""
     object_color = ObjectColor()
     object_color.id = object_id
     if isinstance(color, str):

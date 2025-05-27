@@ -7,6 +7,8 @@ Panels:
         - /PlanningScene1
         - /PlanningScene1/Scene Geometry1
         - /PlanningScene1/Scene Robot1
+        - /PlanningScene1/Scene Robot1/Links1
+        - /PlanningScene1/Scene Robot1/Links1/world1
       Splitter Ratio: 0.570588231086731
     Tree Height: 764
 Visualization Manager:
@@ -107,7 +109,7 @@ Visualization Manager:
             Value: true
           world:
             Alpha: 1
-            Show Axes: false
+            Show Axes: true
             Show Trail: false
           wrist_1_link:
             Alpha: 1
@@ -149,25 +151,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.002957344055176
+      Distance: 1.8816795349121094
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.1923791766166687
-        Y: 0.23957546055316925
-        Z: 0.2026064544916153
+        X: 1.2584571838378906
+        Y: 1.1269505023956299
+        Z: 1.115315318107605
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.46039772033691406
+      Pitch: 0.9286082983016968
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 5.970428466796875
+      Yaw: 4.74387264251709
     Saved: ~
 Window Geometry:
   Displays:
@@ -178,4 +180,4 @@ Window Geometry:
   QMainWindow State: 000000ff00000000fd0000000100000000000001560000037dfc0200000001fb000000100044006900730070006c006100790073010000003b0000037d000000c700ffffff0000024c0000037d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Width: 936
   X: 968
-  Y: 48
+  Y: 605

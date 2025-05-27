@@ -278,7 +278,7 @@ class ForagingTask(BaseTask):
         await arm_door_task
         await smartglass_task
 
-        await self.commander.plan_and_execute_async("erect")
+        await self.commander.plan_and_execute_async("idle")
 
         # Transition to next trial spec state
         self._state = ForagingState.NEXT_TRIAL_SPEC

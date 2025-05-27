@@ -57,7 +57,7 @@ def declare_arguments():
         # UR Robot Driver
         DeclareLaunchArgument(
             "robot_mode",
-            default_value="ursim",
+            default_value="mock",
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
         ),
@@ -170,14 +170,14 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "use_mock_teensy",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Use mock TeensyBoard",
         ),
         # Flic
         DeclareLaunchArgument(
             "simulate_flic",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Simulate Flic",
         ),
@@ -404,6 +404,9 @@ def generate_launch_description():
 
     print_substitutions_action = OpaqueFunction(
         function=print_substitutions,
+        condition=IfCondition(
+            EqualsSubstitution(commander_log_level, "DEBUG")
+        ),
     )
 
     # UR Robot Driver

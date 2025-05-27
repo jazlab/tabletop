@@ -27,51 +27,81 @@
       group_name: ur_manipulator
       default_pipeline: ompl_aps_rrtc
       linear_pipeline: pilz_lin
-      # default_linear_path_constraints:
-      #   line_width: 0.0005 # meters (must be between 0.0001 and 0.001)
-      #   line_length_tolerance: 0.001 # meters (1mm either end of line)
-      #   line_weight: 1.0
-      #   orientation_tolerance: 0.05 # radians
-      #   orientation_weight: 1.0
 
       eef_link: eef
       object_touch_links:
         - eef_link
       idle_pose:
-        position: [0.3, 0.6, 0.6]
+        position: [0.9144, 1.1764, 1.0]
         rpy: [0.0, 0.0, 1.5707]
       pre_fetch_offset: [-0.02, 0.0, -0.01]
       pre_attach_offset: [-0.02, 0.0, 0.0]
       post_attach_offset: [0.0, -0.10, 0.0]
 
     planning_scene:
-      floor_coef: [0.0, 0.0, 1.0, 0.0]
-      divider_coef: [1.0, 0.0, 0.0, -1.0]
+      planes:
+        floor:
+          coef: [0.0, 0.0, 1.0, 0.309]
 
-      # TODO: Maybe combine static and dynamic meshes
-      static_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/static/rig_full_test.dae
-        scale: 0.001
-        simplification: convex_hull
-        color: pink
-        correction:
-          position: [0.0, 0.0, 0.0] # corrects the origin of the rig to be at the floor
-          rpy: [0.0, 0.0, 0.0]
-      dynamic_meshes:
-        path: $(find-pkg-share tabletop_moveit_config)/meshes/dynamic/simple_object.dae
-        scale: 0.001
-        simplification: null
-        color: orange
-        correction:
-          rpy: [0.0, 0.0, 1.5707]
-        poses:
-          simple_object:
-            # position: [0.0, 0.76474, 0.42036]
-            position: [-0.001, 0.76474, 0.42236]
-            rpy: [3.1416, 0.0, -1.5707]
-            # position: [0.0,
-            #            35.6*0.0254 - (0.108 + 0.0315),
-            #            14.65*0.0254 + 0.040 - 0.00175 + 0.010]
-            # position: [(centered),
-            #            (distance to back of tool pocket - (distance to tool holder + tool holder radius)),
-            #            (distance to top of tool pocket + vertical rig offset - tool pocket plat thickness + distance to tool holder bottom)]
+      primitives:
+        left_robot_box:
+          type: BOX
+          dimensions: [0.8, 0.4, 0.6]
+          pose_stamped:
+            position: [0.2945, 1.1178, 0.609]
+          color: blue
+        robot_platform:
+          type: BOX
+          dimensions: [0.9135, 0.9135, 0.005]
+          pose_stamped:
+            position: [0.9144, 1.1178, 0.3065]
+          color: pink
+
+      rig_meshes:
+        rig:
+          path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig_mod.dae
+          scale: 1.0
+          simplification: convex_hull
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
+          color: pink
+
+      object_meshes:
+        path: $(find-pkg-share tabletop_moveit_config)/meshes/objects/
+        origin: [0.2464, 0.7993, 1.25]
+        delta: [0.1489, 0.3771, 0.0]
+        common_kwargs:
+          pose_stamped:
+            rpy: [0.0, 0.0, -1.5707]
+          simplification: null
+          color: orange
+        object_kwargs:
+          simple_object_0:
+            color: red
+            idx: [5, 0]
+          simple_object_1:
+            color: green
+            idx: [4, 2]
+          simple_object_2:
+            color: blue
+            idx: [8, 0]
+          simple_object_3:
+            color: yellow
+            idx: [9, 2]
+          simple_object_4:
+            color: purple
+            idx: [6, 1]
+
+          # position: [0.0,
+          #            35.6*0.0254 - (0.108 + 0.0315),
+          #            14.65*0.0254 + 0.040 - 0.00175 + 0.010]
+          # position: [(centered),
+          #            (distance to back of tool pocket - (distance to tool holder + tool holder radius)),
+          #            (distance to top of tool pocket + vertical rig offset - tool pocket plat thickness + distance to tool holder bottom)]
+        # right robot base position = [1.2143, 1.1178, 0.309]
+        # left robot base position = [0.6145, 1.1178, 0.309]
+        # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
+        # x width of rig = 1.8288
+        # radius of robot_base ~= 0.075
+        # object mount dx, dy = [0.1475, 0.3771]
+        # object_mount_origin = [0.2464, 0.7993, 1.25]

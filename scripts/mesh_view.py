@@ -1,36 +1,47 @@
 #!/usr/bin/python3
 
 import argparse
-import os
 
-import trimesh
-from tabletop_utils.mesh import visualize_geometry
+from tabletop_utils.mesh import (
+    load_geometry,
+    simplify_bounding_primitive,
+    simplify_convex_hull,
+    simplify_quadratic_decimation,
+    visualize_geometry,
+)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("stl_file", type=str)
+    parser.add_argument("path", type=str, help="Path to the mesh file")
+    parser.add_argument(
+        "--simplification",
+        type=str,
+        default=None,
+        choices=["convex_hull", "bounding_primitive", "quadratic_decimation"],
+        help="Simplification method to apply to the mesh",
+    )
+    parser.add_argument(
+        "--scale", type=float, default=None, help="Scale factor"
+    )
     args = parser.parse_args()
 
-    if not os.path.isfile(args.stl_file):
-        raise FileNotFoundError(f"File {args.stl_file} does not exist")
-
-    if args.stl_file.endswith(".stl"):
-        mesh = trimesh.load_mesh(args.stl_file)
-    elif args.stl_file.endswith(".dae"):
-        mesh = trimesh.load_scene(args.stl_file)
-    else:
-        raise ValueError(f"Unsupported file type: {args.stl_file}")
+    geometry = load_geometry(path=args.path, scale=args.scale)
 
     print("Summary:")
-    print(mesh)
-    print(mesh.extents)
+    print(geometry)
+    print(geometry.extents)
 
-    # mesh = simplify_convex_hull(mesh)
-    if isinstance(mesh, trimesh.Scene):
-        mesh.lights = []
+    if args.simplification == "convex_hull":
+        geometry = simplify_convex_hull(geometry)
+    elif args.simplification == "bounding_primitive":
+        geometry = simplify_bounding_primitive(geometry)
+    elif args.simplification == "quadratic_decimation":
+        geometry = simplify_quadratic_decimation(geometry)
+    elif args.simplification is not None:
+        raise ValueError(f"Unsupported simplification: {args.simplification}")
 
-    visualize_geometry(mesh)
+    visualize_geometry(geometry)
 
 
 if __name__ == "__main__":

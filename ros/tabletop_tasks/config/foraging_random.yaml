@@ -12,11 +12,11 @@ tasks:
         class: RandomChoice
         kwargs:
           object_ids:
-            - simple_object
+            - simple_object_3
           poses:
-            - position: [-0.2, -0.5, 0.9]
-              rpy: [0.4, -0.2, 0.0]
-            - position: [0.2, -0.5, 0.9]
-              rpy: [0.4, 0.2, 0.0]
+            - position: [1.0, 0.4, 0.6]
+              rpy: [0.0, 0.2, 0.0]
+            - position: [0.9, 0.5, 0.5]
+              rpy: [0.0, 0.0, 0.0]
           occlude_prob: 0.0
           num_trials: 1000

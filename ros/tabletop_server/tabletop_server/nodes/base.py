@@ -120,7 +120,9 @@ class BaseNode(Node):
                     severity="WARN",
                 )
 
-    def log_params(self, prefix: str = "", severity: str = "INFO"):
+    def log_params(
+        self, prefix: str = "", severity: str = DEFAULT_LOG_SEVERITY
+    ):
         """
         Log all parameters with the given prefix.
         """
@@ -217,8 +219,17 @@ class BaseNode(Node):
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ):
-        """
-        Wait for a service to be available.
+        """Wait for a service to be available.
+
+        Args:
+            srv_type: The type of the service.
+            srv_name: The name of the service.
+            service_client: The service client to use.
+            timeout_sec: The timeout in seconds.
+
+        Raises:
+            ServiceCallError: If the service call fails.
+            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
         # If the service client is not provided, create a new one and destroy
         # it after the service call
@@ -259,9 +270,21 @@ class BaseNode(Node):
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ) -> SrvTypeResponse:
-        """
-        Call a service synchronously, returning the response and optionally
-        the service client.
+        """Call a service synchronously, returning the response.
+
+        Args:
+            srv_request: The request message for the service.
+            srv_type: The type of the service.
+            srv_name: The name of the service.
+            service_client: The service client to use.
+            timeout_sec: The timeout in seconds.
+
+        Returns:
+            The response from the service.
+
+        Raises:
+            ServiceCallError: If the service call fails.
+            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
         # If the service client is not provided, create a new one and destroy
         # it after the service call
@@ -301,9 +324,21 @@ class BaseNode(Node):
         service_client: Optional[Client] = None,
         timeout_sec: Optional[float] = None,
     ) -> SrvTypeResponse:
-        """
-        Call a service asynchronously, returning a future and the service
-        client.
+        """Call a service asynchronously, returning a future and the service client.
+
+        Args:
+            srv_request: The request message for the service.
+            srv_type: The type of the service.
+            srv_name: The name of the service.
+            service_client: The service client to use.
+            timeout_sec: The timeout in seconds.
+
+        Returns:
+            The response from the service.
+
+        Raises:
+            ServiceCallError: If the service call fails.
+            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
         # If the service client is not provided, create a new one and
         # destroy it after the service call

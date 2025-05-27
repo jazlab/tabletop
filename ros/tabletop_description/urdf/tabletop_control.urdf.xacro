@@ -53,7 +53,7 @@
   <xacro:arg name="simulation_controllers" default="" />
   <!-- initial position for simulations (Mock Hardware, Gazebo, Ignition) -->
   <xacro:arg name="initial_positions_file"
-    default="$(find ur_description)/config/initial_positions.yaml" />
+    default="$(find tabletop_description)/config/initial_positions.yaml" />
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)" />
 
   <!-- tabletop -->
