@@ -19,13 +19,26 @@
             "cwd": "${workspaceFolder}"
         },
         {
-            "name": "Python Debugger: Current File with fixed Arguments",
+            "name": "Python Debugger: Launch run_tasks",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "console": "integratedTerminal",
-            "args": "results/eyelink/latest.asc",
+            "args": [
+                "launch_server:=false",
+                "task_config:=foraging_ordered.yaml"
+            ],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Python Debugger: Attach to run_tasks",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 4567
+            },
+            "justMyCode": false
         },
         {
             "name": "ROS: Launch Commander",
@@ -47,10 +60,7 @@
             "type": "ros",
             "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "arguments": [
-                "robot_mode:=ursim",
-                "use_mock_teensy:=true",
-                "simulate_flic:=true",
-                "task_config:=smooth_pursuit.yaml"
+                "${inputs:task_config}"
             ],
             "attachDebugger": [
                 "run_tasks"
@@ -70,6 +80,20 @@
                 "run_tasks"
             ],
             "postDebugTask": "kill_ros"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "task_config",
+            "type": "pickString",
+            "default": "foraging_ordered.yaml",
+            "description": "Task configuration file",
+            "options": [
+                "task_config:=foraging_ordered.yaml",
+                "task_config:=foraging_random.yaml",
+                "task_config:=smooth_pursuit.yaml",
+                "task_config:=dummy.yaml"
+            ]
         }
     ]
 }

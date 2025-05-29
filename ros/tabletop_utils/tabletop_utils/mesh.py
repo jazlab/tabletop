@@ -219,7 +219,9 @@ def simplify_convex_hull(geometry: GeometryT) -> GeometryT:
 
 
 def visualize_geometry(
-    geometry: trimesh.Trimesh | trimesh.Scene, notebook: bool = False
+    geometry: trimesh.Trimesh | trimesh.Scene,
+    notebook: bool = False,
+    axis_scale: float = 0.2,
 ) -> Any | None:
     """Visualize a mesh or scene.
 
@@ -235,7 +237,9 @@ def visualize_geometry(
     # if hasattr(geometry, "lights"):
     #     geometry.lights = []  # type: ignore
     axis = cast(trimesh.Trimesh, trimesh.creation.axis())
-    axis = axis.apply_scale(0.5 * scene.extents.max() / axis.extents.max())
+    axis = axis.apply_scale(
+        axis_scale * scene.extents.max() / axis.extents.max()
+    )
     scene.add_geometry(axis)
     if notebook:
         return scene.show()

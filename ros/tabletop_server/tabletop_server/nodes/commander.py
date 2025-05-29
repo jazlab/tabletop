@@ -1,17 +1,22 @@
 import asyncio
 import concurrent.futures
-import enum
 import glob
+import hashlib
+import importlib
 import os
+import threading
 import traceback
 from collections.abc import AsyncGenerator, Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any, Callable, Coroutine, Optional, cast
 
+import debugpy
 import numpy as np
 import pandas as pd
 import rclpy
+import rclpy.utilities
 import yaml
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
@@ -65,6 +70,7 @@ from tabletop_utils.mesh import (
 )
 from tabletop_utils.ros import (
     MaxAttemptsReachedError,
+    PlanningGoalT,
     ServiceCallError,
     ServiceCallUnsuccessfulError,
     arrays_from_pose_msg,
@@ -81,22 +87,15 @@ from tabletop_utils.ros import (
     primitive_collision_object_msg,
     quaternion_msg_from_axis_angle,
 )
+from tabletop_utils.trajectory_cache import FuzzyTrajectoryCache
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
-
-# def create_task_wrapper(self, coro: Coroutine) -> asyncio.Task:
-#     assert isinstance(self, Commander)
-#     if self.tg is None:
-#         raise RuntimeError(
-#             "TaskGroup not set, make sure to enter the "
-#             "rig_context_manager before scheduling tasks."
-#         )
-#     return self.tg.create_task(coro)
+from tabletop_server.nodes.mock_teensy import ArmDoorState
 
 
-def create_task_wrapper(self: Any, coro: Coroutine) -> asyncio.Task:
+def create_task_wrapper(coro: Coroutine) -> asyncio.Task:
     """Wraps a coroutine in an asyncio.Task.
 
     Args:
@@ -130,7 +129,7 @@ def asyncio_task_decorator(
         The decorated function which returns an asyncio.Task.
     """
 
-    def wrapper(self: Any, *args: Any, **kwargs: Any) -> asyncio.Task:
+    def wrapper(*args: Any, **kwargs: Any) -> asyncio.Task:
         """Wrapper function that creates and returns an asyncio.Task.
 
         Args:
@@ -141,17 +140,10 @@ def asyncio_task_decorator(
         Returns:
             The created asyncio.Task.
         """
-        coro = coro_fn(self, *args, **kwargs)
-        return create_task_wrapper(self, coro)
+        coro = coro_fn(*args, **kwargs)
+        return create_task_wrapper(coro)
 
     return wrapper
-
-
-class ArmDoorState(enum.Enum):
-    OPEN = 0
-    OPENING = 1
-    CLOSED = 2
-    CLOSING = 3
 
 
 class Commander(BaseNode):
@@ -172,7 +164,7 @@ class Commander(BaseNode):
         "planning.linear_pipeline",
         "planning.eef_link",
         "planning.object_touch_links",
-        "planning.idle_pose",
+        "planning.idle_state",
         "planning.pre_fetch_offset",
         "planning.pre_attach_offset",
         "planning.post_attach_offset",
@@ -209,17 +201,37 @@ class Commander(BaseNode):
             self.moveit_py.get_planning_scene_monitor()
         )
 
-        self.setup_attributes()
+        self.init_attributes()
 
-        self.setup_planning_scene()
+        self.init_planning_scene()
+
+        self.init_services()
 
         self.log("Commander initialized")
 
-    def setup_attributes(self):
+    def init_attributes(self):
         """Setup variables for the commander."""
-        self.last_post_attach_state: RobotState | None = None
-        self.dynamic_object_init_poses_stamped: dict[str, PoseStamped] = {}
+        # Dynamic and static object IDs
         self.static_object_ids: set[str] = set()
+
+        # Dynamic object initial stamped poses
+        self.dynamic_object_init_poses_stamped: dict[str, PoseStamped] = {}
+
+        # Last post-attach state
+        self.last_post_attach_state: RobotState | None = None
+
+        # Trajectory cache
+        trajectory_cache_config = self.get_parameter_wrapper(
+            "planning.trajectory_cache"
+        )
+        metadata = self.get_trajectory_cache_metadata()
+        self.trajectory_cache = FuzzyTrajectoryCache(
+            **trajectory_cache_config, metadata=metadata
+        )
+
+        # Execution and planning locks
+        self.execution_lock = threading.Lock()
+        self.planning_lock = threading.Lock()
 
     # TODO: Add services
     def init_services(self):
@@ -572,7 +584,7 @@ class Commander(BaseNode):
     async def _wait_for_arm_door_close_async(
         self, timeout: Optional[float] = None
     ) -> bool:
-        """Wait for arm door to close, then return True."""
+        """Wait for arm door to close."""
         spin_period = self.get_parameter_wrapper("teensy.spin_period")
         timeout = (
             timeout
@@ -611,7 +623,16 @@ class Commander(BaseNode):
     async def wait_for_hand_fixation_press_async(
         self, timeout: Optional[float] = None
     ) -> bool:
-        """Wait for hand fixation state to turn on, then return True."""
+        """Wait for hand fixation to be pressed
+
+        Args:
+            timeout: Timeout in seconds. If None, the default timeout from
+                parameters is used.
+
+        Returns:
+            True if hand fixation was pressed within the timeout,
+            False otherwise.
+        """
         spin_period = self.get_parameter_wrapper("teensy.spin_period")
         initial_fixation = await self._get_hand_fixation_async()
         if initial_fixation.is_pressed:
@@ -637,7 +658,8 @@ class Commander(BaseNode):
         """Wait for hand fixation to be released
 
         Args:
-            timeout: Timeout in seconds.
+            timeout: Timeout in seconds. If None, the default timeout from
+                parameters is used.
 
         Returns:
             True if hand fixation was released within the timeout,
@@ -784,12 +806,6 @@ class Commander(BaseNode):
             new_frame_id=new_frame_id,
         )
 
-    def get_idle_pose_stamped(self) -> PoseStamped:
-        """Get the idle pose from the planning scene."""
-        return self.create_pose_stamped(
-            **self.get_parameter_wrapper("planning.idle_pose")
-        )
-
     def eef_pose_stamped(self, frame_id: Optional[str] = None) -> PoseStamped:
         """Get the current end-effector pose."""
         with self.planning_scene_monitor.read_only() as scene:
@@ -881,25 +897,54 @@ class Commander(BaseNode):
     ########## Planning scene #################################
     ############################################################
 
+    def log_planning_scene(self, severity: str = DEFAULT_LOG_SEVERITY):
+        """Log the planning scene."""
+        self.log("Logging planning scene", severity=severity)
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
+
+            for collision_object in planning_scene_msg.world.collision_objects:
+                collision_object.meshes = []
+            for (
+                attached_collision_object
+            ) in planning_scene_msg.robot_state.attached_collision_objects:
+                attached_collision_object.object.meshes = []
+
+            self.log_ros_msg(
+                planning_scene_msg,
+                title="Planning Scene Msg:",
+                severity=severity,
+            )
+
+    def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
+        """Log the collision matrix."""
+        # TODO: Make it so that I don't load the collision matrix into memory
+        # unless I need to log it
+        self.log(
+            f"Allowed collision matrix: \n{self.collision_matrix_df.to_string()}",
+            severity=severity,
+        )
+
     @property
     def current_state(self) -> RobotState:
         with self.planning_scene_monitor.read_only() as scene:
             scene: PlanningScene = scene
             return deepcopy(scene.current_state)
 
-    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
-        """Check if the current state of the planning scene is colliding."""
-        if group_name is None:
-            group_name = self.planning_group_name
+    @property
+    def object_grid(self) -> np.ndarray:
+        """Get the object grid config from the parameters."""
+        object_kwargs = self.get_parameter_wrapper(
+            "planning_scene.object_meshes.object_kwargs"
+        )
 
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            is_colliding = scene.is_state_colliding(group_name)
-            if is_colliding:
-                self.log("State is colliding", severity="WARN")
-            else:
-                self.log("State is not colliding", severity="DEBUG")
-            return is_colliding
+        object_grid = np.empty((3, 10), dtype=object)
+        for object_id, kwargs in object_kwargs.items():
+            y, x = kwargs["idx"]
+            object_grid[y, x] = object_id
+
+        return object_grid
 
     @property
     def collision_objects(self) -> list[CollisionObject]:
@@ -965,14 +1010,19 @@ class Commander(BaseNode):
 
             return matrix_df
 
-    def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
-        """Log the collision matrix."""
-        # TODO: Make it so that I don't load the collision matrix into memory
-        # unless I need to log it
-        self.log(
-            f"Allowed collision matrix: \n{self.collision_matrix_df.to_string()}",
-            severity=severity,
-        )
+    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
+        """Check if the current state of the planning scene is colliding."""
+        if group_name is None:
+            group_name = self.planning_group_name
+
+        with self.planning_scene_monitor.read_only() as scene:
+            scene: PlanningScene = scene
+            is_colliding = scene.is_state_colliding(group_name)
+            if is_colliding:
+                self.log("State is colliding", severity="WARN")
+            else:
+                self.log("State is not colliding", severity="DEBUG")
+            return is_colliding
 
     def allow_collision(self, id_1: str, id_2: str):
         """Allow collision between two collision objects."""
@@ -1365,40 +1415,17 @@ class Commander(BaseNode):
             ), f"Object {object_id} not found in dynamic or static object ids"
 
     def remove_all_collision_objects(self):
-        self.log("Removing all collision objects", severity="DEBUG")
+        self.log("Removing all collision objects")
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
             scene.remove_all_collision_objects()
             scene.current_state.update()
 
-        # Check that the only remaining collision objects are the ones that
-        # are attached to the robot
-        assert set(self.collision_object_ids) == set(
-            self.attached_collision_object_ids
-        )
+        # Check that there are no collision objects left
+        assert len(self.collision_object_ids) == 0
 
-        # Check that there are no static collision objects left (there shouldn't be any)
-        assert (
-            len(set(self.collision_object_ids) & self.static_object_ids) == 0
-        )
         self.static_object_ids = set()
-
-        # Update dynamic object poses stamped
-        dynamic_object_init_poses_stamped_new: dict[str, PoseStamped] = {}
-        for collision_object_id in self.collision_object_ids:
-            if collision_object_id in self.dynamic_object_init_poses_stamped:
-                assert (
-                    collision_object_id in self.attached_collision_object_ids
-                )
-                dynamic_object_init_poses_stamped_new[collision_object_id] = (
-                    self.dynamic_object_init_poses_stamped[collision_object_id]
-                )
-            else:
-                assert False, f"Remaining object {collision_object_id} not found in old dynamic or static object ids"
-
-        self.dynamic_object_init_poses_stamped = (
-            dynamic_object_init_poses_stamped_new
-        )
+        self.dynamic_object_init_poses_stamped = {}
 
     def log_collision_objects(self, severity: str = DEFAULT_LOG_SEVERITY):
         """Log the collision objects."""
@@ -1457,27 +1484,7 @@ class Commander(BaseNode):
             )
             self.log("=" * 80, severity=severity)
 
-    def log_planning_scene(self, severity: str = DEFAULT_LOG_SEVERITY):
-        """Log the planning scene."""
-        self.log("Logging planning scene", severity=severity)
-        with self.planning_scene_monitor.read_only() as scene:
-            scene: PlanningScene = scene
-            planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
-
-            for collision_object in planning_scene_msg.world.collision_objects:
-                collision_object.meshes = []
-            for (
-                attached_collision_object
-            ) in planning_scene_msg.robot_state.attached_collision_objects:
-                attached_collision_object.object.meshes = []
-
-            self.log_ros_msg(
-                planning_scene_msg,
-                title="Planning Scene Msg:",
-                severity=severity,
-            )
-
-    def setup_planning_scene(self):
+    def init_planning_scene(self):
         """Setup the planning scene
 
         Adds plane, primitive, and mesh collision objects from the planning scene configuration."""
@@ -1668,7 +1675,7 @@ class Commander(BaseNode):
 
     def _plan_once(
         self,
-        goal: PoseStamped | str | RobotState,
+        goal: PlanningGoalT,
         start_state: Optional[RobotState] = None,
         *,
         path_constraints: Optional[Constraints] = None,
@@ -1697,7 +1704,6 @@ class Commander(BaseNode):
 
         # Set start state to current state
         if start_state is not None:
-            assert isinstance(start_state, RobotState)
             if not planning_component.set_start_state(robot_state=start_state):
                 raise ValueError(f"Invalid start state: {start_state}")
         else:
@@ -1709,8 +1715,14 @@ class Commander(BaseNode):
             pose_link = self.eef_link
 
         if goal == "idle":
-            goal = self.get_idle_pose_stamped()
+            goal = self.get_parameter_wrapper("planning.idle_state")
+            if not isinstance(goal, str):
+                goal = self.current_state
+                goal.set_joint_group_positions(
+                    group_name=group_name, positions=goal
+                )
 
+        # Set goal state
         goal_kwargs = {}
         if isinstance(goal, PoseStamped):
             goal_kwargs["pose_stamped_msg"] = goal
@@ -1775,7 +1787,11 @@ class Commander(BaseNode):
             )
 
     def plan(
-        self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
+        self,
+        *args: Any,
+        max_attempts: Optional[int] = None,
+        cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
     ) -> MotionPlanResponse:
         """
         Plan a trajectory to the given waypoint, retrying up to max_attempts
@@ -1783,6 +1799,7 @@ class Commander(BaseNode):
 
         Args:
             max_attempts: The maximum number of planning attempts.
+            cancel_event: An event that can be used to cancel the plan.
             *args: Additional positional arguments to pass to `plan_once()`.
             **kwargs: Additional keyword arguments to pass to `plan_once()`.
         Returns:
@@ -1790,37 +1807,30 @@ class Commander(BaseNode):
         """
 
         if max_attempts is None:
-            max_attempts = self.get_parameter_wrapper("max_plan_attempts")
+            max_attempts = cast(
+                int, self.get_parameter_wrapper("max_plan_attempts")
+            )
 
         failure_msgs = []
-        for i in range(max_attempts):  # type: ignore
-            try:
-                plan_response = self._plan_once(*args, **kwargs)
-                if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
-                    self.log(
-                        f"Planning attempt {i + 1}/{max_attempts} succeeded"
-                    )
-                    self.log_plan_response(plan_response)
-                    break
-                else:
-                    error_msg = f"Planning attempt {i + 1}/{max_attempts} failed with error code {moveit_error_code_map[plan_response.error_code.val]}"
-                    failure_msgs.append(error_msg)
-                    self.log(
-                        error_msg,
-                        severity="WARN",
-                    )
-                    self.log_plan_response(plan_response, severity="DEBUG")
-            except Exception as e:
-                error_msg = f"Planning attempt {i + 1}/{max_attempts} raised exception {type(e).__name__}: {e}"
+        for i in range(max_attempts):
+            # Check if the plan has been cancelled
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Plan cancelled")
+
+            # Plan once and check if it was successful
+            plan_response = self._plan_once(*args, **kwargs)
+            if plan_response.error_code.val == MoveItErrorCodes.SUCCESS:
+                self.log(f"Planning attempt {i + 1}/{max_attempts} succeeded")
+                self.log_plan_response(plan_response)
+                break
+            else:
+                error_msg = f"Planning attempt {i + 1}/{max_attempts} failed with error code {moveit_error_code_map[plan_response.error_code.val]}"
                 failure_msgs.append(error_msg)
                 self.log(
                     error_msg,
                     severity="WARN",
                 )
-                self.log(
-                    traceback.format_exc(),
-                    severity="DEBUG",
-                )
+                self.log_plan_response(plan_response, severity="DEBUG")
         else:
             error_msg = f"Max planning attempts ({max_attempts}) reached!: {failure_msgs}"
             self.log(error_msg, severity="ERROR")
@@ -1828,48 +1838,32 @@ class Commander(BaseNode):
 
         return plan_response
 
-    @asyncio_task_decorator
-    async def plan_async(
+    async def _plan_async(
         self, *args: Any, **kwargs: Any
     ) -> MotionPlanResponse:
-        """
-        Asynchronous coroutine wrapper for `plan()` method.
-
-        Creates an asyncio task to compute the trajectory in a separate thread.
+        """Asynchronously calls `plan()` method in a separate thread.
 
         See Also:
             `plan()`: For parameter details and synchronous implementation.
         """
-        return await asyncio.to_thread(self.plan, *args, **kwargs)
-
-    # TODO: Use asyncio queues to support planning multiple trajectories and
-    # pushing them to the execution queue
-    async def plan_generator_async(
-        self, *args: Any, goals: list[PoseStamped | str], **kwargs: Any
-    ) -> AsyncGenerator[MotionPlanResponse, None]:
-        """
-        Asynchronous coroutine generator that plans a trajectory for each goal
-        in the list.
-
-        Args:
-            goals: The list of goals to plan
-                trajectories for.
-            *args: Additional positional arguments to pass to `plan()`.
-            **kwargs: Additional keyword arguments to pass to `plan()`.
-
-        Returns:
-            An asynchronous generator
-                that yields the planned trajectory for each goal.
-        """
-        while goals:
-            goal = goals.pop(0)
-            new_goals = yield await self.plan_async(
-                goal=goal,
-                *args,
-                **kwargs,
+        cancel_event = threading.Event()
+        try:
+            return await asyncio.to_thread(
+                self.plan, *args, cancel_event=cancel_event, **kwargs
             )
-            if new_goals:
-                goals.extend(new_goals)
+        finally:
+            cancel_event.set()
+
+    @asyncio_task_decorator
+    async def plan_async(
+        self, *args: Any, **kwargs: Any
+    ) -> MotionPlanResponse:
+        """Asynchronously calls `plan()` method in a separate thread.
+
+        See Also:
+            `plan()`: For parameter details and synchronous implementation.
+        """
+        return await self._plan_async(*args, **kwargs)
 
     def _execute_once(
         self, robot_trajectory: RobotTrajectory
@@ -1916,14 +1910,19 @@ class Commander(BaseNode):
         return await asyncio.wrap_future(future)
 
     def execute(
-        self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
-    ) -> None:
+        self,
+        *args: Any,
+        max_attempts: Optional[int] = None,
+        cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
+    ):
         """
         Execute the given robot trajectory, retrying up to max_attempts times
         until successful.
 
         Args:
             max_attempts: The maximum number of execution attempts.
+            cancel_event: An event that can be used to cancel the execution.
             *args: Additional positional arguments to pass to `execute_once()`.
             **kwargs: Additional keyword arguments to pass to `execute_once()`.
         Returns:
@@ -1934,6 +1933,8 @@ class Commander(BaseNode):
 
         failure_msgs = []
         for i in range(max_attempts):  # type: ignore
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Execution cancelled")
             try:
                 execution_status = self._execute_once(*args, **kwargs)
                 if execution_status:
@@ -1960,19 +1961,23 @@ class Commander(BaseNode):
             self.log(error_msg, severity="ERROR")
             raise MaxAttemptsReachedError(error_msg)
 
-    @asyncio_task_decorator
-    async def execute_async(
+    async def _execute_async(
         self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
-    ) -> None:
-        """
-        Execute the given robot trajectory, retrying up to max_attempts times
-        until successful.
+    ):
+        """Asynchronously execute the given robot trajectory, retrying up to
+        max_attempts times until successful.
 
         Args:
-            robot_trajectory: The robot trajectory to execute.
+            *args: Additional positional arguments to pass to `execute_once_async()`.
             max_attempts: The maximum number of execution attempts.
-        Returns:
-            ExecutionStatus: The status of the execution.
+            **kwargs: Additional keyword arguments to pass to `execute_once_async()`.
+
+        Raises:
+            MaxAttemptsReachedError: If maximum execution attempts (param:
+                max_execution_attempts) are reached
+
+        See Also:
+            `_execute_once_async()`: For parameter details.
         """
         if max_attempts is None:
             max_attempts = self.get_parameter_wrapper("max_execution_attempts")
@@ -1987,7 +1992,7 @@ class Commander(BaseNode):
                     self.log(
                         f"Execution attempt {i + 1}/{max_attempts} succeeded"
                     )
-                    break
+                    return
                 else:
                     error_msg = f"Execution attempt {i + 1}/{max_attempts} failed with status {execution_status.status}"
                     failure_msgs.append(error_msg)
@@ -2007,9 +2012,23 @@ class Commander(BaseNode):
             self.log(error_msg, severity="ERROR")
             raise MaxAttemptsReachedError(error_msg)
 
-    def plan_and_execute(self, *args: Any, **kwargs: Any):
+    @asyncio_task_decorator
+    async def execute_async(self, *args: Any, **kwargs: Any):
+        """Asynchronously execute the given robot trajectory, retrying up to
+        max_attempts times until successful.
+
+        See Also:
+            `_execute_async()`: For parameter details and synchronous implementation.
         """
-        Plan and execute a trajectory.
+        return await self._execute_async(*args, **kwargs)
+
+    def plan_and_execute(
+        self,
+        *args: Any,
+        cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
+    ) -> MotionPlanResponse:
+        """Plan and execute a trajectory.
 
         Performs max_plan_attempts planning attempts and max_execution_attempts
         execution attempts. If the method returns successfully, the trajectory
@@ -2017,6 +2036,8 @@ class Commander(BaseNode):
 
         Args:
             *args: Additional positional arguments to pass to `plan()`.
+            cancel_event: An event that can be used to cancel the plan and
+                execute.
             **kwargs: Additional keyword arguments to pass to `plan()`.
 
         Returns:
@@ -2027,12 +2048,13 @@ class Commander(BaseNode):
                 max_plan_attempts) or execution attempts (param:
                 max_execution_attempts) are reached
         """
-        # Plan the trajectory
-        plan_response = self.plan(*args, **kwargs)
-        # Execute the plan
-        self.execute(plan_response.trajectory)
+        plan_response = self.plan(*args, cancel_event=cancel_event, **kwargs)
+        self.execute(plan_response.trajectory, cancel_event=cancel_event)
+        return plan_response
 
-    async def _plan_and_execute_async(self, *args: Any, **kwargs: Any):
+    async def _plan_and_execute_async(
+        self, *args: Any, **kwargs: Any
+    ) -> MotionPlanResponse:
         """
         Asynchronous coroutine wrapper for `plan_and_execute()` method.
 
@@ -2043,10 +2065,21 @@ class Commander(BaseNode):
             `plan_and_execute()`: For parameter details and synchronous
                 implementation.
         """
-        await asyncio.to_thread(self.plan_and_execute, *args, **kwargs)
+        cancel_event = threading.Event()
+        try:
+            return await asyncio.to_thread(
+                self.plan_and_execute,
+                *args,
+                cancel_event=cancel_event,
+                **kwargs,
+            )
+        finally:
+            cancel_event.set()
 
     @asyncio_task_decorator
-    async def plan_and_execute_async(self, *args: Any, **kwargs: Any):
+    async def plan_and_execute_async(
+        self, *args: Any, **kwargs: Any
+    ) -> MotionPlanResponse:
         """
         Asynchronous coroutine wrapper for `plan_and_execute()` method.
 
@@ -2056,94 +2089,94 @@ class Commander(BaseNode):
             `plan_and_execute()`: For parameter details and synchronous
                 implementation.
         """
-        await self._plan_and_execute_async(*args, **kwargs)
+        return await self._plan_and_execute_async(*args, **kwargs)
 
     ############################################################
     ########## Fetch and return ################################
     ############################################################
 
-    def fetch_object(
-        self,
-        object_id: str,
-        end_goal: PoseStamped | str,
-        *,
-        subframe_name: str = "default",
-    ):
-        """Synchronous version of fetch_object_async.
+    def get_trajectory_cache_metadata(self) -> dict[str, Any]:
+        """Get the metadata for the trajectory cache.
 
-        Fetches an object and moves it to the specified end goal.
+        Returns:
+            dict[str, Any]: The metadata for the trajectory cache.
+        """
+        metadata: dict[str, Any] = {}
+
+        # Rig mesh hash
+        rig_meshes_kwargs = self.get_parameter_wrapper(
+            "planning_scene.rig_meshes"
+        )
+        hash_algorithm = hashlib.md5()
+        for kwargs in rig_meshes_kwargs.values():
+            with open(kwargs["path"], "rb") as f:
+                while chunk := f.read(8192):
+                    hash_algorithm.update(chunk)
+
+        metadata["rig_mesh_hash"] = hash_algorithm.hexdigest()
+
+        # Object grid
+        metadata["object_grid"] = self.object_grid.tolist()
+
+        return metadata
+
+    async def plan_and_execute_async_cached(
+        self,
+        goal: PlanningGoalT,
+        start_state: Optional[RobotState] = None,
+        *args: Any,
+        **kwargs: Any,
+    ):
+        """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
-            object_id: The ID of the object to fetch
-            end_goal: The pose to move the object to after fetching
-            subframe_name: The subframe name of the object (default: "default")
+            goal: The goal to query the cache or plan for.
+            start_state: The start state to query the cache or plan for.
+            *args: Additional positional arguments to pass to `plan_and_execute_async()`.
+            **kwargs: Additional keyword arguments to pass to `plan_and_execute_async()`.
         """
-        self.log(f"Fetching object {object_id} from subframe {subframe_name}")
+        if start_state is None:
+            start_state = self.current_state
 
-        # Pre-fetch pose
-        self.log(
-            f"Moving to pre-fetch pose {self.pre_fetch_pose_stamped(object_id, subframe_name)}"
-        )
-        self.plan_and_execute(
-            goal=self.pre_fetch_pose_stamped(object_id, subframe_name)
-        )
+        # If the goal is a PoseStamped, change the reference frame to the
+        # planning frame for the cache key
+        if (
+            isinstance(goal, PoseStamped)
+            and goal.header.frame_id != self.planning_frame
+        ):
+            goal_key = self.change_reference_frame(goal, self.planning_frame)
+        else:
+            goal_key = goal
 
-        # Allow collision between touch links and object
-        for touch_link in self.touch_links:
-            self.allow_collision(touch_link, object_id)
-
-        self.log_collision_matrix(severity="DEBUG")
-
-        # Pre-attach pose
-        self.log(
-            f"Moving to pre-attach pose {self.pre_attach_pose_stamped(object_id, subframe_name)}"
-        )
-        self.plan_and_execute(
-            goal=self.pre_attach_pose_stamped(object_id, subframe_name),
-            planning_pipeline="linear",
-        )
-
-        # Attach pose (no offset with respect to object frame)
-        self.log(
-            f"Moving to attach pose {self.attach_pose_stamped(object_id, subframe_name)}"
-        )
-        self.plan_and_execute(
-            goal=self.attach_pose_stamped(object_id, subframe_name),
-            planning_pipeline="linear",
-        )
-
-        # Attach object
-        self.attach_collision_object(
-            object_id=object_id,
-            link_name=self.eef_link,
-            touch_links=self.touch_links,
-        )
-
-        # Allow collision between object and static objects
-        # Needed to prevent errors when removing object from its tool pocket
-        for static_object_id in self.static_object_ids:
-            self.allow_collision(object_id, static_object_id)
-
-        self.log_collision_matrix(severity="DEBUG")
-
-        # Post-attach pose
-        self.log(
-            f"Moving to post-attach pose {self.post_attach_pose_stamped(object_id)}"
-        )
-        self.plan_and_execute(
-            goal=self.post_attach_pose_stamped(object_id),
-            planning_pipeline="linear",
-        )
-
-        self.last_post_attach_state = self.current_state
-
-        # Disallow collision between object and static objects
-        for static_object_id in self.static_object_ids:
-            self.disallow_collision(object_id, static_object_id)
-
-        # Move to target pose
-        self.log(f"Moving to end goal {end_goal}")
-        self.plan_and_execute(goal=end_goal)
+        # Attempt to get the cached trajectory, otherwise plan and execute normally
+        try:
+            cached_trajectory = self.trajectory_cache[(goal_key, start_state)]
+        except KeyError:
+            self.log(
+                f"No cached trajectory for goal: {goal_key}, "
+                f"start state: {start_state}"
+            )
+            self.log(
+                f"Planning and executing trajectory for goal: {goal}, "
+                f"start state: {start_state}"
+            )
+            response = await self._plan_and_execute_async(
+                goal=goal, start_state=start_state, *args, **kwargs
+            )
+            # Cache the trajectory
+            self.trajectory_cache[(goal_key, start_state)] = (
+                response.trajectory
+            )
+            self.log(
+                f"Cached trajectory for goal: {goal_key}, "
+                f"start state: {start_state}"
+            )
+        else:
+            self.log(
+                f"Using cached trajectory for goal: {goal_key}, "
+                f"start state: {start_state}"
+            )
+            await self.execute_async(robot_trajectory=cached_trajectory)
 
     @asyncio_task_decorator
     async def fetch_object_async(
@@ -2153,12 +2186,12 @@ class Commander(BaseNode):
         *,
         subframe_name: str = "default",
     ) -> None:
-        """
-        Asynchronous coroutine wrapper for `fetch_object()` method.
+        """Fetches an object and moves it to the specified end goal.
 
-        See Also:
-            `fetch_object()`: For parameter details and synchronous
-                implementation.
+        Args:
+            object_id: The ID of the object to fetch
+            end_goal: The pose to move the object to after fetching
+            subframe_name: The subframe name of the object
         """
         self.log(f"Fetching object {object_id} from subframe {subframe_name}")
 
@@ -2167,22 +2200,19 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to pre-fetch pose {pre_fetch_pose_stamped}")
-        await self._plan_and_execute_async(goal=pre_fetch_pose_stamped)
+        await self.plan_and_execute_async_cached(goal=pre_fetch_pose_stamped)
 
         # Allow collision between touch links and object
         for touch_link in self.touch_links:
             self.allow_collision(touch_link, object_id)
-
-        self.log_collision_matrix(severity="DEBUG")
 
         # Pre-attach pose
         pre_attach_pose_stamped = self.pre_attach_pose_stamped(
             object_id, subframe_name
         )
         self.log(f"Moving to pre-attach pose {pre_attach_pose_stamped}")
-        await self._plan_and_execute_async(
-            goal=pre_attach_pose_stamped,
-            planning_pipeline="linear",
+        await self.plan_and_execute_async_cached(
+            goal=pre_attach_pose_stamped, planning_pipeline="linear"
         )
 
         # Attach pose (no offset with respect to object frame)
@@ -2190,9 +2220,8 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to attach pose {attach_pose_stamped}")
-        await self._plan_and_execute_async(
-            goal=attach_pose_stamped,
-            planning_pipeline="linear",
+        await self.plan_and_execute_async_cached(
+            goal=attach_pose_stamped, planning_pipeline="linear"
         )
 
         # Attach object
@@ -2208,119 +2237,24 @@ class Commander(BaseNode):
             for static_object_id in self.static_object_ids:
                 self.allow_collision(object_id, static_object_id)
 
-            self.log_collision_matrix(severity="DEBUG")
-
             # Post-attach pose
             post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
             self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
-            await self._plan_and_execute_async(
+            await self.plan_and_execute_async_cached(
                 goal=post_attach_pose_stamped,
                 planning_pipeline="linear",
             )
-        finally:
+
             # Save the current state as the last post-attach state
             self.last_post_attach_state = self.current_state
-
+        finally:
             # Disallow collision between object and static objects
             for static_object_id in self.static_object_ids:
                 self.disallow_collision(object_id, static_object_id)
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
-        await self._plan_and_execute_async(goal=end_goal)
-
-    # def return_object(
-    #     self,
-    #     end_goal: Optional[PoseStamped | str] = None,
-    #     *,
-    #     subframe_name: str = "default",
-    # ) -> None:
-    #     """Synchronous version of return_object_async.
-
-    #     Returns an object to its original position.
-
-    #     Args:
-    #         subframe_name: The subframe name of the object (default: "default")
-    #         end_goal: Optional pose to move to after returning the object
-    #     """
-    #     self.log("Returning object")
-
-    #     # Get object ID from planning scene and check that there is exactly one
-    #     # attached collision object
-    #     attached_collision_object_ids = self.attached_collision_object_ids
-    #     if len(attached_collision_object_ids) != 1:
-    #         raise RuntimeError(
-    #             f"Expected exactly one attached collision object, "
-    #             f"but got {len(attached_collision_object_ids)}"
-    #         )
-
-    #     object_id = attached_collision_object_ids[0]
-
-    #     # Move to saved post-attach state
-    #     if self.last_post_attach_state is not None:
-    #         self.log(
-    #             f"Moving to saved post-attach state {self.last_post_attach_state}"
-    #         )
-    #         self.plan_and_execute(goal=self.last_post_attach_state)
-    #         self.last_post_attach_state = None
-    #     else:
-    #         self.log(
-    #             "No saved post-attach state found, moving to pre-detach pose",
-    #             severity="WARNING",
-    #         )
-    #         self.plan_and_execute(goal=self.pre_detach_pose_stamped(object_id))
-
-    #     # Allow collision between object and static objects
-    #     # Needed to prevent errors when inserting object into its tool pocket
-    #     for static_object_id in self.static_object_ids:
-    #         self.allow_collision(object_id, static_object_id)
-
-    #     # Move to the detach pose
-    #     self.log(
-    #         f"Moving to detach pose {self.detach_pose_stamped(object_id)}"
-    #     )
-    #     self.plan_and_execute(
-    #         goal=self.detach_pose_stamped(object_id),
-    #         planning_pipeline="linear",
-    #     )
-
-    #     # Detach the object
-    #     self.detach_collision_object(object_id=object_id)
-
-    #     # Disallow collision between object and static objects
-    #     for static_object_id in self.static_object_ids:
-    #         self.disallow_collision(object_id, static_object_id)
-
-    #     # Allow collision between robot and object
-    #     for touch_link in self.touch_links:
-    #         self.allow_collision(touch_link, object_id)
-
-    #     # Move to the post-detach pose
-    #     self.log(
-    #         f"Moving to post-detach pose {self.post_detach_pose_stamped(object_id, subframe_name)}"
-    #     )
-    #     self.plan_and_execute(
-    #         goal=self.post_detach_pose_stamped(object_id, subframe_name),
-    #         planning_pipeline="linear",
-    #     )
-
-    #     # Move to the post-return (pre-fetch) pose
-    #     self.log(
-    #         f"Moving to post-return pose {self.post_return_pose_stamped(object_id, subframe_name)}"
-    #     )
-    #     self.plan_and_execute(
-    #         goal=self.post_return_pose_stamped(object_id, subframe_name),
-    #         planning_pipeline="linear",
-    #     )
-
-    #     # Disallow collision between touch links and object
-    #     for touch_link in self.touch_links:
-    #         self.disallow_collision(touch_link, object_id)
-
-    #     # Move to end pose if specified
-    #     if end_goal is not None:
-    #         self.log(f"Moving to end goal {end_goal}")
-    #         self.plan_and_execute(goal=end_goal)
+        await self.plan_and_execute_async_cached(goal=end_goal)
 
     @asyncio_task_decorator
     async def return_object_async(
@@ -2347,7 +2281,6 @@ class Commander(BaseNode):
             )
 
         object_id = attached_collision_object_ids[0]
-
         self.log(f"Returning object {object_id}")
 
         # Move to saved post-attach state
@@ -2424,20 +2357,6 @@ class Commander(BaseNode):
     ########## Reset rig #######################################
     ############################################################
 
-    # def move_simulation_out_of_collision(
-    #     self, goal: PoseStamped | str, pose_link: Optional[str] = None
-    # ):
-    #     """Move the robot out of collision with the scene.
-
-    #     This function is only available in simulation.
-    #     Otherwise, you'll break your robot.
-    #     """
-    #     assert self.get_parameter_wrapper("simulate")
-    #     self.log("Moving out of collision")
-    #     self.remove_all_collision_objects()
-    #     self.plan_and_execute(goal=goal, pose_link=pose_link)
-    #     self.setup_planning_scene()
-
     async def move_simulation_out_of_collision_async(
         self, goal: PoseStamped | str, pose_link: Optional[str] = None
     ):
@@ -2454,29 +2373,7 @@ class Commander(BaseNode):
         assert self.get_parameter_wrapper("simulate")
         self.remove_all_collision_objects()
         await self._plan_and_execute_async(goal=goal, pose_link=pose_link)
-        self.setup_planning_scene()
-
-    # def reset_rig(self, end_goal: Optional[PoseStamped | str] = None):
-    #     """Reset the rig.
-
-    #     Move the robot out of collision if necessary and return any attached
-    #     objects to their original positions.
-    #     """
-    #     self.log("Resetting rig")
-    #     if self.is_state_colliding():
-    #         if self.get_parameter_wrapper("simulate"):
-    #             self.move_simulation_out_of_collision(goal="semi")
-    #         else:
-    #             raise RuntimeError(
-    #                 "Robot is in collision with the scene! "
-    #                 "Please move the robot away from the collision objects manually."
-    #             )
-    #     if len(self.attached_collision_object_ids) > 0:
-    #         self.log(
-    #             "Returning object to original pose in order to reset rig",
-    #             severity="DEBUG",
-    #         )
-    #         self.return_object(end_goal=end_goal)
+        self.init_planning_scene()
 
     async def reset_rig_async(
         self,
@@ -2489,7 +2386,7 @@ class Commander(BaseNode):
         self.log("Resetting rig asynchronously", severity=severity)
         if self.is_state_colliding(self.planning_group_name):
             if self.get_parameter_wrapper("simulate"):
-                await self.move_simulation_out_of_collision_async(goal="semi")
+                await self.move_simulation_out_of_collision_async(goal="idle")
             else:
                 raise RuntimeError(
                     "Robot is in collision with the scene! "
@@ -2498,44 +2395,7 @@ class Commander(BaseNode):
         if len(self.attached_collision_object_ids) > 0:
             await self.return_object_async(end_goal=end_goal)
         else:
-            await self.plan_and_execute_async(goal="semi")
-
-    ############################################################
-    ########## Initialize ######################################
-    ############################################################
-
-    def init_commander(self, timeout: Optional[float] = None):
-        """Initialize the commander."""
-        self.init_dashboard(timeout=timeout)
-
-    # async def init_rig_async(
-    #     self,
-    #     *,
-    #     end_goal: PoseStamped | str = "semi",
-    #     timeout: Optional[float] = None,
-    # ):
-    #     """Initialize the rig asynchronously."""
-    #     self.log("Initializing rig asynchronously")
-    #     if timeout is None:
-    #         timeout = self.get_parameter_wrapper("rig.init_timeout")
-    #     assert timeout is not None
-
-    #     async with asyncio.timeout(timeout):
-    #         while True:
-    #             try:
-    #                 await self.reset_rig_async(end_goal=end_goal)
-    #                 return
-    #             except (
-    #                 TimeoutError,
-    #                 MaxAttemptsReachedError,
-    #                 ServiceCallError,
-    #                 ServiceCallUnsuccessfulError,
-    #             ) as e:
-    #                 self.log(
-    #                     f"Error initializing rig: {type(e).__name__}: {e}",
-    #                     severity="WARN",
-    #                 )
-    #                 self.log("Trying again...", severity="WARN")
+            await self.plan_and_execute_async(goal="idle")
 
     ############################################################
     ########## Context manager #################################
@@ -2552,7 +2412,7 @@ class Commander(BaseNode):
         """
         tasks = []
         for coro in coros:
-            tasks.append(create_task_wrapper(self, coro))
+            tasks.append(create_task_wrapper(coro))
         return tasks[0] if len(tasks) == 1 else tasks
 
     @asynccontextmanager
@@ -2566,27 +2426,9 @@ class Commander(BaseNode):
         """
         self.log("Entering planning context manager", severity="DEBUG")
 
-        await self.reset_rig_async(end_goal="semi", severity="DEBUG")
+        await self.reset_rig_async(end_goal="idle", severity="DEBUG")
 
         try:
-            # try:
-            #     async with asyncio.TaskGroup() as tg:
-            #         self.tg = tg
-            #         yield tg
-            # except ExceptionGroup as e:
-            #     self.log(
-            #         "Caught TaskGroup exceptions in TaskGroup context manager:",
-            #         severity="WARN",
-            #     )
-            #     for exception in e.exceptions:
-            #         self.log(
-            #             f"Task exception: {type(exception).__name__}",
-            #             severity="WARN",
-            #         )
-            #         self.log(f"{exception}", severity="WARN")
-            #     raise e.exceptions[0]  # TODO: fix this
-            # finally:
-            #     self.tg = None
             yield None
         except (
             TimeoutError,
@@ -2633,6 +2475,7 @@ class Commander(BaseNode):
     ############################################################
 
     def destroy_node(self) -> None:
+        self.trajectory_cache.close()
         self.moveit_py.shutdown()
         super().destroy_node()
 
@@ -2640,7 +2483,9 @@ class Commander(BaseNode):
 # Example script using the commander node
 
 
-async def run(commander: Commander, config: Mapping[str, Any]) -> None:
+async def run_commander_example(
+    commander: Commander, config: Mapping[str, Any]
+) -> None:
     try:
         commander.log(f"Run Config: \n{yaml.dump(config)}", severity="DEBUG")
 
@@ -2695,37 +2540,50 @@ async def run(commander: Commander, config: Mapping[str, Any]) -> None:
         raise e
 
 
-def main(args: Optional[list[str]] = None) -> None:
+def main(args=None):
     rclpy.init(args=args)
 
+    # Get config file from arguments
     non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
-    config_file = non_ros_args[1]
 
-    with open(config_file, "r") as f:
-        run_config = yaml.safe_load(f)
+    # Attach debugger if requested
+    if non_ros_args[-1] == "--debug":
+        debugpy.listen(4567)
+        print("Waiting for debugger to attach")
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
+    # Load config file
+    coro_module, coro_name, config = non_ros_args[1:4]
+    print(
+        f"Running coroutine {coro_name} from module {coro_module} with config {config}"
+    )
+
+    coro: Callable[[Commander, Mapping[str, Any]], Coroutine] = getattr(
+        importlib.import_module(coro_module), coro_name
+    )
+
+    with open(config, "r") as f:
+        config = yaml.safe_load(f)
 
     try:
         commander = Commander()
         executor = SingleThreadedExecutor()
         executor.add_node(commander)
 
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
-                run_future = tpe.submit(
-                    asyncio.run, run(commander, run_config)
-                )
-                run_future.add_done_callback(lambda _: executor.shutdown())
-                executor.spin()
-        finally:
-            commander.destroy_node()
-            print("Shutting down executor")
-            executor.shutdown()
+        with ThreadPoolExecutor(max_workers=1) as tpe:
+            try:
+                tpe.submit(executor.spin)
+                asyncio.run(coro(commander, config))
+            finally:
+                print("Shutting down commander")
+                commander.destroy_node()
+                print("Shutting down executor")
+                executor.shutdown()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
     except SystemExit:
         print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
-
         rclpy.try_shutdown()

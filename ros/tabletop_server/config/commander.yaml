@@ -1,11 +1,11 @@
 /commander:
   ros__parameters:
-    simulate: false
+    simulate: true
 
     default_service_wait_timeout: 5.0
     default_service_call_timeout: 2.0
 
-    max_plan_attempts: 20
+    max_plan_attempts: 5
     max_execution_attempts: 3
 
     dashboard:
@@ -31,12 +31,16 @@
       eef_link: eef
       object_touch_links:
         - eef_link
-      idle_pose:
-        position: [0.9144, 1.1764, 1.0]
-        rpy: [0.0, 0.0, 1.5707]
+      idle_state: semi
       pre_fetch_offset: [-0.02, 0.0, -0.01]
       pre_attach_offset: [-0.02, 0.0, 0.0]
       post_attach_offset: [0.0, -0.10, 0.0]
+
+      trajectory_cache:
+        filename: /root/ws/src/tabletop/ros/trajectory_cache
+        robot_state_tolerance: [0.005, 0.008, 0.008, 0.008, 0.008, 0.008] # radians
+        position_tolerance: 0.01 # meters
+        orientation_tolerance: 0.08 # radians (~5 degrees)
 
     planning_scene:
       planes:

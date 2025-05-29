@@ -1,32 +1,29 @@
+# Example config for the commander node
 plan_and_execute_timeout: null
 
 object_ids:
-  - simple_object
+  - simple_object_5
+  - simple_object_6
+  - simple_object_7
+  - simple_object_8
+  - simple_object_9
+  - simple_object_15
+  - simple_object_16
+  - simple_object_17
+  - simple_object_18
+  - simple_object_19
+  - simple_object_25
+  - simple_object_26
+  - simple_object_27
+  - simple_object_28
+  - simple_object_29
 
-waypoints:
+goals:
   path:
-    - object_area
-    - object_grab
-    - object_area
     - monkey_area_1
     - monkey_area_2
-    - object_area
-    - object_grab
-    - object_area
 
   poses:
-    init:
-      position: [0.1, 0.1, 0.8]
-      rpy: [0.0, 0.0, 1.5707]
-
-    object_area:
-      position: [0.3, 0.6, 0.6]
-      rpy: [0.0, 0.0, 1.5707]
-
-    object_grab:
-      position: [0.3, 0.65, 0.6]
-      rpy: [0.0, 0.0, 1.5707]
-
     monkey_area_1:
       position: [-0.2, -0.5, 0.9]
       rpy: [0.4, -0.1, -1.5707]
@@ -34,11 +31,3 @@ waypoints:
     monkey_area_2:
       position: [0.2, -0.5, 0.9]
       rpy: [-0.4, 0.1, -1.5707]
-
-    simple_object:
-      position: [-0.2, -0.5, 0.9]
-      rpy: [0.4, -0.1, -1.5707]
-
-    # complex_object:
-    #   position: [0.2, -0.5, 0.9]
-    #   rpy: [-0.4, 0.1, -1.5707]

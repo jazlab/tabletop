@@ -1,4 +1,3 @@
-import yaml
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -7,11 +6,9 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
     SetEnvironmentVariable,
-    Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitution import Substitution
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -20,14 +17,9 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node, SetROSLogDir
-from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-
-
-def save_yaml(file_path, data):
-    with open(file_path, "w") as file:
-        yaml.dump(data, file, sort_keys=False)
+from tabletop_utils.common import print_substitutions
 
 
 def declare_arguments():
@@ -55,44 +47,18 @@ def declare_arguments():
                 "ur30",
             ],
         ),
-        # UR Robot Driver
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
         ),
-        # DeclareLaunchArgument(
-        #     "robot_ip",
-        #     default_value="192.168.12.20",
-        #     description="IP address of the robot",
-        # ),
-        # DeclareLaunchArgument(
-        #     "reverse_ip",
-        #     default_value="192.168.12.10",
-        #     description="Reverse IP address",
-        # ),
-        # DeclareLaunchArgument(
-        #     "use_mock_robot",
-        #     default_value="false",
-        #     description="Use mock robot",
-        # ),
+        # UR Robot Driver
         DeclareLaunchArgument(
             "controller_spawner_timeout",
             default_value="120",
             description="Controller spawner timeout",
         ),
-        # DeclareLaunchArgument(
-        #     "kinematics_params_file",
-        #     default_value=PathJoinSubstitution(
-        #         [
-        #             FindPackageShare("tabletop_description"),
-        #             "config",
-        #             "ur5e_calibration.yaml",
-        #         ]
-        #     ),
-        #     description="Calibration file",
-        # ),
         DeclareLaunchArgument(
             "description_launchfile",
             default_value=PathJoinSubstitution(
@@ -114,39 +80,6 @@ def declare_arguments():
                 ]
             ),
             description="URDF/XACRO description file with the robot.",
-        ),
-        # Commander
-        DeclareLaunchArgument(
-            "commander_config",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_server"),
-                    "config",
-                    "commander.yaml",
-                ]
-            ),
-            description="Commander config file",
-        ),
-        DeclareLaunchArgument(
-            "script_package",
-            default_value="tabletop_server",
-            description="Script package",
-        ),
-        DeclareLaunchArgument(
-            "script_executable",
-            default_value="example_commander",
-            description="Script executable",
-        ),
-        DeclareLaunchArgument(
-            "script_config",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_server"),
-                    "config",
-                    "example_config.yaml",
-                ]
-            ),
-            description="Script config",
         ),
         # Teensy
         DeclareLaunchArgument(
@@ -231,24 +164,6 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
-            "commander_log_level",
-            default_value="INFO",
-            description="Commander log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "moveit_py_log_level",
-            default_value="WARN",
-            description="MoveItPy log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "moveit_log_level",
-            default_value="FATAL",
-            description="MoveIt log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
             "teensy_log_level",
             default_value="INFO",
             description="Teensy log level",
@@ -306,33 +221,18 @@ def declare_arguments():
     ]
 
 
-def print_substitutions(context, substitutions: dict[str, Substitution]):
-    for name, substitution in substitutions.items():
-        print(f"{name}: {substitution.perform(context)}")
-
-
 def generate_launch_description():
     # Common
     use_sim_time = LaunchConfiguration("use_sim_time")
     ur_type = LaunchConfiguration("ur_type")
+    robot_mode = LaunchConfiguration("robot_mode")
 
     # UR Robot Driver
-    robot_mode = LaunchConfiguration("robot_mode")
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
-    # kinematics_params_file = LaunchConfiguration("kinematics_params_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
     description_file = LaunchConfiguration("description_file")
-    # robot_ip = LaunchConfiguration("robot_ip")
-    # reverse_ip = LaunchConfiguration("reverse_ip")
-    # use_mock_robot = LaunchConfiguration("use_mock_robot")
-
-    # Commander
-    commander_config = LaunchConfiguration("commander_config")
-    script_package = LaunchConfiguration("script_package")
-    script_executable = LaunchConfiguration("script_executable")
-    script_config = LaunchConfiguration("script_config")
 
     # Teensy
     micro_ros_transport = LaunchConfiguration("micro_ros_transport")
@@ -343,9 +243,11 @@ def generate_launch_description():
 
     # Flic
     simulate_flic = LaunchConfiguration("simulate_flic")
+
     # RViz
     launch_rviz_server = LaunchConfiguration("launch_rviz_server")
     rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
+
     # Bag
     rosbag_record = LaunchConfiguration("rosbag_record")
     rosbag_args = LaunchConfiguration("rosbag_args")
@@ -356,20 +258,17 @@ def generate_launch_description():
 
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
-    commander_log_level = LaunchConfiguration("commander_log_level")
-    moveit_py_log_level = LaunchConfiguration("moveit_py_log_level")
-    moveit_log_level = LaunchConfiguration("moveit_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
 
+    # Outputs
     mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
     ur_output = LaunchConfiguration("ur_output")
-    commander_output = LaunchConfiguration("commander_output")
     micro_ros_output = LaunchConfiguration("micro_ros_output")
     mock_teensy_output = LaunchConfiguration("mock_teensy_output")
     flic_output = LaunchConfiguration("flic_output")
     rviz_output = LaunchConfiguration("rviz_output")
     bag_output = LaunchConfiguration("bag_output")
-    ################################################
+    ###########################################################################
 
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
@@ -387,9 +286,6 @@ def generate_launch_description():
     )
     use_mock_robot = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "mock"), "true", "false"
-    )
-    simulate_commander = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "real"), "false", "true"
     )
     kinematics_params_file = PathJoinSubstitution(
         [
@@ -412,16 +308,12 @@ def generate_launch_description():
                 "reverse_ip": reverse_ip,
                 "use_mock_robot": use_mock_robot,
                 "kinematics_params_file": kinematics_params_file,
-                "simulate_commander": simulate_commander,
             },
         ),
-        condition=IfCondition(
-            EqualsSubstitution(commander_log_level, "DEBUG")
-        ),
+        condition=IfCondition(EqualsSubstitution(default_log_level, "DEBUG")),
     )
 
-    # UR Robot Driver
-    # Use group action to isolate the launch file
+    # UR Robot Driver (use group action to isolate the launch file)
     ur_robot_driver = GroupAction(
         [
             SetEnvironmentVariable(
@@ -468,69 +360,6 @@ def generate_launch_description():
         condition=IfCondition(use_mock_robot),
     )
 
-    # Commander
-    commander_overrides_path = "/tmp/commander_overrides.yaml"
-
-    def save_commander_overrides(context):
-        simulate = simulate_commander.perform(context).lower() == "true"
-        commander_overrides = {
-            "simulate": simulate,
-        }
-        commander_overrides_scoped = {
-            "/commander": {"ros__parameters": commander_overrides}
-        }
-        save_yaml(commander_overrides_path, commander_overrides_scoped)
-
-    commander_overrides_action = OpaqueFunction(
-        function=save_commander_overrides,
-    )
-
-    moveit_config = (
-        MoveItConfigsBuilder(
-            robot_name="ur", package_name="tabletop_moveit_config"
-        )
-        .robot_description_semantic(
-            file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}
-        )
-        .moveit_cpp(
-            file_path="config/moveit_cpp.yaml",
-        )
-        .to_moveit_configs()
-    )
-
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
-    }
-    # TODO: Add node-specific params/remappings a la
-    # https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html#logger-configuration
-    # Probably will need to use ExecuteProcess for the script and manually provide the ros arguments
-    commander = Node(
-        package=script_package,
-        executable=script_executable,
-        parameters=[
-            moveit_config.to_dict(),
-            warehouse_ros_config,
-            ParameterFile(commander_config, allow_substs=True),
-            ParameterFile(commander_overrides_path, allow_substs=True),
-            {
-                "publish_robot_description_semantic": True,
-                "use_sim_time": use_sim_time,
-            },
-        ],
-        ros_arguments=[
-            "--log-level",
-            moveit_log_level,
-            "--log-level",
-            ["moveit_py:=", moveit_py_log_level],
-            "--log-level",
-            ["commander:=", commander_log_level],
-        ],
-        arguments=[script_config],
-        output=commander_output,
-        on_exit=[Shutdown()],
-    )
-
     # Micro ROS Agent
     micro_ros_agent = Node(
         package="micro_ros_agent",
@@ -574,6 +403,24 @@ def generate_launch_description():
         ros_arguments=["--log-level", ["flic:=", default_log_level]],
     )
 
+    # RViz MoveIt Config
+    moveit_config = (
+        MoveItConfigsBuilder(
+            robot_name="ur", package_name="tabletop_moveit_config"
+        )
+        .robot_description_semantic(
+            file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}
+        )
+        .moveit_cpp(
+            file_path="config/moveit_cpp.yaml",
+        )
+        .to_moveit_configs()
+    )
+    warehouse_ros_config = {
+        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+        "warehouse_host": warehouse_sqlite_path,
+    }
+
     # RViz
     rviz_node = Node(
         package="rviz2",
@@ -604,10 +451,8 @@ def generate_launch_description():
     launch_actions = [
         set_ros_log_dir,
         print_substitutions_action,
-        commander_overrides_action,
         ur_robot_driver,
         mock_dashboard,
-        commander,
         micro_ros_agent,
         mock_teensy,
         flic,

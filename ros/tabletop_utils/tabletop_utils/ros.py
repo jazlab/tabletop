@@ -1,12 +1,15 @@
 import os
 from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from typing import Any, Optional, Protocol
 
 import numpy as np
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from moveit.core.robot_state import RobotState  # type: ignore
 from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
@@ -144,6 +147,12 @@ class ServiceCallError(Exception):
 
 class ServiceCallUnsuccessfulError(Exception):
     pass
+
+
+# Type aliases
+
+
+PlanningGoalT = RobotState | PoseStamped | str
 
 
 # Generic ROS2 utilities
@@ -296,6 +305,7 @@ def pose_msg(
         if any((x, y, z)):
             raise ValueError("position and x, y, z cannot both be provided")
 
+        position = deepcopy(position)
         if isinstance(position, Point):
             pose.position = position
         elif isinstance(position, Mapping):
@@ -318,6 +328,8 @@ def pose_msg(
             )
         if orientation is not None:
             raise ValueError("orientation and rpy cannot both be provided")
+
+        rpy = deepcopy(rpy)
         if isinstance(rpy, Mapping):
             pose.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
         else:
@@ -329,6 +341,7 @@ def pose_msg(
             )
         pose.orientation = quaternion_msg_from_euler(roll, pitch, yaw)
     elif orientation is not None:
+        orientation = deepcopy(orientation)
         if isinstance(orientation, Quaternion):
             pose.orientation = orientation
         elif isinstance(orientation, Mapping):
@@ -344,7 +357,7 @@ def pose_stamped_msg(
     *,
     header: Optional[Header | Mapping[str, Any]] = None,
     frame_id: Optional[str] = None,
-    timestamp: Optional[float] = None,
+    timestamp: Optional[Time | Mapping[str, Any]] = None,
     pose: Optional[Pose | Mapping[str, Any]] = None,
     position: Optional[Point | Iterable[float] | Mapping[str, float]] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
@@ -375,6 +388,8 @@ def pose_stamped_msg(
                 "Either header or (at least one of frame_id and timestamp) "
                 "must be provided, but not both"
             )
+
+        header = deepcopy(header)
         if isinstance(header, Header):
             pose_stamped.header = header
         else:
@@ -383,7 +398,11 @@ def pose_stamped_msg(
         if frame_id is not None:
             pose_stamped.header.frame_id = frame_id
         if timestamp is not None:
-            pose_stamped.header.stamp = timestamp
+            timestamp = deepcopy(timestamp)
+            if isinstance(timestamp, Time):
+                pose_stamped.header.stamp = timestamp
+            else:
+                pose_stamped.header.stamp = Time(**timestamp)
 
     if pose is not None:
         if position is not None or rpy is not None or orientation is not None:
@@ -391,6 +410,8 @@ def pose_stamped_msg(
                 "Either pose or position/rpy/orientation must be provided, "
                 "but not both"
             )
+
+        pose = deepcopy(pose)
         if isinstance(pose, Pose):
             pose_stamped.pose = pose
         else:

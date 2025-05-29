@@ -37,17 +37,50 @@
 		},
 		{
 			"type": "shell",
-			"label": "clean_build_artifacts",
-			"command": "${workspaceFolder}/scripts/clean_build_artifacts.sh",
+			"label": "kill_ros",
+			"command": "${workspaceFolder}/scripts/kill_ros.sh",
 			"problemMatcher": [],
 			"group": "none"
 		},
 		{
 			"type": "shell",
-			"label": "kill_ros",
-			"command": "${workspaceFolder}/scripts/kill_ros.sh",
+			"label": "debug_tasks",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py debug_commander:=true task_config:=foraging_ordered.yaml",
 			"problemMatcher": [],
 			"group": "none"
+		},
+		{
+			"type": "shell",
+			"label": "run_tasks",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py task_config:=foraging_ordered.yaml",
+			"problemMatcher": [],
+			"group": "none"
+		}
+	],
+	"inputs": [
+		{
+			"id": "simplification",
+			"default": "null",
+			"description": "Simplification method to apply to the mesh",
+			"type": "promptString"
+		},
+		{
+			"id": "scale",
+			"default": "null",
+			"description": "Scale factor",
+			"type": "promptString"
+		},
+		{
+			"id": "rpy",
+			"default": "null",
+			"description": "Roll, pitch, yaw of the mesh",
+			"type": "promptString"
+		},
+		{
+			"id": "translation",
+			"default": "null",
+			"description": "Translation of the mesh",
+			"type": "promptString"
 		}
 	]
 }

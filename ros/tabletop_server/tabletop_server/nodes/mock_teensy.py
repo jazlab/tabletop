@@ -62,8 +62,8 @@ ARM_DOOR_PERIOD_MS = 1000
 
 class ArmDoorState(Enum):
     OPEN = 0
-    CLOSED = 1
-    OPENING = 2
+    OPENING = 1
+    CLOSED = 2
     CLOSING = 3
 
 

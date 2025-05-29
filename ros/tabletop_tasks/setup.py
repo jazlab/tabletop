@@ -31,9 +31,4 @@ setup(
     description="The tasks package for the TableTop project",
     license="MIT",
     tests_require=["pytest"],
-    entry_points={
-        "console_scripts": [
-            "run_tasks = tabletop_tasks.run_tasks:main",
-        ],
-    },
 )

@@ -37,7 +37,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "example_commander = tabletop_server.nodes.commander:main",
+            "commander = tabletop_server.nodes.commander:main",
             "mock_teensy = tabletop_server.nodes.mock_teensy:main",
             "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
             "eyelink = tabletop_server.nodes.eyelink:main",
