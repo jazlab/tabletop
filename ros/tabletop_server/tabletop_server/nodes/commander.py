@@ -45,6 +45,7 @@ from moveit_msgs.msg import (
 from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
@@ -187,20 +188,6 @@ class Commander(BaseNode):
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
-        self.trajectory_execution_manager: TrajectoryExecutionManager = (
-            self.moveit_py.get_trajectory_execution_manager()
-        )
-
-        self.robot_model: RobotModel = self.moveit_py.get_robot_model()
-        self.log(
-            f"Robot model: {self.robot_model.get_model_info()}",
-            severity="DEBUG",
-        )
-
-        self.planning_scene_monitor: PlanningSceneMonitor = (
-            self.moveit_py.get_planning_scene_monitor()
-        )
-
         self.init_attributes()
 
         self.init_planning_scene()
@@ -304,6 +291,21 @@ class Commander(BaseNode):
         if group_name is None:
             group_name = self.get_parameter_wrapper("planning.group_name")
         return self.moveit_py.get_planning_component(group_name)
+
+    @property
+    def planning_scene_monitor(self) -> PlanningSceneMonitor:
+        """Get the planning scene monitor."""
+        return self.moveit_py.get_planning_scene_monitor()
+
+    @property
+    def robot_model(self) -> RobotModel:
+        """Get the robot model."""
+        return self.moveit_py.get_robot_model()
+
+    @property
+    def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
+        """Get the trajectory execution manager."""
+        return self.moveit_py.get_trajectory_execution_manager()
 
     ############################################################
     ########## Logging #########################################
@@ -1092,7 +1094,7 @@ class Commander(BaseNode):
 
         if allowed_collision_ids is not None:
             for allowed_collision_id in allowed_collision_ids:
-                self.allow_collision(allowed_collision_id, collision_object.id)
+                self.allow_collision(collision_object.id, allowed_collision_id)
 
     def add_plane_collision_object(
         self,
@@ -1387,6 +1389,12 @@ class Commander(BaseNode):
             attached_collision_object
         )
 
+    def detach_all_collision_objects(self):
+        """Detach all collision objects from the robot."""
+        self.log("Detaching all collision objects")
+        for object_id in self.attached_collision_object_ids:
+            self.detach_collision_object(object_id)
+
     def remove_collision_object(self, object_id: str):
         """Remove a collision object from the planning scene."""
         self.log(f"Removing collision object: {object_id}")
@@ -1415,6 +1423,7 @@ class Commander(BaseNode):
             ), f"Object {object_id} not found in dynamic or static object ids"
 
     def remove_all_collision_objects(self):
+        """Remove all non-attached collision objects from the planning scene."""
         self.log("Removing all collision objects")
         with self.planning_scene_monitor.read_write() as scene:
             scene: PlanningScene = scene
@@ -1868,11 +1877,10 @@ class Commander(BaseNode):
     def _execute_once(
         self, robot_trajectory: RobotTrajectory
     ) -> ExecutionStatus:
-        """
-        Execute the given robot trajectory.
+        """Execute the given robot trajectory.
 
         Args:
-            robot_trajectory (RobotTrajectory): The robot trajectory to execute.
+            robot_trajectory: The robot trajectory to execute.
 
         Returns:
             ExecutionStatus: The status of the execution.
@@ -1883,16 +1891,15 @@ class Commander(BaseNode):
         return self.trajectory_execution_manager.execute_and_wait()
 
     async def _execute_once_async(
-        self, robot_trajectory: RobotTrajectory
+        self, trajectory: RobotTrajectory | RobotTrajectoryMsg
     ) -> ExecutionStatus:
-        """
-        Coroutine to execute the given robot trajectory asynchronously.
+        """Asynchronously execute the given robot trajectory.
 
         Wraps the trajectory_execution_manager.execute() method in an rclpy
         future to support awaiting the execution.
 
         Args:
-            robot_trajectory (RobotTrajectory): The robot trajectory to execute.
+            trajectory: The robot trajectory or trajectory message to execute.
 
         Returns:
             ExecutionStatus: The status of the execution.
@@ -1902,9 +1909,10 @@ class Commander(BaseNode):
         def done_callback(status: ExecutionStatus):
             future.set_result(status)
 
-        self.trajectory_execution_manager.push(
-            robot_trajectory.get_robot_trajectory_msg()
-        )
+        if not isinstance(trajectory, RobotTrajectoryMsg):
+            trajectory = trajectory.get_robot_trajectory_msg()
+
+        self.trajectory_execution_manager.push(trajectory)
         self.trajectory_execution_manager.execute(done_callback)
 
         return await asyncio.wrap_future(future)
@@ -1916,8 +1924,7 @@ class Commander(BaseNode):
         cancel_event: Optional[threading.Event] = None,
         **kwargs: Any,
     ):
-        """
-        Execute the given robot trajectory, retrying up to max_attempts times
+        """Execute the given robot trajectory, retrying up to max_attempts times
         until successful.
 
         Args:
@@ -1980,10 +1987,12 @@ class Commander(BaseNode):
             `_execute_once_async()`: For parameter details.
         """
         if max_attempts is None:
-            max_attempts = self.get_parameter_wrapper("max_execution_attempts")
+            max_attempts = cast(
+                int, self.get_parameter_wrapper("max_execution_attempts")
+            )
 
         failure_msgs = []
-        for i in range(max_attempts):  # type: ignore
+        for i in range(max_attempts):
             try:
                 execution_status = await self._execute_once_async(
                     *args, **kwargs
@@ -2124,16 +2133,22 @@ class Commander(BaseNode):
         self,
         goal: PlanningGoalT,
         start_state: Optional[RobotState] = None,
+        cache_trajectory: bool = True,
         *args: Any,
         **kwargs: Any,
-    ):
+    ) -> RobotTrajectoryMsg | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
             goal: The goal to query the cache or plan for.
             start_state: The start state to query the cache or plan for.
+            cache_trajectory: Whether to cache the planned trajectory.
             *args: Additional positional arguments to pass to `plan_and_execute_async()`.
             **kwargs: Additional keyword arguments to pass to `plan_and_execute_async()`.
+
+        Returns:
+            RobotTrajectoryMsg | None: The newly planned trajectory, or the cached
+                trajectory message if available.
         """
         if start_state is None:
             start_state = self.current_state
@@ -2150,33 +2165,58 @@ class Commander(BaseNode):
 
         # Attempt to get the cached trajectory, otherwise plan and execute normally
         try:
-            cached_trajectory = self.trajectory_cache[(goal_key, start_state)]
+            try:
+                trajectory_msg = self.trajectory_cache[(goal_key, start_state)]
+                self.log(
+                    f"Using cached trajectory for "
+                    f"goal: {goal_key}, start state: {start_state}"
+                )
+            except KeyError:
+                if not isinstance(goal_key, RobotState):
+                    raise
+                # If the goal is a RobotState, try to get the cached trajectory
+                # with the start state and goal key swapped
+                trajectory_msg = self.trajectory_cache[(start_state, goal_key)]
+                self.log(
+                    f"Using reversed cached trajectory for "
+                    f"goal: {goal_key}, start state: {start_state}"
+                )
+                trajectory = RobotTrajectory(self.robot_model)
+                trajectory.set_robot_trajectory_msg(trajectory_msg)
+                trajectory = cast(RobotTrajectory, reversed(trajectory))
+                trajectory_msg = trajectory.get_robot_trajectory_msg()
+
+            # Execute the cached trajectory
+            self.log(
+                f"Executing cached trajectory: {trajectory_msg}",
+                severity="DEBUG",
+            )
+            await self.execute_async(trajectory_msg)
+            return None
         except KeyError:
             self.log(
-                f"No cached trajectory for goal: {goal_key}, "
-                f"start state: {start_state}"
+                f"No cached trajectory for "
+                f"goal: {goal_key}, start state: {start_state}"
             )
+        except Exception as e:
+            self.log(f"Error while executing cached trajectory: {e}")
+
+        self.log(
+            f"Planning normally and executing trajectory for "
+            f"goal: {goal_key}, start state: {start_state}"
+        )
+        response = await self._plan_and_execute_async(
+            goal=goal, start_state=start_state, *args, **kwargs
+        )
+        # Cache the trajectory if requested
+        trajectory_msg = response.trajectory.get_robot_trajectory_msg()
+        if cache_trajectory:
+            self.trajectory_cache[(goal_key, start_state)] = trajectory_msg
             self.log(
-                f"Planning and executing trajectory for goal: {goal}, "
-                f"start state: {start_state}"
+                f"Cached trajectory for "
+                f"goal: {goal_key}, start state: {start_state}"
             )
-            response = await self._plan_and_execute_async(
-                goal=goal, start_state=start_state, *args, **kwargs
-            )
-            # Cache the trajectory
-            self.trajectory_cache[(goal_key, start_state)] = (
-                response.trajectory
-            )
-            self.log(
-                f"Cached trajectory for goal: {goal_key}, "
-                f"start state: {start_state}"
-            )
-        else:
-            self.log(
-                f"Using cached trajectory for goal: {goal_key}, "
-                f"start state: {start_state}"
-            )
-            await self.execute_async(robot_trajectory=cached_trajectory)
+        return trajectory_msg
 
     @asyncio_task_decorator
     async def fetch_object_async(
@@ -2195,12 +2235,22 @@ class Commander(BaseNode):
         """
         self.log(f"Fetching object {object_id} from subframe {subframe_name}")
 
+        trajectory_msgs = []
+        goals = []
+        start_states = []
+
         # Pre-fetch pose
         pre_fetch_pose_stamped = self.pre_fetch_pose_stamped(
             object_id, subframe_name
         )
         self.log(f"Moving to pre-fetch pose {pre_fetch_pose_stamped}")
-        await self.plan_and_execute_async_cached(goal=pre_fetch_pose_stamped)
+        trajectory_msg = await self.plan_and_execute_async_cached(
+            goal=pre_fetch_pose_stamped, cache_trajectory=False
+        )
+        if trajectory_msg is not None:
+            trajectory_msgs.append(trajectory_msg)
+            goals.append(pre_fetch_pose_stamped)
+            start_states.append(self.current_state)
 
         # Allow collision between touch links and object
         for touch_link in self.touch_links:
@@ -2211,18 +2261,30 @@ class Commander(BaseNode):
             object_id, subframe_name
         )
         self.log(f"Moving to pre-attach pose {pre_attach_pose_stamped}")
-        await self.plan_and_execute_async_cached(
-            goal=pre_attach_pose_stamped, planning_pipeline="linear"
+        trajectory_msg = await self.plan_and_execute_async_cached(
+            goal=pre_attach_pose_stamped,
+            planning_pipeline="linear",
+            cache_trajectory=False,
         )
+        if trajectory_msg is not None:
+            trajectory_msgs.append(trajectory_msg)
+            goals.append(pre_attach_pose_stamped)
+            start_states.append(self.current_state)
 
         # Attach pose (no offset with respect to object frame)
         attach_pose_stamped = self.attach_pose_stamped(
             object_id, subframe_name
         )
         self.log(f"Moving to attach pose {attach_pose_stamped}")
-        await self.plan_and_execute_async_cached(
-            goal=attach_pose_stamped, planning_pipeline="linear"
+        trajectory_msg = await self.plan_and_execute_async_cached(
+            goal=attach_pose_stamped,
+            planning_pipeline="linear",
+            cache_trajectory=False,
         )
+        if trajectory_msg is not None:
+            trajectory_msgs.append(trajectory_msg)
+            goals.append(attach_pose_stamped)
+            start_states.append(self.current_state)
 
         # Attach object
         self.attach_collision_object(
@@ -2240,13 +2302,18 @@ class Commander(BaseNode):
             # Post-attach pose
             post_attach_pose_stamped = self.post_attach_pose_stamped(object_id)
             self.log(f"Moving to post-attach pose {post_attach_pose_stamped}")
-            await self.plan_and_execute_async_cached(
+            trajectory_msg = await self.plan_and_execute_async_cached(
                 goal=post_attach_pose_stamped,
                 planning_pipeline="linear",
+                cache_trajectory=False,
             )
+            if trajectory_msg is not None:
+                trajectory_msgs.append(trajectory_msg)
+                goals.append(post_attach_pose_stamped)
+                start_states.append(self.current_state)
 
             # Save the current state as the last post-attach state
-            self.last_post_attach_state = self.current_state
+            # self.last_post_attach_state = self.current_state
         finally:
             # Disallow collision between object and static objects
             for static_object_id in self.static_object_ids:
@@ -2254,7 +2321,20 @@ class Commander(BaseNode):
 
         # Move to target pose
         self.log(f"Moving to end goal {end_goal}")
-        await self.plan_and_execute_async_cached(goal=end_goal)
+        trajectory_msg = await self.plan_and_execute_async_cached(
+            goal=end_goal,
+            planning_pipeline="linear",
+            cache_trajectory=False,
+        )
+        trajectory_msgs.append(trajectory_msg)
+        goals.append(end_goal)
+        start_states.append(self.current_state)
+
+        # Cache all trajectories
+        for trajectory_msg, goal, start_state in zip(
+            trajectory_msgs, goals, start_states
+        ):
+            self.trajectory_cache[(goal, start_state)] = trajectory_msg
 
     @asyncio_task_decorator
     async def return_object_async(
@@ -2371,6 +2451,9 @@ class Commander(BaseNode):
         """
         self.log("Moving out of collision asynchronously")
         assert self.get_parameter_wrapper("simulate")
+        self.detach_collision_object(
+            object_id=self.attached_collision_object_ids[0]
+        )
         self.remove_all_collision_objects()
         await self._plan_and_execute_async(goal=goal, pose_link=pose_link)
         self.init_planning_scene()

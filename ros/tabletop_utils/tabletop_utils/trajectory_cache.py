@@ -4,12 +4,12 @@ import threading
 from collections.abc import Iterable
 from copy import deepcopy
 from shelve import DbfilenameShelf
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Optional
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState  # type: ignore
-from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import PlanningGoalT, arrays_from_pose_msg
@@ -90,6 +90,7 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
                 self._robot_state_tolerance,
                 self._position_tolerance,
                 self._orientation_tolerance,
+                override_db,
                 metadata_hash_fn,
             )
 
@@ -107,8 +108,18 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         robot_state_tolerance: float | RobotStateToleranceT,
         position_tolerance: float | PositionToleranceT,
         orientation_tolerance: float | OrientationToleranceT,
+        override_db: bool,
         metadata_hash_fn: Optional[Callable[[dict[str, Any]], Any]],
     ):
+        """Validate the database.
+
+        If the database is empty, set the new values.
+        If the database is not empty, check that the values have not changed
+        and/or that the hash is the same.
+        If the database is not empty and the values have changed, raise an error.
+        If the database is not empty and the hash is different, raise an error.
+        If the database is not empty and the hash is the same, set the new values.
+        """
         # Create a new dictionary with reserved keys and deepcopied values
         # This is done to avoid accidentally modifying these values in the
         # db after they are set.
@@ -131,34 +142,42 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         # Check that the values have not changed and/or that the hash is the same
         for key, value in new_reserved_dict.items():
             try:
-                old_value = super().__getitem__(key)
-            except KeyError as e:
-                raise KeyError(
-                    f"Cache file is not empty, but key '{key}' is missing. "
-                    "Delete the cache file and try again."
-                ) from e
+                try:
+                    old_value = super().__getitem__(key)
+                except KeyError as e:
+                    raise KeyError(
+                        f"Cache file is not empty, but key '{key}' is missing. "
+                    ) from e
 
-            if key == "metadata" and metadata_hash_fn is not None:
-                # If the key is metadata, check if the hash is the same
-                if metadata_hash_fn(old_value) != metadata_hash_fn(value):
+                if key == "metadata" and metadata_hash_fn is not None:
+                    # If the key is metadata, check if the hash is the same
+                    if metadata_hash_fn(old_value) != metadata_hash_fn(value):
+                        raise ValueError(
+                            f"Old {key} hash in db is different from new hash: "
+                            f"metadata_hash_fn({old_value}) != "
+                            f"metadata_hash_fn({value})."
+                        )
+                    if old_value != value:
+                        logger.warning(
+                            f"Old {key} value in db is different from new value, "
+                            f"but the hash is the same: {old_value} != {value}."
+                        )
+                        logger.warning(
+                            f"Overriding {key} value in db with new value: {value}."
+                        )
+                elif old_value != value:
                     raise ValueError(
-                        f"Old {key} hash in db is different from new hash: "
-                        f"metadata_hash_fn({old_value}) != "
-                        f"metadata_hash_fn({value})."
+                        f"Old {key} value in db is different from new value: "
+                        f"{old_value} != {value}."
                     )
-                if old_value != value:
-                    logger.warning(
-                        f"Old {key} value in db is different from new value, "
-                        f"but the hash is the same: {old_value} != {value}."
-                    )
+            except Exception as e:
+                if override_db:
+                    logger.warning(f"Continuing despite error: {e}")
                     logger.warning(
                         f"Overriding {key} value in db with new value: {value}."
                     )
-            elif old_value != value:
-                raise ValueError(
-                    f"Old {key} value in db is different from new value: "
-                    f"{old_value} != {value}."
-                )
+                else:
+                    raise e
 
         # Set the values in the db anyway
         for key, value in new_reserved_dict.items():
@@ -318,10 +337,10 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         return json.dumps(self.get_fuzzy_key_dict(key))
 
     def __setitem__(
-        self, key: FuzzyTrajectoryCacheKeyT | str, value: RobotTrajectory
+        self, key: FuzzyTrajectoryCacheKeyT | str, value: RobotTrajectoryMsg
     ):
         with self._lock:
-            assert isinstance(value, RobotTrajectory)
+            assert isinstance(value, RobotTrajectoryMsg)
             super().__setitem__(self.get_fuzzy_key(key), value)
 
     def __delitem__(self, key: FuzzyTrajectoryCacheKeyT | str):
@@ -334,23 +353,11 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
 
     def __getitem__(
         self, key: FuzzyTrajectoryCacheKeyT | str
-    ) -> RobotTrajectory:
+    ) -> RobotTrajectoryMsg:
         with self._lock:
-            try:
-                return super().__getitem__(self.get_fuzzy_key(key))
-            except KeyError as e:
-                if isinstance(key[0], RobotState):
-                    try:
-                        trajectory = cast(
-                            RobotTrajectory,
-                            super().__getitem__(
-                                self.get_fuzzy_key((key[1], key[0]))
-                            ),
-                        )
-                        return cast(RobotTrajectory, reversed(trajectory))
-                    except KeyError:
-                        raise e
-                raise e
+            value = super().__getitem__(self.get_fuzzy_key(key))
+            assert isinstance(value, RobotTrajectoryMsg)
+            return value
 
     def close(self):
         with self._lock:
