@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 
-set -e
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
 
-script_dir=$(dirname $(readlink -f $0))
-source $script_dir/utils.sh
-repo_dir=$(get_parent_dir $script_dir 1)
+set -e
 
 # Parse arguments
 skip_confirmation=false

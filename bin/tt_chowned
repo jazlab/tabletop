@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/utils.bash
+repo_dir=$(get_parent_dir $bin_dir 1)
+
+sudo chown -R $USER:$USER $repo_dir

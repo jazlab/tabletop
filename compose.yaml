@@ -3,7 +3,7 @@ name: tabletop
 services:
   novnc:
     build:
-      context: ./novnc
+      context: ./docker/novnc
       pull: true
     pull_policy: build
     ports:
@@ -59,7 +59,7 @@ services:
 
   server_base:
     build:
-      context: ./ros
+      context: ./docker/server
       pull: true
     pull_policy: build
     image: tabletop-server

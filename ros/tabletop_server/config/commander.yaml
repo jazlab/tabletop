@@ -31,6 +31,8 @@
       eef_link: eef
       object_touch_links:
         - eef_link
+      object_mount_ids:
+        - rig
       idle_state: semi
       pre_fetch_offset: [-0.02, 0.0, -0.01]
       pre_attach_offset: [-0.02, 0.0, 0.0]
@@ -38,9 +40,11 @@
 
       trajectory_cache:
         filename: /root/ws/src/tabletop/ros/trajectory_cache
-        robot_state_tolerance: [0.005, 0.008, 0.008, 0.008, 0.008, 0.008] # radians
-        position_tolerance: 0.01 # meters
-        orientation_tolerance: 0.08 # radians (~5 degrees)
+        robot_state_tolerance: [0.01, 0.01, 0.01, 0.05, 0.05, 0.05] # radians
+        position_tolerance: 0.02 # meters
+        orientation_tolerance: 0.05 # radians (~3 degrees)
+        enabled: true
+        clear_db: true
 
     planning_scene:
       planes:
@@ -50,28 +54,28 @@
             - base_link_inertia
             - sphere
 
-      primitives:
-        left_robot_box:
-          type: BOX
-          dimensions: [0.8, 0.4, 0.6]
-          pose_stamped:
-            position: [0.2945, 1.1178, 0.609]
-          allowed_collision_ids:
-            - sphere
-          color: blue
-        robot_platform:
-          type: BOX
-          dimensions: [0.9135, 0.9135, 0.005]
-          pose_stamped:
-            position: [0.9144, 1.1178, 0.3065]
-          allowed_collision_ids:
-            - base_link_inertia
-            - sphere
-          color: pink
+      # primitives:
+      #   left_robot_box:
+      #     type: BOX
+      #     dimensions: [0.8, 0.4, 0.6]
+      #     pose_stamped:
+      #       position: [0.2945, 1.1178, 0.609]
+      #     allowed_collision_ids:
+      #       - sphere
+      #     color: blue
+      #   robot_platform:
+      #     type: BOX
+      #     dimensions: [0.9135, 0.9135, 0.005]
+      #     pose_stamped:
+      #       position: [0.9144, 1.1178, 0.3065]
+      #     allowed_collision_ids:
+      #       - base_link_inertia
+      #       - sphere
+      #     color: pink
 
       rig_meshes:
         rig:
-          path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig_mod.dae
+          path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig.dae
           scale: 1.0
           simplification: convex_hull
           allowed_collision_ids:

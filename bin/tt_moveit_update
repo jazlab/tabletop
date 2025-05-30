@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
+set -e
+
+# Create workspace directory
+mkdir -p $COLCON_WS/src
+pushd $COLCON_WS
+
+# Download MoveIt2 source code
+if [ ! -d "src/moveit2" ]; then
+    print_status "Downloading MoveIt2 source code..."
+    git clone https://github.com/valmikikothare/moveit2.git -b ${ROS_DISTRO} src/moveit2
+else
+    print_status "Pulling MoveIt2 source code..."
+    pushd src/moveit2
+    if ! git pull; then
+        print_status "WARNING: Git pull failed for moveit2 repository, continuing..."
+    fi
+    popd
+fi
+popd
+
+print_status "Download complete!"
+# Download MoveIt2 dependency repos
+pushd src
+for repo in moveit2/moveit2.repos $(f="moveit2/moveit2_${ROS_DISTRO}.repos"; test -r $f && echo $f); do
+    print_status "Importing $repo..."
+    vcs import < "$repo"
+done
+popd
+
+print_status "VCS import complete!"

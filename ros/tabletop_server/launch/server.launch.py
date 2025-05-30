@@ -169,6 +169,12 @@ def declare_arguments():
             description="Teensy log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
+        DeclareLaunchArgument(
+            "rviz_log_level",
+            default_value="INFO",
+            description="RViz Ogre log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
         # Outputs
         DeclareLaunchArgument(
             "mock_dashboard_output",
@@ -259,6 +265,7 @@ def generate_launch_description():
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
+    rviz_log_level = LaunchConfiguration("rviz_log_level")
 
     # Outputs
     mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
@@ -436,8 +443,8 @@ def generate_launch_description():
             warehouse_ros_config,
             {"use_sim_time": use_sim_time},
         ],
-        arguments=["-d", rviz_config_file_server],  # -l for ogre log
-        ros_arguments=["--log-level", default_log_level],
+        arguments=["-d", rviz_config_file_server, "-l"],  # -l for ogre log
+        ros_arguments=["--log-level", rviz_log_level],
     )
 
     # Bag

@@ -50,8 +50,9 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         robot_state_tolerance: float | RobotStateToleranceT,
         position_tolerance: float | PositionToleranceT,
         orientation_tolerance: float | OrientationToleranceT,
-        override_db: bool = False,
+        clear_db: bool = False,
         metadata_hash_fn: Optional[Callable[[dict[str, Any]], Any]] = None,
+        enabled: bool = True,
         **kwargs: Any,
     ):
         """
@@ -64,13 +65,21 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
                 single float is provided, it is used for all 3 dimensions.
             orientation_tolerance: The orientation tolerance for the cache. If
                 a single float is provided, it is used for all 4 dimensions.
-            override_db: If True and the metadata is different from the database,
-                the database is overridden with the new values.
+            clear_db: If True, the database is cleared.
             metadata_hash_fn: A function to hash the metadata. If not provided,
                 the metadata is compared using the `==` operator.
+            enabled: If True, the cache behaves as normal. If False, the cache
+                raises a KeyError for all access attempts.
             **kwargs: Keyword arguments for the superclass.
         """
         super().__init__(*args, **kwargs)
+
+        # Locks for thread-safe operations
+        self._lock = threading.Lock()
+
+        # Set the enabled flag to True so that the cache works while
+        # initializing
+        self._enabled = True
 
         try:
             # Initialize the tolerances and save them locally for faster access
@@ -90,17 +99,17 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
                 self._robot_state_tolerance,
                 self._position_tolerance,
                 self._orientation_tolerance,
-                override_db,
+                clear_db,
                 metadata_hash_fn,
             )
-
-            # Locks for thread-safe operations
-            self._lock = threading.Lock()
 
         except Exception as e:
             # Close the cache file if there was an error while initializing
             self.close()
             raise e
+
+        # Set the enabled flag to the provided value
+        self._enabled = enabled
 
     def _validate_db(
         self,
@@ -108,7 +117,7 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         robot_state_tolerance: float | RobotStateToleranceT,
         position_tolerance: float | PositionToleranceT,
         orientation_tolerance: float | OrientationToleranceT,
-        override_db: bool,
+        clear_db: bool,
         metadata_hash_fn: Optional[Callable[[dict[str, Any]], Any]],
     ):
         """Validate the database.
@@ -133,7 +142,12 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         # Check that the keys are the same
         assert new_reserved_dict.keys() == self.reserved_keys
 
-        # If the database is empty, set the new values
+        if clear_db:
+            logger.warning("Clearing the database.")
+            super().clear()
+            assert len(self) == 0
+
+        # If the database is empty or clear_db is True, set the new values
         if len(self) == 0:
             for key, value in new_reserved_dict.items():
                 super().__setitem__(key, value)
@@ -142,42 +156,30 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         # Check that the values have not changed and/or that the hash is the same
         for key, value in new_reserved_dict.items():
             try:
-                try:
-                    old_value = super().__getitem__(key)
-                except KeyError as e:
-                    raise KeyError(
-                        f"Cache file is not empty, but key '{key}' is missing. "
-                    ) from e
+                old_value = super().__getitem__(key)
+            except KeyError as e:
+                raise KeyError(
+                    f"Cache file is not empty, but key '{key}' is missing. "
+                ) from e
 
-                if key == "metadata" and metadata_hash_fn is not None:
-                    # If the key is metadata, check if the hash is the same
-                    if metadata_hash_fn(old_value) != metadata_hash_fn(value):
-                        raise ValueError(
-                            f"Old {key} hash in db is different from new hash: "
-                            f"metadata_hash_fn({old_value}) != "
-                            f"metadata_hash_fn({value})."
-                        )
-                    if old_value != value:
-                        logger.warning(
-                            f"Old {key} value in db is different from new value, "
-                            f"but the hash is the same: {old_value} != {value}."
-                        )
-                        logger.warning(
-                            f"Overriding {key} value in db with new value: {value}."
-                        )
-                elif old_value != value:
+            if key == "metadata" and metadata_hash_fn is not None:
+                # If the key is metadata, check if the hash is the same
+                if metadata_hash_fn(old_value) != metadata_hash_fn(value):
                     raise ValueError(
-                        f"Old {key} value in db is different from new value: "
-                        f"{old_value} != {value}."
+                        f"Old {key} hash in db is different from new hash: "
+                        f"metadata_hash_fn({old_value}) != "
+                        f"metadata_hash_fn({value})."
                     )
-            except Exception as e:
-                if override_db:
-                    logger.warning(f"Continuing despite error: {e}")
+                if old_value != value:
                     logger.warning(
-                        f"Overriding {key} value in db with new value: {value}."
+                        f"Old {key} value in db is different from new value, "
+                        f"but the hash is the same, overriding: {old_value} != {value}."
                     )
-                else:
-                    raise e
+            elif old_value != value:
+                raise ValueError(
+                    f"Old {key} value in db is different from new value: "
+                    f"{old_value} != {value}."
+                )
 
         # Set the values in the db anyway
         for key, value in new_reserved_dict.items():
@@ -225,6 +227,16 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
             position_tolerance,
             orientation_tolerance,
         )
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def enable(self):
+        self._enabled = True
+
+    def disable(self):
+        self._enabled = False
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -339,21 +351,29 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
     def __setitem__(
         self, key: FuzzyTrajectoryCacheKeyT | str, value: RobotTrajectoryMsg
     ):
+        if not self.enabled:
+            return
         with self._lock:
             assert isinstance(value, RobotTrajectoryMsg)
             super().__setitem__(self.get_fuzzy_key(key), value)
 
     def __delitem__(self, key: FuzzyTrajectoryCacheKeyT | str):
+        if not self.enabled:
+            return
         with self._lock:
             super().__delitem__(self.get_fuzzy_key(key))
 
     def __contains__(self, key: FuzzyTrajectoryCacheKeyT | str) -> bool:
+        if not self.enabled:
+            raise KeyError("Cache is disabled")
         with self._lock:
             return super().__contains__(self.get_fuzzy_key(key))
 
     def __getitem__(
         self, key: FuzzyTrajectoryCacheKeyT | str
     ) -> RobotTrajectoryMsg:
+        if not self.enabled:
+            raise KeyError("Cache is disabled")
         with self._lock:
             value = super().__getitem__(self.get_fuzzy_key(key))
             assert isinstance(value, RobotTrajectoryMsg)

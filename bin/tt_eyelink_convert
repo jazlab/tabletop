@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
 set -e
 
-# Define the results directory relative to the script's location
-# Get workspace directory
-script_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $script_dir/utils.sh
-
 # Parse command line arguments
-results_dir=$(get_parent_dir $script_dir 1)/results/eyelink
+results_dir=$(get_parent_dir $bin_dir 1)/results/eyelink
 edf2asc_args=()
 while [[ $# -gt 0 ]]; do
     case $1 in

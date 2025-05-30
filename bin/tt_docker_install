@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-# Exit immediately if a command exits with a non-zero status
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
 set -e
 
 # Function to display usage information

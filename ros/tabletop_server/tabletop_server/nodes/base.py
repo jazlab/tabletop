@@ -84,6 +84,11 @@ class BaseNode(Node):
             ):
                 print(f"{severity}: {message}")
 
+    @property
+    def log_level(self) -> LoggingSeverity:
+        """Get the log severity."""
+        return self.get_logger().get_effective_level()
+
     def _check_parameters(self):
         """
         Check if there is any intersection between required and default
@@ -128,6 +133,9 @@ class BaseNode(Node):
         """
         Log all parameters with the given prefix.
         """
+        if self.log_level < LoggingSeverity[severity]:
+            return
+
         prefix = (
             f"{prefix}." if prefix and not prefix.endswith(".") else prefix
         )
@@ -142,6 +150,9 @@ class BaseNode(Node):
         severity: str = DEFAULT_LOG_SEVERITY,
     ):
         """Log a ROS message as a YAML string."""
+        if self.log_level < LoggingSeverity[severity]:
+            return
+
         string = yaml.dump(
             msg_to_dict(msg),
             Dumper=BracketedListDumper,

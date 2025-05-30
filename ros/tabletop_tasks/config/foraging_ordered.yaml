@@ -12,15 +12,15 @@ tasks:
         class: OrderedChoice
         kwargs:
           object_ids:
-            # - simple_object_5
-            - simple_object_7
-            - simple_object_9
-            - simple_object_15
-            - simple_object_17
-            - simple_object_19
-            - simple_object_25
-            - simple_object_27
-            - simple_object_29
+            - simple_object_5
+            # - simple_object_7
+            # - simple_object_9
+            # - simple_object_15
+            # - simple_object_17
+            # - simple_object_19
+            # - simple_object_25
+            # - simple_object_27
+            # - simple_object_29
           poses:
             - position: [1.0, 0.4, 0.6]
               rpy: [0.0, 0.2, 0.0]

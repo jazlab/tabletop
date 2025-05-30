@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
+set -e
+
+pushd $TABLETOP_DIR
+source venv/bin/activate
+python ros/tabletop_server/tabletop_server/flic_client/piano.py "$@"
+popd

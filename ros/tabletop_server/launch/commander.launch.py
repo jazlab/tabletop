@@ -11,6 +11,7 @@ from launch.substitutions import (
     IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
+    NotEqualsSubstitution,
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node, SetROSLogDir
@@ -70,23 +71,17 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "coroutine_module",
-            default_value="tabletop_server",
+            default_value="null",
             description="Coroutine module",
         ),
         DeclareLaunchArgument(
             "coroutine_name",
-            default_value="run_commander_example",
+            default_value="null",
             description="Coroutine name",
         ),
         DeclareLaunchArgument(
             "coroutine_config",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_server"),
-                    "config",
-                    "example_config.yaml",
-                ]
-            ),
+            default_value="null",
             description="Coroutine config",
         ),
         # ROS Warehouse
@@ -236,10 +231,29 @@ def generate_launch_description():
             ["commander:=", commander_log_level],
         ],
         arguments=[
+            IfElseSubstitution(
+                NotEqualsSubstitution(coroutine_module, "null"),
+                if_value="--coroutine-module",
+                else_value="",
+            ),
             coroutine_module,
+            IfElseSubstitution(
+                NotEqualsSubstitution(coroutine_name, "null"),
+                if_value="--coroutine-name",
+                else_value="",
+            ),
             coroutine_name,
+            IfElseSubstitution(
+                NotEqualsSubstitution(coroutine_config, "null"),
+                if_value="--coroutine-config",
+                else_value="",
+            ),
             coroutine_config,
-            IfElseSubstitution(debug_commander, "--debug", ""),
+            IfElseSubstitution(
+                EqualsSubstitution(debug_commander, "true"),
+                if_value="--debug",
+                else_value="",
+            ),
         ],
         output=commander_output,
         on_exit=[Shutdown()],

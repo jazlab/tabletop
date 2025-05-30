@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
 set -e
 
-script_dir=$(dirname $(readlink -f $0))
-source $script_dir/utils.sh
-repo_dir=$(get_parent_dir $script_dir 1)
-
 # Parse arguments
-skip_confirmation=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     -y|--yes)
       skip_confirmation=true
-      shift
       ;;
     *)
-      shift
+      print_error "Unknown argument: $1"
+      print_error "Usage: $0 [-y|--yes]"
+      exit 1
       ;;
   esac
+  shift
 done
 
-bags_dir=$repo_dir/ros/bags
+bags_dir=$TABLETOP_DIR/ros/bags
 
 # Get the size of the bags directory
 if [ -d "$bags_dir" ]; then

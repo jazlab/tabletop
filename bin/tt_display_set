@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+# Get bin directory and source utils
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/utils.bash
+
+set -e
+
+# Check if more than one argument is provided
+if [ $# -ne 1 ]; then
+    print_error "Invalid number of arguments provided"
+    print_error "Usage: ${BASH_SOURCE[0]} [novnc|x11]"
+    exit 1
+fi
+
+# Take display as an argument, default to novnc
+if [ "$1" == "novnc" ]; then
+    if grep -qE '^export DISPLAY' "$HOME/.bashrc"; then
+        sed -i "s/^export DISPLAY.*/export DISPLAY=novnc:0.0/" "$HOME/.bashrc"
+    else
+        echo "export DISPLAY=novnc:0.0" >> "$HOME/.bashrc"
+    fi
+elif [ "$1" == "x11" ]; then
+    sed -i '/^export DISPLAY/d' "$HOME/.bashrc"
+else
+    print_error "Error: Invalid display argument: $1"
+    exit 1
+fi
+
+# Source bashrc
+source $HOME/.bashrc
+
+# Print display
+print_status "Display set to $DISPLAY"
