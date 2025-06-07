@@ -74,7 +74,7 @@ class PresentObjectTask(BaseTask):
         # Fetch object
         object_id = self._trial_spec.object_id
         object_pose = self._trial_spec.object_pose
-        await self.commander.fetch_object_async(object_id, object_pose)
+        await self.commander.fetch_and_present_object(object_id, object_pose)
 
         self._state = PresentObjectState.STIMULUS
 
@@ -99,7 +99,7 @@ class PresentObjectTask(BaseTask):
         self.log("Returning object")
 
         # Return object
-        await self.commander.return_object_async()
+        await self.commander.unpresent_and_return_object()
 
         # Transition to fetch state
         self._state = PresentObjectState.NEXT_TRIAL_SPEC

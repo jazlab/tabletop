@@ -26,9 +26,3 @@ else
     print_error "Error: Invalid display argument: $1"
     exit 1
 fi
-
-# Source bashrc
-source $HOME/.bashrc
-
-# Print display
-print_status "Display set to $DISPLAY"

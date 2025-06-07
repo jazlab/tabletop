@@ -49,3 +49,6 @@
 
 # Ignore trajectory cache
 **/trajectory_cache.db
+
+# Ignore planning scene files
+**/planning_scene/

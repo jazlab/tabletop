@@ -5,7 +5,6 @@ from launch.actions import (
     OpaqueFunction,
     Shutdown,
 )
-from launch.conditions import IfCondition
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -18,7 +17,6 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-from tabletop_utils.common import print_substitutions
 
 
 def save_yaml(file_path, data, sort_keys=False):
@@ -84,6 +82,12 @@ def declare_arguments():
             default_value="null",
             description="Coroutine config",
         ),
+        DeclareLaunchArgument(
+            "clear_cache",
+            default_value="null",
+            description="Whether to clear the trajectory cache",
+            choices=["true", "false", "null"],
+        ),
         # ROS Warehouse
         DeclareLaunchArgument(
             "warehouse_sqlite_path",
@@ -135,6 +139,7 @@ def generate_launch_description():
     coroutine_module = LaunchConfiguration("coroutine_module")
     coroutine_name = LaunchConfiguration("coroutine_name")
     coroutine_config = LaunchConfiguration("coroutine_config")
+    clear_cache = LaunchConfiguration("clear_cache")
 
     # ROS Warehouse
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
@@ -159,26 +164,20 @@ def generate_launch_description():
         EqualsSubstitution(robot_mode, "real"), "false", "true"
     )
 
-    # Print substitutions
-    print_substitutions_action = OpaqueFunction(
-        function=lambda context: print_substitutions(
-            context,
-            {
-                "simulate_commander": simulate_commander,
-            },
-        ),
-        condition=IfCondition(
-            EqualsSubstitution(commander_log_level, "DEBUG")
-        ),
-    )
-
     commander_overrides_path = "/tmp/commander_overrides.yaml"
 
     def save_commander_overrides(context):
-        simulate = simulate_commander.perform(context).lower() == "true"
+        simulate = simulate_commander.perform(context) == "true"
         commander_overrides = {
             "simulate": simulate,
         }
+
+        clear_cache_value = clear_cache.perform(context)
+        if clear_cache_value != "null":
+            commander_overrides[
+                "planning.trajectory_cache.kwargs.clear_db"
+            ] = clear_cache_value == "true"
+
         commander_overrides_scoped = {
             "/commander": {"ros__parameters": commander_overrides}
         }
@@ -259,11 +258,6 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    launch_actions = [
-        set_ros_log_dir,
-        print_substitutions_action,
-        commander_overrides_action,
-        commander,
-    ]
+    launch_actions = [set_ros_log_dir, commander_overrides_action, commander]
 
     return LaunchDescription(declare_arguments() + launch_actions)

@@ -1,11 +1,16 @@
 """Block-structured cup/drawer trial generator."""
 
 from collections.abc import Mapping
+from itertools import product
 from typing import Any
 
 from tabletop_server.nodes import Commander
 
-from tabletop_tasks.trial_generators.base import BaseTrialGenerator, TrialSpec
+from tabletop_tasks.trial_generators.base import (
+    BaseTrialGenerator,
+    TrialFeedback,
+    TrialSpec,
+)
 
 
 class OrderedChoice(BaseTrialGenerator):
@@ -23,18 +28,32 @@ class OrderedChoice(BaseTrialGenerator):
         self,
         commander: Commander,
         object_ids: list[str],
-        occlude: list[bool],
         poses: list[Mapping[str, Any]],
+        occlude: bool | str,
         num_trials: int,
     ):
         super().__init__(commander)
+
         self._object_ids = object_ids
         self._poses = [
             self.commander.create_pose_stamped(**pose) for pose in poses
         ]
-        self._occlude = occlude
+
+        if isinstance(occlude, str):
+            if occlude != "both":
+                raise ValueError("occlude must be a boolean or 'both'")
+            self._occlude = [False, True]
+        else:
+            self._occlude = [occlude]
+
+        if num_trials < 1:
+            raise ValueError("num_trials must be at least 1")
         self._num_trials = num_trials
         self._trial_counter = 0
+
+        self._parameter_grid = list(
+            product(self._occlude, self._poses, self._object_ids)
+        )
 
     def __next__(self) -> TrialSpec:
         """Return a trial."""
@@ -42,27 +61,17 @@ class OrderedChoice(BaseTrialGenerator):
             raise StopIteration
 
         # Sample object pose
-        object_pose = self._poses[self._trial_counter % len(self._poses)]
-
-        # Sample object id
-        object_id = self._object_ids[
-            self._trial_counter % len(self._object_ids)
+        occlude, pose, object_id = self._parameter_grid[
+            self._trial_counter % len(self._parameter_grid)
         ]
-
-        # Sample occlude
-        occlude = self._occlude[self._trial_counter % len(self._occlude)]
 
         # Make trial spec
         trial_spec = TrialSpec(
-            object_id=object_id,
-            object_pose=object_pose,
-            occlude=occlude,
+            object_id=object_id, object_pose=pose, occlude=occlude
         )
-
-        self._trial_counter += 1
 
         return trial_spec
 
-    def send(self, **unused_kwargs: dict) -> None:
+    def send(self, feedback: TrialFeedback) -> None:
         """Send feedback."""
-        pass
+        self._trial_counter += 1

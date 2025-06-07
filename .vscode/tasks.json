@@ -45,16 +45,22 @@
 		{
 			"type": "shell",
 			"label": "debug_tasks",
-			"command": "ros2 launch tabletop_tasks tasks.launch.py debug_commander:=true task_config:=foraging_ordered.yaml",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py debug_commander:=true",
 			"problemMatcher": [],
-			"group": "none"
+			"group": {
+				"kind": "test",
+				"isDefault": false
+			}
 		},
 		{
 			"type": "shell",
 			"label": "run_tasks",
-			"command": "ros2 launch tabletop_tasks tasks.launch.py task_config:=foraging_ordered.yaml",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py",
 			"problemMatcher": [],
-			"group": "none"
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			}
 		}
 	],
 	"inputs": [

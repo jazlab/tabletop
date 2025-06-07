@@ -9,15 +9,19 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from moveit.core.robot_model import RobotModel  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
+from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
     MoveItErrorCodes,
     ObjectColor,
 )
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.client import Client
-from shape_msgs.msg import Mesh, MeshTriangle, Plane, SolidPrimitive
+from shape_msgs.msg import Mesh as MeshMsg
+from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
 from std_msgs.msg import ColorRGBA, Header
 from tf_transformations import (
     euler_from_quaternion,
@@ -176,7 +180,7 @@ def load_yaml_from_package(package_name: str, file_path: str) -> Any:
 
 
 def validate_service_response(
-    response: Optional[SrvTypeResponse],
+    response: SrvTypeResponse | None,
     service_client: Client,
 ) -> None:
     """Validate the response from a service call.
@@ -256,20 +260,18 @@ def quaternion_msg_from_euler(
     Returns:
         The quaternion message.
     """
-    quaternion = quaternion_from_euler(roll, pitch, yaw, axes)
-    return Quaternion(
-        x=quaternion[0],
-        y=quaternion[1],
-        z=quaternion[2],
-        w=quaternion[3],
-    )
+    quaternion = np.array(quaternion_from_euler(roll, pitch, yaw, axes))
+    quaternion = quaternion / np.linalg.norm(quaternion)
+    x, y, z, w = quaternion
+    return Quaternion(x=x, y=y, z=z, w=w)
 
 
 def quaternion_msg_from_axis_angle(
     axis: Iterable[float], angle: float
 ) -> Quaternion:
     """Convert an axis and angle to a geometry_msgs/Quaternion message."""
-    quaternion = quaternion_about_axis(angle, axis)
+    quaternion = np.array(quaternion_about_axis(angle, axis))
+    quaternion = quaternion / np.linalg.norm(quaternion)
     return Quaternion(
         x=quaternion[0], y=quaternion[1], z=quaternion[2], w=quaternion[3]
     )
@@ -285,26 +287,18 @@ def euler_from_quaternion_msg(
 
 
 def pose_msg(
+    *,
     position: Optional[Point | Iterable[float] | Mapping[str, float]] = None,
-    x: float = 0.0,
-    y: float = 0.0,
-    z: float = 0.0,
     orientation: Optional[
         Quaternion | Iterable[float] | Mapping[str, float]
     ] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
-    roll: float = 0.0,
-    pitch: float = 0.0,
-    yaw: float = 0.0,
 ) -> Pose:
     """Convert a dictionary of parameters to a geometry_msgs/Pose message."""
     pose = Pose()
 
     # Position extraction
     if position is not None:
-        if any((x, y, z)):
-            raise ValueError("position and x, y, z cannot both be provided")
-
         position = deepcopy(position)
         if isinstance(position, Point):
             pose.position = position
@@ -317,15 +311,9 @@ def pose_msg(
             raise ValueError(
                 f"Invalid position type: expected Mapping or Iterable, got {type(position)}"
             )
-    elif any((x, y, z)):
-        pose.position = Point(x=x, y=y, z=z)
 
     # Orientation extraction
     if rpy is not None:
-        if any((roll, pitch, yaw)):
-            raise ValueError(
-                "rpy and roll, pitch, yaw cannot both be provided"
-            )
         if orientation is not None:
             raise ValueError("orientation and rpy cannot both be provided")
 
@@ -334,12 +322,6 @@ def pose_msg(
             pose.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
         else:
             pose.orientation = quaternion_msg_from_euler(*rpy)
-    elif any((roll, pitch, yaw)):
-        if orientation is not None:
-            raise ValueError(
-                "orientation and roll, pitch, yaw cannot both be provided"
-            )
-        pose.orientation = quaternion_msg_from_euler(roll, pitch, yaw)
     elif orientation is not None:
         orientation = deepcopy(orientation)
         if isinstance(orientation, Quaternion):
@@ -347,6 +329,8 @@ def pose_msg(
         elif isinstance(orientation, Mapping):
             pose.orientation = Quaternion(**orientation)  # type: ignore
         else:
+            orientation = np.array(orientation)
+            orientation = orientation / np.linalg.norm(orientation)
             x, y, z, w = orientation
             pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
 
@@ -454,6 +438,19 @@ def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
         pose1.position, pose2.position, **all_close_kwargs
     ) and all_close_quaternions(
         pose1.orientation, pose2.orientation, **all_close_kwargs
+    )
+
+
+def all_close_pose_stamped(
+    pose_stamped1: PoseStamped,
+    pose_stamped2: PoseStamped,
+    **all_close_kwargs: Any,
+) -> bool:
+    """Check if two poses are close to each other."""
+    if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
+        raise ValueError("PoseStamped messages must have the same frame_id")
+    return all_close_poses(
+        pose_stamped1.pose, pose_stamped2.pose, **all_close_kwargs
     )
 
 
@@ -566,7 +563,7 @@ def primitive_collision_object_msg(
 
 def mesh_collision_object_msg(
     object_id: str,
-    geometry: trimesh.Trimesh | trimesh.Scene,
+    mesh: trimesh.Trimesh | trimesh.Scene | MeshMsg,
     pose_stamped: PoseStamped,
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
@@ -575,34 +572,33 @@ def mesh_collision_object_msg(
     """Create a collision object from a trimesh geometry.
 
     Args:
-        geometry (trimesh.Trimesh | trimesh.Scene): The trimesh geometry to create the collision object from.
-        object_id (str): The ID of the object.
-        operation (str): The operation to perform on the collision object.
+        object_id (str): The ID of the collision object.
+        mesh (trimesh.Trimesh | trimesh.Scene | MeshMsg): The trimesh geometry
+            or mesh message to create the collision object from.
         pose_stamped (PoseStamped): The pose of the collision object.
         subframe_names (list[str]): The names of the subframes.
-        subframe_poses (list[Pose]): The poses of the subframes (defined relative to `pose_stamped`).
+        subframe_poses (list[Pose]): The poses of the subframes
+            (defined relative to `pose_stamped`).
+        operation (str): The operation to perform on the collision object.
     """
-    if isinstance(geometry, trimesh.Scene):
-        mesh = geometry.to_mesh()
-    else:
-        mesh = geometry
-
     collision_object = CollisionObject()
     collision_object.header.frame_id = pose_stamped.header.frame_id
     collision_object.id = object_id
 
-    msg = Mesh()
-    msg.triangles = list(
-        map(lambda t: MeshTriangle(vertex_indices=t), mesh.faces)  # type: ignore
-    )
-    msg.vertices = list(
-        map(
-            lambda v: Point(x=v[0], y=v[1], z=v[2]),
-            mesh.vertices,  # type: ignore
+    if not isinstance(mesh, MeshMsg):
+        if isinstance(mesh, trimesh.Scene):
+            geometry = mesh.to_mesh()
+        else:
+            geometry = mesh
+        mesh = MeshMsg()
+        mesh.triangles = list(
+            map(lambda t: MeshTriangle(vertex_indices=t), geometry.faces)
         )
-    )
+        mesh.vertices = list(
+            map(lambda v: Point(x=v[0], y=v[1], z=v[2]), geometry.vertices)
+        )
 
-    collision_object.meshes.append(msg)  # type: ignore
+    collision_object.meshes.append(mesh)  # type: ignore
     collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
 
     if subframe_names is not None and subframe_poses is not None:
@@ -663,3 +659,14 @@ def object_color_msg(
 
     object_color.color = ColorRGBA(r=rgba[0], g=rgba[1], b=rgba[2], a=rgba[3])
     return object_color
+
+
+def robot_trajectory_from_msg(
+    robot_trajectory_msg: RobotTrajectoryMsg,
+    robot_model: RobotModel,
+) -> RobotTrajectory:
+    """Convert a RobotTrajectory message to a RobotTrajectory object."""
+    trajectory = RobotTrajectory(robot_model)
+    state = RobotState(robot_model)
+    trajectory.set_robot_trajectory_msg(state, robot_trajectory_msg)
+    return trajectory

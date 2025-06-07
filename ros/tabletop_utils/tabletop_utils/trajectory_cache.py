@@ -1,25 +1,36 @@
 import json
 import logging
+import os
 import threading
 from collections.abc import Iterable
 from copy import deepcopy
 from shelve import DbfilenameShelf
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState  # type: ignore
+from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 
 from tabletop_utils.common import is_iterable
-from tabletop_utils.ros import PlanningGoalT, arrays_from_pose_msg
+from tabletop_utils.ros import (
+    arrays_from_pose_msg,
+    pose_stamped_msg,
+    robot_trajectory_from_msg,
+)
 
-FuzzyTrajectoryCacheKeyT = tuple[PlanningGoalT, RobotState]
 RobotStateToleranceT = tuple[float, float, float, float, float, float]
 PositionToleranceT = tuple[float, float, float]
 OrientationToleranceT = tuple[float, float, float, float]
 
 logger = logging.getLogger(__name__)
+
+
+class FuzzyTrajectoryCacheKey(NamedTuple):
+    start_state: RobotState
+    goal: RobotState | PoseStamped
+    pose_link: str | None
 
 
 class FuzzyTrajectoryCache(DbfilenameShelf):
@@ -45,19 +56,20 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
 
     def __init__(
         self,
-        *args: Any,
+        *,
+        filename: str,
         metadata: dict[str, Any],
         robot_state_tolerance: float | RobotStateToleranceT,
         position_tolerance: float | PositionToleranceT,
         orientation_tolerance: float | OrientationToleranceT,
-        clear_db: bool = False,
+        max_trajectories: int = 1,
+        clear_cache: bool = False,
         metadata_hash_fn: Optional[Callable[[dict[str, Any]], Any]] = None,
-        enabled: bool = True,
         **kwargs: Any,
     ):
         """
         Args:
-            *args: Arguments for the superclass.
+            filename: The filename of the cache.
             metadata: The metadata for the cache.
             robot_state_tolerance: The joint angle tolerance for the cache. If
                 a single float is provided, it is used for all 6 joints.
@@ -65,21 +77,22 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
                 single float is provided, it is used for all 3 dimensions.
             orientation_tolerance: The orientation tolerance for the cache. If
                 a single float is provided, it is used for all 4 dimensions.
-            clear_db: If True, the database is cleared.
+            max_trajectories: The maximum number of trajectories to store for
+                each key. If the number of trajectories for a key exceeds this
+                value, the longest trajectory is removed.
+            clear_cache: If True, old database file is deleted and a new one is
+                created.
             metadata_hash_fn: A function to hash the metadata. If not provided,
                 the metadata is compared using the `==` operator.
-            enabled: If True, the cache behaves as normal. If False, the cache
-                raises a KeyError for all access attempts.
             **kwargs: Keyword arguments for the superclass.
         """
-        super().__init__(*args, **kwargs)
+        if clear_cache and os.path.exists(filename + ".db"):
+            os.remove(filename + ".db")
 
-        # Locks for thread-safe operations
+        super().__init__(filename, **kwargs)
+
         self._lock = threading.Lock()
-
-        # Set the enabled flag to True so that the cache works while
-        # initializing
-        self._enabled = True
+        self._max_trajectories = max_trajectories
 
         try:
             # Initialize the tolerances and save them locally for faster access
@@ -96,10 +109,9 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
             # Validate the database
             self._validate_db(
                 metadata,
-                self._robot_state_tolerance,
-                self._position_tolerance,
                 self._orientation_tolerance,
-                clear_db,
+                self._position_tolerance,
+                self._robot_state_tolerance,
                 metadata_hash_fn,
             )
 
@@ -108,16 +120,12 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
             self.close()
             raise e
 
-        # Set the enabled flag to the provided value
-        self._enabled = enabled
-
     def _validate_db(
         self,
         metadata: dict[str, Any],
-        robot_state_tolerance: float | RobotStateToleranceT,
-        position_tolerance: float | PositionToleranceT,
-        orientation_tolerance: float | OrientationToleranceT,
-        clear_db: bool,
+        orientation_tolerance: OrientationToleranceT,
+        position_tolerance: PositionToleranceT,
+        robot_state_tolerance: RobotStateToleranceT,
         metadata_hash_fn: Optional[Callable[[dict[str, Any]], Any]],
     ):
         """Validate the database.
@@ -133,21 +141,19 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         # This is done to avoid accidentally modifying these values in the
         # db after they are set.
         new_reserved_dict = {
-            "metadata": deepcopy(metadata),
-            "robot_state_tolerance": deepcopy(robot_state_tolerance),
-            "position_tolerance": deepcopy(position_tolerance),
-            "orientation_tolerance": deepcopy(orientation_tolerance),
+            "metadata": metadata,
+            "robot_state_tolerance": robot_state_tolerance,
+            "position_tolerance": position_tolerance,
+            "orientation_tolerance": orientation_tolerance,
+        }
+        new_reserved_dict = {
+            key: deepcopy(value) for key, value in new_reserved_dict.items()
         }
 
         # Check that the keys are the same
         assert new_reserved_dict.keys() == self.reserved_keys
 
-        if clear_db:
-            logger.warning("Clearing the database.")
-            super().clear()
-            assert len(self) == 0
-
-        # If the database is empty or clear_db is True, set the new values
+        # If the database is empty, set the new values
         if len(self) == 0:
             for key, value in new_reserved_dict.items():
                 super().__setitem__(key, value)
@@ -229,16 +235,6 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         )
 
     @property
-    def enabled(self) -> bool:
-        return self._enabled
-
-    def enable(self):
-        self._enabled = True
-
-    def disable(self):
-        self._enabled = False
-
-    @property
     def metadata(self) -> dict[str, Any]:
         with self._lock:
             return super().__getitem__("metadata")
@@ -265,9 +261,60 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
             map(lambda x, t: self._fuzz_float(x, t), value, tolerance)
         )
 
-    def get_fuzzy_key_dict(
-        self, key: FuzzyTrajectoryCacheKeyT
-    ) -> dict[str, Any]:
+    def _check_cache_key(
+        self,
+        key: FuzzyTrajectoryCacheKey,
+    ):
+        """Check that the key is valid."""
+        # Type check
+        if not isinstance(key.start_state, RobotState):
+            raise ValueError(
+                f"Start state is not a RobotState: {key.start_state}"
+            )
+        if not isinstance(key.goal, (RobotState, PoseStamped)):
+            raise ValueError(
+                f"Goal is not a RobotState or PoseStamped: {key.goal}"
+            )
+        if key.pose_link is not None and not isinstance(key.pose_link, str):
+            raise ValueError(f"Pose link is not a string: {key.pose_link}")
+
+        # Check that the goal frame is the world frame
+        # and that pose link is not provided if goal is RobotState
+        if isinstance(key.goal, RobotState):
+            if key.goal.robot_model.model_frame != "world":
+                raise ValueError(
+                    f"Goal robot model frame is not 'world': {key.goal.robot_model.model_frame}"
+                )
+            if key.pose_link is not None:
+                raise ValueError(
+                    f"Pose link is provided for a RobotState goal: {key.pose_link}"
+                )
+        else:
+            if key.goal.header.frame_id != "world":
+                raise ValueError(
+                    f"Goal pose frame id is not 'world': {key.goal.header.frame_id}"
+                )
+            if key.pose_link is None:
+                raise ValueError(
+                    "Pose link is not provided for a PoseStamped goal"
+                )
+
+        # Check that the start state is in the world frame
+        if key.start_state.robot_model.model_frame != "world":
+            raise ValueError(
+                f"Start state robot model frame is not 'world': {key.start_state.robot_model.model_frame}"
+            )
+
+    def _check_db_value(self, value: list[RobotTrajectoryMsg]):
+        """Check that the value is valid."""
+        assert isinstance(value, list)
+        assert all(
+            isinstance(trajectory_msg, RobotTrajectoryMsg)
+            for trajectory_msg in value
+        )
+        assert 1 <= len(value) <= self._max_trajectories
+
+    def _get_fuzzy_dict(self, key: FuzzyTrajectoryCacheKey) -> dict[str, Any]:
         """Get the fuzzy key for a given key as a dictionary.
 
         Applies the fuzzy key algorithm to the key, then returns a dictionary
@@ -279,24 +326,35 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         Returns:
             The fuzzy key as a dictionary.
         """
-        goal, start_state = key
+        self._check_cache_key(key)
 
         fuzzy_key_dict = {}
 
+        # Fuzz the start state
+        fuzzy_key_dict["start_state"] = self._fuzz_iterable(
+            key.start_state.joint_positions.values(),
+            self.robot_state_tolerance,
+        )
+
         # Fuzz the goal if it is a PoseStamped or a RobotState
         # If it is a string, it is a named goal and an exact match is required
-        if isinstance(goal, str):
-            fuzzy_key_dict["goal"] = goal
-        elif isinstance(goal, PoseStamped):
-            if not isinstance(goal.header.frame_id, str):
+
+        if isinstance(key.goal, RobotState):
+            fuzzy_key_dict["goal"] = self._fuzz_iterable(
+                key.goal.joint_positions.values(), self.robot_state_tolerance
+            )
+        else:
+            if not isinstance(key.goal.header.frame_id, str):
                 raise ValueError(
-                    f"Goal pose frame id is not a string: {goal.header.frame_id}"
+                    f"Goal pose frame id is not a string: {key.goal.header.frame_id}"
                 )
             fuzzy_key_dict["goal"] = {}
-            goal_position, goal_orientation = arrays_from_pose_msg(goal.pose)
+            goal_position, goal_orientation = arrays_from_pose_msg(
+                key.goal.pose
+            )
 
             # Add the frame id
-            fuzzy_key_dict["goal"]["frame_id"] = goal.header.frame_id
+            fuzzy_key_dict["goal"]["frame_id"] = key.goal.header.frame_id
 
             # Fuzz the goal position
             fuzzy_key_dict["goal"]["position"] = self._fuzz_iterable(
@@ -310,24 +368,14 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
             fuzzy_key_dict["goal"]["orientation"] = self._fuzz_iterable(
                 goal_orientation, self.orientation_tolerance
             )
-        elif isinstance(goal, RobotState):
-            fuzzy_key_dict["goal"] = self._fuzz_iterable(
-                goal.joint_positions.values(), self.robot_state_tolerance
-            )
-        else:
-            raise TypeError(
-                f"Expected goal to be a string, RobotState, or PoseStamped, got {type(goal)}"
-            )
 
-        # Fuzz the start state
-        fuzzy_key_dict["start_state"] = self._fuzz_iterable(
-            start_state.joint_positions.values(), self.robot_state_tolerance
-        )
+        # Add the planning link
+        fuzzy_key_dict["pose_link"] = key.pose_link
 
         # Return the fuzzy key
         return fuzzy_key_dict
 
-    def get_fuzzy_key(self, key: FuzzyTrajectoryCacheKeyT | str) -> str:
+    def _get_fuzzy_key(self, key: FuzzyTrajectoryCacheKey) -> str:
         """Get the fuzzy key for a given key.
 
         Applies the fuzzy key algorithm to the key, then converts the result to a
@@ -339,45 +387,133 @@ class FuzzyTrajectoryCache(DbfilenameShelf):
         Returns:
             The fuzzy key as a string.
         """
-        if isinstance(key, str):
-            if key in self.reserved_keys:
-                raise KeyError(
-                    f"'{key}' is a reserved key. Use the {key} property "
-                    "to access the value."
-                )
-            return key
-        return json.dumps(self.get_fuzzy_key_dict(key))
+        return json.dumps(self._get_fuzzy_dict(key))
 
     def __setitem__(
-        self, key: FuzzyTrajectoryCacheKeyT | str, value: RobotTrajectoryMsg
+        self, key: FuzzyTrajectoryCacheKey, trajectory: RobotTrajectory
     ):
-        if not self.enabled:
-            return
-        with self._lock:
-            assert isinstance(value, RobotTrajectoryMsg)
-            super().__setitem__(self.get_fuzzy_key(key), value)
+        fuzzy_key = self._get_fuzzy_key(key)
+        trajectory_msg = trajectory.get_robot_trajectory_msg()
 
-    def __delitem__(self, key: FuzzyTrajectoryCacheKeyT | str):
-        if not self.enabled:
-            return
         with self._lock:
-            super().__delitem__(self.get_fuzzy_key(key))
+            try:
+                trajectory_msgs = super().__getitem__(fuzzy_key)
+            except KeyError:
+                super().__setitem__(fuzzy_key, [trajectory_msg])
+            else:
+                self._check_db_value(trajectory_msgs)
 
-    def __contains__(self, key: FuzzyTrajectoryCacheKeyT | str) -> bool:
-        if not self.enabled:
-            raise KeyError("Cache is disabled")
-        with self._lock:
-            return super().__contains__(self.get_fuzzy_key(key))
+                trajectory_msgs.append(trajectory_msg)
+                trajectory_msgs.sort(
+                    key=lambda x: robot_trajectory_from_msg(
+                        x, key.start_state.robot_model
+                    ).path_length
+                )
+                trajectory_msgs = trajectory_msgs[: self._max_trajectories]
+                super().__setitem__(fuzzy_key, trajectory_msgs)
+
+    def cache_trajectory(self, trajectory: RobotTrajectory, *, pose_link: str):
+        """Cache a trajectory.
+
+        Args:
+            trajectory: The trajectory to cache.
+        """
+        start_state = trajectory[0]
+        end_state = trajectory[len(trajectory) - 1]
+
+        planning_frame = start_state.robot_model.model_frame
+
+        start_pose = pose_stamped_msg(
+            pose=start_state.get_pose(pose_link),
+            frame_id=planning_frame,
+        )
+        end_pose = pose_stamped_msg(
+            pose=end_state.get_pose(pose_link),
+            frame_id=planning_frame,
+        )
+
+        reverse_trajectory = trajectory.__reverse__()
+
+        keys = [
+            FuzzyTrajectoryCacheKey(start_state, end_pose, pose_link),
+            FuzzyTrajectoryCacheKey(start_state, end_state, None),
+            FuzzyTrajectoryCacheKey(end_state, start_pose, pose_link),
+            FuzzyTrajectoryCacheKey(end_state, start_state, None),
+        ]
+        values = [
+            trajectory,
+            trajectory,
+            reverse_trajectory,
+            reverse_trajectory,
+        ]
+
+        for key, value in zip(keys, values):
+            self[key] = value
 
     def __getitem__(
-        self, key: FuzzyTrajectoryCacheKeyT | str
-    ) -> RobotTrajectoryMsg:
-        if not self.enabled:
-            raise KeyError("Cache is disabled")
+        self, key: FuzzyTrajectoryCacheKey
+    ) -> list[RobotTrajectory]:
         with self._lock:
-            value = super().__getitem__(self.get_fuzzy_key(key))
-            assert isinstance(value, RobotTrajectoryMsg)
-            return value
+            trajectory_msgs = super().__getitem__(self._get_fuzzy_key(key))
+
+        self._check_db_value(trajectory_msgs)
+        return [
+            robot_trajectory_from_msg(
+                trajectory_msg, key.start_state.robot_model
+            )
+            for trajectory_msg in trajectory_msgs
+        ]
+
+    def get_best_trajectory(
+        self,
+        start_state: RobotState,
+        goal: RobotState | PoseStamped,
+        pose_link: str | None,
+    ) -> RobotTrajectory:
+        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link)
+
+        with self._lock:
+            trajectory_msgs = super().__getitem__(self._get_fuzzy_key(key))
+
+        self._check_db_value(trajectory_msgs)
+        return robot_trajectory_from_msg(
+            trajectory_msgs[0], start_state.robot_model
+        )
+
+    def get_trajectories(
+        self,
+        start_state: RobotState,
+        goal: RobotState | PoseStamped,
+        pose_link: str,
+    ) -> list[RobotTrajectory]:
+        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link)
+        return self[key]
+
+    def __contains__(self, key: FuzzyTrajectoryCacheKey) -> bool:
+        with self._lock:
+            return super().__contains__(self._get_fuzzy_key(key))
+
+    def contains(
+        self,
+        start_state: RobotState,
+        goal: RobotState | PoseStamped,
+        pose_link: str,
+    ) -> bool:
+        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link)
+        return key in self
+
+    def __delitem__(self, key: FuzzyTrajectoryCacheKey):
+        with self._lock:
+            super().__delitem__(self._get_fuzzy_key(key))
+
+    def delete_trajectory(
+        self,
+        start_state: RobotState,
+        goal: RobotState | PoseStamped,
+        pose_link: str,
+    ):
+        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link)
+        super().__delitem__(self._get_fuzzy_key(key))
 
     def close(self):
         with self._lock:

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import rclpy
 import yaml
@@ -38,7 +38,7 @@ class BaseNode(Node):
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
-        "yaml_width": 120,
+        "yaml_width": 80,
     }
     # Required parameters
     required_params: set[str] = set()
@@ -54,15 +54,11 @@ class BaseNode(Node):
         self.log_params(severity="DEBUG")
 
     def log(
-        self,
-        message: Any,
-        severity: str = DEFAULT_LOG_SEVERITY,
-        **kwargs,
+        self, message: Any, severity: str = DEFAULT_LOG_SEVERITY, **kwargs
     ):
         """
         Log a message with the given severity.
         """
-        kwargs["throttle_duration_sec"] = None
         if rclpy.ok():
             match severity:
                 case "DEBUG":
@@ -204,7 +200,7 @@ class BaseNode(Node):
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
             raise RuntimeError("ROS2 clock did not sleep correctly")
 
-    def _create_client(
+    def create_client_helper(
         self,
         srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
@@ -225,13 +221,27 @@ class BaseNode(Node):
         )
         return service_client
 
-    def wait_for_service(
+    def validate_service_client(
+        self,
+        service_client: Client,
+        srv_type: type | None,
+        srv_name: str | None,
+    ):
+        """Validate the service client."""
+        if (srv_type is not None and srv_type != service_client.srv_type) or (
+            srv_name is not None and srv_name != service_client.service_name
+        ):
+            raise ValueError(
+                "srv_type and srv_name must be None if service_client is provided, or they must match the service client"
+            )
+
+    def wait_for_service_blocking(
         self,
         srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
         *,
         service_client: Optional[Client] = None,
-        timeout_sec: Optional[float] = None,
+        timeout: Optional[float] = None,
     ):
         """Wait for a service to be available.
 
@@ -245,45 +255,50 @@ class BaseNode(Node):
             ServiceCallError: If the service call fails.
             ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
+        timeout = (
+            timeout
+            if timeout is not None
+            else self.get_parameter_wrapper("default_service_wait_timeout")
+        )
+
         # If the service client is not provided, create a new one and destroy
         # it after the service call
         if service_client is None:
-            service_client = self._create_client(srv_type, srv_name)
+            service_client = self.create_client_helper(srv_type, srv_name)
             destroy_service_client = True
         else:
+            self.validate_service_client(service_client, srv_type, srv_name)
             destroy_service_client = False
 
-        # Wait for the service to be available with the provided or default
-        # timeout
         try:
             self.log(
                 f"Waiting for {srv_name} service to be available...",
                 severity="DEBUG",
             )
-            timeout_sec = (
-                timeout_sec
-                if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_wait_timeout")
-            )
-            if not service_client.wait_for_service(timeout_sec=timeout_sec):
+            if not service_client.wait_for_service(timeout_sec=timeout):
                 error_msg = f"{srv_name} not available!"
                 self.log(error_msg, severity="ERROR")
                 raise TimeoutError(error_msg)
-
             self.log(f"{srv_name} service is available", severity="DEBUG")
         finally:
             # Destroy the service client if it was created by this function
             if destroy_service_client:
                 self.destroy_client(service_client)
 
-    def service_call(
+    async def wait_for_service_async(self, *args, **kwargs):
+        """Wait for a service to be available (asynchronous)."""
+        await asyncio.to_thread(
+            self.wait_for_service_blocking, *args, **kwargs
+        )
+
+    def service_call_blocking(
         self,
         srv_request: SrvTypeRequest,
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         *,
         service_client: Optional[Client] = None,
-        timeout_sec: Optional[float] = None,
+        timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
         """Call a service synchronously, returning the response.
 
@@ -292,7 +307,7 @@ class BaseNode(Node):
             srv_type: The type of the service.
             srv_name: The name of the service.
             service_client: The service client to use.
-            timeout_sec: The timeout in seconds.
+            timeout: The timeout in seconds.
 
         Returns:
             The response from the service.
@@ -301,30 +316,31 @@ class BaseNode(Node):
             ServiceCallError: If the service call fails.
             ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
+        timeout = (
+            timeout
+            if timeout is not None
+            else self.get_parameter_wrapper("default_service_call_timeout")
+        )
+
         # If the service client is not provided, create a new one and destroy
         # it after the service call
         if service_client is None:
-            service_client = self._create_client(srv_type, srv_name)
+            service_client = self.create_client_helper(srv_type, srv_name)
             destroy_service_client = True
         else:
+            self.validate_service_client(service_client, srv_type, srv_name)
             destroy_service_client = False
 
-        # Call the service with the provided or default timeout and
-        # validate the response
         try:
             self.log(
                 f"Calling {service_client.service_name} service...",
                 severity="DEBUG",
             )
-            timeout_sec = (
-                timeout_sec
-                if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_call_timeout")
+            response: SrvTypeResponse | None = service_client.call(
+                srv_request, timeout_sec=timeout
             )
-            response: SrvTypeResponse = service_client.call(
-                srv_request, timeout_sec=timeout_sec
-            )  # type: ignore
             validate_service_response(response, service_client)
+            assert response is not None
             return response
         finally:
             # Destroy the service client if it was created by this function
@@ -338,7 +354,7 @@ class BaseNode(Node):
         srv_name: Optional[str] = None,
         *,
         service_client: Optional[Client] = None,
-        timeout_sec: Optional[float] = None,
+        timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
         """Call a service asynchronously, returning a future and the service client.
 
@@ -347,7 +363,7 @@ class BaseNode(Node):
             srv_type: The type of the service.
             srv_name: The name of the service.
             service_client: The service client to use.
-            timeout_sec: The timeout in seconds.
+            timeout: The timeout in seconds.
 
         Returns:
             The response from the service.
@@ -356,34 +372,30 @@ class BaseNode(Node):
             ServiceCallError: If the service call fails.
             ServiceCallUnsuccessfulError: If the service call is unsuccessful.
         """
+        timeout = (
+            timeout
+            if timeout is not None
+            else self.get_parameter_wrapper("default_service_call_timeout")
+        )
+
         # If the service client is not provided, create a new one and
         # destroy it after the service call
         if service_client is None:
-            service_client = self._create_client(srv_type, srv_name)
+            service_client = self.create_client_helper(srv_type, srv_name)
             destroy_service_client = True
         else:
-            if srv_type is not None or srv_name is not None:
-                raise ValueError(
-                    "srv_type and srv_name must be None if service_client is provided"
-                )
+            self.validate_service_client(service_client, srv_type, srv_name)
             destroy_service_client = False
 
-        # Call the service asynchronously
-        self.log(
-            f"Calling {service_client.service_name} service asynchronously...",
-            severity="DEBUG",
-        )
-        future = service_client.call_async(srv_request)
-
         try:
-            # Wait asynchronously for the service call to finish with the
-            # provided or default timeout
-            async with asyncio.timeout(
-                timeout_sec
-                if timeout_sec is not None
-                else self.get_parameter_wrapper("default_service_call_timeout")
-            ):
-                response: SrvTypeResponse = await future  # type: ignore
+            self.log(
+                f"Calling {service_client.service_name} service asynchronously...",
+                severity="DEBUG",
+            )
+            future = service_client.call_async(srv_request)
+
+            async with asyncio.timeout(timeout):
+                response = cast(SrvTypeResponse, await future)
             self.log(
                 f"Service call to {service_client.service_name} finished with response:",
                 severity="DEBUG",
@@ -395,18 +407,6 @@ class BaseNode(Node):
             )
             validate_service_response(response, service_client)
             return response
-        # except asyncio.CancelledError as e:
-        #     self.log(
-        #         f"Service call to {srv_name} was cancelled by asyncio",
-        #         severity="DEBUG",
-        #     )
-        #     raise e
-        # except TimeoutError as e:
-        #     self.log(
-        #         f"Service call to {srv_name} timed out",
-        #         severity="ERROR",
-        #     )
-        #     raise e
         finally:
             if destroy_service_client:
                 self.destroy_client(service_client)

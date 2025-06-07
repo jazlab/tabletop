@@ -1,17 +1,29 @@
 """Foraging task."""
 
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from geometry_msgs.msg import PoseStamped
 from tabletop_server.nodes import Commander
 
 
-# TrialSpec contains the specification for a foraging task trial
 class TrialSpec(NamedTuple):
+    """Specification for a Foraging task trial."""
+
     object_id: str
     object_pose: PoseStamped
     occlude: bool
+
+
+@dataclass(slots=True)
+class TrialFeedback:
+    """Feedback for a Foraging task trial."""
+
+    next_trial_spec: bool = False
+    broke_fixation: bool = False
+    reaction_time: float | None = None
+    timeout: bool | None = None
 
 
 class BaseTrialGenerator:
@@ -26,6 +38,7 @@ class BaseTrialGenerator:
 
     @property
     def commander(self) -> Commander:
+        """Get the commander instance."""
         return self._commander
 
     @abstractmethod
@@ -34,7 +47,7 @@ class BaseTrialGenerator:
         raise NotImplementedError
 
     @abstractmethod
-    def send(self, **trial_feedback: dict) -> None:
+    def send(self, feedback: TrialFeedback) -> None:
         """Get trial feedback."""
         raise NotImplementedError
 

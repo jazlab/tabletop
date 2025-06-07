@@ -63,11 +63,11 @@ services:
       pull: true
     pull_policy: build
     image: tabletop-server
+    runtime: nvidia
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
-
     volumes:
       - ../..:/root/ws
     ports:
@@ -86,10 +86,6 @@ services:
       && $$LAUNCH_COMMAND"
 
   server_novnc:
-    build:
-      context: ./novnc
-      pull: true
-    pull_policy: build
     extends: server_base
     depends_on:
       novnc:
@@ -99,7 +95,6 @@ services:
 
   server:
     extends: server_base
-    runtime: nvidia
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
     # devices:

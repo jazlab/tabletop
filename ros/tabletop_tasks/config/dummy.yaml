@@ -1,5 +1,3 @@
 tasks:
   - class: DummyTask
-    kwargs:
-      commander: null
-      config: null
+    kwargs: {}

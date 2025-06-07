@@ -241,6 +241,9 @@ def visualize_geometry(
         axis_scale * scene.extents.max() / axis.extents.max()
     )
     scene.add_geometry(axis)
+
+    print("Axis colors | x: red, y: green, z: blue")
+
     if notebook:
         return scene.show()
     else:
@@ -265,3 +268,20 @@ def export_geometry(geometry: trimesh.Trimesh | trimesh.Scene, path: str):
             f.write(dae_bytes)
     else:
         geometry.export(path)
+
+
+def count_vertices_faces(
+    geometry: trimesh.Trimesh | trimesh.Scene,
+) -> tuple[int, int]:
+    """Count the number of vertices and faces in a mesh or scene.
+
+    Args:
+        geometry: The mesh or scene to count the vertices and faces of.
+    """
+    if isinstance(geometry, trimesh.Scene):
+        return (
+            sum(g.vertices.shape[0] for g in geometry.geometry.values()),
+            sum(g.faces.shape[0] for g in geometry.geometry.values()),
+        )
+    else:
+        return geometry.vertices.shape[0], geometry.faces.shape[0]

@@ -1,32 +1,30 @@
 tasks:
   - class: ForagingTask
     kwargs:
-      fixation_timeout: 2.0
+      fixation_timeout: 0.5
       fixation_duration: 0.5
-      stimulus_duration: 2.0
-      delay_duration: 2.0
-      response_timeout: 2.0
+      stimulus_duration: 0.5
+      delay_duration: 0.5
+      response_timeout: 0.5
       reward_duration: 0.1
       reveal_duration: 0.5
       trial_generator:
         class: OrderedChoice
         kwargs:
           object_ids:
-            - simple_object_5
-            # - simple_object_7
-            # - simple_object_9
-            # - simple_object_15
-            # - simple_object_17
-            # - simple_object_19
-            # - simple_object_25
-            # - simple_object_27
-            # - simple_object_29
+            # - small_object_5
+            # - small_object_7
+            # - small_object_9
+            - small_object_15
+            # - small_object_17
+            # - small_object_19
+            # - small_object_25
+            # - small_object_27
+            # - small_object_29
           poses:
             - position: [1.0, 0.4, 0.6]
               rpy: [0.0, 0.2, 0.0]
             - position: [0.9, 0.5, 0.5]
               rpy: [0.0, 0.0, 0.0]
-          occlude:
-            - True
-            - False
+          occlude: true
           num_trials: 1000

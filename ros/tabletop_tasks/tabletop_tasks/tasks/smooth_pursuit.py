@@ -72,12 +72,12 @@ class SmoothPursuitTask(BaseTask):
 
             if i == 0:
                 # Plan to start of spiral
-                response = await self.commander.plan_async(
+                response = await self.commander.plan(
                     goal=waypoint_pose_stamped
                 )
             else:
                 # Plan segment of spiral
-                response = await self.commander.plan_async(
+                response = await self.commander.plan(
                     goal=waypoint_pose_stamped,
                     start_state=last_waypoint,
                     planning_pipeline="linear",
@@ -106,8 +106,6 @@ class SmoothPursuitTask(BaseTask):
             for i in range(self._num_cycles):
                 self.log(f"Executing cycle {i} of {self._num_cycles}")
                 self.log("Executing pre-trajectory")
-                await self.commander.plan_and_execute_async(
-                    spiral_trajectory[0]
-                )
+                await self.commander.plan_and_execute(spiral_trajectory[0])
                 self.log("Executing spiral trajectory")
-                await self.commander.execute_async(spiral_trajectory)
+                await self.commander.execute(spiral_trajectory)

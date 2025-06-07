@@ -4,6 +4,7 @@ import argparse
 
 import numpy as np
 from tabletop_utils.mesh import (
+    count_vertices_faces,
     load_geometry,
     simplify_bounding_primitive,
     simplify_convex_hull,
@@ -46,8 +47,11 @@ def main():
     geometry = load_geometry(path=args.path, scale=args.scale)
 
     print("Summary:")
-    print(geometry)
-    print(geometry.extents)
+    print(f"Geometry: {geometry}")
+    print(f"Extents: {geometry.extents}")
+    num_vertices, num_faces = count_vertices_faces(geometry)
+    print(f"Number of vertices: {num_vertices}")
+    print(f"Number of faces: {num_faces}")
 
     if args.simplification == "convex_hull":
         geometry = simplify_convex_hull(geometry)

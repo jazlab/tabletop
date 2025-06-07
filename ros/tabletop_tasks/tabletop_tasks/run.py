@@ -2,6 +2,7 @@ import importlib
 
 import yaml
 from tabletop_server.nodes import Commander
+from tabletop_utils.common import dict_to_yaml_string
 
 from tabletop_tasks.tasks.base import BaseTask
 
@@ -13,9 +14,9 @@ async def run_tasks(commander: Commander, config_file: str) -> None:
         config = yaml.safe_load(f)
 
     # Initialize the commander (must be done after starting the executor)
-    commander.init_dashboard()
+    await commander.reset_commander()
 
-    commander.log(f"Tasks config: {config}")
+    commander.log(f"Tasks config: {dict_to_yaml_string(config, width=80)}")
     # Use importlib to create instances of task class
     for task_config in config["tasks"]:
         task: BaseTask = getattr(
