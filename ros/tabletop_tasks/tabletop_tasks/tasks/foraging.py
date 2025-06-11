@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tabletop_server.nodes import Commander
+from tabletop_utils.ros import CommanderRecoverableErrors
 
 from tabletop_tasks.tasks.base import BaseTask
 from tabletop_tasks.trial_generators.base import (
@@ -139,9 +140,9 @@ class ForagingTask(BaseTask):
         await self.commander.smartglass_occlude()
 
         # Fetch object
-        await self.commander.fetch_and_present_object(
+        await self.commander.fetch_object(
             object_id=self._trial_spec.object_id,
-            goal=self._trial_spec.object_pose,
+            end_goal=self._trial_spec.object_pose,
         )
 
     # TODO: Wait indefinitely until fixation is broken
@@ -253,7 +254,7 @@ class ForagingTask(BaseTask):
 
         arm_door_task = self.commander.arm_door_close_and_wait()
         smartglass_task = self.commander.smartglass_occlude()
-        return_task = self.commander.unpresent_and_return_object()
+        return_task = self.commander.return_object()
 
         await return_task
         await arm_door_task
@@ -263,7 +264,7 @@ class ForagingTask(BaseTask):
         """Run a trial."""
         self.log("Starting foraging task")
         while True:
-            async with self.commander.context_manager():
+            async with self.commander:
                 self._state = ForagingState.NEXT_TRIAL_SPEC
                 try:
                     while True:
@@ -312,7 +313,8 @@ class ForagingTask(BaseTask):
                                 raise ValueError(
                                     f"Invalid state: {self._state}"
                                 )
-                except Exception:
+                except CommanderRecoverableErrors:
+                    self.log("Recoverable error, sending trial feedback")
                     if self._state != ForagingState.RETURN:
                         self.send_trial_feedback()
                     raise

@@ -16,11 +16,6 @@
 **/egg-info/
 **/.pio/
 
-# Ignore vscode files
-**/.vscode/c_cpp_properties.json
-**/.vscode/settings.json
-**/tabletop_teensy/.vscode/
-
 # Ignore cursor files
 **/.cursorignore
 
@@ -48,7 +43,7 @@
 /eyelink/docs/
 
 # Ignore trajectory cache
-**/trajectory_cache.db
+/ros/trajectory_cache/
 
 # Ignore planning scene files
-**/planning_scene/
+/ros/planning_scene/

@@ -1,0 +1,37 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/root/ws/build/tabletop_utils",
+        "/root/ws/install/tabletop_utils/lib/python3.12/site-packages",
+        "/root/ws/build/tabletop_tasks",
+        "/root/ws/install/tabletop_tasks/lib/python3.12/site-packages",
+        "/root/ws/build/tabletop_server",
+        "/root/ws/install/tabletop_server/lib/python3.12/site-packages",
+        "/root/ws/install/tabletop_msgs/lib/python3.12/site-packages",
+        "/root/ws/install/moveit_py/lib/python3.12/site-packages",
+        "/root/ws/install/moveit_msgs/lib/python3.12/site-packages",
+        "/root/ws/build/moveit_configs_utils",
+        "/root/ws/install/moveit_configs_utils/lib/python3.12/site-packages",
+        "/root/ws/install/micro_ros_msgs/lib/python3.12/site-packages",
+        "/root/ws/install/drive_base_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/root/ws/build/tabletop_utils",
+        "/root/ws/install/tabletop_utils/lib/python3.12/site-packages",
+        "/root/ws/build/tabletop_tasks",
+        "/root/ws/install/tabletop_tasks/lib/python3.12/site-packages",
+        "/root/ws/build/tabletop_server",
+        "/root/ws/install/tabletop_server/lib/python3.12/site-packages",
+        "/root/ws/install/tabletop_msgs/lib/python3.12/site-packages",
+        "/root/ws/install/moveit_py/lib/python3.12/site-packages",
+        "/root/ws/install/moveit_msgs/lib/python3.12/site-packages",
+        "/root/ws/build/moveit_configs_utils",
+        "/root/ws/install/moveit_configs_utils/lib/python3.12/site-packages",
+        "/root/ws/install/micro_ros_msgs/lib/python3.12/site-packages",
+        "/root/ws/install/drive_base_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+    "cmake.ignoreCMakeListsMissing": true
+}

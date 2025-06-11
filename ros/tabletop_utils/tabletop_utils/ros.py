@@ -9,7 +9,8 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from moveit.core.robot_model import RobotModel  # type: ignore
+from moveit.core.controller_manager import ExecutionStatus  # type: ignore
+from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit_msgs.msg import (
@@ -38,47 +39,16 @@ from tabletop_utils.common import is_iterable
 
 # Constants
 
-"""
-MoveIt error code map from error code to string, for logging.
-"""
-moveit_error_code_map = {
-    MoveItErrorCodes.SUCCESS: "SUCCESS",
-    MoveItErrorCodes.UNDEFINED: "UNDEFINED",
-    MoveItErrorCodes.FAILURE: "FAILURE",
-    MoveItErrorCodes.PLANNING_FAILED: "PLANNING_FAILED",
-    MoveItErrorCodes.INVALID_MOTION_PLAN: "INVALID_MOTION_PLAN",
-    MoveItErrorCodes.MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE: "MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE",
-    MoveItErrorCodes.CONTROL_FAILED: "CONTROL_FAILED",
-    MoveItErrorCodes.UNABLE_TO_AQUIRE_SENSOR_DATA: "UNABLE_TO_AQUIRE_SENSOR_DATA",
-    MoveItErrorCodes.TIMED_OUT: "TIMED_OUT",
-    MoveItErrorCodes.PREEMPTED: "PREEMPTED",
-    MoveItErrorCodes.START_STATE_IN_COLLISION: "START_STATE_IN_COLLISION",
-    MoveItErrorCodes.START_STATE_VIOLATES_PATH_CONSTRAINTS: "START_STATE_VIOLATES_PATH_CONSTRAINTS",
-    MoveItErrorCodes.START_STATE_INVALID: "START_STATE_INVALID",
-    MoveItErrorCodes.GOAL_IN_COLLISION: "GOAL_IN_COLLISION",
-    MoveItErrorCodes.GOAL_VIOLATES_PATH_CONSTRAINTS: "GOAL_VIOLATES_PATH_CONSTRAINTS",
-    MoveItErrorCodes.GOAL_CONSTRAINTS_VIOLATED: "GOAL_CONSTRAINTS_VIOLATED",
-    MoveItErrorCodes.GOAL_STATE_INVALID: "GOAL_STATE_INVALID",
-    MoveItErrorCodes.UNRECOGNIZED_GOAL_TYPE: "UNRECOGNIZED_GOAL_TYPE",
-    MoveItErrorCodes.INVALID_GROUP_NAME: "INVALID_GROUP_NAME",
-    MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS: "INVALID_GOAL_CONSTRAINTS",
-    MoveItErrorCodes.INVALID_ROBOT_STATE: "INVALID_ROBOT_STATE",
-    MoveItErrorCodes.INVALID_LINK_NAME: "INVALID_LINK_NAME",
-    MoveItErrorCodes.INVALID_OBJECT_NAME: "INVALID_OBJECT_NAME",
-    MoveItErrorCodes.FRAME_TRANSFORM_FAILURE: "FRAME_TRANSFORM_FAILURE",
-    MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE: "COLLISION_CHECKING_UNAVAILABLE",
-    MoveItErrorCodes.ROBOT_STATE_STALE: "ROBOT_STATE_STALE",
-    MoveItErrorCodes.SENSOR_INFO_STALE: "SENSOR_INFO_STALE",
-    MoveItErrorCodes.COMMUNICATION_FAILURE: "COMMUNICATION_FAILURE",
-    MoveItErrorCodes.CRASH: "CRASH",
-    MoveItErrorCodes.ABORT: "ABORT",
-    MoveItErrorCodes.NO_IK_SOLUTION: "NO_IK_SOLUTION",
+MOVEIT_ERROR_CODE_MAP = {
+    v: k
+    for k, v in type(
+        MoveItErrorCodes
+    )._Metaclass_MoveItErrorCodes__constants.items()  # type: ignore
 }
+"""MoveIt error code map from error code to string, for logging."""
 
-"""
-RGBA color map from color name to RGBA tuple.
-"""
-rgba_map = {
+
+COLOR_MAP = {
     "red": (1.0, 0.0, 0.0, 1.0),
     "green": (0.0, 1.0, 0.0, 1.0),
     "blue": (0.0, 0.0, 1.0, 1.0),
@@ -99,41 +69,41 @@ rgba_map = {
     "lime": (0.75, 1.0, 0.0, 1.0),
     "coral": (1.0, 0.5, 0.31, 1.0),
 }
+"""RGBA color map from color name to RGBA tuple."""
 
-"""
-Collision object operation map from operation name to collision object operation.
-"""
-collision_object_operation_map = {
+COLLISION_OBJECT_OPERATION_MAP = {
     "ADD": CollisionObject.ADD,
     "REMOVE": CollisionObject.REMOVE,
     "APPEND": CollisionObject.APPEND,
     "MOVE": CollisionObject.MOVE,
 }
+"""Collision object operation map from operation name to collision object operation."""
 
-"""
-Solid primitive type map from type name to solid primitive type.
-"""
-solid_primitive_type_map = {
+SOLID_PRIMITIVE_TYPE_MAP = {
     "BOX": SolidPrimitive.BOX,
     "SPHERE": SolidPrimitive.SPHERE,
     "CYLINDER": SolidPrimitive.CYLINDER,
     "CONE": SolidPrimitive.CONE,
     "PRISM": SolidPrimitive.PRISM,
 }
-
+"""Solid primitive type map from type name to solid primitive type."""
 
 # Protocol definitions
 
 
 class SrvTypeRequest(Protocol):
-    pass
+    """Protocol for a ROS2 service request type."""
 
 
 class SrvTypeResponse(Protocol):
+    """Protocol for a ROS2 service response type."""
+
     success: bool
 
 
 class SrvType(Protocol):
+    """Protocol for a ROS2 service type."""
+
     Request: Any
     Response: Any
 
@@ -141,16 +111,66 @@ class SrvType(Protocol):
 # Exception definitions
 
 
-class MaxAttemptsReachedError(Exception):
-    pass
-
-
 class ServiceCallError(Exception):
-    pass
+    """Service call failed."""
 
 
 class ServiceCallUnsuccessfulError(Exception):
-    pass
+    """Service call returned with a failure status."""
+
+
+class MaxAttemptsReachedError(Exception):
+    """Maximum number of attempts reached."""
+
+
+class MaxPlanningAttemptsReachedError(MaxAttemptsReachedError):
+    """Maximum number of planning attempts reached."""
+
+    def __init__(
+        self, plan_responses: list[MotionPlanResponse], max_attempts: int
+    ):
+        self.error_codes = [
+            response.error_code.val for response in plan_responses
+        ]
+        if all(
+            self.error_codes[i] == self.error_codes[0]
+            for i in range(1, len(self.error_codes))
+        ):
+            error_code_str = f"same error code: {MOVEIT_ERROR_CODE_MAP[self.error_codes[0]]}"
+        else:
+            error_code_strs = [
+                MOVEIT_ERROR_CODE_MAP[error_code]
+                for error_code in self.error_codes
+            ]
+            error_code_str = f"different error codes: {error_code_strs}"
+        self.max_attempts = max_attempts
+        super().__init__(
+            f"Max planning attempts ({max_attempts}) reached with {error_code_str}"
+        )
+
+
+class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
+    """Maximum number of execution attempts reached."""
+
+    def __init__(
+        self, execution_statuses: list[ExecutionStatus], max_attempts: int
+    ):
+        self.execution_statuses = execution_statuses
+        self.max_attempts = max_attempts
+        status_strs = [f"{status.status}" for status in execution_statuses]
+        super().__init__(
+            f"Max execution attempts ({max_attempts}) reached with statuses: {status_strs}"
+        )
+
+
+CommanderRecoverableErrors = (
+    TimeoutError,
+    ServiceCallError,
+    ServiceCallUnsuccessfulError,
+    MaxAttemptsReachedError,
+    MaxPlanningAttemptsReachedError,
+    MaxExecutionAttemptsReachedError,
+)
 
 
 # Type aliases
@@ -231,23 +251,28 @@ def array_from_point_msg(point: Point) -> np.ndarray:
 
 
 def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
-    """Convert a geometry_msgs/Quaternion message to a numpy array."""
-    return np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+    """Convert a geometry_msgs/Quaternion message to a normalized numpy array."""
+    q = np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+    q = q / np.linalg.norm(q)
+    return q
 
 
 def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
-    """Convert a geometry_msgs/Pose message to position and orientation arrays."""
+    """Convert a geometry_msgs/Pose message to position and normalized quaternion arrays."""
     position = array_from_point_msg(pose.position)
     orientation = array_from_quaternion_msg(pose.orientation)
     return position, orientation
 
 
+def quaternion_msg(x: float, y: float, z: float, w: float) -> Quaternion:
+    """Convert a quaternion to a geometry_msgs/Quaternion message."""
+    q = np.array([x, y, z, w])
+    q = q / np.linalg.norm(q)
+    return Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+
+
 def quaternion_msg_from_euler(
-    roll: float = 0.0,
-    pitch: float = 0.0,
-    yaw: float = 0.0,
-    *,
-    axes: str = "sxyz",
+    roll: float, pitch: float, yaw: float, *, axes: str = "sxyz"
 ) -> Quaternion:
     """Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
 
@@ -260,30 +285,34 @@ def quaternion_msg_from_euler(
     Returns:
         The quaternion message.
     """
-    quaternion = np.array(quaternion_from_euler(roll, pitch, yaw, axes))
-    quaternion = quaternion / np.linalg.norm(quaternion)
-    x, y, z, w = quaternion
-    return Quaternion(x=x, y=y, z=z, w=w)
+    return quaternion_msg(*quaternion_from_euler(roll, pitch, yaw, axes))
 
 
 def quaternion_msg_from_axis_angle(
     axis: Iterable[float], angle: float
 ) -> Quaternion:
     """Convert an axis and angle to a geometry_msgs/Quaternion message."""
-    quaternion = np.array(quaternion_about_axis(angle, axis))
-    quaternion = quaternion / np.linalg.norm(quaternion)
-    return Quaternion(
-        x=quaternion[0], y=quaternion[1], z=quaternion[2], w=quaternion[3]
+    return quaternion_msg(*quaternion_about_axis(angle, axis))
+
+
+def normalize_quaternion_msg(quaternion: Quaternion) -> Quaternion:
+    """Convert a quaternion to a normalized geometry_msgs/Quaternion message."""
+    return quaternion_msg(
+        quaternion.x, quaternion.y, quaternion.z, quaternion.w
     )
 
 
-def euler_from_quaternion_msg(
+def euler_array_from_quaternion_msg(
     quaternion: Quaternion, axes: str = "sxyz"
-) -> tuple[float, float, float]:
+) -> np.ndarray:
     """Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians)."""
-    return euler_from_quaternion(
-        [quaternion.x, quaternion.y, quaternion.z, quaternion.w], axes=axes
+    rpy = np.array(
+        euler_from_quaternion(
+            [quaternion.x, quaternion.y, quaternion.z, quaternion.w], axes=axes
+        )
     )
+    # Convert to [-pi, pi] range
+    return (rpy + np.pi) % (2 * np.pi) - np.pi
 
 
 def pose_msg(
@@ -316,23 +345,27 @@ def pose_msg(
     if rpy is not None:
         if orientation is not None:
             raise ValueError("orientation and rpy cannot both be provided")
-
         rpy = deepcopy(rpy)
         if isinstance(rpy, Mapping):
             pose.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
-        else:
+        elif is_iterable(rpy):
             pose.orientation = quaternion_msg_from_euler(*rpy)
+        else:
+            raise ValueError(
+                f"Invalid rpy type: expected Mapping or Iterable, got {type(rpy)}"
+            )
     elif orientation is not None:
         orientation = deepcopy(orientation)
         if isinstance(orientation, Quaternion):
-            pose.orientation = orientation
+            pose.orientation = normalize_quaternion_msg(orientation)
         elif isinstance(orientation, Mapping):
-            pose.orientation = Quaternion(**orientation)  # type: ignore
+            pose.orientation = quaternion_msg(**orientation)  # type: ignore
+        elif is_iterable(orientation):
+            pose.orientation = quaternion_msg(*orientation)
         else:
-            orientation = np.array(orientation)
-            orientation = orientation / np.linalg.norm(orientation)
-            x, y, z, w = orientation
-            pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
+            raise ValueError(
+                f"Invalid orientation type: expected Quaternion, Mapping, or Iterable, got {type(orientation)}"
+            )
 
     return pose
 
@@ -408,49 +441,148 @@ def pose_stamped_msg(
     return pose_stamped
 
 
-def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
-    """Convert a 4x4 transformation matrix to a geometry_msgs/Pose message."""
-    return pose_msg(
-        position=translation_from_matrix(matrix),
-        orientation=quaternion_from_matrix(matrix),
-    )
+# Comparison utilities
 
 
-def all_close_points(p1: Point, p2: Point, **all_close_kwargs: Any) -> bool:
+def all_close_iterables(
+    a1: Iterable[float] | np.ndarray,
+    a2: Iterable[float] | np.ndarray,
+    tolerance: float | Iterable[float] | np.ndarray,
+) -> bool:
+    """Check if two arrays are close to each other."""
+    if not isinstance(a1, np.ndarray):
+        a1 = np.array(a1)
+    if not isinstance(a2, np.ndarray):
+        a2 = np.array(a2)
+    if not isinstance(tolerance, np.ndarray):
+        tolerance = np.array(tolerance)
+    diff = np.abs(a1 - a2)
+    return bool(np.all(diff < tolerance))
+
+
+def all_close_points(
+    p1: Point, p2: Point, tolerance: float | Iterable[float]
+) -> bool:
     """Check if two points are close to each other."""
     p1_array = array_from_point_msg(p1)
     p2_array = array_from_point_msg(p2)
-    return np.allclose(p1_array, p2_array, **all_close_kwargs)
+    return all_close_iterables(p1_array, p2_array, tolerance)
 
 
 def all_close_quaternions(
-    q1: Quaternion, q2: Quaternion, **all_close_kwargs: Any
+    q1: Quaternion, q2: Quaternion, tolerance: float | Iterable[float]
 ) -> bool:
     """Check if two quaternions are close to each other."""
     q1_array = array_from_quaternion_msg(q1)
     q2_array = array_from_quaternion_msg(q2)
-    return np.allclose(q1_array, q2_array, **all_close_kwargs)
+    return all_close_iterables(q1_array, q2_array, tolerance)
 
 
-def all_close_poses(pose1: Pose, pose2: Pose, **all_close_kwargs: Any) -> bool:
-    """Check if two poses are close to each other."""
-    return all_close_points(
-        pose1.position, pose2.position, **all_close_kwargs
-    ) and all_close_quaternions(
-        pose1.orientation, pose2.orientation, **all_close_kwargs
+def all_close_poses(
+    pose1: Pose,
+    pose2: Pose,
+    position_tolerance: float | Iterable[float] | np.ndarray,
+    orientation_tolerance: float | Iterable[float] | np.ndarray,
+    use_euler_tolerance: bool = False,
+) -> bool:
+    """Check if two poses are close to each other.
+
+    Args:
+        pose1: The first pose.
+        pose2: The second pose.
+        position_tolerance: The tolerance for the position.
+        orientation_tolerance: The quaternion or euler angle tolerance for the orientation.
+        use_euler_tolerance: Whether to use euler tolerance instead of quaternion tolerance.
+    """
+    all_close_positions = all_close_points(
+        pose1.position, pose2.position, position_tolerance
     )
+
+    if use_euler_tolerance:
+        euler_angles1 = euler_array_from_quaternion_msg(pose1.orientation)
+        euler_angles2 = euler_array_from_quaternion_msg(pose2.orientation)
+        all_close_orientations = all_close_iterables(
+            euler_angles1, euler_angles2, orientation_tolerance
+        )
+    else:
+        all_close_orientations = all_close_quaternions(
+            pose1.orientation, pose2.orientation, orientation_tolerance
+        )
+
+    return all_close_positions and all_close_orientations
 
 
 def all_close_pose_stamped(
     pose_stamped1: PoseStamped,
     pose_stamped2: PoseStamped,
-    **all_close_kwargs: Any,
+    *args: Any,
+    **kwargs: Any,
 ) -> bool:
-    """Check if two poses are close to each other."""
+    """Check if two poses are close to each other.
+
+    Args:
+        pose_stamped1: The first pose.
+        pose_stamped2: The second pose.
+        *args: Arguments to pass to all_close_poses.
+        **kwargs: Keyword arguments to pass to all_close_poses.
+
+    Returns:
+        True if the poses are close to each other, False otherwise.
+    """
     if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
         raise ValueError("PoseStamped messages must have the same frame_id")
     return all_close_poses(
-        pose_stamped1.pose, pose_stamped2.pose, **all_close_kwargs
+        pose_stamped1.pose, pose_stamped2.pose, *args, **kwargs
+    )
+
+
+def all_close_robot_state_positions(
+    state1: RobotState,
+    state2: RobotState,
+    position_tolerance: float | Iterable[float] | np.ndarray,
+    velocity_tolerance: Optional[float | Iterable[float] | np.ndarray] = None,
+    acceleration_tolerance: Optional[
+        float | Iterable[float] | np.ndarray
+    ] = None,
+) -> bool:
+    """Check if two robot states are close to each other."""
+    all_close_positions = all_close_iterables(
+        list(state1.joint_positions.values()),
+        list(state2.joint_positions.values()),
+        position_tolerance,
+    )
+
+    all_close_velocities = True
+    if velocity_tolerance is not None:
+        all_close_velocities = all_close_iterables(
+            list(state1.joint_velocities.values()),
+            list(state2.joint_velocities.values()),
+            velocity_tolerance,
+        )
+
+    all_close_accelerations = True
+    if acceleration_tolerance is not None:
+        all_close_accelerations = all_close_iterables(
+            list(state1.joint_accelerations.values()),
+            list(state2.joint_accelerations.values()),
+            acceleration_tolerance,
+        )
+
+    return (
+        all_close_positions
+        and all_close_velocities
+        and all_close_accelerations
+    )
+
+
+# Homogeneous transformation utilities
+
+
+def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
+    """Convert a 4x4 transformation matrix to a geometry_msgs/Pose message."""
+    return pose_msg(
+        position=translation_from_matrix(matrix),
+        orientation=quaternion_from_matrix(matrix),
     )
 
 
@@ -511,44 +643,21 @@ def change_reference_frame_pose_stamped(
     return new_pose_stamped
 
 
-def plane_collision_object_msg(
+# Collision object utilities
+
+
+def add_collision_object_msg(
     object_id: str,
-    coef: list[float],
-    header_frame_id: str,
-    operation: str = "ADD",
-) -> CollisionObject:
-    """Create a collision object from a plane."""
-    collision_object = CollisionObject()
-    collision_object.header.frame_id = header_frame_id
-    collision_object.id = object_id
-
-    collision_object.planes.append(Plane(coef=coef))  # type: ignore
-
-    collision_object.operation = collision_object_operation_map[operation]
-
-    return collision_object
-
-
-def primitive_collision_object_msg(
-    object_id: str,
-    type: str,
-    dimensions: list[float],
     pose_stamped: PoseStamped,
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
-    operation: str = "ADD",
 ) -> CollisionObject:
-    """Create a collision object from a primitive."""
+    """Create a collision object message."""
     collision_object = CollisionObject()
     collision_object.header.frame_id = pose_stamped.header.frame_id
     collision_object.id = object_id
-
-    collision_object.primitives.append(  # type: ignore
-        SolidPrimitive(
-            type=solid_primitive_type_map[type], dimensions=dimensions
-        )
-    )
-    collision_object.primitive_poses.append(pose_stamped.pose)  # type: ignore
+    collision_object.pose = pose_stamped.pose
+    collision_object.operation = CollisionObject.ADD
 
     if subframe_names is not None and subframe_poses is not None:
         for subframe_name, subframe_pose in zip(
@@ -557,17 +666,57 @@ def primitive_collision_object_msg(
             collision_object.subframe_names.append(subframe_name)  # type: ignore
             collision_object.subframe_poses.append(subframe_pose)  # type: ignore
 
-    collision_object.operation = collision_object_operation_map[operation]
     return collision_object
 
 
-def mesh_collision_object_msg(
+def add_plane_collision_object_msg(
     object_id: str,
-    mesh: trimesh.Trimesh | trimesh.Scene | MeshMsg,
     pose_stamped: PoseStamped,
+    coef: list[float],
+) -> CollisionObject:
+    """Create a collision object from a plane."""
+    collision_object = add_collision_object_msg(object_id, pose_stamped)
+    collision_object.planes.append(Plane(coef=coef))  # type: ignore
+    return collision_object
+
+
+def add_primitive_collision_object_msg(
+    object_id: str,
+    pose_stamped: PoseStamped,
+    *,
+    type: str,
+    dimensions: list[float],
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
-    operation: str = "ADD",
+) -> CollisionObject:
+    """Create a collision object from a primitive.
+
+    Args:
+        object_id (str): The ID of the collision object.
+        pose_stamped (PoseStamped): The pose of the collision object.
+        type (str): The type of the primitive.
+        dimensions (list[float]): The dimensions of the primitive.
+    """
+    collision_object = add_collision_object_msg(
+        object_id, pose_stamped, subframe_names, subframe_poses
+    )
+    collision_object.primitives.append(  # type: ignore
+        SolidPrimitive(
+            type=SOLID_PRIMITIVE_TYPE_MAP[type], dimensions=dimensions
+        )
+    )
+    # collision_object.primitive_poses.append(pose_stamped.pose)  # type: ignore
+
+    return collision_object
+
+
+def add_mesh_collision_object_msg(
+    object_id: str,
+    pose_stamped: PoseStamped,
+    *,
+    mesh: trimesh.Trimesh | trimesh.Scene | MeshMsg,
+    subframe_names: Optional[list[str]] = None,
+    subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
     """Create a collision object from a trimesh geometry.
 
@@ -579,11 +728,10 @@ def mesh_collision_object_msg(
         subframe_names (list[str]): The names of the subframes.
         subframe_poses (list[Pose]): The poses of the subframes
             (defined relative to `pose_stamped`).
-        operation (str): The operation to perform on the collision object.
     """
-    collision_object = CollisionObject()
-    collision_object.header.frame_id = pose_stamped.header.frame_id
-    collision_object.id = object_id
+    collision_object = add_collision_object_msg(
+        object_id, pose_stamped, subframe_names, subframe_poses
+    )
 
     if not isinstance(mesh, MeshMsg):
         if isinstance(mesh, trimesh.Scene):
@@ -599,16 +747,8 @@ def mesh_collision_object_msg(
         )
 
     collision_object.meshes.append(mesh)  # type: ignore
-    collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
+    # collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
 
-    if subframe_names is not None and subframe_poses is not None:
-        for subframe_name, subframe_pose in zip(
-            subframe_names, subframe_poses
-        ):
-            collision_object.subframe_names.append(subframe_name)  # type: ignore
-            collision_object.subframe_poses.append(subframe_pose)  # type: ignore
-
-    collision_object.operation = collision_object_operation_map[operation]
     return collision_object
 
 
@@ -622,15 +762,15 @@ def attached_collision_object_msg(
     attached_collision_object = AttachedCollisionObject()
     attached_collision_object.object.id = object_id
 
-    attached_collision_object.link_name = link_name
     if not link_name and operation == "ADD":
         raise ValueError("link_name must be provided for ADD operation")
+    attached_collision_object.link_name = link_name
 
     if touch_links is not None:
         attached_collision_object.touch_links = touch_links
 
     attached_collision_object.object.operation = (
-        collision_object_operation_map[operation]
+        COLLISION_OBJECT_OPERATION_MAP[operation]
     )
     return attached_collision_object
 
@@ -643,7 +783,7 @@ def object_color_msg(
     object_color.id = object_id
     if isinstance(color, str):
         try:
-            rgba = rgba_map[color]
+            rgba = COLOR_MAP[color]
         except KeyError:
             raise ValueError(f"Invalid color: {color}")
     elif isinstance(color, Mapping):
@@ -662,11 +802,14 @@ def object_color_msg(
 
 
 def robot_trajectory_from_msg(
-    robot_trajectory_msg: RobotTrajectoryMsg,
-    robot_model: RobotModel,
+    trajectory_msg: RobotTrajectoryMsg,
+    state: RobotState,
+    joint_model_group_name: str,
 ) -> RobotTrajectory:
     """Convert a RobotTrajectory message to a RobotTrajectory object."""
-    trajectory = RobotTrajectory(robot_model)
-    state = RobotState(robot_model)
-    trajectory.set_robot_trajectory_msg(state, robot_trajectory_msg)
+    if state.dirty:
+        raise ValueError("Robot state is dirty")
+    trajectory = RobotTrajectory(state.robot_model)
+    trajectory.set_robot_trajectory_msg(state, trajectory_msg)
+    trajectory.joint_model_group_name = joint_model_group_name
     return trajectory

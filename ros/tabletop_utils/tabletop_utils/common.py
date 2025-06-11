@@ -28,7 +28,7 @@ class BracketedListDumper(yaml.Dumper):
             )
 
 
-def dict_to_yaml_string(d: dict[str, Any], width: int = 80) -> str:
+def yaml_dump_string(d: Any, width: int = 80) -> str:
     return yaml.dump(d, Dumper=BracketedListDumper, width=width)
 
 

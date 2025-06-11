@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# Get bin directory and source utils
+bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+source $bin_dir/utils.bash
+
+set -e
+
+# If no arguments are provided, set PYTHONOPTIMIZE to 2.
+if [ $# -eq 0 ]; then
+    if grep -qE '^export PYTHONOPTIMIZE' "$HOME/.bashrc"; then
+        sed -i "s/^export PYTHONOPTIMIZE.*/export PYTHONOPTIMIZE=2/" "$HOME/.bashrc"
+    else
+        echo "export PYTHONOPTIMIZE=2" >> "$HOME/.bashrc"
+    fi
+
+# If the argument is -n, unset PYTHONOPTIMIZE.
+elif [ $# -eq 1 ] && [ "$1" == "-n" ]; then
+    sed -i '/^export PYTHONOPTIMIZE/d' "$HOME/.bashrc"
+else
+    print_error "Error: Invalid argument(s)"
+    print_error "Usage: ${BASH_SOURCE[0]} [-n]"
+    exit 1
+fi

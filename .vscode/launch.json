@@ -44,15 +44,13 @@
             "name": "ROS: Launch Commander",
             "request": "launch",
             "type": "ros",
-            "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/server.launch.py",
+            "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/commander.launch.py",
             "arguments": [
-                "use_mock_teensy:=true",
                 "commander_log_level:=DEBUG"
             ],
             "attachDebugger": [
                 "commander"
-            ],
-            "postDebugTask": "kill_ros"
+            ]
         },
         {
             "name": "ROS: Launch Tasks",
@@ -60,12 +58,12 @@
             "type": "ros",
             "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "arguments": [
-                "${inputs:task_config}"
+                "launch_server:=false",
+                "clear_cache:=true"
             ],
             "attachDebugger": [
-                "run_tasks"
-            ],
-            "postDebugTask": "kill_ros"
+                "commander"
+            ]
         },
         {
             "name": "ROS: Launch Real Robot",
@@ -73,13 +71,11 @@
             "type": "ros",
             "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "arguments": [
-                "robot_mode:=real",
-                "commander_log_level:=DEBUG"
+                "robot_mode:=real"
             ],
             "attachDebugger": [
-                "run_tasks"
-            ],
-            "postDebugTask": "kill_ros"
+                "commander"
+            ]
         }
     ],
     "inputs": [

@@ -1,7 +1,8 @@
 /commander:
   ros__parameters:
-    max_plan_attempts: 5
-    max_execution_attempts: 3
+    exit_on_error: false
+
+    max_workers: 4
 
     dashboard:
       installation: default.installation
@@ -15,47 +16,55 @@
       spin_period: 0.05
 
     planning:
+      max_attempts: 10
       group_name: ur_manipulator
-      default_pipeline: ompl_aps_rrtc
+      default_pipeline: ompl_aps_rrt_star
       linear_pipeline: pilz_lin
-
       planning_link: eef
       object_touch_links:
         - eef_link
       object_mount_ids:
         - rig
       idle_state: ready_for_action
-      pre_fetch_offset: [-0.02, 0.0, -0.01]
-      pre_attach_offset: [-0.02, 0.0, 0.0]
-      post_attach_offset: [0.0, -0.07, 0.0]
-      post_fetch_offset: [0.0, -0.07, -0.2]
+      pre_fetch_offset: [0.0, 0.02, -0.01]
+      pre_attach_offset: [0.0, 0.02, 0.0]
+      post_attach_offset: [0.0, -0.075, 0.0]
+      post_fetch_offset: [0.0, -0.075, -0.15]
+
+    execution:
+      max_attempts: 3
+      velocity_scaling_factor: 1.0
+      acceleration_scaling_factor: 1.0
 
     trajectory_cache:
       use_cached_trajectories: true
       kwargs:
-        filename: /root/ws/src/tabletop/ros/trajectory_cache
-        robot_state_tolerance: [0.01, 0.01, 0.01, 0.05, 0.05, 0.05] # radians
-        position_tolerance: 0.02 # meters
-        orientation_tolerance: 0.05 # radians (~3 degrees)
-        max_trajectories: 2
-        clear_cache: true
+        dir_path: /root/ws/src/tabletop/ros/trajectory_cache/
+        robot_state_tolerance: 0.01 # radians (~0.6 degrees)
+        position_tolerance: 0.01 # meters
+        orientation_tolerance: 0.03 # radians (~1.7 degrees)
+        use_euler_tolerance: true
+        max_trajectories: 10
+        filename: 2025-06-10-07-24-00.db
+        clear_cache: false
 
     planning_scene:
       dir: /root/ws/src/tabletop/ros/planning_scene/
       use_saved_scene: true
       planes:
         floor:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
           coef: [0.0, 0.0, 1.0, 0.0]
           allowed_collision_ids:
             - base_link_inertia
             - sphere
-
       primitives:
         left_robot_box:
-          type: BOX
-          dimensions: [0.8, 0.4, 0.6]
           pose_stamped:
             position: [0.3583, 1.0832, 0.5685]
+          type: BOX
+          dimensions: [0.8, 0.4, 0.6]
           allowed_collision_ids:
             - sphere
           color: [0.0, 0.0, 1.0, 0.5]
@@ -67,19 +76,16 @@
         #   allowed_collision_ids:
         #     - sphere
         #   color: [0.0, 0.0, 0.0, 0.2]
-
       rig_meshes:
         rig:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
           path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig.dae
-          scale: 1.0
           simplification: convex_hull
           allowed_collision_ids:
             - base_link_inertia
             - sphere
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
           color: pink
-
       object_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/objects/
         origin: [0.2809, 0.7632, 1.2104]
@@ -182,7 +188,6 @@
           small_object_29:
             color: [0.5, 0.25, 0.75, 1.0] # lavender
             idx: [2, 9]
-
         # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
         # x width of rig = 1.8288
         # radius of robot_base ~= 0.075

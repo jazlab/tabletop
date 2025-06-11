@@ -167,17 +167,20 @@ def generate_launch_description():
     commander_overrides_path = "/tmp/commander_overrides.yaml"
 
     def save_commander_overrides(context):
-        simulate = simulate_commander.perform(context) == "true"
-        commander_overrides = {
-            "simulate": simulate,
-        }
+        commander_overrides = {}
 
+        # Simulate
+        simulate = simulate_commander.perform(context) == "true"
+        commander_overrides["simulate"] = simulate
+
+        # Clear cache
         clear_cache_value = clear_cache.perform(context)
         if clear_cache_value != "null":
-            commander_overrides[
-                "planning.trajectory_cache.kwargs.clear_db"
-            ] = clear_cache_value == "true"
+            commander_overrides["trajectory_cache.kwargs.clear_cache"] = (
+                clear_cache_value == "true"
+            )
 
+        # Save the scoped overrides
         commander_overrides_scoped = {
             "/commander": {"ros__parameters": commander_overrides}
         }
@@ -228,6 +231,8 @@ def generate_launch_description():
             ["moveit_py:=", moveit_py_log_level],
             "--log-level",
             ["commander:=", commander_log_level],
+            "--log-level",
+            ["trajectory_cache:=", commander_log_level],
         ],
         arguments=[
             IfElseSubstitution(

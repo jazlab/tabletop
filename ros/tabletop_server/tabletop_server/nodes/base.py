@@ -2,7 +2,6 @@ import asyncio
 from typing import Any, Optional, cast
 
 import rclpy
-import yaml
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.duration import Duration
@@ -12,7 +11,7 @@ from rclpy.exceptions import (
 )
 from rclpy.logging import LoggingSeverity
 from rclpy.node import Node
-from tabletop_utils.common import BracketedListDumper
+from tabletop_utils.common import yaml_dump_string
 from tabletop_utils.ros import (
     SrvType,
     SrvTypeRequest,
@@ -21,8 +20,6 @@ from tabletop_utils.ros import (
     validate_service_response,
 )
 
-# from logging import DEBUG, INFO, WARN, ERROR, FATAL
-# Move this to a constants file
 DEFAULT_LOG_SEVERITY = "INFO"
 
 
@@ -149,11 +146,7 @@ class BaseNode(Node):
         if self.log_level < LoggingSeverity[severity]:
             return
 
-        string = yaml.dump(
-            msg_to_dict(msg),
-            Dumper=BracketedListDumper,
-            width=self.get_parameter_wrapper("yaml_width"),
-        )
+        string = yaml_dump_string(msg_to_dict(msg))
         if title is not None:
             string = f"{title}\n{string}"
         self.log(string, severity=severity)

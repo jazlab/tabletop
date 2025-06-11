@@ -19,7 +19,16 @@ ompl_aps_rrtc:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnect
-    planning_time: 1.0
+    planning_time: 3.0
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+
+ompl_aps_rrt_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: APSRRTstarConnect
+    planning_time: 3.0
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -38,15 +47,6 @@ pilz_lin:
 #   planning_time: 0.5 # Time budget for the motion plan request. If the planning problem cannot be solved within this time, an empty solution with error code is returned
 #   max_velocity_scaling_factor: 0.5
 #   max_acceleration_scaling_factor: 0.5
-
-# ompl_aps_rrt_star:
-#   plan_request_params:
-#     planning_attempts: 1
-#     planning_pipeline: ompl
-#     planner_id: APSRRTstarConnect
-#     planning_time: 1.0
-#     max_velocity_scaling_factor: 0.05
-#     max_acceleration_scaling_factor: 0.05
 
 # ompl_aps_not_persistent:
 #   plan_request_params:

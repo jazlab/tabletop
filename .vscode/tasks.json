@@ -4,7 +4,7 @@
 		{
 			"type": "shell",
 			"label": "build_debug",
-			"command": "${workspaceFolder}/scripts/build.sh --debug",
+			"command": "tt_build --debug",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -16,7 +16,7 @@
 		{
 			"type": "shell",
 			"label": "build_release",
-			"command": "${workspaceFolder}/scripts/build.sh",
+			"command": "tt_build",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -28,7 +28,7 @@
 		{
 			"type": "shell",
 			"label": "mesh_view",
-			"command": "${workspaceFolder}/scripts/mesh_view.py",
+			"command": "tt_mesh_view",
 			"args": [
 				"${file}"
 			],
@@ -38,14 +38,14 @@
 		{
 			"type": "shell",
 			"label": "kill_ros",
-			"command": "${workspaceFolder}/scripts/kill_ros.sh",
+			"command": "tt_kill_ros",
 			"problemMatcher": [],
 			"group": "none"
 		},
 		{
 			"type": "shell",
 			"label": "debug_tasks",
-			"command": "ros2 launch tabletop_tasks tasks.launch.py debug_commander:=true",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py clear_cache:=true debug_commander:=true",
 			"problemMatcher": [],
 			"group": {
 				"kind": "test",
@@ -54,13 +54,20 @@
 		},
 		{
 			"type": "shell",
-			"label": "run_tasks",
-			"command": "ros2 launch tabletop_tasks tasks.launch.py",
+			"label": "launch_tasks",
+			"command": "ros2 launch tabletop_tasks tasks.launch.py clear_cache:=true",
 			"problemMatcher": [],
 			"group": {
 				"kind": "test",
 				"isDefault": true
 			}
+		},
+		{
+			"type": "shell",
+			"label": "launch_server",
+			"command": "ros2 launch tabletop_server server.launch.py",
+			"problemMatcher": [],
+			"group": "none"
 		}
 	],
 	"inputs": [
