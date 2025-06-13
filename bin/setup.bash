@@ -15,6 +15,11 @@ export PIP_BREAK_SYSTEM_PACKAGES=1
 export PATH=$HOME/.local/bin:$PATH
 export PATH=$bin_dir:$PATH
 
+# Aliases
+alias tt_server="ros2 launch tabletop_server server.launch.py"
+alias tt_commander="ros2 launch tabletop_server commander.launch.py"
+alias tt_tasks="ros2 launch tabletop_tasks tasks.launch.py"
+
 # Source ROS environment
 ros_distro=${ROS_DISTRO:-jazzy}
 source /opt/ros/${ros_distro}/setup.bash

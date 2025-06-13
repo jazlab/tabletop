@@ -2,7 +2,6 @@ import datetime
 import heapq
 import json
 import os
-import shutil
 import threading
 from collections.abc import Iterable
 from copy import deepcopy
@@ -17,8 +16,8 @@ from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import (
-    all_close_pose_stamped,
-    all_close_robot_state_positions,
+    all_close_poses_stamped,
+    all_close_robot_states,
     array_from_point_msg,
     array_from_quaternion_msg,
     euler_array_from_quaternion_msg,
@@ -250,6 +249,8 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
     database.
     """
 
+    _symlink_filename: str = "cache.db"
+
     def __init__(
         self,
         *,
@@ -261,7 +262,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         use_euler_tolerance: bool = True,
         max_trajectories: int = 1,
         filename: Optional[str] = None,
-        clear_cache: bool = False,
+        new_cache: bool = False,
     ):
         """
         Args:
@@ -279,62 +280,70 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                 each key. If the number of trajectories for a key exceeds this
                 value, the longest trajectory is removed.
             filename: The filename of the cache file. If provided, this cache
-                file is used instead of the symlinked cache file. If clear_cache
+                file is used instead of the symlinked cache file. If new_cache
                 is True, this value is ignored.
-            clear_cache: If False, the old cache file is copied to the new cache
-                file, and the symlink is updated. If True, a new, empty cache
-                file is created and the symlink is updated.
+            new_cache: If True, a new, empty cache file is created and the
+                symlink is updated. If False, the old cache file (either the
+                provided filename or the symlinked cache file) is used.
         """
         # Initialize the directory path
-        self._dir_path = os.path.abspath(os.path.expanduser(dir_path))
-        os.makedirs(self._dir_path, exist_ok=True)
+        dir_path = os.path.abspath(os.path.expanduser(dir_path))
+        os.makedirs(dir_path, exist_ok=True)
+        symlink_path = os.path.join(dir_path, self._symlink_filename)
+        old_symlink_target = None
+        new_file_path = None
 
-        # Create a new cache file and update the symlink
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        filename_new = f"{timestamp}.db"
-        path_new = os.path.join(self._dir_path, filename_new)
-        if os.path.exists(path_new):
-            raise FileExistsError(f"Cache file already exists: {path_new}")
-
-        # If clear_cache is False, copy the old file to the new file
-        if not clear_cache:
+        # If new_cache is True, create a new, empty cache file
+        if new_cache:
             if filename is not None:
-                if not os.path.isabs(filename):
-                    path = os.path.join(self._dir_path, filename)
-                else:
-                    path = filename
-                shutil.copy(path, path_new, follow_symlinks=True)
-            else:
-                if os.path.islink(self.symlink_path) and os.path.exists(
-                    self.symlink_path
-                ):
-                    shutil.copy(
-                        self.symlink_path, path_new, follow_symlinks=True
-                    )
-                else:
-                    logger.warning(
-                        "Cache file does not exist or symlink is broken, "
-                        "creating a new cache file and updating the symlink"
-                    )
+                logger.warning(
+                    "Filename is provided, but new_cache is True, "
+                    "ignoring filename"
+                )
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+            filename_new = f"{timestamp}.db"
+            new_file_path = os.path.join(dir_path, filename_new)
+            if os.path.exists(new_file_path):
+                raise FileExistsError(
+                    f"Cache file already exists: {new_file_path}"
+                )
 
-        # Update the symlink
-        old_path = None
-        if os.path.islink(self.symlink_path):
-            old_path = os.readlink(self.symlink_path)
-            os.remove(self.symlink_path)
-        elif os.path.exists(self.symlink_path):
-            raise RuntimeError(
-                f"Symlink path exists but is not a symlink: {self.symlink_path}"
-            )
-        os.symlink(filename_new, self.symlink_path)
+            # Update the symlink
+            if os.path.islink(symlink_path):
+                old_symlink_target = os.readlink(symlink_path)
+                os.remove(symlink_path)
+            elif os.path.exists(symlink_path):
+                raise RuntimeError(
+                    f"Symlink path exists but is not a symlink: {symlink_path}"
+                )
+            os.symlink(filename_new, symlink_path)
+            self._db_path = symlink_path
+        elif filename is not None:
+            if not os.path.isabs(filename):
+                filename = os.path.join(dir_path, filename)
+            if not os.path.exists(filename):
+                raise FileNotFoundError(
+                    f"Database file does not exist: {filename}"
+                )
+            self._db_path = filename
+        else:
+            if not os.path.islink(symlink_path):
+                raise RuntimeError(
+                    f"Symlink path does not exist or is not a symlink: "
+                    f"{symlink_path}"
+                )
+            if not os.path.exists(symlink_path):
+                raise FileNotFoundError(
+                    f"Symlinked database file does not exist: {symlink_path}"
+                )
+            self._db_path = symlink_path
 
         # Initialize the lock and the closed flag
         self._lock = threading.Lock()
         self._closed = True
 
         # Initialize the database
-
-        super().__init__(self.symlink_path, flag="w")
+        super().__init__(self._db_path)
 
         try:
             # Initialize the instance variables
@@ -367,10 +376,12 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         except Exception:
             # Close the cache file if there was an error while initializing
             super().close()
-            os.remove(path_new)
-            os.remove(self.symlink_path)
-            if old_path is not None:
-                os.symlink(old_path, self.symlink_path)
+            if new_file_path is not None:
+                if os.path.exists(new_file_path):
+                    os.remove(new_file_path)
+                os.remove(symlink_path)
+                if old_symlink_target is not None:
+                    os.symlink(old_symlink_target, symlink_path)
             raise
 
         # Set the closed flag to False to allow the database to be closed
@@ -495,9 +506,9 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         return self._use_euler_tolerance
 
     @property
-    def symlink_path(self) -> str:
-        """The path to the symlink to the latest database file."""
-        return os.path.join(self._dir_path, "cache.db")
+    def db_path(self) -> str:
+        """The path to the database file."""
+        return self._db_path
 
     def get_fuzzy_key(self, key: FuzzyTrajectoryCacheKey) -> str:
         """Get the fuzzy key for a given key and tolerances."""
@@ -544,7 +555,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         # Check that the trajectory start state and pose
         # are close to the true start state and pose
         if true_start_state is not None:
-            assert all_close_robot_state_positions(
+            assert all_close_robot_states(
                 trajectory_start_state,
                 true_start_state,
                 position_tolerance=self.robot_state_tolerance,
@@ -558,7 +569,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                 pose=true_start_state.get_pose(pose_link),
                 frame_id=true_start_state.robot_model.model_frame,
             )
-            assert all_close_pose_stamped(
+            assert all_close_poses_stamped(
                 trajectory_start_pose,
                 true_start_pose,
                 position_tolerance=self.position_tolerance,
@@ -573,7 +584,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         # Check that the trajectory end state and pose
         # are close to the true end state and pose
         if true_end_state is not None:
-            assert all_close_robot_state_positions(
+            assert all_close_robot_states(
                 trajectory_end_state,
                 true_end_state,
                 position_tolerance=self.robot_state_tolerance,
@@ -587,7 +598,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                 pose=true_end_state.get_pose(pose_link),
                 frame_id=true_end_state.robot_model.model_frame,
             )
-            assert all_close_pose_stamped(
+            assert all_close_poses_stamped(
                 trajectory_end_pose,
                 true_end_pose,
                 position_tolerance=self.position_tolerance,
@@ -603,7 +614,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         # are close to the true goal
         if true_goal is not None:
             if isinstance(true_goal, RobotState):
-                assert all_close_robot_state_positions(
+                assert all_close_robot_states(
                     trajectory_end_state,
                     true_goal,
                     position_tolerance=self.robot_state_tolerance,
@@ -619,7 +630,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
             else:
                 true_goal_pose = true_goal
 
-            assert all_close_pose_stamped(
+            assert all_close_poses_stamped(
                 trajectory_end_pose,
                 true_goal_pose,
                 position_tolerance=self.position_tolerance,

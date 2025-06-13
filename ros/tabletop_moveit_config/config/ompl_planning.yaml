@@ -7,9 +7,9 @@ request_adapters:
   - default_planning_request_adapters/CheckStartStateBounds
   - default_planning_request_adapters/CheckStartStateCollision
 response_adapters:
-  - default_planning_response_adapters/AddTimeOptimalParameterization
+  # - default_planning_response_adapters/AddTimeOptimalParameterization
   - default_planning_response_adapters/ValidateSolution
-  - default_planning_response_adapters/DisplayMotionPath
+  # - default_planning_response_adapters/DisplayMotionPath
 
 planner_configs:
   # Default planners
@@ -191,17 +191,24 @@ planner_configs:
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 64 # Number of hybrid paths generated per iteration
-    num_planners: 32 # The number of default planners to use for planning
+    num_planners: 16 # The number of default planners to use for planning
     # termination_condition: CostConvergence[5,0.5]
     # termination_condition: Iteration[100]
-    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
-  APSRRTstarConnect:
+    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+  APSRRTstar:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 16 # Number of hybrid paths generated per iteration
+    num_planners: 16 # The number of default planners to use for planning
+    planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar
+  APSRRTConnectstar:
+    type: geometric::AnytimePathShortening
+    shortcut: 1 # Attempt to shortcut all new solution paths
+    hybridize: 1 # Compute hybrid solution trajectories
+    max_hybrid_paths: 32 # Number of hybrid paths generated per iteration
     num_planners: 8 # The number of default planners to use for planning
-    planners: RRTstar,RRTstar,RRTstar,RRTstar
+    planners: RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
 
 ur_manipulator:
   planner_configs:
@@ -236,7 +243,8 @@ ur_manipulator:
     - APSNotPersistent
     - APSPersistent
     - APSRRTConnect
-    - APSRRTstarConnect
+    - APSRRTstar
+    - APSRRTConnectstar
   # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
   # enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005
@@ -275,7 +283,8 @@ ur_wrist_2:
     - APSNotPersistent
     - APSPersistent
     - APSRRTConnect
-    - APSRRTstarConnect
+    - APSRRTstar
+    - APSRRTConnectstar
   # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
   # enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005

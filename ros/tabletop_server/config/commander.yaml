@@ -33,20 +33,22 @@
 
     execution:
       max_attempts: 3
+      velocity_tolerance: 0.01
       velocity_scaling_factor: 1.0
       acceleration_scaling_factor: 1.0
 
     trajectory_cache:
-      use_cached_trajectories: true
+      use_cached_trajectories: false
+      freeze_cache: false
       kwargs:
         dir_path: /root/ws/src/tabletop/ros/trajectory_cache/
-        robot_state_tolerance: 0.01 # radians (~0.6 degrees)
+        robot_state_tolerance: 0.02 # radians (~0.6 degrees)
         position_tolerance: 0.01 # meters
         orientation_tolerance: 0.03 # radians (~1.7 degrees)
         use_euler_tolerance: true
         max_trajectories: 10
-        filename: 2025-06-10-07-24-00.db
-        clear_cache: false
+        filename: null
+        new_cache: false
 
     planning_scene:
       dir: /root/ws/src/tabletop/ros/planning_scene/

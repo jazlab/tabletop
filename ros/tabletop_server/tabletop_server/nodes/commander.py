@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import glob
 import hashlib
+import heapq
 import importlib
 import json
 import os
@@ -83,10 +84,12 @@ from tabletop_utils.ros import (
     MaxExecutionAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
     PlanningGoalT,
+    ServiceCallUnsuccessfulError,
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
     add_primitive_collision_object_msg,
-    all_close_pose_stamped,
+    all_close_poses_stamped,
+    arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
     matrix_from_pose_msg,
@@ -372,6 +375,10 @@ class Commander(BaseNode):
         )
 
     @property
+    def freeze_trajectory_cache(self) -> bool:
+        return self.get_parameter_wrapper("trajectory_cache.freeze_cache")
+
+    @property
     def object_grid(self) -> np.ndarray:
         """Get the object grid config from the parameters."""
         object_kwargs = self.get_parameter_wrapper(
@@ -547,7 +554,22 @@ class Commander(BaseNode):
             self.get_parameter_wrapper("dashboard.program"),
         )
         await self.dashboard_trigger("/dashboard_client/brake_release")
-        await self.dashboard_trigger("/dashboard_client/play")
+        try:
+            async with asyncio.timeout(5):
+                while True:
+                    try:
+                        await self.dashboard_trigger("/dashboard_client/play")
+                        break
+                    except ServiceCallUnsuccessfulError:
+                        self.log(
+                            "Failed attempt to play dashboard program, retrying...",
+                            severity="DEBUG",
+                        )
+                        await asyncio.sleep(0.5)
+        except TimeoutError:
+            raise TimeoutError(
+                "Failed to play dashboard program after 5 seconds"
+            ) from None
 
     ###########################################################################
     ########## Teensy Interface ###############################################
@@ -1642,13 +1664,12 @@ class Commander(BaseNode):
                     json.dumps(kwargs[key], sort_keys=True).encode("utf-8")
                 )
 
-        # TODO: Uncomment
         # Hash base link pose
-        # position, orientation = arrays_from_pose_msg(
-        #     self.get_frame_pose_stamped("base_link").pose
-        # )
-        # hash_algorithm.update(position.tobytes())
-        # hash_algorithm.update(orientation.tobytes())
+        position, orientation = arrays_from_pose_msg(
+            self.get_frame_pose_stamped("base_link").pose
+        )
+        hash_algorithm.update(position.tobytes())
+        hash_algorithm.update(orientation.tobytes())
 
         return hash_algorithm.hexdigest()
 
@@ -1659,6 +1680,8 @@ class Commander(BaseNode):
         scene configuration.
         """
         self.log("Initializing planning scene")
+
+        self.remove_all_collision_objects()
 
         config: dict[str, Any] = self.get_parameter_wrapper("planning_scene")
 
@@ -1944,7 +1967,7 @@ class Commander(BaseNode):
                 pose_stamped2, pose_stamped1.header.frame_id
             )
 
-        return all_close_pose_stamped(
+        return all_close_poses_stamped(
             pose_stamped1,
             pose_stamped2,
             position_tolerance,
@@ -2348,7 +2371,10 @@ class Commander(BaseNode):
             asyncio.CancelledError: If the execution is cancelled by the cancel_event.
         """
         self.log(
-            f"Executing trajectory for max_attempts={max_attempts}",
+            f"Executing trajectory with totg={totg}, "
+            f"velocity_scaling_factor={velocity_scaling_factor}, "
+            f"acceleration_scaling_factor={acceleration_scaling_factor}, "
+            f"max_attempts={max_attempts}",
             severity="DEBUG",
         )
 
@@ -2405,7 +2431,7 @@ class Commander(BaseNode):
         """
         cancel_event = threading.Event()
         try:
-            return await asyncio.to_thread(
+            await asyncio.to_thread(
                 self._execute_blocking,
                 *args,
                 cancel_event=cancel_event,
@@ -2413,6 +2439,18 @@ class Commander(BaseNode):
             )
         finally:
             cancel_event.set()
+            self.trajectory_execution_manager.stop_execution()
+
+        # if __debug__:
+        #     last_state = self.current_state
+        #     await asyncio.sleep(0.1)
+        #     if not all_close_robot_states(
+        #         last_state, self.current_state, position_tolerance=0.001
+        #     ):
+        #         raise RuntimeError(
+        #             "Current state changed after execution: "
+        #             f"{last_state} -> {self.current_state}"
+        #         )
 
     async def plan_and_execute(
         self,
@@ -2455,9 +2493,18 @@ class Commander(BaseNode):
         )
         return plan_response
 
-    ###########################################################################
-    ########## Trajectory caching #############################################
-    ###########################################################################
+    def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
+        """Cache the given trajectory.
+
+        Args:
+            trajectory: The trajectory to cache.
+            **kwargs: Keyword arguments to pass to `trajectory_cache.cache_trajectory()`.
+        """
+        if not self.freeze_trajectory_cache:
+            self.trajectory_cache.cache_trajectory(trajectory, **kwargs)
+            self.log("Cached trajectory successfully")
+        else:
+            self.log("Cache is frozen, skipping cache")
 
     async def plan_and_execute_cached(
         self, *args: Any, cache_trajectory: bool = True, **kwargs: Any
@@ -2483,7 +2530,7 @@ class Commander(BaseNode):
         # Attempt to get the cached trajectory, otherwise plan and execute normally
         if self.use_cached_trajectories:
             try:
-                trajectory = self.trajectory_cache.get_best_trajectory(
+                trajectories = self.trajectory_cache.get_trajectories(
                     start_state=parsed_kwargs["start_state"],
                     goal=parsed_kwargs["goal"],
                     pose_link=parsed_kwargs["pose_link"],
@@ -2495,13 +2542,26 @@ class Commander(BaseNode):
                 )
             else:
                 try:
-                    self.log("Cached trajectory found, executing")
-                    await self.execute(
-                        trajectory,
-                        max_attempts=extra_kwargs.get("max_attempts", None),
-                        totg=extra_kwargs.get("totg", True),
-                    )
-                    return
+                    self.log("Cached trajectories found, executing")
+                    num_trajectories = len(trajectories)
+                    i = 0
+                    while len(trajectories) > 0:
+                        trajectory = heapq.heappop(trajectories)
+                        try:
+                            await self.execute(
+                                trajectory,
+                                max_attempts=1,
+                                totg=extra_kwargs.get("totg", True),
+                            )
+                            return
+                        except MaxAttemptsReachedError:
+                            self.log(
+                                f"Max attempts reached while executing cached "
+                                f"trajectory {i + 1}/{num_trajectories}, "
+                                "trying next cached trajectory",
+                                severity="WARN",
+                            )
+                            i += 1
                 except MaxAttemptsReachedError:
                     self.log(
                         "Max attempts reached while executing cached trajectory, "
@@ -2532,8 +2592,7 @@ class Commander(BaseNode):
 
         # Cache the trajectory if requested
         if cache_trajectory:
-            self.trajectory_cache.cache_trajectory(**to_cache_kwargs)
-            self.log("Cached trajectory successfully")
+            self.cache_trajectory(**to_cache_kwargs)
 
         return to_cache_kwargs
 
@@ -2663,14 +2722,18 @@ class Commander(BaseNode):
                 )
                 if kwargs is not None:
                     to_cache_kwargs.append(kwargs)
-        except MaxAttemptsReachedError:
+        except MaxAttemptsReachedError as e:
             self.log(
-                "Max attempts reached while fetching object, attempting to return object",
-                severity="WARN",
+                f"Max attempts reached while fetching object: {e}",
+                severity="ERROR",
             )
-            start_idx = len(ReturnObjectPhase) - i
-            for i in range(start_idx, len(ReturnObjectPhase)):
-                await self._object_phase(object_id, ReturnObjectPhase(i))
+            self.log("Attempting to return object to mount", severity="WARN")
+            try:
+                start_idx = len(ReturnObjectPhase) - i
+                for i in range(start_idx, len(ReturnObjectPhase)):
+                    await self._object_phase(object_id, ReturnObjectPhase(i))
+            except MaxAttemptsReachedError as f:
+                raise f from e
             raise
 
         # Cache all trajectories if requested
@@ -2837,7 +2900,8 @@ class Commander(BaseNode):
             **kwargs: Keyword arguments to pass to `plan_and_execute()`.
         """
         self.log("Moving out of collision")
-        assert self.simulate, "This function is only available in simulation"
+        if not self.simulate:
+            raise RuntimeError("This function is only available in simulation")
 
         self.remove_all_collision_objects()
         await self.plan_and_execute(end_goal, **kwargs)
@@ -2848,40 +2912,29 @@ class Commander(BaseNode):
         objects to their original positions.
         """
         self.log("Resetting rig")
-        try:
-            if self.is_state_colliding():
+        if self.is_state_colliding():
+            if self.simulate:
+                await self._move_out_of_collision_simulation(end_goal)
+            else:
+                raise RuntimeError(
+                    "Robot is in collision with the scene! "
+                    "Please move the robot away from the collision objects manually."
+                )
+        else:
+            try:
+                if len(self.attached_collision_object_ids) > 0:
+                    await self.return_object()
+                else:
+                    await self.plan_and_execute(end_goal)
+            except MaxAttemptsReachedError:
                 if self.simulate:
+                    self.log(
+                        "Max attempts reached while resetting rig.",
+                        severity="WARN",
+                    )
                     await self._move_out_of_collision_simulation(end_goal)
                 else:
-                    raise RuntimeError(
-                        "Robot is in collision with the scene! "
-                        "Please move the robot away from the collision objects manually."
-                    )
-            else:
-                if len(self.attached_collision_object_ids) > 0:
-                    try:
-                        await self.return_object()
-                    except MaxAttemptsReachedError:
-                        if self.simulate:
-                            await self._move_out_of_collision_simulation(
-                                end_goal
-                            )
-                        else:
-                            raise
-                else:
-                    self.log(
-                        f"No attached collision objects, moving to {end_goal}"
-                    )
-                    await self.plan_and_execute(end_goal)
-        except MaxAttemptsReachedError:
-            self.log(
-                "Max attempts reached while resetting rig, "
-                "reinitializing planning scene",
-                severity="WARN",
-            )
-            self.remove_all_collision_objects()
-            await self.plan_and_execute(end_goal)
-            self.init_planning_scene()
+                    raise
 
     async def reset_commander(self, timeout: Optional[float] = None):
         """Reset the dashboard and the robot until successful or timeout.
@@ -2936,7 +2989,11 @@ class Commander(BaseNode):
             )
             self.log(f"{exc_type.__name__}: {exc_value}", severity="ERROR")
             self.log(f"Traceback: {exc_tb}", severity="DEBUG")
-            await self.reset_commander()
+            self.log(
+                "Waiting 15 seconds before resetting commander...",
+                severity="WARN",
+            )
+            await self.reset_rig()
             return True
         return False
 
@@ -2964,8 +3021,10 @@ class Commander(BaseNode):
 
     def destroy_node(self):
         self.log("Destroying commander node", severity="DEBUG")
-        self.trajectory_cache.close()
-        self.moveit_py.shutdown()
+        if hasattr(self, "trajectory_cache"):
+            self.trajectory_cache.close()
+        if hasattr(self, "moveit_py"):
+            self.moveit_py.shutdown()
         super().destroy_node()
 
     def __del__(self):

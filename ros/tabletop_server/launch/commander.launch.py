@@ -83,7 +83,7 @@ def declare_arguments():
             description="Coroutine config",
         ),
         DeclareLaunchArgument(
-            "clear_cache",
+            "new_cache",
             default_value="null",
             description="Whether to clear the trajectory cache",
             choices=["true", "false", "null"],
@@ -109,7 +109,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "moveit_log_level",
-            default_value="FATAL",
+            default_value="ERROR",
             description="MoveIt log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
@@ -139,7 +139,7 @@ def generate_launch_description():
     coroutine_module = LaunchConfiguration("coroutine_module")
     coroutine_name = LaunchConfiguration("coroutine_name")
     coroutine_config = LaunchConfiguration("coroutine_config")
-    clear_cache = LaunchConfiguration("clear_cache")
+    new_cache = LaunchConfiguration("new_cache")
 
     # ROS Warehouse
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
@@ -161,7 +161,7 @@ def generate_launch_description():
 
     # Conditional substitutions
     simulate_commander = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "real"), "false", "true"
+        EqualsSubstitution(robot_mode, "mock"), "true", "false"
     )
 
     commander_overrides_path = "/tmp/commander_overrides.yaml"
@@ -174,10 +174,10 @@ def generate_launch_description():
         commander_overrides["simulate"] = simulate
 
         # Clear cache
-        clear_cache_value = clear_cache.perform(context)
-        if clear_cache_value != "null":
-            commander_overrides["trajectory_cache.kwargs.clear_cache"] = (
-                clear_cache_value == "true"
+        new_cache_value = new_cache.perform(context)
+        if new_cache_value != "null":
+            commander_overrides["trajectory_cache.kwargs.new_cache"] = (
+                new_cache_value == "true"
             )
 
         # Save the scoped overrides

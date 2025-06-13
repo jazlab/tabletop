@@ -132,15 +132,11 @@ class MaxPlanningAttemptsReachedError(MaxAttemptsReachedError):
         self.error_codes = [
             response.error_code.val for response in plan_responses
         ]
-        if all(
-            self.error_codes[i] == self.error_codes[0]
-            for i in range(1, len(self.error_codes))
-        ):
+        if all(code == self.error_codes[0] for code in self.error_codes):
             error_code_str = f"same error code: {MOVEIT_ERROR_CODE_MAP[self.error_codes[0]]}"
         else:
             error_code_strs = [
-                MOVEIT_ERROR_CODE_MAP[error_code]
-                for error_code in self.error_codes
+                MOVEIT_ERROR_CODE_MAP[code] for code in self.error_codes
             ]
             error_code_str = f"different error codes: {error_code_strs}"
         self.max_attempts = max_attempts
@@ -157,9 +153,16 @@ class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
     ):
         self.execution_statuses = execution_statuses
         self.max_attempts = max_attempts
-        status_strs = [f"{status.status}" for status in execution_statuses]
+        if all(
+            status.status == execution_statuses[0].status
+            for status in execution_statuses
+        ):
+            status_str = f"same status: {execution_statuses[0].status}"
+        else:
+            status_strs = [f"{status.status}" for status in execution_statuses]
+            status_str = f"different statuses: {status_strs}"
         super().__init__(
-            f"Max execution attempts ({max_attempts}) reached with statuses: {status_strs}"
+            f"Max execution attempts ({max_attempts}) reached with {status_str}"
         )
 
 
@@ -512,7 +515,7 @@ def all_close_poses(
     return all_close_positions and all_close_orientations
 
 
-def all_close_pose_stamped(
+def all_close_poses_stamped(
     pose_stamped1: PoseStamped,
     pose_stamped2: PoseStamped,
     *args: Any,
@@ -536,7 +539,7 @@ def all_close_pose_stamped(
     )
 
 
-def all_close_robot_state_positions(
+def all_close_robot_states(
     state1: RobotState,
     state2: RobotState,
     position_tolerance: float | Iterable[float] | np.ndarray,

@@ -1,23 +1,24 @@
 <?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
     <name>tabletop</name>
     <version>0.0.0</version>
-    <description>
-        Meta package for ROS2 related packages in the TableTop project.
-    </description>
+    <description> Meta package for ROS2 related packages in the TableTop project. </description>
 
     <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
     <license>MIT</license>
 
+    <buildtool_depend>ament_cmake</buildtool_depend>
 
     <exec_depend>tabletop_description</exec_depend>
+    <exec_depend>tabletop_moveit_config</exec_depend>
+    <exec_depend>tabletop_msgs</exec_depend>
+    <exec_depend>tabletop_utils</exec_depend>
+    <exec_depend>tabletop_teensy</exec_depend>
     <exec_depend>tabletop_server</exec_depend>
     <exec_depend>tabletop_tasks</exec_depend>
-    <exec_depend>tabletop_msgs</exec_depend>
-    <exec_depend>tabletop_moveit_config</exec_depend>
-
 
     <export>
-        <metapackage />
+        <build_type>ament_cmake</build_type>
     </export>
 </package>
