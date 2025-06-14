@@ -14,9 +14,18 @@ planning_pipelines:
     # - chomp
     # - stomp
 
+ompl_rrt_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: CustomRRTstar
+    planning_time: 3.0
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+
 ompl_aps_rrtc:
   plan_request_params:
-    planning_attempts: 10
+    planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnect
     planning_time: 3.0
@@ -25,7 +34,7 @@ ompl_aps_rrtc:
 
 ompl_aps_rrt_star:
   plan_request_params:
-    planning_attempts: 5
+    planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTstar
     planning_time: 3.0
@@ -34,7 +43,7 @@ ompl_aps_rrt_star:
 
 ompl_aps_rrtc_star:
   plan_request_params:
-    planning_attempts: 10
+    planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnectstar
     planning_time: 3.0
@@ -47,8 +56,8 @@ pilz_lin:
     planning_pipeline: pilz_industrial_motion_planner
     planner_id: LIN
     planning_time: 0.1
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.2
+    max_velocity_scaling_factor: 0.01
+    max_acceleration_scaling_factor: 0.01
 
 pilz_ptp:
   plan_request_params:

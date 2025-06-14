@@ -7,6 +7,8 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    EqualsSubstitution,
+    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -33,12 +35,29 @@ def declare_arguments():
 
 def generate_launch_description():
     launch_server = LaunchConfiguration("launch_server")
-    task_config = PathJoinSubstitution(
-        [
-            FindPackageShare("tabletop_tasks"),
-            "config",
-            LaunchConfiguration("task_config"),
-        ]
+    task_config = LaunchConfiguration("task_config")
+
+    coroutine_config = IfElseSubstitution(
+        EqualsSubstitution(task_config, "null"),
+        if_value="null",
+        else_value=PathJoinSubstitution(
+            [
+                FindPackageShare("tabletop_tasks"),
+                "config",
+                task_config,
+            ]
+        ),
+    )
+    coroutine_module = IfElseSubstitution(
+        EqualsSubstitution(task_config, "null"),
+        if_value="null",
+        else_value="tabletop_tasks",
+    )
+
+    coroutine_name = IfElseSubstitution(
+        EqualsSubstitution(task_config, "null"),
+        if_value="null",
+        else_value="run_tasks",
     )
 
     # Set ROS Log Directory
@@ -60,9 +79,9 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={
-                    "coroutine_module": "tabletop_tasks",
-                    "coroutine_name": "run_tasks",
-                    "coroutine_config": task_config,
+                    "coroutine_module": coroutine_module,
+                    "coroutine_name": coroutine_name,
+                    "coroutine_config": coroutine_config,
                 }.items(),
             ),
         ],

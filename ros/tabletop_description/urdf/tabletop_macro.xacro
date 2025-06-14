@@ -18,15 +18,18 @@
     force_abs_paths
     ">
 
-    <xacro:property name="robot_offset_xyz" value="1.2468 1.0832 0.2685" />
-    <xacro:property name="robot_offset_rpy" value="0 0 0" />
+    <!-- <xacro:property name="robot_offset_xyz" value="1.2468 1.0832 0.2685" /> -->
+    <!-- <xacro:property name="robot_offset_xyz" value="1.2482 1.0588 0.3342" /> -->
+    <!-- <xacro:property name="robot_offset_xyz" value="1.247 1.1279 0.309" /> -->
+    <xacro:property name="robot_offset_xyz" value="1.2504 1.0625 0.3085" />
+    <xacro:property name="robot_offset_rpy" value="0 0 -1.5707" />
     <xacro:property name="eef_offset_xyz" value="0 0 -0.005" />
     <xacro:property name="eef_offset_rpy" value="0 0 0" />
 
     <!-- world -->
     <link name="world" />
 
-    <!-- arm -->
+    <!-- robot -->
     <xacro:ur_robot
       name="${name}"
       tf_prefix="${tf_prefix}"
@@ -51,15 +54,5 @@
       <origin xyz="${eef_offset_xyz}" rpy="${eef_offset_rpy}" />
     </xacro:eef>
 
-    <!-- scene -->
-    <!-- <xacro:scene
-      tf_prefix="${tf_prefix}"
-      parent="world"
-    >
-      <origin xyz="0 0 0" rpy="0 0 0" />
-    </xacro:scene> -->
-
-
-    <!-- <origin xyz="0.843 -0.891 0.85886" rpy="0 0 0" /> -->
   </xacro:macro>
 </robot>

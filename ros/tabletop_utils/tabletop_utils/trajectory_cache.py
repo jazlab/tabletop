@@ -254,19 +254,18 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
     def __init__(
         self,
         *,
-        dir_path: str,
+        path: str,
         rig_hash: str,
         robot_state_tolerance: float | RobotStateToleranceT,
         position_tolerance: float | PositionToleranceT,
         orientation_tolerance: float | OrientationToleranceT,
         use_euler_tolerance: bool = True,
         max_trajectories: int = 1,
-        filename: Optional[str] = None,
         new_cache: bool = False,
     ):
         """
         Args:
-            dir_path: The directory path of the cache.
+            path: The path of the cache.
             rig_hash: The hash of the rig.
             robot_state_tolerance: The joint angle tolerance for the cache. If
                 a single float is provided, it is used for all 6 joints.
@@ -279,34 +278,42 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
             max_trajectories: The maximum number of trajectories to store for
                 each key. If the number of trajectories for a key exceeds this
                 value, the longest trajectory is removed.
-            filename: The filename of the cache file. If provided, this cache
-                file is used instead of the symlinked cache file. If new_cache
-                is True, this value is ignored.
             new_cache: If True, a new, empty cache file is created and the
                 symlink is updated. If False, the old cache file (either the
                 provided filename or the symlinked cache file) is used.
         """
-        # Initialize the directory path
-        dir_path = os.path.abspath(os.path.expanduser(dir_path))
-        os.makedirs(dir_path, exist_ok=True)
-        symlink_path = os.path.join(dir_path, self._symlink_filename)
-        old_symlink_target = None
-        new_file_path = None
+        # Initialize the path
+        path = os.path.abspath(os.path.expanduser(path))
+        if not os.path.exists(path):
+            new_cache = True
+            _, ext = os.path.splitext(path)
+            if ext == "":
+                os.makedirs(path)
+            elif ext != ".db":
+                raise ValueError(f"Invalid cache file extension: {ext}")
+        elif not os.path.isdir(path) and new_cache:
+            raise ValueError(
+                "Cannot create a new cache file if path is not a directory"
+            )
 
-        # If new_cache is True, create a new, empty cache file
+        if os.path.isdir(path):
+            symlink_path = os.path.join(path, self._symlink_filename)
+        else:
+            symlink_path = None
+
+        new_path: str | None = None
+        old_symlink_target: str | None = None
+
         if new_cache:
-            if filename is not None:
-                logger.warning(
-                    "Filename is provided, but new_cache is True, "
-                    "ignoring filename"
-                )
+            assert os.path.isdir(path)
+            assert symlink_path is not None
+
+            # Create a new, empty cache file with a timestamp
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-            filename_new = f"{timestamp}.db"
-            new_file_path = os.path.join(dir_path, filename_new)
-            if os.path.exists(new_file_path):
-                raise FileExistsError(
-                    f"Cache file already exists: {new_file_path}"
-                )
+            filename = f"{timestamp}.db"
+            new_path = os.path.join(path, filename)
+            if os.path.exists(new_path):
+                raise FileExistsError(f"Cache file already exists: {new_path}")
 
             # Update the symlink
             if os.path.islink(symlink_path):
@@ -316,17 +323,10 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                 raise RuntimeError(
                     f"Symlink path exists but is not a symlink: {symlink_path}"
                 )
-            os.symlink(filename_new, symlink_path)
+            os.symlink(filename, symlink_path)
             self._db_path = symlink_path
-        elif filename is not None:
-            if not os.path.isabs(filename):
-                filename = os.path.join(dir_path, filename)
-            if not os.path.exists(filename):
-                raise FileNotFoundError(
-                    f"Database file does not exist: {filename}"
-                )
-            self._db_path = filename
-        else:
+        elif os.path.isdir(path):
+            assert symlink_path is not None
             if not os.path.islink(symlink_path):
                 raise RuntimeError(
                     f"Symlink path does not exist or is not a symlink: "
@@ -337,6 +337,8 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                     f"Symlinked database file does not exist: {symlink_path}"
                 )
             self._db_path = symlink_path
+        else:
+            self._db_path = path
 
         # Initialize the lock and the closed flag
         self._lock = threading.Lock()
@@ -376,9 +378,11 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         except Exception:
             # Close the cache file if there was an error while initializing
             super().close()
-            if new_file_path is not None:
-                if os.path.exists(new_file_path):
-                    os.remove(new_file_path)
+            if new_cache:
+                assert new_path is not None
+                assert symlink_path is not None
+                if os.path.exists(new_path):
+                    os.remove(new_path)
                 os.remove(symlink_path)
                 if old_symlink_target is not None:
                     os.symlink(old_symlink_target, symlink_path)

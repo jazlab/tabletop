@@ -190,25 +190,30 @@ planner_configs:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
-    max_hybrid_paths: 64 # Number of hybrid paths generated per iteration
+    max_hybrid_paths: 8 # Number of hybrid paths generated per iteration
     num_planners: 16 # The number of default planners to use for planning
     # termination_condition: CostConvergence[5,0.5]
     # termination_condition: Iteration[100]
-    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    planners: RRTConnect[range=0.0 goal_bias=0.05]
   APSRRTstar:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
-    max_hybrid_paths: 16 # Number of hybrid paths generated per iteration
+    max_hybrid_paths: 8 # Number of hybrid paths generated per iteration
     num_planners: 16 # The number of default planners to use for planning
-    planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar
+    planners: RRTstar[range=30.0 goal_bias=0.05 delay_collision_checking=1]
   APSRRTConnectstar:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
     hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 32 # Number of hybrid paths generated per iteration
-    num_planners: 8 # The number of default planners to use for planning
-    planners: RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    num_planners: 16 # The number of default planners to use for planning
+    planners: RRTstar,RRTstar,RRTstar,RRTstar
+  CustomRRTstar:
+    type: geometric::RRTstar
+    range: 30.0 # Max motion added to tree. ==> maxDistance_ default: 0.0, if 0.0, set on setup()
+    goal_bias: 0.05 # When close to goal select goal, with this probability? default: 0.05
+    delay_collision_checking: 1 # Stop collision checking as soon as C-free parent found. default 1
 
 ur_manipulator:
   planner_configs:
@@ -245,46 +250,7 @@ ur_manipulator:
     - APSRRTConnect
     - APSRRTstar
     - APSRRTConnectstar
-  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
-  # enforce_constrained_state_space: true
-  longest_valid_segment_fraction: 0.005
-  # maximum_waypoint_distance: 0.005
-
-ur_wrist_2:
-  planner_configs:
-    - AnytimePathShortening
-    - SBL
-    - EST
-    - LBKPIECE
-    - BKPIECE
-    - KPIECE
-    - RRT
-    - RRTConnect
-    - RRTstar
-    - TRRT
-    - PRM
-    - PRMstar
-    - FMT
-    - BFMT
-    - PDST
-    - STRIDE
-    - BiTRRT
-    - LBTRRT
-    - BiEST
-    - ProjEST
-    - LazyPRM
-    - LazyPRMstar
-    - SPARS
-    - SPARStwo
-    - PersistentPRMstar
-    - PersistentLoadingPRM
-    - PersistentLazyPRMstar
-    - PersistentLoadingLazyPRM
-    - APSNotPersistent
-    - APSPersistent
-    - APSRRTConnect
-    - APSRRTstar
-    - APSRRTConnectstar
+    - CustomRRTstar
   # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
   # enforce_constrained_state_space: true
   longest_valid_segment_fraction: 0.005

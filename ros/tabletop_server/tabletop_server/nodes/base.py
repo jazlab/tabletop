@@ -71,10 +71,7 @@ class BaseNode(Node):
                 case _:
                     raise ValueError(f"Invalid severity: {severity}")
         else:
-            if (
-                LoggingSeverity[severity]
-                >= self.get_logger().get_effective_level()
-            ):
+            if LoggingSeverity[severity] >= self.log_level:
                 print(f"{severity}: {message}")
 
     @property

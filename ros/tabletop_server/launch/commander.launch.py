@@ -3,6 +3,7 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
+    SetEnvironmentVariable,
     Shutdown,
 )
 from launch.substitutions import (
@@ -88,6 +89,12 @@ def declare_arguments():
             description="Whether to clear the trajectory cache",
             choices=["true", "false", "null"],
         ),
+        DeclareLaunchArgument(
+            "optimize_python",
+            default_value="false",
+            description="Whether to optimize the Python code for the commander with the PYTHONOPTIMIZE environment variable",
+            choices=["true", "false"],
+        ),
         # ROS Warehouse
         DeclareLaunchArgument(
             "warehouse_sqlite_path",
@@ -109,7 +116,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "moveit_log_level",
-            default_value="ERROR",
+            default_value="WARN",
             description="MoveIt log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
@@ -140,6 +147,7 @@ def generate_launch_description():
     coroutine_name = LaunchConfiguration("coroutine_name")
     coroutine_config = LaunchConfiguration("coroutine_config")
     new_cache = LaunchConfiguration("new_cache")
+    optimize_python = LaunchConfiguration("optimize_python")
 
     # ROS Warehouse
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
@@ -210,6 +218,31 @@ def generate_launch_description():
         "warehouse_host": warehouse_sqlite_path,
     }
 
+    # Python Optimize
+    optimize_python_action = SetEnvironmentVariable(
+        name="PYTHONOPTIMIZE",
+        value=IfElseSubstitution(
+            EqualsSubstitution(optimize_python, "true"), "1", "0"
+        ),
+    )
+
+    logger_levels = [
+        ["moveit_py:=", moveit_py_log_level],
+        ["commander:=", commander_log_level],
+        ["trajectory_cache:=", commander_log_level],
+        "rcl:=FATAL",
+        "rcl_action:=FATAL",
+        "rclcpp:=FATAL",
+        "rclcpp_action:=FATAL",
+        "pluginlib.ClassLoader:=FATAL",
+        "rmw_fastrtps_cpp:=FATAL",
+        "trac_ik_kinematics_plugin:=FATAL",
+    ]
+    logger_levels_args = []
+    for logger in logger_levels:
+        logger_levels_args.append("--log-level")
+        logger_levels_args.append(logger)
+
     # Commander Node
     commander = Node(
         package="tabletop_server",
@@ -227,12 +260,7 @@ def generate_launch_description():
         ros_arguments=[
             "--log-level",
             moveit_log_level,
-            "--log-level",
-            ["moveit_py:=", moveit_py_log_level],
-            "--log-level",
-            ["commander:=", commander_log_level],
-            "--log-level",
-            ["trajectory_cache:=", commander_log_level],
+            *logger_levels_args,
         ],
         arguments=[
             IfElseSubstitution(
@@ -263,6 +291,11 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    launch_actions = [set_ros_log_dir, commander_overrides_action, commander]
+    launch_actions = [
+        set_ros_log_dir,
+        commander_overrides_action,
+        optimize_python_action,
+        commander,
+    ]
 
     return LaunchDescription(declare_arguments() + launch_actions)

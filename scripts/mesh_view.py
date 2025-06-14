@@ -62,6 +62,13 @@ def main():
     elif args.simplification is not None:
         raise ValueError(f"Unsupported simplification: {args.simplification}")
 
+    print(f"Summary after {args.simplification} simplification:")
+    print(f"Geometry: {geometry}")
+    print(f"Extents: {geometry.extents}")
+    num_vertices, num_faces = count_vertices_faces(geometry)
+    print(f"Number of vertices: {num_vertices}")
+    print(f"Number of faces: {num_faces}")
+
     if args.rpy is not None or args.translation is not None:
         rotation = (
             euler_matrix(args.rpy[0], args.rpy[1], args.rpy[2], "sxyz")

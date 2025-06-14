@@ -74,5 +74,5 @@ class OrderedChoice(BaseTrialGenerator):
 
     def send(self, feedback: TrialFeedback) -> None:
         """Send feedback."""
-        if feedback.next_trial_spec:
-            self._trial_counter += 1
+        # if feedback.next_trial_spec:
+        self._trial_counter += 1

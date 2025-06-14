@@ -16,7 +16,7 @@
       spin_period: 0.05
 
     planning:
-      max_attempts: 10
+      max_attempts: 3
       group_name: ur_manipulator
       default_pipeline: ompl_aps_rrt_star
       linear_pipeline: pilz_lin
@@ -33,21 +33,23 @@
 
     execution:
       max_attempts: 3
-      velocity_tolerance: 0.01
-      velocity_scaling_factor: 1.0
-      acceleration_scaling_factor: 1.0
+      totg:
+        velocity_scaling_factor: 1.0
+        acceleration_scaling_factor: 1.0
+        path_tolerance: 0.1
+        resample_dt: 0.05
+        min_angle_change: 0.001
 
     trajectory_cache:
-      use_cached_trajectories: false
+      use_cached_trajectories: true
       freeze_cache: false
       kwargs:
-        dir_path: /root/ws/src/tabletop/ros/trajectory_cache/
+        path: /root/ws/src/tabletop/ros/trajectory_cache/
         robot_state_tolerance: 0.02 # radians (~0.6 degrees)
         position_tolerance: 0.01 # meters
         orientation_tolerance: 0.03 # radians (~1.7 degrees)
         use_euler_tolerance: true
         max_trajectories: 10
-        filename: null
         new_cache: false
 
     planning_scene:
@@ -61,36 +63,69 @@
           allowed_collision_ids:
             - base_link_inertia
             - sphere
+        front_wall:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
+          coef: [0.0, 1.0, 0.0, 0.0635]
+          allowed_collision_ids:
+            - sphere
+        back_wall:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
+          coef: [0.0, 1.0, 0.0, 1.8923]
+          allowed_collision_ids:
+            - sphere
+        left_wall:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
+          coef: [1.0, 0.0, 0.0, 0.0381]
+          allowed_collision_ids:
+            - sphere
+        right_wall:
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
+          coef: [1.0, 0.0, 0.0, 1.8669]
+          allowed_collision_ids:
+            - sphere
       primitives:
         left_robot_box:
           pose_stamped:
-            position: [0.3583, 1.0832, 0.5685]
+            position: [0.38, 1.0625, 0.61]
           type: BOX
           dimensions: [0.8, 0.4, 0.6]
           allowed_collision_ids:
             - sphere
-          color: [0.0, 0.0, 1.0, 0.5]
-        # divider:
-        #   type: BOX
-        #   dimensions: [0.05, 1.0, 1.0]
-        #   pose_stamped:
-        #     position: [0.9335, 1.1462, 0.7685]
-        #   allowed_collision_ids:
-        #     - sphere
-        #   color: [0.0, 0.0, 0.0, 0.2]
+          color: [1.0, 0.0, 0.0, 0.2]
+        robot_platform:
+          type: BOX
+          dimensions: [0.92, 0.92, 0.31]
+          pose_stamped:
+            position: [0.9525, 1.0625, 0.155]
+          allowed_collision_ids:
+            - base_link_inertia
+            - sphere
+          color: [1.0, 1.0, 1.0, 1.0]
+        box_0:
+          type: BOX
+          dimensions: [0.5, 0.4, 1.9812]
+          pose_stamped:
+            position: [1.655, 0.2, 0.9906]
+          allowed_collision_ids:
+            - sphere
+          color: [1.0, 0.0, 0.0, 0.2]
       rig_meshes:
         rig:
           pose_stamped:
             position: [0.0, 0.0, 0.0]
           path: $(find-pkg-share tabletop_moveit_config)/meshes/rig/rig.dae
-          simplification: convex_hull
+          simplification: bounding_primitive
           allowed_collision_ids:
             - base_link_inertia
             - sphere
-          color: pink
+          color: [1.0, 1.0, 1.0, 0.5]
       object_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/objects/
-        origin: [0.2809, 0.7632, 1.2104]
+        origin: [0.282, 0.7652, 1.1845]
         delta: [0.1489, 0.314, 0.0]
         common_kwargs:
           allowed_collision_ids:
@@ -193,3 +228,4 @@
         # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
         # x width of rig = 1.8288
         # radius of robot_base ~= 0.075
+        # current_offset = array([ 0.00139239, -0.02443377,  0.06574952])

@@ -88,6 +88,24 @@ SOLID_PRIMITIVE_TYPE_MAP = {
 }
 """Solid primitive type map from type name to solid primitive type."""
 
+# ROS message utilities
+
+
+def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
+    """Convert a ROS message to a dictionary."""
+    if isinstance(msg, Mapping):
+        return {k: msg_to_dict(v) for k, v in msg.items()}
+    elif is_iterable(msg):
+        return [msg_to_dict(item) for item in msg]
+    elif hasattr(msg, "get_fields_and_field_types"):
+        return {
+            field: msg_to_dict(getattr(msg, field))
+            for field in msg.get_fields_and_field_types().keys()
+        }
+    else:
+        return msg
+
+
 # Protocol definitions
 
 
@@ -166,6 +184,15 @@ class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
         )
 
 
+class InvalidTrajectoryError(Exception):
+    """Invalid trajectory."""
+
+    def __init__(self, trajectory: RobotTrajectory, invalid_index: list[int]):
+        self.trajectory = trajectory
+        self.invalid_index = invalid_index
+        super().__init__(f"Invalid trajectory at indices: {invalid_index}")
+
+
 CommanderRecoverableErrors = (
     TimeoutError,
     ServiceCallError,
@@ -173,6 +200,7 @@ CommanderRecoverableErrors = (
     MaxAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
     MaxExecutionAttemptsReachedError,
+    InvalidTrajectoryError,
 )
 
 
@@ -228,21 +256,6 @@ def validate_service_response(
             f"unsuccessfully with response: {msg_to_dict(response)}"
         )
         raise ServiceCallUnsuccessfulError(error_msg)
-
-
-def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
-    """Convert a ROS message to a dictionary."""
-    if isinstance(msg, Mapping):
-        return {k: msg_to_dict(v) for k, v in msg.items()}
-    elif is_iterable(msg):
-        return [msg_to_dict(item) for item in msg]
-    elif hasattr(msg, "get_fields_and_field_types"):
-        return {
-            field: msg_to_dict(getattr(msg, field))
-            for field in msg.get_fields_and_field_types().keys()
-        }
-    else:
-        return msg
 
 
 # Geometric ROS2 message utilities

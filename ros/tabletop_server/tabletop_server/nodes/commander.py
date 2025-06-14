@@ -80,6 +80,7 @@ from tabletop_utils.mesh import (
 from tabletop_utils.ros import (
     MOVEIT_ERROR_CODE_MAP,
     CommanderRecoverableErrors,
+    InvalidTrajectoryError,
     MaxAttemptsReachedError,
     MaxExecutionAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
@@ -196,8 +197,8 @@ class Commander(BaseNode):
         "planning.pre_attach_offset",
         "planning.post_attach_offset",
         "execution.max_attempts",
-        "execution.velocity_scaling_factor",
-        "execution.acceleration_scaling_factor",
+        "execution.totg.velocity_scaling_factor",
+        "execution.totg.acceleration_scaling_factor",
         "trajectory_cache",
         "planning_scene.dir",
         "planning_scene.use_saved_scene",
@@ -540,7 +541,7 @@ class Commander(BaseNode):
             timeout=timeout,
         )
 
-    async def reset_dashboard(self):
+    async def reset_dashboard(self, play_timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
         await self.wait_for_dashboard()
@@ -555,7 +556,7 @@ class Commander(BaseNode):
         )
         await self.dashboard_trigger("/dashboard_client/brake_release")
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(play_timeout):
                 while True:
                     try:
                         await self.dashboard_trigger("/dashboard_client/play")
@@ -565,7 +566,7 @@ class Commander(BaseNode):
                             "Failed attempt to play dashboard program, retrying...",
                             severity="DEBUG",
                         )
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(5)
         except TimeoutError:
             raise TimeoutError(
                 "Failed to play dashboard program after 5 seconds"
@@ -1665,11 +1666,10 @@ class Commander(BaseNode):
                 )
 
         # Hash base link pose
-        position, orientation = arrays_from_pose_msg(
+        position, _ = arrays_from_pose_msg(
             self.get_frame_pose_stamped("base_link").pose
         )
         hash_algorithm.update(position.tobytes())
-        hash_algorithm.update(orientation.tobytes())
 
         return hash_algorithm.hexdigest()
 
@@ -1991,7 +1991,9 @@ class Commander(BaseNode):
         pose_link: Optional[str] = None,
         planning_pipeline: str | list[str] = "default",
         path_constraints: Optional[Constraints] = None,
-        **extra_kwargs: Any,
+        max_plan_attempts: Optional[int] = None,
+        planning_scene: Optional[PlanningScene] = None,
+        **unused_kwargs: Any,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Parse the planning kwargs.
 
@@ -2002,7 +2004,10 @@ class Commander(BaseNode):
             pose_link: The link to use for the goal pose.
             planning_pipeline: The planning pipeline to use.
             path_constraints: The path constraints to use.
-            **extra_kwargs: Additional keyword arguments that are not used.
+            max_plan_attempts: The maximum number of planning attempts.
+            planning_scene: The planning scene to use.
+            **unused_kwargs: Additional keyword arguments that are not used for
+                planning.
 
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
@@ -2014,7 +2019,9 @@ class Commander(BaseNode):
             f"pose_link {pose_link}, "
             f"planning_pipeline {planning_pipeline}, "
             f"path_constraints {path_constraints}, "
-            f"extra_kwargs {extra_kwargs}",
+            f"max_plan_attempts {max_plan_attempts}, "
+            f"planning_scene {planning_scene}, "
+            f"unused_kwargs {unused_kwargs}",
             severity="DEBUG",
         )
 
@@ -2065,6 +2072,11 @@ class Commander(BaseNode):
         if len(planning_pipeline) == 1:
             planning_pipeline = planning_pipeline[0]
 
+        if max_plan_attempts is None:
+            max_plan_attempts = cast(
+                int, self.get_parameter_wrapper("planning.max_attempts")
+            )
+
         return {
             "goal": goal,
             "start_state": start_state,
@@ -2072,7 +2084,19 @@ class Commander(BaseNode):
             "group_name": group_name,
             "planning_pipeline": planning_pipeline,
             "path_constraints": path_constraints,
-        }, extra_kwargs
+            "max_plan_attempts": max_plan_attempts,
+            "planning_scene": planning_scene,
+        }, unused_kwargs
+
+    def _parse_plan_and_execute_args(
+        self,
+        goal: PlanningGoalT,
+        **kwargs: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Parse the planning and execute kwargs."""
+        plan_kwargs, execute_kwargs = self._parse_plan_args(goal, **kwargs)
+        execute_kwargs["group_name"] = plan_kwargs["group_name"]
+        return plan_kwargs, execute_kwargs
 
     def _get_planning_component_and_request_params(
         self,
@@ -2185,20 +2209,19 @@ class Commander(BaseNode):
 
     def _plan_blocking(
         self,
-        *args: Any,
-        planning_component: Optional[PlanningComponent] = None,
-        request_params: Optional[
-            PlanRequestParameters | MultiPipelinePlanRequestParameters
-        ] = None,
+        goal: PlanningGoalT,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+        parse_kwargs: bool = True,
         **kwargs: Any,
     ) -> MotionPlanResponse:
         """
-        Plan a trajectory to the given waypoint, retrying up to max_attempts
+        Plan a trajectory to the given waypoint, retrying up to max_plan_attempts
         times until successful.
 
         Args:
-            *args: Additional positional arguments to pass to `_parse_plan_args()`.
-            max_attempts: The maximum number of planning attempts.
+            goal: The goal to plan for.
+            parse_kwargs: Whether to parse the kwargs.
             cancel_event: An event that can be used to cancel planning.
             **kwargs: Additional keyword arguments to pass to `_parse_plan_args()`.
         Returns:
@@ -2214,47 +2237,28 @@ class Commander(BaseNode):
                 implementation details
         """
         self.log(
-            f"Planning trajectory with planning component {planning_component}, "
-            f"request params {request_params}, "
-            f"args {args}, kwargs {kwargs}",
+            f"Planning trajectory with goal {goal}, kwargs {kwargs}",
             severity="DEBUG",
         )
 
-        # Parse the planning args and get the planning component and request
-        # parameters if not provided
-        if planning_component is None:
-            if request_params is not None:
-                raise ValueError(
-                    "request_params must not be provided if planning_component is not provided"
-                )
-            parsed_kwargs, kwargs = self._parse_plan_args(*args, **kwargs)
-            planning_component, request_params = (
-                self._get_planning_component_and_request_params(
-                    **parsed_kwargs
-                )
-            )
-        elif request_params is None:
-            raise ValueError(
-                "request_params must be provided if planning_component is provided"
-            )
+        # Parse the planning args if requested
+        if parse_kwargs:
+            kwargs, unused_kwargs = self._parse_plan_args(goal, **kwargs)
+            assert len(unused_kwargs) == 0, f"Unused kwargs: {unused_kwargs}"
+        else:
+            kwargs["goal"] = goal
 
-        # Get the unused kwargs
-        max_attempts: int | None = kwargs.pop("max_attempts", None)
-        cancel_event: threading.Event | None = kwargs.pop("cancel_event", None)
-        planning_scene: PlanningScene | None = kwargs.pop(
-            "planning_scene", None
+        max_plan_attempts = kwargs.pop("max_plan_attempts")
+        planning_scene = kwargs.pop("planning_scene")
+
+        # Get the planning component and request parameters
+        planning_component, request_params = (
+            self._get_planning_component_and_request_params(**kwargs)
         )
-        assert len(kwargs) == 0, f"Unused kwargs: {kwargs}"
-
-        # Get the maximum number of planning attempts
-        if max_attempts is None:
-            max_attempts = cast(
-                int, self.get_parameter_wrapper("planning.max_attempts")
-            )
 
         # Plan until successful or max attempts reached
         plan_responses = []
-        for i in range(max_attempts):
+        for i in range(max_plan_attempts):
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Plan cancelled")
 
@@ -2265,7 +2269,7 @@ class Commander(BaseNode):
                 self.log_plan_response(
                     plan_response,
                     attempt=i,
-                    max_attempts=max_attempts,
+                    max_attempts=max_plan_attempts,
                     severity="DEBUG",
                 )
                 break
@@ -2274,13 +2278,13 @@ class Commander(BaseNode):
                 self.log_plan_response(
                     plan_response,
                     attempt=i,
-                    max_attempts=max_attempts,
+                    max_attempts=max_plan_attempts,
                     severity="DEBUG",
                 )
         else:
             raise MaxPlanningAttemptsReachedError(
                 plan_responses=plan_responses,
-                max_attempts=max_attempts,
+                max_attempts=max_plan_attempts,
             )
 
         return plan_response
@@ -2299,6 +2303,90 @@ class Commander(BaseNode):
         finally:
             cancel_event.set()
 
+    def _apply_totg(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: Optional[float] = None,
+        acceleration_scaling_factor: Optional[float] = None,
+        path_tolerance: Optional[float] = None,
+        resample_dt: Optional[float] = None,
+        min_angle_change: Optional[float] = None,
+    ):
+        """Apply time parameterization to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply time parameterization to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            path_tolerance: The path tolerance to apply to the trajectory.
+            resample_dt: The resample time step to apply to the trajectory.
+            min_angle_change: The minimum angle change to apply to the trajectory.
+        """
+
+        # Get the parameters from the parameter server if not provided
+        kwargs = self.get_parameter_wrapper("execution.totg")
+        if velocity_scaling_factor is not None:
+            kwargs["velocity_scaling_factor"] = velocity_scaling_factor
+        if acceleration_scaling_factor is not None:
+            kwargs["acceleration_scaling_factor"] = acceleration_scaling_factor
+        if path_tolerance is not None:
+            kwargs["path_tolerance"] = path_tolerance
+        if resample_dt is not None:
+            kwargs["resample_dt"] = resample_dt
+        if min_angle_change is not None:
+            kwargs["min_angle_change"] = min_angle_change
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        self.log(
+            "Applying time parameterization to trajectory with kwargs "
+            f"{kwargs}",
+            severity="DEBUG",
+        )
+        # Apply time parameterization
+        if not trajectory.apply_totg_time_parameterization(**kwargs):
+            raise RuntimeError("Failed to apply time parameterization")
+
+        self.log(
+            "Time parameterization applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+    def _validate_trajectory(
+        self, trajectory: RobotTrajectory, group_name: Optional[str] = None
+    ):
+        """Validate the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to validate.
+        """
+        self.log(
+            f"Validating trajectory with group name {group_name}",
+            severity="DEBUG",
+        )
+
+        if group_name is None:
+            group_name = self.planning_group_name
+
+        verbose = LoggingSeverity.DEBUG >= self.log_level
+
+        invalid_index = []
+
+        with self.planning_scene_read_only() as scene:
+            if not scene.is_path_valid(
+                trajectory,
+                joint_model_group_name=group_name,
+                verbose=verbose,
+                invalid_index=invalid_index,
+            ):
+                raise InvalidTrajectoryError(trajectory, invalid_index)
+
     def _execute_once_blocking(
         self, trajectory_msg: RobotTrajectoryMsg
     ) -> ExecutionStatus:
@@ -2313,68 +2401,42 @@ class Commander(BaseNode):
         self.trajectory_execution_manager.push(trajectory_msg)
         return self.trajectory_execution_manager.execute_and_wait()
 
-    def _apply_totg(
-        self,
-        trajectory: RobotTrajectory,
-        velocity_scaling_factor: Optional[float] = None,
-        acceleration_scaling_factor: Optional[float] = None,
-    ):
-        """Apply time parameterization to the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to apply time parameterization to.
-        """
-        self.log(
-            "Applying time parameterization to trajectory", severity="DEBUG"
-        )
-
-        # Apply time parameterization
-        if velocity_scaling_factor is None:
-            velocity_scaling_factor = self.get_parameter_wrapper(
-                "execution.velocity_scaling_factor"
-            )
-        if acceleration_scaling_factor is None:
-            acceleration_scaling_factor = self.get_parameter_wrapper(
-                "execution.acceleration_scaling_factor"
-            )
-        if not trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-        ):
-            raise RuntimeError("Failed to apply time parameterization")
-
     def _execute_blocking(
         self,
         trajectory: RobotTrajectory,
         *,
         totg: bool = True,
+        validate_trajectory: bool = True,
         velocity_scaling_factor: Optional[float] = None,
         acceleration_scaling_factor: Optional[float] = None,
-        max_attempts: Optional[int] = None,
+        path_tolerance: Optional[float] = None,
+        resample_dt: Optional[float] = None,
+        min_angle_change: Optional[float] = None,
+        group_name: Optional[str] = None,
+        max_execution_attempts: int = 1,
         cancel_event: Optional[threading.Event] = None,
     ):
-        """Execute the given robot trajectory, retrying up to max_attempts times
+        """Execute the given robot trajectory, retrying up to max_execution_attempts times
         until successful.
 
         Args:
             trajectory: The robot trajectory to execute.
-            totg: Whether to apply time parameterization to the trajectory.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            max_attempts: The maximum number of execution attempts.
-            cancel_event: An event that can be used to cancel the execution.
+            parse_kwargs: Whether to parse the kwargs.
+            **kwargs: Additional keyword arguments to pass to `_parse_execute_args()`.
         Returns:
             ExecutionStatus: The status of the execution.
         Raises:
             MaxAttemptsReachedError: If the maximum number of execution attempts
                 is reached.
             asyncio.CancelledError: If the execution is cancelled by the cancel_event.
+        See Also:
+            `_parse_execute_args()`: For implementation and parameter details
         """
         self.log(
-            f"Executing trajectory with totg={totg}, "
-            f"velocity_scaling_factor={velocity_scaling_factor}, "
-            f"acceleration_scaling_factor={acceleration_scaling_factor}, "
-            f"max_attempts={max_attempts}",
+            f"Executing trajectory with totg {totg}, validate_trajectory {validate_trajectory}, "
+            f"velocity_scaling_factor {velocity_scaling_factor}, acceleration_scaling_factor {acceleration_scaling_factor}, "
+            f"path_tolerance {path_tolerance}, resample_dt {resample_dt}, min_angle_change {min_angle_change}, "
+            f"group_name {group_name}, max_execution_attempts {max_execution_attempts}, cancel_event {cancel_event}",
             severity="DEBUG",
         )
 
@@ -2382,35 +2444,35 @@ class Commander(BaseNode):
         if totg:
             self._apply_totg(
                 trajectory,
-                velocity_scaling_factor,
-                acceleration_scaling_factor,
+                velocity_scaling_factor=velocity_scaling_factor,
+                acceleration_scaling_factor=acceleration_scaling_factor,
+                path_tolerance=path_tolerance,
+                resample_dt=resample_dt,
+                min_angle_change=min_angle_change,
             )
+
+        if validate_trajectory:
+            self._validate_trajectory(trajectory, group_name=group_name)
 
         # Convert to trajectory message
         trajectory_msg = trajectory.get_robot_trajectory_msg()
 
-        # Get the maximum number of execution attempts
-        if max_attempts is None:
-            max_attempts = cast(
-                int, self.get_parameter_wrapper("execution.max_attempts")
-            )
-
         # Execute the trajectory until successful or max attempts reached
         execution_statuses = []
-        for i in range(max_attempts):
+        for i in range(max_execution_attempts):
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Execution cancelled")
 
             execution_status = self._execute_once_blocking(trajectory_msg)
             if execution_status:
                 self.log(
-                    f"Execution attempt {i + 1}/{max_attempts} succeeded",
+                    f"Execution attempt {i + 1}/{max_execution_attempts} succeeded",
                     severity="DEBUG",
                 )
                 return
             else:
                 self.log(
-                    f"Execution attempt {i + 1}/{max_attempts} "
+                    f"Execution attempt {i + 1}/{max_execution_attempts} "
                     f"failed with status {execution_status.status}",
                     severity="DEBUG",
                 )
@@ -2418,13 +2480,13 @@ class Commander(BaseNode):
         else:
             raise MaxExecutionAttemptsReachedError(
                 execution_statuses=execution_statuses,
-                max_attempts=max_attempts,
+                max_attempts=max_execution_attempts,
             )
 
     async def execute(self, *args: Any, **kwargs: Any):
         """Execute the given robot trajectory in a separate thread.
 
-        Retries up to max_attempts times until successful.
+        Retries up to max_execution_attempts times until successful.
 
         See Also:
             `_execute_blocking()`: For parameter details
@@ -2453,12 +2515,7 @@ class Commander(BaseNode):
         #         )
 
     async def plan_and_execute(
-        self,
-        *plan_args: Any,
-        max_plan_attempts: Optional[int] = None,
-        max_execution_attempts: Optional[int] = None,
-        totg: bool = True,
-        **plan_kwargs: Any,
+        self, goal: PlanningGoalT, **kwargs: Any
     ) -> MotionPlanResponse:
         """Plan and execute a trajectory.
 
@@ -2466,30 +2523,24 @@ class Commander(BaseNode):
         max_execution_attempts times to execute the trajectory.
 
         Args:
-            *plan_args: Positional arguments to pass to `_plan()`.
-            max_plan_attempts: The maximum number of planning attempts.
-            max_execution_attempts: The maximum number of execution attempts.
-            totg: Whether to apply time parameterization to the trajectory before
-                execution.
-            **plan_kwargs: Keyword arguments to pass to `_plan()`.
+            goal: The goal to plan for.
+            **kwargs: Keyword arguments to pass to `plan()` and `execute()`.
 
         Returns:
             The planned trajectory.
 
         See Also:
-            `_plan()`: For planning parameter details
-            `_execute()`: For execution parameter details.
+            `plan()`: For planning parameter details
+            `execute()`: For execution parameter details.
         """
-
-        plan_response = await self.plan(
-            *plan_args,
-            max_attempts=max_plan_attempts,
-            **plan_kwargs,
+        parsed_kwargs, execute_kwargs = self._parse_plan_and_execute_args(
+            goal, **kwargs
         )
+        plan_response = await self.plan(parse_kwargs=False, **parsed_kwargs)
         await self.execute(
             plan_response.trajectory,
-            max_attempts=max_execution_attempts,
-            totg=totg,
+            validate_trajectory=False,
+            **execute_kwargs,
         )
         return plan_response
 
@@ -2498,7 +2549,7 @@ class Commander(BaseNode):
 
         Args:
             trajectory: The trajectory to cache.
-            **kwargs: Keyword arguments to pass to `trajectory_cache.cache_trajectory()`.
+            **kwargs: Keyword arguments to pass to `FuzzyTrajectoryCache.cache_trajectory()`.
         """
         if not self.freeze_trajectory_cache:
             self.trajectory_cache.cache_trajectory(trajectory, **kwargs)
@@ -2507,14 +2558,17 @@ class Commander(BaseNode):
             self.log("Cache is frozen, skipping cache")
 
     async def plan_and_execute_cached(
-        self, *args: Any, cache_trajectory: bool = True, **kwargs: Any
+        self,
+        goal: PlanningGoalT,
+        cache_trajectory: bool = True,
+        **kwargs: Any,
     ) -> dict[str, Any] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
-            *args: Positional arguments .
+            goal: The goal to plan for.
             cache_trajectory: Whether to cache the planned trajectory.
-            **kwargs: Keyword arguments to pass to `_plan_and_execute()`.
+            **kwargs: Keyword arguments to pass to `_parse_plan_and_execute_args()`.
 
         Returns:
             A dictionary containing the kwargs to cache the trajectory, or None
@@ -2525,7 +2579,9 @@ class Commander(BaseNode):
         )
 
         # Parse the planning kwargs
-        parsed_kwargs, extra_kwargs = self._parse_plan_args(*args, **kwargs)
+        parsed_kwargs, execute_kwargs = self._parse_plan_and_execute_args(
+            goal, **kwargs
+        )
 
         # Attempt to get the cached trajectory, otherwise plan and execute normally
         if self.use_cached_trajectories:
@@ -2541,45 +2597,40 @@ class Commander(BaseNode):
                     "No cached trajectory found, planning and executing normally"
                 )
             else:
-                try:
-                    self.log("Cached trajectories found, executing")
-                    num_trajectories = len(trajectories)
-                    i = 0
-                    while len(trajectories) > 0:
-                        trajectory = heapq.heappop(trajectories)
-                        try:
-                            await self.execute(
-                                trajectory,
-                                max_attempts=1,
-                                totg=extra_kwargs.get("totg", True),
-                            )
-                            return
-                        except MaxAttemptsReachedError:
-                            self.log(
-                                f"Max attempts reached while executing cached "
-                                f"trajectory {i + 1}/{num_trajectories}, "
-                                "trying next cached trajectory",
-                                severity="WARN",
-                            )
-                            i += 1
-                except MaxAttemptsReachedError:
-                    self.log(
-                        "Max attempts reached while executing cached trajectory, "
-                        "planning and executing normally instead",
-                        severity="WARN",
-                    )
+                self.log(
+                    "Cached trajectories found, trying to execute in order of path length"
+                )
+                num_trajectories = len(trajectories)
+                i = 0
+                while len(trajectories) > 0:
+                    trajectory = heapq.heappop(trajectories)
+                    try:
+                        await self.execute(
+                            trajectory,
+                            validate_trajectory=True,
+                            **execute_kwargs,
+                        )
+                        return
+                    except (
+                        MaxExecutionAttemptsReachedError,
+                        InvalidTrajectoryError,
+                    ) as e:
+                        self.log(
+                            f"Error while executing cached trajectory {i + 1}/{num_trajectories}: {e}",
+                            severity="WARN",
+                        )
+                        i += 1
+                self.log(
+                    "All cached trajectories failed, planning and executing normally"
+                )
         else:
             self.log(
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        planning_component, request_params = (
-            self._get_planning_component_and_request_params(**parsed_kwargs)
-        )
-        response = await self.plan_and_execute(
-            planning_component=planning_component,
-            request_params=request_params,
-            **extra_kwargs,
+        response = await self.plan(parse_kwargs=False, **parsed_kwargs)
+        await self.execute(
+            response.trajectory, validate_trajectory=False, **execute_kwargs
         )
 
         to_cache_kwargs = {
@@ -2989,11 +3040,7 @@ class Commander(BaseNode):
             )
             self.log(f"{exc_type.__name__}: {exc_value}", severity="ERROR")
             self.log(f"Traceback: {exc_tb}", severity="DEBUG")
-            self.log(
-                "Waiting 15 seconds before resetting commander...",
-                severity="WARN",
-            )
-            await self.reset_rig()
+            await self.reset_commander()
             return True
         return False
 
@@ -3040,12 +3087,8 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
 
     commander.log("Running commander interactively")
 
-    debugpy.breakpoint()
-
     while True:
-        async with commander:
-            debugpy.breakpoint()
-            await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
 
 async def asyncio_runner(coro: Coroutine, max_workers: int):
@@ -3118,10 +3161,17 @@ def main(args=None):
                 coro = coro_fn(commander, args.coroutine_config)
                 asyncio.run(asyncio_runner(coro, args.max_workers))
             finally:
-                print("Shutting down executor")
-                executor.shutdown()
-                print("Shutting down commander")
-                commander.destroy_node()
+                try:
+                    print("Shutting down commander")
+                    commander.destroy_node()
+                except Exception as e:
+                    print(f"Error while shutting down commander: {e}")
+                try:
+                    print("Shutting down executor")
+                    executor.shutdown()
+                except Exception as e:
+                    print(f"Error while shutting down executor: {e}")
+
     except KeyboardInterrupt:
         print("Keyboard interrupt")
     except SystemExit:

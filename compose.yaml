@@ -76,9 +76,11 @@ services:
       - 50003:50003
       - 50004:50004
     environment:
+      - QT_X11_NO_MITSHM=1
       - BUILD_COMMAND=${BUILD_COMMAND:-:}
       - LAUNCH_COMMAND=${LAUNCH_COMMAND:-echo "No launch command provided, sleeping..." && sleep infinity}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     command: bash -c
       "$$BUILD_COMMAND
       && source /opt/ros/jazzy/setup.bash
