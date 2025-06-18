@@ -3,7 +3,6 @@ import sqlite3
 from collections.abc import MutableMapping
 from contextlib import closing, suppress
 from pathlib import Path
-from shelve import Shelf
 
 BUILD_TABLE = """
   CREATE TABLE IF NOT EXISTS Dict (
@@ -141,14 +140,3 @@ def open(filename, /, flag="r", mode=0o666):
     only used when creating a new database. Default: 0o666.
     """
     return _Database(filename, flag=flag, mode=mode)
-
-
-class Sqlite3Shelf(Shelf):
-    """Shelf implementation using the dbm sqlite3 interface.
-
-    This is initialized with the filename for the sqlite3 database.
-    See the module's __doc__ string for an overview of the interface.
-    """
-
-    def __init__(self, filename, flag="c", protocol=None, writeback=False):
-        Shelf.__init__(self, open(filename, flag), protocol, writeback)

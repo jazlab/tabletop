@@ -3,9 +3,10 @@ import heapq
 import json
 import os
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from shelve import Shelf
 from typing import Any, Optional, cast
 
 import rclpy.logging
@@ -14,21 +15,21 @@ from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 
+from tabletop_utils import dbm_sqlite3
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import (
     all_close_poses_stamped,
     all_close_robot_states,
-    array_from_point_msg,
-    array_from_quaternion_msg,
-    euler_array_from_quaternion_msg,
+    arrays_from_pose_msg,
     pose_stamped_msg,
     robot_trajectory_from_msg,
 )
-from tabletop_utils.shelf_sqlite3 import Sqlite3Shelf
 
-RobotStateToleranceT = tuple[float, float, float, float, float, float]
-PositionToleranceT = tuple[float, float, float]
-OrientationToleranceT = tuple[float, float, float]
+RobotStateToleranceT = float | dict[str, float]
+PositionToleranceT = float | tuple[float, float, float]
+OrientationToleranceT = (
+    float | tuple[float, float, float] | tuple[float, float, float, float]
+)
 
 
 logger = rclpy.logging.get_logger("trajectory_cache")
@@ -113,9 +114,26 @@ class FuzzyTrajectoryCacheKey:
         return int(value / tolerance)
 
     def _fuzz_iterable(
-        self, value: Iterable[float], tolerance: Iterable[float]
+        self, value: Iterable[float], tolerance: float | Iterable[float]
     ) -> tuple[int, ...]:
-        return tuple(self._fuzz_float(v, t) for v, t in zip(value, tolerance))
+        if isinstance(tolerance, (float, int)):
+            return tuple(self._fuzz_float(v, tolerance) for v in value)
+        else:
+            return tuple(
+                self._fuzz_float(v, t) for v, t in zip(value, tolerance)
+            )
+
+    def _fuzz_dict(
+        self,
+        value: dict[str, float],
+        tolerance: float | dict[str, float],
+    ) -> dict[str, Any]:
+        if isinstance(tolerance, (float, int)):
+            return {
+                k: self._fuzz_float(v, tolerance) for k, v in value.items()
+            }
+        else:
+            return {k: self._fuzz_float(value[k], tolerance[k]) for k in value}
 
     def get_fuzzy_dict(
         self,
@@ -138,8 +156,8 @@ class FuzzyTrajectoryCacheKey:
         fuzzy_key_dict = {}
 
         # Fuzz the start state
-        fuzzy_key_dict["start_state"] = self._fuzz_iterable(
-            self.start_state.joint_positions.values(),
+        fuzzy_key_dict["start_state"] = self._fuzz_dict(
+            self.start_state.joint_positions,
             robot_state_tolerance,
         )
 
@@ -147,8 +165,8 @@ class FuzzyTrajectoryCacheKey:
         # If it is a string, it is a named goal and an exact match is required
 
         if isinstance(self.goal, RobotState):
-            fuzzy_key_dict["goal"] = self._fuzz_iterable(
-                self.goal.joint_positions.values(), robot_state_tolerance
+            fuzzy_key_dict["goal"] = self._fuzz_dict(
+                self.goal.joint_positions, robot_state_tolerance
             )
         else:
             if not isinstance(self.goal.header.frame_id, str):
@@ -161,26 +179,17 @@ class FuzzyTrajectoryCacheKey:
             fuzzy_key_dict["goal"]["frame_id"] = self.goal.header.frame_id
 
             # Fuzz the goal position
-            goal_position = array_from_point_msg(self.goal.pose.position)
+            goal_position, goal_orientation = arrays_from_pose_msg(
+                self.goal.pose, euler=use_euler_tolerance
+            )
             fuzzy_key_dict["goal"]["position"] = self._fuzz_iterable(
                 goal_position, position_tolerance
             )
 
             # Fuzz the orientation
-            if use_euler_tolerance:
-                goal_rpy = euler_array_from_quaternion_msg(
-                    self.goal.pose.orientation
-                )
-                fuzzy_key_dict["goal"]["rpy"] = self._fuzz_iterable(
-                    goal_rpy, orientation_tolerance
-                )
-            else:
-                goal_quaternion = array_from_quaternion_msg(
-                    self.goal.pose.orientation
-                )
-                fuzzy_key_dict["goal"]["quaternion"] = self._fuzz_iterable(
-                    goal_quaternion, orientation_tolerance
-                )
+            fuzzy_key_dict["goal"]["orientation"] = self._fuzz_iterable(
+                goal_orientation, orientation_tolerance
+            )
 
         # Add the planning link
         fuzzy_key_dict["pose_link"] = self.pose_link
@@ -235,7 +244,7 @@ class FuzzyTrajectoryCacheValue:
         return self.path_length < other.path_length
 
 
-class FuzzyTrajectoryCache(Sqlite3Shelf):
+class FuzzyTrajectoryCache(Shelf):
     """A persistent cache for fuzzy-matching trajectories.
 
     This cache is used to store RobotTrajectory objects. It is a subclass of
@@ -251,14 +260,20 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
 
     _symlink_filename: str = "cache.db"
 
+    _robot_state_tolerance: RobotStateToleranceT
+    _position_tolerance: PositionToleranceT
+    _orientation_tolerance: OrientationToleranceT
+    _use_euler_tolerance: bool
+    _max_trajectories: int
+
     def __init__(
         self,
         *,
         path: str,
         rig_hash: str,
-        robot_state_tolerance: float | RobotStateToleranceT,
-        position_tolerance: float | PositionToleranceT,
-        orientation_tolerance: float | OrientationToleranceT,
+        robot_state_tolerance: RobotStateToleranceT,
+        position_tolerance: PositionToleranceT,
+        orientation_tolerance: OrientationToleranceT,
         use_euler_tolerance: bool = True,
         max_trajectories: int = 1,
         new_cache: bool = False,
@@ -298,98 +313,93 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
 
         if os.path.isdir(path):
             symlink_path = os.path.join(path, self._symlink_filename)
-        else:
-            symlink_path = None
 
         new_path: str | None = None
         old_symlink_target: str | None = None
 
-        if new_cache:
-            assert os.path.isdir(path)
-            assert symlink_path is not None
-
-            # Create a new, empty cache file with a timestamp
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-            filename = f"{timestamp}.db"
-            new_path = os.path.join(path, filename)
-            if os.path.exists(new_path):
-                raise FileExistsError(f"Cache file already exists: {new_path}")
-
-            # Update the symlink
-            if os.path.islink(symlink_path):
-                old_symlink_target = os.readlink(symlink_path)
-                os.remove(symlink_path)
-            elif os.path.exists(symlink_path):
-                raise RuntimeError(
-                    f"Symlink path exists but is not a symlink: {symlink_path}"
-                )
-            os.symlink(filename, symlink_path)
-            self._db_path = symlink_path
-        elif os.path.isdir(path):
-            assert symlink_path is not None
-            if not os.path.islink(symlink_path):
-                raise RuntimeError(
-                    f"Symlink path does not exist or is not a symlink: "
-                    f"{symlink_path}"
-                )
-            if not os.path.exists(symlink_path):
-                raise FileNotFoundError(
-                    f"Symlinked database file does not exist: {symlink_path}"
-                )
-            self._db_path = symlink_path
-        else:
-            self._db_path = path
-
-        # Initialize the lock and the closed flag
-        self._lock = threading.Lock()
-        self._closed = True
-
-        # Initialize the database
-        super().__init__(self._db_path)
-
         try:
-            # Initialize the instance variables
-            self._max_trajectories = max_trajectories
-
-            # Initialize the tolerances and save them locally for faster access
-            (
-                self._robot_state_tolerance,
-                self._position_tolerance,
-                self._orientation_tolerance,
-            ) = self._init_tolerances(
-                robot_state_tolerance,
-                position_tolerance,
-                orientation_tolerance,
-                use_euler_tolerance,
-            )
-            self._use_euler_tolerance = use_euler_tolerance
-
-            # Validate the database
-            self._validate_db(rig_hash)
-
-            logger.info(
-                f"Initialized trajectory cache with orientation tolerance "
-                f"{self._orientation_tolerance}, position tolerance "
-                f"{self._position_tolerance}, robot state tolerance "
-                f"{self._robot_state_tolerance}, and max trajectories "
-                f"{max_trajectories}."
-            )
-
-        except Exception:
-            # Close the cache file if there was an error while initializing
-            super().close()
             if new_cache:
-                assert new_path is not None
-                assert symlink_path is not None
+                assert os.path.isdir(path)
+
+                # Create a new, empty cache file with a timestamp
+                timestamp = datetime.datetime.now().strftime(
+                    "%Y-%m-%d-%H-%M-%S"
+                )
+                filename = f"{timestamp}.db"
+                new_path = os.path.join(path, filename)
                 if os.path.exists(new_path):
+                    raise FileExistsError(
+                        f"Cache file already exists: {new_path}"
+                    )
+
+                # Update the symlink
+                if os.path.islink(symlink_path):
+                    old_symlink_target = os.readlink(symlink_path)
+                    os.remove(symlink_path)
+                elif os.path.exists(symlink_path):
+                    raise RuntimeError(
+                        f"Symlink path exists but is not a symlink: {symlink_path}"
+                    )
+                os.symlink(filename, symlink_path)
+                self._db_path = symlink_path
+            elif os.path.isdir(path):
+                # Check that current symlink is valid
+                if not os.path.islink(symlink_path):
+                    raise RuntimeError(
+                        f"Symlink path does not exist or is not a symlink: "
+                        f"{symlink_path}"
+                    )
+                if not os.path.exists(symlink_path):
+                    raise FileNotFoundError(
+                        f"Symlinked database file does not exist: {symlink_path}"
+                    )
+                self._db_path = symlink_path
+            else:
+                self._db_path = path
+
+            # Initialize the lock and the closed flag
+            self._lock = threading.Lock()
+            self._closed = True
+
+            # Initialize the database
+            self.open(flag="c")
+            with self:
+                # Initialize the instance variables
+                self._max_trajectories = max_trajectories
+
+                # Initialize the tolerances and save them locally for faster access
+                (
+                    self._robot_state_tolerance,
+                    self._position_tolerance,
+                    self._orientation_tolerance,
+                ) = self._init_tolerances(
+                    robot_state_tolerance,
+                    position_tolerance,
+                    orientation_tolerance,
+                    use_euler_tolerance,
+                )
+                self._use_euler_tolerance = use_euler_tolerance
+
+                # Validate the database
+                self._validate_db(rig_hash)
+
+                logger.info(
+                    f"Initialized trajectory cache with orientation tolerance "
+                    f"{self._orientation_tolerance}, position tolerance "
+                    f"{self._position_tolerance}, robot state tolerance "
+                    f"{self._robot_state_tolerance}, and max trajectories "
+                    f"{max_trajectories}."
+                )
+        except Exception:
+            # Clean up the cache file if there was an error while initializing
+            if new_cache:
+                if new_path is not None and os.path.exists(new_path):
                     os.remove(new_path)
-                os.remove(symlink_path)
+                if os.path.islink(symlink_path):
+                    os.remove(symlink_path)
                 if old_symlink_target is not None:
                     os.symlink(old_symlink_target, symlink_path)
             raise
-
-        # Set the closed flag to False to allow the database to be closed
-        self._closed = False
 
     def _init_tolerances(
         self,
@@ -401,42 +411,39 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         RobotStateToleranceT, PositionToleranceT, OrientationToleranceT
     ]:
         """Validate and initialize the tolerances."""
-        # Convert tolerances to tuples if not already
-        if not is_iterable(robot_state_tolerance):
-            robot_state_tolerance = [robot_state_tolerance] * 6
-        if not is_iterable(position_tolerance):
-            position_tolerance = [position_tolerance] * 3
-        if not is_iterable(orientation_tolerance):
-            if use_euler_tolerance:
-                orientation_tolerance = [orientation_tolerance] * 3
-            else:
-                orientation_tolerance = [orientation_tolerance] * 4
-
-        # Convert to floats
-        robot_state_tolerance = tuple(map(float, robot_state_tolerance))
-        position_tolerance = tuple(map(float, position_tolerance))
-        orientation_tolerance = tuple(map(float, orientation_tolerance))
-
-        # Check that the lengths are correct
-        if len(robot_state_tolerance) != 6:
-            raise ValueError("robot_state_tolerance must be a 6-tuple")
-        if len(position_tolerance) != 3:
-            raise ValueError("position_tolerance must be a 3-tuple")
-        if (use_euler_tolerance and len(orientation_tolerance) != 3) or (
-            not use_euler_tolerance and len(orientation_tolerance) != 4
-        ):
-            raise ValueError(
-                "orientation_tolerance must be a 3-tuple if use_euler_tolerance "
-                "is True, and a 4-tuple if use_euler_tolerance is False, "
-                f"but got {len(orientation_tolerance)}-tuple"
-            )
-
-        # Check that the tolerances are valid
-        if any(x <= 0 for x in robot_state_tolerance):
+        if isinstance(robot_state_tolerance, Mapping):
+            robot_state_tolerance = {
+                k: float(v) for k, v in robot_state_tolerance.items()
+            }
+            if len(robot_state_tolerance) != 6:
+                raise ValueError("robot_state_tolerance must be a 6-tuple")
+            if any(x <= 0 for x in robot_state_tolerance.values()):
+                raise ValueError("robot_state_tolerance must be positive")
+        elif robot_state_tolerance <= 0:
             raise ValueError("robot_state_tolerance must be positive")
-        if any(x <= 0 for x in position_tolerance):
+
+        if is_iterable(position_tolerance):
+            position_tolerance = tuple(map(float, position_tolerance))
+            if len(position_tolerance) != 3:
+                raise ValueError("position_tolerance must be a 3-tuple")
+            if any(x <= 0 for x in position_tolerance):
+                raise ValueError("position_tolerance must be positive")
+        elif position_tolerance <= 0:
             raise ValueError("position_tolerance must be positive")
-        if any(x <= 0 for x in orientation_tolerance):
+
+        if is_iterable(orientation_tolerance):
+            orientation_tolerance = tuple(map(float, orientation_tolerance))
+            if (use_euler_tolerance and len(orientation_tolerance) != 3) or (
+                not use_euler_tolerance and len(orientation_tolerance) != 4
+            ):
+                raise ValueError(
+                    "orientation_tolerance must be a 3-tuple if use_euler_tolerance "
+                    "is True, and a 4-tuple if use_euler_tolerance is False, "
+                    f"but got {len(orientation_tolerance)}-tuple"
+                )
+            if any(x <= 0 for x in orientation_tolerance):
+                raise ValueError("orientation_tolerance must be positive")
+        elif orientation_tolerance <= 0:
             raise ValueError("orientation_tolerance must be positive")
 
         return (
@@ -451,11 +458,12 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         # This is done to avoid accidentally modifying these values in the
         # db after they are set.
         metadata = {
-            "rig_hash": deepcopy(rig_hash),
+            "rig_hash": rig_hash,
             "robot_state_tolerance": deepcopy(self._robot_state_tolerance),
-            "position_tolerance": deepcopy(self._position_tolerance),
-            "orientation_tolerance": deepcopy(self._orientation_tolerance),
-            "use_euler_tolerance": deepcopy(self._use_euler_tolerance),
+            "position_tolerance": self._position_tolerance,
+            "orientation_tolerance": self._orientation_tolerance,
+            "use_euler_tolerance": self._use_euler_tolerance,
+            "max_trajectories": self._max_trajectories,
         }
 
         # If the database is empty, set the new values
@@ -542,9 +550,6 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         true_goal: Optional[RobotState | PoseStamped] = None,
     ):
         """Validate that the trajectory is valid for the given ground truth states and pose."""
-        if not __debug__:
-            return
-
         trajectory_start_state: RobotState = trajectory[0]
         trajectory_end_state: RobotState = trajectory[len(trajectory) - 1]
         trajectory_start_pose = pose_stamped_msg(
@@ -559,74 +564,79 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         # Check that the trajectory start state and pose
         # are close to the true start state and pose
         if true_start_state is not None:
-            assert all_close_robot_states(
+            if not all_close_robot_states(
                 trajectory_start_state,
                 true_start_state,
                 position_tolerance=self.robot_state_tolerance,
-            ), (
-                "True start state is not close to the trajectory start state. "
-                f"True start state joint positions: {true_start_state.joint_positions}, "
-                f"Trajectory start state joint positions: {trajectory_start_state.joint_positions}"
-            )
+            ):
+                raise ValueError(
+                    "True start state is not close to the trajectory start state. "
+                    f"True start state joint positions: {true_start_state.joint_positions}, "
+                    f"Trajectory start state joint positions: {trajectory_start_state.joint_positions}"
+                )
 
             true_start_pose = pose_stamped_msg(
                 pose=true_start_state.get_pose(pose_link),
                 frame_id=true_start_state.robot_model.model_frame,
             )
-            assert all_close_poses_stamped(
+            if not all_close_poses_stamped(
                 trajectory_start_pose,
                 true_start_pose,
                 position_tolerance=self.position_tolerance,
                 orientation_tolerance=self.orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
-            ), (
-                "True start pose is not close to the trajectory start pose. "
-                f"True start pose: {true_start_pose}, "
-                f"Trajectory start pose: {trajectory_start_pose}"
-            )
+            ):
+                raise ValueError(
+                    "True start pose is not close to the trajectory start pose. "
+                    f"True start pose: {true_start_pose}, "
+                    f"Trajectory start pose: {trajectory_start_pose}"
+                )
 
         # Check that the trajectory end state and pose
         # are close to the true end state and pose
         if true_end_state is not None:
-            assert all_close_robot_states(
+            if not all_close_robot_states(
                 trajectory_end_state,
                 true_end_state,
                 position_tolerance=self.robot_state_tolerance,
-            ), (
-                "True end state is not close to the trajectory end state. "
-                f"True end state joint positions: {true_end_state.joint_positions}, "
-                f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
-            )
+            ):
+                raise ValueError(
+                    "True end state is not close to the trajectory end state. "
+                    f"True end state joint positions: {true_end_state.joint_positions}, "
+                    f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
+                )
 
             true_end_pose = pose_stamped_msg(
                 pose=true_end_state.get_pose(pose_link),
                 frame_id=true_end_state.robot_model.model_frame,
             )
-            assert all_close_poses_stamped(
+            if not all_close_poses_stamped(
                 trajectory_end_pose,
                 true_end_pose,
                 position_tolerance=self.position_tolerance,
                 orientation_tolerance=self.orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
-            ), (
-                "True end state pose is not close to the trajectory end pose. "
-                f"True end state pose: {true_end_pose}, "
-                f"Trajectory end pose: {trajectory_end_pose}"
-            )
+            ):
+                raise ValueError(
+                    "True end state pose is not close to the trajectory end pose. "
+                    f"True end state pose: {true_end_pose}, "
+                    f"Trajectory end pose: {trajectory_end_pose}"
+                )
 
         # Check that the trajectory end state and pose
         # are close to the true goal
         if true_goal is not None:
             if isinstance(true_goal, RobotState):
-                assert all_close_robot_states(
+                if not all_close_robot_states(
                     trajectory_end_state,
                     true_goal,
                     position_tolerance=self.robot_state_tolerance,
-                ), (
-                    "True goal state is not close to the trajectory end state. "
-                    f"True goal state joint positions: {true_goal.joint_positions}, "
-                    f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
-                )
+                ):
+                    raise ValueError(
+                        "True goal state is not close to the trajectory end state. "
+                        f"True goal state joint positions: {true_goal.joint_positions}, "
+                        f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
+                    )
                 true_goal_pose = pose_stamped_msg(
                     pose=true_goal.get_pose(pose_link),
                     frame_id=true_goal.robot_model.model_frame,
@@ -634,17 +644,18 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
             else:
                 true_goal_pose = true_goal
 
-            assert all_close_poses_stamped(
+            if not all_close_poses_stamped(
                 trajectory_end_pose,
                 true_goal_pose,
                 position_tolerance=self.position_tolerance,
                 orientation_tolerance=self.orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
-            ), (
-                "True goal pose is not close to the trajectory end pose. "
-                f"True goal pose: {true_goal_pose}, "
-                f"Trajectory end pose: {trajectory_end_pose}"
-            )
+            ):
+                raise ValueError(
+                    "True goal pose is not close to the trajectory end pose. "
+                    f"True goal pose: {true_goal_pose}, "
+                    f"Trajectory end pose: {trajectory_end_pose}"
+                )
 
     def __setitem__(
         self, key: FuzzyTrajectoryCacheKey, value: FuzzyTrajectoryCacheValue
@@ -661,6 +672,7 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
             value: The value to set.
         """
         fuzzy_key = self.get_fuzzy_key(key)
+        logger.debug(f"Setting item for key: {fuzzy_key}")
 
         with self._lock:
             try:
@@ -710,13 +722,17 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                 (used internally).
         """
         # Check that the trajectory is valid
-        self._validate_trajectory_quality(
-            trajectory,
-            pose_link=pose_link,
-            true_start_state=true_start_state,
-            true_end_state=true_end_state,
-            true_goal=true_goal,
-        )
+        try:
+            self._validate_trajectory_quality(
+                trajectory,
+                pose_link=pose_link,
+                true_start_state=true_start_state,
+                true_end_state=true_end_state,
+                true_goal=true_goal,
+            )
+        except ValueError as e:
+            logger.warning(f"Trajectory is not valid: {e}. Skipping cache.")
+            return
 
         # Extract the start and end states, the end pose, and the group name
         # from the trajectory
@@ -744,7 +760,11 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
 
         if _cache_reverse:
             self.cache_trajectory(
-                trajectory.reverse(), pose_link=pose_link, _cache_reverse=False
+                trajectory.reverse(),
+                pose_link=pose_link,
+                true_start_state=true_end_state,
+                true_end_state=true_start_state,
+                _cache_reverse=False,
             )
 
     def __getitem__(
@@ -758,8 +778,10 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         Returns:
             The heap of values for the given key.
         """
+        fuzzy_key = self.get_fuzzy_key(key)
+        logger.debug(f"Getting values for key: {fuzzy_key}")
         with self._lock:
-            values = super().__getitem__(self.get_fuzzy_key(key))
+            values = super().__getitem__(fuzzy_key)
 
         self._validate_db_values(values)
         return values
@@ -907,6 +929,14 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
         key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link, group_name)
         self.__delitem__(key)
 
+    def open(self, flag: str = "w"):
+        """Open the database."""
+        if not self._closed:
+            raise RuntimeError("Database is already open")
+        with self._lock:
+            super().__init__(dbm_sqlite3.open(self._db_path, flag=flag))
+            self._closed = False
+
     def close(self):
         """Close the database and backup the database file."""
         if not self._closed:
@@ -915,3 +945,11 @@ class FuzzyTrajectoryCache(Sqlite3Shelf):
                     super().close()
                 finally:
                     self._closed = True
+
+    def __enter__(self):
+        if self._closed:
+            self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()

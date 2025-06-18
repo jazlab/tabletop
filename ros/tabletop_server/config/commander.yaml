@@ -1,3 +1,8 @@
+# /**:
+#   ros__parameters:
+#     robot_description_planning:
+#       default_robot_padding: 0.0
+
 /commander:
   ros__parameters:
     exit_on_error: false
@@ -16,28 +21,30 @@
       spin_period: 0.05
 
     planning:
-      max_attempts: 3
+      max_attempts: 5
       group_name: ur_manipulator
       default_pipeline: ompl_aps_rrt_star
       linear_pipeline: pilz_lin
       planning_link: eef
-      object_touch_links:
-        - eef_link
-      object_mount_ids:
-        - rig
+      position_tolerance: 0.01
+      orientation_tolerance: 0.02
+      use_euler_tolerance: true
       idle_state: ready_for_action
-      pre_fetch_offset: [0.0, 0.02, -0.01]
+      pre_present_state: pre_present
+      pre_fetch_offset: [0.0, 0.02, -0.05]
       pre_attach_offset: [0.0, 0.02, 0.0]
       post_attach_offset: [0.0, -0.075, 0.0]
       post_fetch_offset: [0.0, -0.075, -0.15]
+      pre_present_pose:
+        position: [0.9525, 0.4, 0.6]
+        rpy: [0.0, 0.0, -1.5707]
 
     execution:
-      max_attempts: 3
+      max_attempts: 1
       totg:
-        velocity_scaling_factor: 1.0
+        velocity_scaling_factor: 0.7
         acceleration_scaling_factor: 1.0
-        path_tolerance: 0.1
-        resample_dt: 0.05
+        resample_dt: 0.01
         min_angle_change: 0.001
 
     trajectory_cache:
@@ -45,56 +52,60 @@
       freeze_cache: false
       kwargs:
         path: /root/ws/src/tabletop/ros/trajectory_cache/
-        robot_state_tolerance: 0.02 # radians (~0.6 degrees)
-        position_tolerance: 0.01 # meters
-        orientation_tolerance: 0.03 # radians (~1.7 degrees)
+        robot_state_tolerance: 0.03 # radians
+        position_tolerance: 0.03 # meters
+        orientation_tolerance: 0.05 # radians
         use_euler_tolerance: true
-        max_trajectories: 10
+        max_trajectories: 5
         new_cache: false
+
+    link_padding:
+      base_link_inertia: 0.03
+      shoulder_link: 0.03
+      upper_arm_link: 0.03
+      forearm_link: 0.03
+      wrist_1_link: 0.03
+      wrist_2_link: 0.03
+      wrist_3_link: 0.01
+
+    object_manipulation:
+      allowed_collisions:
+        sphere: rig
+      touch_links:
+        - eef_link
+      mount_ids:
+        - rig
 
     planning_scene:
       dir: /root/ws/src/tabletop/ros/planning_scene/
       use_saved_scene: true
       planes:
         floor:
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
           coef: [0.0, 0.0, 1.0, 0.0]
-          allowed_collision_ids:
-            - base_link_inertia
-            - sphere
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
         front_wall:
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
           coef: [0.0, 1.0, 0.0, 0.0635]
-          allowed_collision_ids:
-            - sphere
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
         back_wall:
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
           coef: [0.0, 1.0, 0.0, 1.8923]
-          allowed_collision_ids:
-            - sphere
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
         left_wall:
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
           coef: [1.0, 0.0, 0.0, 0.0381]
-          allowed_collision_ids:
-            - sphere
-        right_wall:
           pose_stamped:
             position: [0.0, 0.0, 0.0]
+        right_wall:
           coef: [1.0, 0.0, 0.0, 1.8669]
-          allowed_collision_ids:
-            - sphere
+          pose_stamped:
+            position: [0.0, 0.0, 0.0]
       primitives:
         left_robot_box:
-          pose_stamped:
-            position: [0.38, 1.0625, 0.61]
           type: BOX
-          dimensions: [0.8, 0.4, 0.6]
-          allowed_collision_ids:
-            - sphere
+          dimensions: [0.8, 0.4, 0.3]
+          pose_stamped:
+            position: [0.38, 1.0625, 0.46]
           color: [1.0, 0.0, 0.0, 0.2]
         robot_platform:
           type: BOX
@@ -103,15 +114,12 @@
             position: [0.9525, 1.0625, 0.155]
           allowed_collision_ids:
             - base_link_inertia
-            - sphere
           color: [1.0, 1.0, 1.0, 1.0]
         box_0:
           type: BOX
           dimensions: [0.5, 0.4, 1.9812]
           pose_stamped:
             position: [1.655, 0.2, 0.9906]
-          allowed_collision_ids:
-            - sphere
           color: [1.0, 0.0, 0.0, 0.2]
       rig_meshes:
         rig:
@@ -121,12 +129,41 @@
           simplification: bounding_primitive
           allowed_collision_ids:
             - base_link_inertia
-            - sphere
           color: [1.0, 1.0, 1.0, 0.5]
       object_meshes:
         path: $(find-pkg-share tabletop_moveit_config)/meshes/objects/
         origin: [0.282, 0.7652, 1.1845]
-        delta: [0.1489, 0.314, 0.0]
+        positions_relative:
+          0,0: [0.0, 0.0, 0.0]
+          0,1: [0.0, 0.314, 0.0]
+          0,2: [0.0, 0.628, 0.0]
+          1,0: [0.1489, 0.0, 0.0]
+          1,1: [0.1489, 0.314, 0.0]
+          1,2: [0.1489, 0.628, 0.0]
+          2,0: [0.2978, 0.0, 0.0]
+          2,1: [0.2978, 0.314, 0.0]
+          2,2: [0.2978, 0.628, 0.0]
+          3,0: [0.4467, 0.0, 0.0]
+          3,1: [0.4467, 0.314, 0.0]
+          3,2: [0.4467, 0.628, 0.0]
+          4,0: [0.5956, 0.0, 0.0]
+          4,1: [0.5956, 0.314, 0.0]
+          4,2: [0.5956, 0.628, 0.0]
+          5,0: [0.7452, 0.0007, 0.0004]
+          5,1: [0.746, 0.3161, -0.0034]
+          5,2: [0.7469, 0.6268, -0.0073]
+          6,0: [0.8933, 0.0011, 0.0005]
+          6,1: [0.8934, 0.314, 0.0]
+          6,2: [0.8967, 0.6284, -0.0065]
+          7,0: [1.0433, 0.0024, 0.0009]
+          7,1: [1.0423, 0.314, 0.0]
+          7,2: [1.0484, 0.6298, -0.0051]
+          8,0: [1.1927, 0.0048, 0.001]
+          8,1: [1.19103, 0.3167, 0.001]
+          8,2: [1.1972, 0.6317, -0.0041]
+          9,0: [1.3421, 0.0046, 0.0021]
+          9,1: [1.3405, 0.3175, 0.0001]
+          9,2: [1.3462, 0.632, -0.0026]
         common_kwargs:
           allowed_collision_ids:
             - sphere
@@ -146,85 +183,85 @@
             idx: [0, 2]
           small_object_3:
             color: [1.0, 1.0, 0.0, 1.0] # yellow
-            idx: [0, 3]
+            idx: [1, 0]
           small_object_4:
             color: [1.0, 0.0, 1.0, 1.0] # purple
-            idx: [0, 4]
+            idx: [1, 1]
           small_object_5:
             color: [0.0, 1.0, 1.0, 1.0] # cyan
-            idx: [0, 5]
+            idx: [1, 2]
           small_object_6:
             color: [1.0, 0.5, 0.0, 1.0] # orange
-            idx: [0, 6]
+            idx: [2, 0]
           small_object_7:
             color: [0.5, 0.0, 0.5, 1.0] # magenta
-            idx: [0, 7]
+            idx: [2, 1]
           small_object_8:
             color: [0.5, 0.5, 0.0, 1.0] # olive
-            idx: [0, 8]
+            idx: [2, 2]
           small_object_9:
             color: [0.0, 0.5, 0.5, 1.0] # teal
-            idx: [0, 9]
+            idx: [3, 0]
           small_object_10:
             color: [0.5, 0.0, 0.0, 1.0] # maroon
-            idx: [1, 0]
+            idx: [3, 1]
           small_object_11:
             color: [0.0, 0.5, 0.0, 1.0] # lime
-            idx: [1, 1]
+            idx: [3, 2]
           small_object_12:
             color: [0.0, 0.0, 0.5, 1.0] # navy
-            idx: [1, 2]
+            idx: [4, 0]
           small_object_13:
             color: [0.5, 0.5, 0.5, 1.0] # gray
-            idx: [1, 3]
+            idx: [4, 1]
           small_object_14:
             color: [0.75, 0.75, 0.75, 1.0] # light gray
-            idx: [1, 4]
+            idx: [4, 2]
           small_object_15:
             color: [0.5, 0.25, 0.0, 1.0] # brown
-            idx: [1, 5]
+            idx: [5, 0]
           small_object_16:
             color: [0.25, 0.5, 0.0, 1.0] # dark green
-            idx: [1, 6]
+            idx: [5, 1]
           small_object_17:
             color: [0.0, 0.25, 0.5, 1.0] # dark blue
-            idx: [1, 7]
+            idx: [5, 2]
           small_object_18:
             color: [0.5, 0.0, 0.25, 1.0] # dark red
-            idx: [1, 8]
+            idx: [6, 0]
           small_object_19:
             color: [0.25, 0.0, 0.5, 1.0] # dark purple
-            idx: [1, 9]
+            idx: [6, 1]
           small_object_20:
             color: [0.0, 0.5, 0.25, 1.0] # dark cyan
-            idx: [2, 0]
+            idx: [6, 2]
           small_object_21:
             color: [0.75, 0.25, 0.0, 1.0] # dark orange
-            idx: [2, 1]
+            idx: [7, 0]
           small_object_22:
             color: [0.25, 0.75, 0.0, 1.0] # light green
-            idx: [2, 2]
+            idx: [7, 1]
           small_object_23:
             color: [0.0, 0.25, 0.75, 1.0] # light blue
-            idx: [2, 3]
+            idx: [7, 2]
           small_object_24:
             color: [0.75, 0.0, 0.25, 1.0] # light red
-            idx: [2, 4]
+            idx: [8, 0]
           small_object_25:
             color: [0.25, 0.0, 0.75, 1.0] # light purple
-            idx: [2, 5]
+            idx: [8, 1]
           small_object_26:
             color: [0.0, 0.75, 0.25, 1.0] # light cyan
-            idx: [2, 6]
+            idx: [8, 2]
           small_object_27:
             color: [0.75, 0.5, 0.25, 1.0] # peach
-            idx: [2, 7]
+            idx: [9, 0]
           small_object_28:
             color: [0.25, 0.75, 0.5, 1.0] # mint
-            idx: [2, 8]
+            idx: [9, 1]
           small_object_29:
             color: [0.5, 0.25, 0.75, 1.0] # lavender
-            idx: [2, 9]
+            idx: [9, 2]
         # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
         # x width of rig = 1.8288
         # radius of robot_base ~= 0.075

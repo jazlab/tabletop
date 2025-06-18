@@ -17,7 +17,7 @@ from collections.abc import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from enum import Enum
+from enum import IntEnum
 from types import TracebackType
 from typing import Any, ContextManager, Optional, Self, cast
 
@@ -52,14 +52,16 @@ from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
     Constraints,
+    LinkPadding,
     ObjectColor,
 )
 from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
-from rclpy.logging import LoggingSeverity
+from rclpy.impl.logging_severity import LoggingSeverity
 from std_srvs.srv import Trigger
 from tabletop_msgs.srv import (
     GetArmDoor,
@@ -79,11 +81,12 @@ from tabletop_utils.mesh import (
 )
 from tabletop_utils.ros import (
     MOVEIT_ERROR_CODE_MAP,
-    CommanderRecoverableErrors,
+    CommanderRecoverableError,
     InvalidTrajectoryError,
     MaxAttemptsReachedError,
     MaxExecutionAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
+    ObjectManipulationError,
     PlanningGoalT,
     ServiceCallUnsuccessfulError,
     add_mesh_collision_object_msg,
@@ -107,19 +110,6 @@ from ur_dashboard_msgs.srv import Load
 
 from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
 from tabletop_server.nodes.mock_teensy import ArmDoorState
-
-
-def create_task_wrapper(coro: Coroutine) -> asyncio.Task:
-    """Wraps a coroutine in an asyncio.Task.
-
-    Args:
-        self: The instance of the class.
-        coro: The coroutine to wrap.
-
-    Returns:
-        The created asyncio.Task.
-    """
-    return asyncio.create_task(coro)
 
 
 def asyncio_task_decorator(
@@ -155,25 +145,50 @@ def asyncio_task_decorator(
             The created asyncio.Task.
         """
         coro = coro_fn(*args, **kwargs)
-        return create_task_wrapper(coro)
+        return asyncio.create_task(coro)
 
     return wrapper
 
 
-class FetchObjectPhase(Enum):
+def object_manipulation_lock_decorator(
+    coro_fn: Callable[..., Coroutine],
+) -> Callable[..., Coroutine]:
+    """Decorator for methods that should be run with the object manipulation lock."""
+
+    async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
+        async with self.object_manipulation_lock:
+            return await coro_fn(self, *args, **kwargs)
+
+    return wrapper
+
+
+class ObjectPhase(IntEnum):
     PRE_FETCH = 0
     PRE_ATTACH = 1
     ATTACH = 2
     POST_ATTACH = 3
     POST_FETCH = 4
+    PRE_PRESENT = 5
+    PRESENT = 6
+    UNPRESENT = 7
+    PRE_RETURN = 8
+    PRE_DETACH = 9
+    DETACH = 10
+    POST_DETACH = 11
+    POST_RETURN = 12
+    IDLE = 13
 
 
-class ReturnObjectPhase(Enum):
-    PRE_RETURN = 0
-    PRE_DETACH = 1
-    DETACH = 2
-    POST_DETACH = 3
-    POST_RETURN = 4
+OBJECT_MANIPULATION_PHASES = [
+    ObjectPhase.PRE_ATTACH,
+    ObjectPhase.ATTACH,
+    ObjectPhase.POST_ATTACH,
+    ObjectPhase.POST_FETCH,
+    ObjectPhase.PRE_DETACH,
+    ObjectPhase.DETACH,
+    ObjectPhase.POST_DETACH,
+    ObjectPhase.POST_RETURN,
+]
 
 
 class Commander(BaseNode):
@@ -190,8 +205,6 @@ class Commander(BaseNode):
         "planning.default_pipeline",
         "planning.linear_pipeline",
         "planning.planning_link",
-        "planning.object_touch_links",
-        "planning.object_mount_ids",
         "planning.idle_state",
         "planning.pre_fetch_offset",
         "planning.pre_attach_offset",
@@ -199,7 +212,12 @@ class Commander(BaseNode):
         "execution.max_attempts",
         "execution.totg.velocity_scaling_factor",
         "execution.totg.acceleration_scaling_factor",
-        "trajectory_cache",
+        "trajectory_cache.use_cached_trajectories",
+        "trajectory_cache.freeze_cache",
+        "trajectory_cache.kwargs",
+        "object_manipulation.allowed_collisions",
+        "object_manipulation.touch_links",
+        "object_manipulation.mount_ids",
         "planning_scene.dir",
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
@@ -225,6 +243,10 @@ class Commander(BaseNode):
 
         self.init_planning_scene()
 
+        self.init_attached_object()
+
+        self.init_link_padding()
+
         self.init_services()
 
         self.log("Commander initialized")
@@ -246,9 +268,8 @@ class Commander(BaseNode):
         # Whether the robot has been reset
         self.initial_reset = False
 
-        # # Execution and planning locks
-        # self.execution_lock = threading.Lock()
-        # self.planning_lock = threading.Lock()
+        # Object manipulation lock
+        self.object_manipulation_lock = asyncio.Lock()
 
     # TODO: Add services
     def init_services(self):
@@ -360,14 +381,24 @@ class Commander(BaseNode):
         return self.get_parameter_wrapper("planning.planning_link")
 
     @property
+    def allowed_object_manipulation_collisions(self) -> list[tuple[str, str]]:
+        """Get the allowed object manipulation collisions from the parameter server."""
+        return [
+            (id_0, id_1)
+            for id_0, id_1 in self.get_parameter_wrapper(
+                "object_manipulation.allowed_collisions"
+            ).items()
+        ]
+
+    @property
     def touch_links(self) -> list[str]:
         """Get the touch links from the parameter server."""
-        return self.get_parameter_wrapper("planning.object_touch_links")
+        return self.get_parameter_wrapper("object_manipulation.touch_links")
 
     @property
     def object_mount_ids(self) -> list[str]:
         """Get the object mount ids from the parameter server."""
-        return self.get_parameter_wrapper("planning.object_mount_ids")
+        return self.get_parameter_wrapper("object_manipulation.mount_ids")
 
     @property
     def use_cached_trajectories(self) -> bool:
@@ -386,10 +417,10 @@ class Commander(BaseNode):
             "planning_scene.object_meshes.object_kwargs"
         )
 
-        object_grid = np.empty((3, 10), dtype=object)
+        object_grid = np.empty((10, 3), dtype=object)
         for object_id, kwargs in object_kwargs.items():
-            y, x = kwargs["idx"]
-            object_grid[y, x] = object_id
+            x, y = kwargs["idx"]
+            object_grid[x, y] = object_id
 
         return object_grid
 
@@ -532,45 +563,49 @@ class Commander(BaseNode):
         )
         return cast(Load.Response, response)
 
-    async def wait_for_dashboard(self, timeout: Optional[float] = None):
+    async def wait_for_dashboard(
+        self,
+        service_name: str,
+        timeout: Optional[float] = None,
+    ):
         """Wait for the dashboard to be initialized (asynchronous)."""
         self.log("Waiting for dashboard to be ready", severity="DEBUG")
         await self.wait_for_service_async(
             srv_type=Trigger,
-            srv_name="/dashboard_client/close_popup",
+            srv_name=f"/dashboard_client/{service_name}",
             timeout=timeout,
         )
 
-    async def reset_dashboard(self, play_timeout: Optional[float] = None):
+    async def reset_dashboard(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
-        await self.wait_for_dashboard()
-        await self.dashboard_trigger("/dashboard_client/close_popup")
-        await self.dashboard_trigger("/dashboard_client/close_safety_popup")
-        await self.dashboard_trigger(
-            "/dashboard_client/unlock_protective_stop"
-        )
-        await self.dashboard_load(
-            "/dashboard_client/load_program",
-            self.get_parameter_wrapper("dashboard.program"),
-        )
-        await self.dashboard_trigger("/dashboard_client/brake_release")
-        try:
-            async with asyncio.timeout(play_timeout):
-                while True:
-                    try:
-                        await self.dashboard_trigger("/dashboard_client/play")
-                        break
-                    except ServiceCallUnsuccessfulError:
-                        self.log(
-                            "Failed attempt to play dashboard program, retrying...",
-                            severity="DEBUG",
-                        )
-                        await asyncio.sleep(5)
-        except TimeoutError:
-            raise TimeoutError(
-                "Failed to play dashboard program after 5 seconds"
-            ) from None
+        async with asyncio.timeout(timeout):
+            # Timeout included in wait_for_dashboard to stop the thread
+            # from waiting longer than timeout
+            await self.wait_for_dashboard("close_popup", timeout)
+            await self.dashboard_trigger("/dashboard_client/close_popup")
+            await self.dashboard_trigger(
+                "/dashboard_client/close_safety_popup"
+            )
+            await self.dashboard_trigger(
+                "/dashboard_client/unlock_protective_stop"
+            )
+            await self.dashboard_load(
+                "/dashboard_client/load_program",
+                self.get_parameter_wrapper("dashboard.program"),
+            )
+            await self.dashboard_trigger("/dashboard_client/brake_release")
+            while True:
+                try:
+                    await self.dashboard_trigger("/dashboard_client/play")
+                    break
+                except ServiceCallUnsuccessfulError:
+                    self.log(
+                        "Failed attempt to play dashboard program, "
+                        "retrying after 3 seconds...",
+                        severity="WARN",
+                    )
+                    await asyncio.sleep(3)
 
     ###########################################################################
     ########## Teensy Interface ###############################################
@@ -963,8 +998,8 @@ class Commander(BaseNode):
             matrix = np.array([row.enabled for row in msg.entry_values])
             matrix_df = pd.DataFrame(
                 matrix,
-                columns=object_ids,
-                index=object_ids,
+                columns=object_ids,  # type: ignore[arg-type]
+                index=object_ids,  # type: ignore[arg-type]
             )
 
             robot_link_ids = [
@@ -983,6 +1018,20 @@ class Commander(BaseNode):
             matrix_df = matrix_df.loc[columns, columns]
 
             return matrix_df
+
+    def init_link_padding(self):
+        """Set the link padding for the planning scene."""
+        config: dict[str, Any] = self.get_parameter_wrapper("link_padding")
+        with self.planning_scene_read_write() as scene:
+            msg = PlanningSceneMsg(
+                is_diff=True,
+                link_padding=[
+                    LinkPadding(link_name=name, padding=padding)
+                    for name, padding in config.items()
+                ],
+            )
+            if not scene.set_planning_scene_diff_msg(msg):
+                raise RuntimeError("Failed to set link padding")
 
     def _get_exactly_one_attached_object_id(self) -> str:
         """Get the ID of the exactly one attached collision object.
@@ -1422,7 +1471,7 @@ class Commander(BaseNode):
         *,
         path: str,
         origin: list[float],
-        delta: list[float],
+        positions_relative: dict[str, list[float]],
         common_kwargs: dict[str, Any],
         object_kwargs: dict[str, Any],
     ):
@@ -1479,9 +1528,9 @@ class Commander(BaseNode):
                 )
 
             # Get index from per-object configurations and calculate position
-            y, x = overrides.pop("idx")
-            idx_arr = np.array([x, y, 0])
-            position = origin_arr + idx_arr * np.array(delta)
+            x, y = overrides.pop("idx")
+            rel_pos = np.array(positions_relative[f"{x},{y}"])
+            position = origin_arr + rel_pos
 
             # Override common configurations with per-object configurations
             kwargs.update(overrides)
@@ -1594,23 +1643,6 @@ class Commander(BaseNode):
         self.move_collision_object(
             object_id, self.object_init_pose_stamped(object_id)
         )
-
-        # # Get collision object
-        # collision_object = self.collision_objects[object_id]
-
-        # # Add collision object back in with new pose and update allowed collision matrix
-        # kwargs = self.collision_object_init_kwargs[object_id]
-        # if "pose_stamped" in kwargs:
-        #     collision_object.pose = kwargs["pose_stamped"].pose
-
-        # collision_object = add_mesh_collision_object_msg(
-        #     object_id=object_id,
-        #     pose_stamped=kwargs["pose_stamped"],
-        #     mesh=collision_object.meshes[0],  # type: ignore
-        #     subframe_names=kwargs["subframe_names"],
-        #     subframe_poses=kwargs["subframe_poses"],
-        # )
-        # self.process_init_collision_object(collision_object, **kwargs)
 
     @property
     def rig_hash(self) -> str:
@@ -1773,6 +1805,50 @@ class Commander(BaseNode):
         with open(config_path, "w") as f:
             yaml.dump(orig_config, f)
 
+    def init_attached_object(self):
+        """Initialize the attached object."""
+        object_id = None
+        idx = None
+
+        try:
+            object_id = self.get_parameter_wrapper("initial_attached_object")
+        except ParameterNotDeclaredException:
+            pass
+
+        try:
+            idx = self.get_parameter_wrapper("initial_attached_object_idx")
+        except ParameterNotDeclaredException:
+            pass
+
+        if object_id is not None:
+            if idx is not None:
+                raise ValueError(
+                    "Cannot specify both initial_attached_object and initial_attached_object_idx"
+                )
+            if object_id not in self.collision_object_ids:
+                raise ValueError(
+                    f"Initial attached object {object_id} not found in collision object ids"
+                )
+            self.log(
+                f"Moving and attaching initial object {object_id} from name"
+            )
+        elif idx is not None:
+            object_id = self.object_grid[*idx]
+            if object_id is None:
+                raise ValueError(f"No object at index {idx}")
+            assert object_id in self.collision_object_ids
+            self.log(
+                f"Moving and attaching initial object {object_id} from index {idx}"
+            )
+        else:
+            return
+
+        assert isinstance(object_id, str)
+        self.move_collision_object(object_id, self.eef_pose_stamped())
+        self.attach_collision_object(
+            object_id, self.planning_link, touch_links=self.touch_links
+        )
+
     ###########################################################################
     ########## Poses and states ###############################################
     ###########################################################################
@@ -1789,6 +1865,10 @@ class Commander(BaseNode):
         """Get the named target state from the planning component."""
         if target_name == "idle":
             target_name = self.get_parameter_wrapper("planning.idle_state")
+        elif target_name == "pre_present":
+            target_name = self.get_parameter_wrapper(
+                "planning.pre_present_state"
+            )
 
         joint_state_dict = self.get_planning_component(
             group_name
@@ -1891,63 +1971,73 @@ class Commander(BaseNode):
     # Fetch poses
 
     def pre_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the pre-fetch pose of an object (relative to the planning frame)."""
+        """Get the pre-fetch pose of an object."""
         return self.object_init_pose_stamped_with_offset(
             object_id, self.get_parameter_wrapper("planning.pre_fetch_offset")
         )
 
     def pre_attach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the pre-attach pose of an object (relative to the planning frame)."""
+        """Get the pre-attach pose of an object."""
         return self.object_init_pose_stamped_with_offset(
             object_id, self.get_parameter_wrapper("planning.pre_attach_offset")
         )
 
     def attach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the attach pose of an object (relative to the planning frame)."""
+        """Get the attach pose of an object."""
         return self.object_init_pose_stamped(object_id)
 
     def post_attach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the post-attach pose of an object (relative to the planning frame)."""
+        """Get the post-attach pose of an object."""
         return self.object_init_pose_stamped_with_offset(
             object_id,
             self.get_parameter_wrapper("planning.post_attach_offset"),
         )
 
     def post_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the post-fetch pose of an object (relative to the planning frame)."""
+        """Get the post-fetch pose of an object."""
         return self.object_init_pose_stamped_with_offset(
             object_id, self.get_parameter_wrapper("planning.post_fetch_offset")
         )
 
+    def pre_present_pose_stamped(self, object_id: str) -> PoseStamped:
+        """Get the pre-present pose."""
+        return self.create_pose_stamped(
+            **self.get_parameter_wrapper("planning.pre_present_pose")
+        )
+
     # Return poses
 
+    def unpresent_pose_stamped(self, object_id: str) -> PoseStamped:
+        """Get the unpresent (pre-present) pose."""
+        return self.pre_present_pose_stamped(object_id)
+
     def pre_return_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the pre-return (post-fetch) pose of an object (relative to the planning frame)."""
+        """Get the pre-return (post-fetch) pose of an object."""
         return self.post_fetch_pose_stamped(object_id)
 
     def pre_detach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the pre-detach (post-attach) pose of an object (relative to the planning frame)."""
+        """Get the pre-detach (post-attach) pose of an object."""
         return self.post_attach_pose_stamped(object_id)
 
     def detach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the detach (object init)pose of an object (relative to the planning frame)."""
+        """Get the detach (object init) pose of an object."""
         return self.object_init_pose_stamped(object_id)
 
     def post_detach_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the post-detach (pre-attach) pose of an object (relative to the planning frame)."""
+        """Get the post-detach (pre-attach) pose of an object."""
         return self.pre_attach_pose_stamped(object_id)
 
     def post_return_pose_stamped(self, object_id: str) -> PoseStamped:
-        """Get the post-return (pre-fetch) pose of an object (relative to the planning frame)."""
+        """Get the post-return (pre-fetch) pose of an object."""
         return self.pre_fetch_pose_stamped(object_id)
 
-    def _all_close_pose_stamped(
+    def all_close_pose_stamped(
         self,
         pose_stamped1: PoseStamped,
         pose_stamped2: PoseStamped,
-        position_tolerance: float = 0.01,
-        orientation_tolerance: float = 0.05,
-        use_euler_tolerance: bool = True,
+        position_tolerance: Optional[float] = None,
+        orientation_tolerance: Optional[float] = None,
+        use_euler_tolerance: Optional[bool] = None,
     ) -> bool:
         """Check if two pose stamped messages are all close.
 
@@ -1962,6 +2052,19 @@ class Commander(BaseNode):
         Returns:
             True if the two pose stamped messages are all close, False otherwise.
         """
+        if position_tolerance is None:
+            position_tolerance = self.get_parameter_wrapper(
+                "planning.position_tolerance"
+            )
+        if orientation_tolerance is None:
+            orientation_tolerance = self.get_parameter_wrapper(
+                "planning.orientation_tolerance"
+            )
+        if use_euler_tolerance is None:
+            use_euler_tolerance = self.get_parameter_wrapper(
+                "planning.use_euler_tolerance"
+            )
+
         if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
             pose_stamped2 = self.change_reference_frame(
                 pose_stamped2, pose_stamped1.header.frame_id
@@ -2067,6 +2170,10 @@ class Commander(BaseNode):
                     )
                 planning_pipeline[i] = self.get_parameter_wrapper(
                     "planning.linear_pipeline"
+                )
+            else:
+                raise ValueError(
+                    f"Planning pipelines besides 'default' and 'linear' are not supported: {pipeline}"
                 )
 
         if len(planning_pipeline) == 1:
@@ -2214,7 +2321,7 @@ class Commander(BaseNode):
         cancel_event: Optional[threading.Event] = None,
         parse_kwargs: bool = True,
         **kwargs: Any,
-    ) -> MotionPlanResponse:
+    ) -> MotionPlanResponse | None:
         """
         Plan a trajectory to the given waypoint, retrying up to max_plan_attempts
         times until successful.
@@ -2247,6 +2354,12 @@ class Commander(BaseNode):
             assert len(unused_kwargs) == 0, f"Unused kwargs: {unused_kwargs}"
         else:
             kwargs["goal"] = goal
+
+        if isinstance(goal, PoseStamped) and self.all_close_pose_stamped(
+            goal, self.eef_pose_stamped()
+        ):
+            self.log("Already at goal, skipping planning")
+            return None
 
         max_plan_attempts = kwargs.pop("max_plan_attempts")
         planning_scene = kwargs.pop("planning_scene")
@@ -2289,7 +2402,9 @@ class Commander(BaseNode):
 
         return plan_response
 
-    async def plan(self, *args: Any, **kwargs: Any) -> MotionPlanResponse:
+    async def plan(
+        self, *args: Any, **kwargs: Any
+    ) -> MotionPlanResponse | None:
         """Asynchronously calls `plan()` method in a separate thread.
 
         See Also:
@@ -2303,7 +2418,7 @@ class Commander(BaseNode):
         finally:
             cancel_event.set()
 
-    def _apply_totg(
+    def apply_totg(
         self,
         trajectory: RobotTrajectory,
         *,
@@ -2341,6 +2456,9 @@ class Commander(BaseNode):
         old_duration = trajectory.duration
         old_path_length = trajectory.path_length
 
+        if "resample_dt" not in kwargs:
+            kwargs["resample_dt"] = old_duration / old_num_waypoints
+
         self.log(
             "Applying time parameterization to trajectory with kwargs "
             f"{kwargs}",
@@ -2374,15 +2492,13 @@ class Commander(BaseNode):
         if group_name is None:
             group_name = self.planning_group_name
 
-        verbose = LoggingSeverity.DEBUG >= self.log_level
-
         invalid_index = []
 
         with self.planning_scene_read_only() as scene:
             if not scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
-                verbose=verbose,
+                verbose=True,
                 invalid_index=invalid_index,
             ):
                 raise InvalidTrajectoryError(trajectory, invalid_index)
@@ -2442,7 +2558,7 @@ class Commander(BaseNode):
 
         # Apply time parameterization
         if totg:
-            self._apply_totg(
+            self.apply_totg(
                 trajectory,
                 velocity_scaling_factor=velocity_scaling_factor,
                 acceleration_scaling_factor=acceleration_scaling_factor,
@@ -2503,47 +2619,6 @@ class Commander(BaseNode):
             cancel_event.set()
             self.trajectory_execution_manager.stop_execution()
 
-        # if __debug__:
-        #     last_state = self.current_state
-        #     await asyncio.sleep(0.1)
-        #     if not all_close_robot_states(
-        #         last_state, self.current_state, position_tolerance=0.001
-        #     ):
-        #         raise RuntimeError(
-        #             "Current state changed after execution: "
-        #             f"{last_state} -> {self.current_state}"
-        #         )
-
-    async def plan_and_execute(
-        self, goal: PlanningGoalT, **kwargs: Any
-    ) -> MotionPlanResponse:
-        """Plan and execute a trajectory.
-
-        Retries up to max_plan_attempts times to plan a trajectory, and up to
-        max_execution_attempts times to execute the trajectory.
-
-        Args:
-            goal: The goal to plan for.
-            **kwargs: Keyword arguments to pass to `plan()` and `execute()`.
-
-        Returns:
-            The planned trajectory.
-
-        See Also:
-            `plan()`: For planning parameter details
-            `execute()`: For execution parameter details.
-        """
-        parsed_kwargs, execute_kwargs = self._parse_plan_and_execute_args(
-            goal, **kwargs
-        )
-        plan_response = await self.plan(parse_kwargs=False, **parsed_kwargs)
-        await self.execute(
-            plan_response.trajectory,
-            validate_trajectory=False,
-            **execute_kwargs,
-        )
-        return plan_response
-
     def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
         """Cache the given trajectory.
 
@@ -2557,7 +2632,7 @@ class Commander(BaseNode):
         else:
             self.log("Cache is frozen, skipping cache")
 
-    async def plan_and_execute_cached(
+    async def plan_and_execute(
         self,
         goal: PlanningGoalT,
         cache_trajectory: bool = True,
@@ -2585,12 +2660,16 @@ class Commander(BaseNode):
 
         # Attempt to get the cached trajectory, otherwise plan and execute normally
         if self.use_cached_trajectories:
+            start_state = parsed_kwargs["start_state"]
+            goal_key = parsed_kwargs["goal"]
+            pose_link = parsed_kwargs["pose_link"]
+            group_name = parsed_kwargs["group_name"]
             try:
                 trajectories = self.trajectory_cache.get_trajectories(
-                    start_state=parsed_kwargs["start_state"],
-                    goal=parsed_kwargs["goal"],
-                    pose_link=parsed_kwargs["pose_link"],
-                    group_name=parsed_kwargs["group_name"],
+                    start_state=start_state,
+                    goal=goal_key,
+                    pose_link=pose_link,
+                    group_name=group_name,
                 )
             except KeyError:
                 self.log(
@@ -2607,7 +2686,6 @@ class Commander(BaseNode):
                     try:
                         await self.execute(
                             trajectory,
-                            validate_trajectory=True,
                             **execute_kwargs,
                         )
                         return
@@ -2629,9 +2707,10 @@ class Commander(BaseNode):
             )
 
         response = await self.plan(parse_kwargs=False, **parsed_kwargs)
-        await self.execute(
-            response.trajectory, validate_trajectory=False, **execute_kwargs
-        )
+        if response is None:
+            return
+
+        await self.execute(response.trajectory, **execute_kwargs)
 
         to_cache_kwargs = {
             "trajectory": response.trajectory,
@@ -2652,15 +2731,35 @@ class Commander(BaseNode):
     ###########################################################################
 
     def _phase_to_goal(
-        self, object_id: str, phase: FetchObjectPhase | ReturnObjectPhase
-    ) -> PoseStamped:
-        return getattr(self, f"{phase.name.lower()}_pose_stamped")(object_id)
+        self,
+        object_id: str,
+        phase: ObjectPhase,
+        goal: PlanningGoalT | None = None,
+    ) -> PlanningGoalT:
+        match phase:
+            case ObjectPhase.PRESENT:
+                if goal is None:
+                    raise ValueError(
+                        "Goal is required for present and unpresent phases"
+                    )
+                return goal
+            case ObjectPhase.IDLE:
+                return self.get_target_state("idle")
+            case ObjectPhase.PRE_PRESENT:
+                try:
+                    return self.get_target_state("pre_present")
+                except ParameterNotDeclaredException:
+                    return self.pre_present_pose_stamped(object_id)
+            case _:
+                return getattr(self, f"{phase.name.lower()}_pose_stamped")(
+                    object_id
+                )
 
     async def _object_phase(
         self,
         object_id: str,
-        phase: FetchObjectPhase | ReturnObjectPhase,
-        cache_trajectory: bool = False,
+        phase: ObjectPhase,
+        goal: PlanningGoalT | None = None,
         **kwargs: Any,
     ) -> dict[str, Any] | None:
         """Plan and execute a phase of the object manipulation process.
@@ -2681,60 +2780,91 @@ class Commander(BaseNode):
         self.log(f"{phase.name} phase for object {object_id}")
 
         planning_pipeline = "linear"
-        goal = self._phase_to_goal(object_id, phase)
+        goal = self._phase_to_goal(object_id, phase, goal)
+
+        if phase in OBJECT_MANIPULATION_PHASES:
+            self.allow_collision(
+                *zip(*self.allowed_object_manipulation_collisions)
+            )
+
         match phase:
-            # Fetch object phases
-            case FetchObjectPhase.PRE_FETCH | ReturnObjectPhase.PRE_RETURN:
+            case (
+                ObjectPhase.PRE_FETCH
+                | ObjectPhase.PRE_PRESENT
+                | ObjectPhase.PRE_RETURN
+                | ObjectPhase.IDLE
+            ):
                 planning_pipeline = "default"
             case (
-                FetchObjectPhase.PRE_ATTACH
-                | FetchObjectPhase.ATTACH
-                | ReturnObjectPhase.POST_DETACH
-                | ReturnObjectPhase.POST_RETURN
+                ObjectPhase.PRE_ATTACH
+                | ObjectPhase.ATTACH
+                | ObjectPhase.POST_DETACH
+                | ObjectPhase.POST_RETURN
             ):
                 self.allow_collision(object_id, self.touch_links)
-            case FetchObjectPhase.POST_ATTACH | ReturnObjectPhase.DETACH:
+            case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
                 self.allow_collision(object_id, self.object_mount_ids)
 
         self.log(f"{phase.name} goal: {goal}", severity="DEBUG")
 
         try:
-            to_cache_kwargs = await self.plan_and_execute_cached(
-                goal,
-                planning_pipeline=planning_pipeline,
-                cache_trajectory=cache_trajectory,
-                **kwargs,
+            to_cache_kwargs = await self.plan_and_execute(
+                goal, planning_pipeline=planning_pipeline, **kwargs
             )
-        finally:
+        except (InvalidTrajectoryError, MaxAttemptsReachedError) as e:
+            to_cache_kwargs = None
             match phase:
                 case (
-                    FetchObjectPhase.PRE_ATTACH
-                    | FetchObjectPhase.ATTACH
-                    | ReturnObjectPhase.POST_DETACH
-                    | ReturnObjectPhase.POST_RETURN
+                    ObjectPhase.POST_FETCH
+                    | ObjectPhase.PRESENT
+                    | ObjectPhase.UNPRESENT
+                    | ObjectPhase.PRE_DETACH
+                ):
+                    self.log(
+                        f"Error while planning and executing {phase.name} phase with linear pipeline: {e}",
+                        severity="WARN",
+                    )
+                    self.log(
+                        f"Attempting to plan and execute {phase.name} phase with default pipeline",
+                        severity="WARN",
+                    )
+                    await self.plan_and_execute(
+                        goal, planning_pipeline="default", **kwargs
+                    )
+                case _:
+                    raise
+        finally:
+            if phase in OBJECT_MANIPULATION_PHASES:
+                self.disallow_collision(
+                    *zip(*self.allowed_object_manipulation_collisions)
+                )
+            match phase:
+                case (
+                    ObjectPhase.PRE_ATTACH
+                    | ObjectPhase.ATTACH
+                    | ObjectPhase.POST_DETACH
+                    | ObjectPhase.POST_RETURN
                 ):
                     self.disallow_collision(object_id, self.touch_links)
-                case FetchObjectPhase.POST_ATTACH | ReturnObjectPhase.DETACH:
+                case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
                     self.disallow_collision(object_id, self.object_mount_ids)
 
         match phase:
-            case FetchObjectPhase.ATTACH:
+            case ObjectPhase.ATTACH:
                 self.attach_collision_object(
                     object_id,
                     self.planning_link,
                     touch_links=self.touch_links,
                 )
-            case ReturnObjectPhase.DETACH:
+            case ObjectPhase.DETACH:
                 self.detach_collision_object(object_id)
 
         return to_cache_kwargs
 
     @asyncio_task_decorator
+    @object_manipulation_lock_decorator
     async def fetch_object(
-        self,
-        object_id: str,
-        end_goal: PlanningGoalT | None = None,
-        cache_trajectories: bool = True,
+        self, object_id: str, cache_trajectories: bool = True
     ):
         """Fetch an object from its mount.
 
@@ -2750,14 +2880,17 @@ class Commander(BaseNode):
             object_id: The ID of the object to fetch
             cache_trajectories: Whether to cache the trajectories after fetching
                 the object
-            end_goal: The goal to move to after fetching the object.
-                If None, the robot remains at the object's post-fetch pose.
 
         Raises:
             ValueError: If the object ID is not a valid collision object
             MaxAttemptsReachedError: If the fetch fails
         """
         self.log(f"Fetching object {object_id}")
+
+        if len(self.attached_collision_object_ids) > 0:
+            raise ObjectManipulationError(
+                "Cannot fetch object while another object is attached"
+            )
 
         # Check that the object ID is valid
         if object_id not in self.collision_object_ids:
@@ -2767,45 +2900,68 @@ class Commander(BaseNode):
         # if the fetch fails
         to_cache_kwargs: list[dict[str, Any]] = []
         try:
-            for i in range(len(FetchObjectPhase)):
+            for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
                 kwargs = await self._object_phase(
-                    object_id, FetchObjectPhase(i)
+                    object_id, ObjectPhase(i), cache_trajectory=False
                 )
                 if kwargs is not None:
                     to_cache_kwargs.append(kwargs)
-        except MaxAttemptsReachedError as e:
+        except (InvalidTrajectoryError, MaxAttemptsReachedError) as e:
             self.log(
-                f"Max attempts reached while fetching object: {e}",
+                f"Error while fetching object: {e}",
                 severity="ERROR",
             )
             self.log("Attempting to return object to mount", severity="WARN")
-            try:
-                start_idx = len(ReturnObjectPhase) - i
-                for i in range(start_idx, len(ReturnObjectPhase)):
-                    await self._object_phase(object_id, ReturnObjectPhase(i))
-            except MaxAttemptsReachedError as f:
-                raise f from e
+            start_idx = ObjectPhase.IDLE - i
+            for i in range(start_idx, ObjectPhase.IDLE + 1):
+                await self._object_phase(
+                    object_id, ObjectPhase(i), cache_trajectory=False
+                )
             raise
 
         # Cache all trajectories if requested
         if cache_trajectories and len(to_cache_kwargs) > 0:
             for kwargs in to_cache_kwargs:
-                self.trajectory_cache.cache_trajectory(**kwargs)
+                self.cache_trajectory(**kwargs)
             self.log(
                 f"Cached {len(to_cache_kwargs)} fetch trajectories successfully"
             )
 
-        # Move to end pose if specified
-        if end_goal is not None:
-            self.log(f"Moving to fetch end goal {end_goal}")
-            await self.plan_and_execute_cached(end_goal)
+    @asyncio_task_decorator
+    @object_manipulation_lock_decorator
+    async def present_object(self, goal: PlanningGoalT):
+        """Present an object at the specified end goal.
+
+        Args:
+            goal: The goal to present the object at
+        """
+        object_id = self._get_exactly_one_attached_object_id()
+        self.log(f"Presenting object {object_id}")
+
+        # Pre-present phase
+        await self._object_phase(object_id, ObjectPhase.PRE_PRESENT)
+
+        # Move to end goal
+        await self._object_phase(object_id, ObjectPhase.PRESENT, goal=goal)
 
     @asyncio_task_decorator
-    async def return_object(
-        self,
-        end_goal: PlanningGoalT | None = "idle",
-        cache_trajectories: bool = True,
-    ):
+    @object_manipulation_lock_decorator
+    async def unpresent_object(self):
+        """Unpresent an object and move it to its pre-return pose."""
+        object_id = self._get_exactly_one_attached_object_id()
+        self.log(f"Unpresenting object {object_id}")
+
+        # Unpresent phase
+        await self._object_phase(object_id, ObjectPhase.UNPRESENT)
+
+        # Pre-return phase
+        self._pre_return_cache_kwargs = await self._object_phase(
+            object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
+        )
+
+    @asyncio_task_decorator
+    @object_manipulation_lock_decorator
+    async def return_object(self, cache_trajectories: bool = True):
         """Return an object to its original position.
 
         Args:
@@ -2820,118 +2976,35 @@ class Commander(BaseNode):
         object_id = self._get_exactly_one_attached_object_id()
         self.log(f"Returning object {object_id}")
 
-        # Iterate through the unpresenting and returning phases
         to_cache_kwargs: list[dict[str, Any]] = []
-        for i in range(len(ReturnObjectPhase)):
-            kwargs = await self._object_phase(object_id, ReturnObjectPhase(i))
+
+        # Cache the unpresent trajectory if it exists
+        if not hasattr(self, "_pre_return_cache_kwargs"):
+            raise RuntimeError("Object was not unpresented before returning")
+
+        if self._pre_return_cache_kwargs is not None:
+            to_cache_kwargs.append(self._pre_return_cache_kwargs)
+            del self._pre_return_cache_kwargs
+
+        # Iterate through the unpresenting and returning phases
+        for i in range(ObjectPhase.PRE_DETACH, ObjectPhase.IDLE + 1):
+            kwargs = await self._object_phase(
+                object_id, ObjectPhase(i), cache_trajectory=False
+            )
             if kwargs is not None:
                 to_cache_kwargs.append(kwargs)
 
         # Cache all trajectories if requested
         if cache_trajectories and len(to_cache_kwargs) > 0:
             for kwargs in to_cache_kwargs:
-                self.trajectory_cache.cache_trajectory(**kwargs)
+                self.cache_trajectory(**kwargs)
             self.log(
                 f"Cached {len(to_cache_kwargs)} return trajectories successfully"
             )
 
-        # Move to end pose if specified
-        if end_goal is not None:
-            self.log(f"Moving to return end goal {end_goal}")
-            await self.plan_and_execute_cached(end_goal)
-
-    @asyncio_task_decorator
-    async def present_object(self, goal: PlanningGoalT):
-        """Present an object at the specified end goal.
-
-        Args:
-            goal: The goal to present the object at
-        """
-        object_id = self._get_exactly_one_attached_object_id()
-
-        # Move to target pose
-        self.log(f"Presenting object {object_id}")
-        self.log(f"Present goal: {goal}", severity="DEBUG")
-        await self.plan_and_execute_cached(goal)
-
-    @asyncio_task_decorator
-    async def unpresent_object(
-        self, cache_trajectory: bool = False
-    ) -> dict[str, Any] | None:
-        """Unpresent an object and move it to its pre-return pose."""
-        object_id = self._get_exactly_one_attached_object_id()
-
-        self.log(f"Unpresenting object {object_id}")
-
-        # Move to pre-return pose
-        return await self._object_phase(
-            object_id,
-            ReturnObjectPhase.PRE_RETURN,
-            cache_trajectory=cache_trajectory,
-        )
-
     ###########################################################################
     ########## Reset rig #####################################################
     ###########################################################################
-
-    # async def _move_out_of_collision_simulation(
-    #     self, end_goal: PlanningGoalT = "idle", **kwargs
-    # ):
-    #     """Move the robot out of collision with the scene asynchronously.
-
-    #     To be used only in simulation. With the real robot, the user should
-    #     manually (via the teach pendant) move the robot away from the collision
-    #     objects.
-
-    #     Using this function will reset any attached dynamic collision objects
-    #     to their initial poses and move the robot to the target pose, ignoring
-    #     collisions.
-
-    #     Args:
-    #         end_goal: The goal to move to after moving out of collision.
-    #         **kwargs: Keyword arguments to pass to `plan_and_execute()`.
-    #     """
-    #     self.log("Moving out of collision")
-    #     assert self.simulate, "This function is only available in simulation"
-
-    #     # Reset attached collision objects and allow collision between them and
-    #     # the touch links
-    #     attached_collision_object_ids = self.attached_collision_object_ids
-    #     modified: list[tuple[str, str]] = []
-    #     for object_id in attached_collision_object_ids:
-    #         self.reset_collision_object(object_id)
-    #         modified.extend(self.allow_collision(object_id, self.touch_links))
-
-    #     # Reinitialize the planning scene if the robot is still in collision
-    #     reinitialize_planning_scene = False
-    #     if self.is_state_colliding():
-    #         self.log(
-    #             "Robot is still in collision with the scene, "
-    #             "reinitializing planning scene",
-    #             severity="WARN",
-    #         )
-    #         self.remove_all_collision_objects()
-    #         reinitialize_planning_scene = True
-
-    #     assert not self.is_state_colliding()
-
-    #     # Move to goal
-    #     try:
-    #         await self.plan_and_execute(end_goal, **kwargs)
-    #     except MaxAttemptsReachedError:
-    #         self.log(
-    #             "Max attempts reached while moving out of collision, "
-    #             "reinitializing planning scene",
-    #             severity="WARN",
-    #         )
-    #         self.remove_all_collision_objects()
-    #         reinitialize_planning_scene = True
-    #         await self.plan_and_execute(end_goal, **kwargs)
-    #     finally:
-    #         if reinitialize_planning_scene:
-    #             self.init_planning_scene()
-    #         elif len(modified) > 0:
-    #             self.disallow_collision(*zip(*modified))
 
     async def _move_out_of_collision_simulation(
         self, end_goal: PlanningGoalT = "idle", **kwargs
@@ -2974,10 +3047,14 @@ class Commander(BaseNode):
         else:
             try:
                 if len(self.attached_collision_object_ids) > 0:
+                    self._pre_return_cache_kwargs = await self._object_phase(
+                        self._get_exactly_one_attached_object_id(),
+                        ObjectPhase.PRE_RETURN,
+                    )
                     await self.return_object()
                 else:
                     await self.plan_and_execute(end_goal)
-            except MaxAttemptsReachedError:
+            except (InvalidTrajectoryError, MaxAttemptsReachedError):
                 if self.simulate:
                     self.log(
                         "Max attempts reached while resetting rig.",
@@ -2998,10 +3075,10 @@ class Commander(BaseNode):
         async with asyncio.timeout(timeout):
             while True:
                 try:
-                    await self.reset_dashboard()
+                    await self.reset_dashboard(timeout)
                     await self.reset_rig()
                     break
-                except CommanderRecoverableErrors as e:
+                except (TimeoutError, CommanderRecoverableError) as e:
                     self.log(
                         "Caught exception while resetting commander:",
                         severity="WARN",
@@ -3011,8 +3088,15 @@ class Commander(BaseNode):
                         f"Traceback: {traceback.format_exc()}",
                         severity="DEBUG",
                     )
-                    self.log("Trying again after 1 second...", severity="WARN")
-                    await asyncio.sleep(1)
+                    if isinstance(e, MaxExecutionAttemptsReachedError):
+                        sleep_time = 5
+                    else:
+                        sleep_time = 1
+                    self.log(
+                        f"Sleeping for {sleep_time} seconds before retrying",
+                        severity="WARN",
+                    )
+                    await asyncio.sleep(sleep_time)
 
     ###########################################################################
     ########## Context manager ################################################
@@ -3021,6 +3105,7 @@ class Commander(BaseNode):
     async def __aenter__(self) -> Self:
         """Enter the context manager."""
         self.log("Entering commander context manager", severity="DEBUG")
+        self.trajectory_cache.__enter__()
         if not self.initial_reset:
             await self.reset_commander()
             self.initial_reset = True
@@ -3034,15 +3119,30 @@ class Commander(BaseNode):
     ) -> bool:
         """Exit the context manager."""
         self.log("Exiting commander context manager", severity="DEBUG")
-        if exc_type in CommanderRecoverableErrors:
-            self.log(
-                "Caught exception while running commander:", severity="ERROR"
-            )
-            self.log(f"{exc_type.__name__}: {exc_value}", severity="ERROR")
-            self.log(f"Traceback: {exc_tb}", severity="DEBUG")
-            await self.reset_commander()
-            return True
-        return False
+        try:
+            if exc_type is not None:
+                if isinstance(
+                    exc_value, (TimeoutError, CommanderRecoverableError)
+                ):
+                    self.log(
+                        "Caught exception while running commander:",
+                        severity="ERROR",
+                    )
+                    self.log(
+                        f"{exc_type.__name__}: {exc_value}", severity="ERROR"
+                    )
+                    self.log(f"Traceback: {exc_tb}", severity="DEBUG")
+                    if exc_type is MaxExecutionAttemptsReachedError:
+                        self.log(
+                            "Sleeping for 5 seconds before resetting commander",
+                            severity="WARN",
+                        )
+                        await asyncio.sleep(5)
+                    await self.reset_commander()
+                    return True
+            return False
+        finally:
+            self.trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
     ########## Asyncio schedule ###############################################
@@ -3059,7 +3159,7 @@ class Commander(BaseNode):
         """
         tasks = []
         for coro in coros:
-            tasks.append(create_task_wrapper(coro))
+            tasks.append(asyncio.create_task(coro))
         return tasks[0] if len(tasks) == 1 else tasks
 
     ###########################################################################
@@ -3087,8 +3187,22 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
 
     commander.log("Running commander interactively")
 
+    debugpy.breakpoint()
+
+    origin = commander.get_frame_pose_stamped("small_object_0")
+    origin_position, origin_euler = arrays_from_pose_msg(
+        origin.pose, euler=True
+    )
+    commander.log(
+        f"Object origin position: {origin_position.round(4)}, euler: {origin_euler.round(4)}"
+    )
+
     while True:
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
+        eef_world = commander.eef_pose_stamped()
+        position, euler = arrays_from_pose_msg(eef_world.pose, euler=True)
+        position = position - origin_position
+        commander.log(f"Eef relative position: {position.round(4).tolist()}")
 
 
 async def asyncio_runner(coro: Coroutine, max_workers: int):
@@ -3178,4 +3292,4 @@ def main(args=None):
         print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
+        rclpy.try_shutdown()  # type: ignore

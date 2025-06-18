@@ -7,7 +7,8 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
         },
         {
             "name": "Python Debugger: Current File with Arguments",
@@ -16,7 +17,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
         },
         {
             "name": "Python Debugger: Launch run_tasks",
@@ -28,7 +30,8 @@
                 "launch_server:=false",
                 "task_config:=foraging_ordered.yaml"
             ],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
         },
         {
             "name": "Python Debugger: Attach to run_tasks",
@@ -39,43 +42,6 @@
                 "port": 4567
             },
             "justMyCode": false
-        },
-        {
-            "name": "ROS: Launch Commander",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/commander.launch.py",
-            "arguments": [
-                "commander_log_level:=DEBUG"
-            ],
-            "attachDebugger": [
-                "commander"
-            ]
-        },
-        {
-            "name": "ROS: Launch Tasks",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
-            "arguments": [
-                "launch_server:=false",
-                "clear_cache:=true"
-            ],
-            "attachDebugger": [
-                "commander"
-            ]
-        },
-        {
-            "name": "ROS: Launch Real Robot",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
-            "arguments": [
-                "robot_mode:=real"
-            ],
-            "attachDebugger": [
-                "commander"
-            ]
         }
     ],
     "inputs": [

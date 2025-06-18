@@ -129,15 +129,19 @@ class SrvType(Protocol):
 # Exception definitions
 
 
-class ServiceCallError(Exception):
+class CommanderRecoverableError(Exception):
+    """Recoverable error that can be retried."""
+
+
+class ServiceCallError(CommanderRecoverableError):
     """Service call failed."""
 
 
-class ServiceCallUnsuccessfulError(Exception):
+class ServiceCallUnsuccessfulError(CommanderRecoverableError):
     """Service call returned with a failure status."""
 
 
-class MaxAttemptsReachedError(Exception):
+class MaxAttemptsReachedError(CommanderRecoverableError):
     """Maximum number of attempts reached."""
 
 
@@ -184,7 +188,7 @@ class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
         )
 
 
-class InvalidTrajectoryError(Exception):
+class InvalidTrajectoryError(CommanderRecoverableError):
     """Invalid trajectory."""
 
     def __init__(self, trajectory: RobotTrajectory, invalid_index: list[int]):
@@ -193,15 +197,8 @@ class InvalidTrajectoryError(Exception):
         super().__init__(f"Invalid trajectory at indices: {invalid_index}")
 
 
-CommanderRecoverableErrors = (
-    TimeoutError,
-    ServiceCallError,
-    ServiceCallUnsuccessfulError,
-    MaxAttemptsReachedError,
-    MaxPlanningAttemptsReachedError,
-    MaxExecutionAttemptsReachedError,
-    InvalidTrajectoryError,
-)
+class ObjectManipulationError(CommanderRecoverableError):
+    """Error while manipulating object."""
 
 
 # Type aliases
@@ -273,10 +270,15 @@ def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
     return q
 
 
-def arrays_from_pose_msg(pose: Pose) -> tuple[np.ndarray, np.ndarray]:
+def arrays_from_pose_msg(
+    pose: Pose, *, euler: bool = False, axes: str = "sxyz"
+) -> tuple[np.ndarray, np.ndarray]:
     """Convert a geometry_msgs/Pose message to position and normalized quaternion arrays."""
     position = array_from_point_msg(pose.position)
-    orientation = array_from_quaternion_msg(pose.orientation)
+    if euler:
+        orientation = euler_array_from_quaternion_msg(pose.orientation, axes)
+    else:
+        orientation = array_from_quaternion_msg(pose.orientation)
     return position, orientation
 
 
@@ -476,6 +478,23 @@ def all_close_iterables(
     return bool(np.all(diff < tolerance))
 
 
+def all_close_dicts(
+    d1: dict[str, float],
+    d2: dict[str, float],
+    tolerance: float | dict[str, float],
+) -> bool:
+    """Check if two dictionaries are close to each other."""
+    if isinstance(tolerance, Mapping):
+        for k, v in d1.items():
+            if abs(v - d2[k]) > tolerance[k]:
+                return False
+    else:
+        for k, v in d1.items():
+            if abs(v - d2[k]) > tolerance:
+                return False
+    return True
+
+
 def all_close_points(
     p1: Point, p2: Point, tolerance: float | Iterable[float]
 ) -> bool:
@@ -555,40 +574,31 @@ def all_close_poses_stamped(
 def all_close_robot_states(
     state1: RobotState,
     state2: RobotState,
-    position_tolerance: float | Iterable[float] | np.ndarray,
-    velocity_tolerance: Optional[float | Iterable[float] | np.ndarray] = None,
-    acceleration_tolerance: Optional[
-        float | Iterable[float] | np.ndarray
-    ] = None,
+    position_tolerance: float | dict[str, float],
+    velocity_tolerance: Optional[float | dict[str, float]] = None,
+    acceleration_tolerance: Optional[float | dict[str, float]] = None,
 ) -> bool:
     """Check if two robot states are close to each other."""
-    all_close_positions = all_close_iterables(
-        list(state1.joint_positions.values()),
-        list(state2.joint_positions.values()),
-        position_tolerance,
-    )
+    if not all_close_dicts(
+        state1.joint_positions, state2.joint_positions, position_tolerance
+    ):
+        return False
 
-    all_close_velocities = True
-    if velocity_tolerance is not None:
-        all_close_velocities = all_close_iterables(
-            list(state1.joint_velocities.values()),
-            list(state2.joint_velocities.values()),
-            velocity_tolerance,
-        )
+    if velocity_tolerance is not None and not all_close_dicts(
+        state1.joint_velocities,
+        state2.joint_velocities,
+        velocity_tolerance,
+    ):
+        return False
 
-    all_close_accelerations = True
-    if acceleration_tolerance is not None:
-        all_close_accelerations = all_close_iterables(
-            list(state1.joint_accelerations.values()),
-            list(state2.joint_accelerations.values()),
-            acceleration_tolerance,
-        )
+    if acceleration_tolerance is not None and not all_close_dicts(
+        state1.joint_accelerations,
+        state2.joint_accelerations,
+        acceleration_tolerance,
+    ):
+        return False
 
-    return (
-        all_close_positions
-        and all_close_velocities
-        and all_close_accelerations
-    )
+    return True
 
 
 # Homogeneous transformation utilities

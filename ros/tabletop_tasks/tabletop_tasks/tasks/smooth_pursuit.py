@@ -75,6 +75,9 @@ class SmoothPursuitTask(BaseTask):
                 response = await self.commander.plan(
                     goal=waypoint_pose_stamped
                 )
+                if response is None:
+                    last_waypoint = self.commander.current_state
+                    continue
             else:
                 # Plan segment of spiral
                 response = await self.commander.plan(
@@ -82,6 +85,12 @@ class SmoothPursuitTask(BaseTask):
                     start_state=last_waypoint,
                     planning_pipeline="linear",
                 )
+                if response is None:
+                    self.log(
+                        "Waypoints may be too close, skipping segment",
+                        severity="WARN",
+                    )
+                    continue
                 if i == 1:
                     spiral_trajectory: RobotTrajectory = response.trajectory
                 else:
@@ -91,21 +100,22 @@ class SmoothPursuitTask(BaseTask):
 
             last_waypoint = response.trajectory[len(response.trajectory) - 1]
 
-        if not spiral_trajectory.apply_totg_time_parameterization(
+        self.commander.apply_totg(
+            spiral_trajectory,
             velocity_scaling_factor=self._velocity_scaling_factor,
             acceleration_scaling_factor=self._acceleration_scaling_factor,
-        ):
-            raise RuntimeError("Failed to apply time parameterization")
-        # trajectory.apply_ruckig_smoothing()
+        )
         return spiral_trajectory
 
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
-        async with self.commander.context_manager():
+        async with self.commander:
             spiral_trajectory = await self.generate_trajectories()
             for i in range(self._num_cycles):
                 self.log(f"Executing cycle {i} of {self._num_cycles}")
                 self.log("Executing pre-trajectory")
                 await self.commander.plan_and_execute(spiral_trajectory[0])
                 self.log("Executing spiral trajectory")
-                await self.commander.execute(spiral_trajectory)
+                await self.commander.execute(
+                    spiral_trajectory, validate_trajectory=False
+                )

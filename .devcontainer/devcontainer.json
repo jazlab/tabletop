@@ -6,7 +6,7 @@
     "postStartCommand": [
         "bash",
         "-c",
-        "tt_build --remove-moveit-apt && pip install -r /root/ws/src/tabletop/requirements-dev.txt"
+        "tt_build --remove-moveit-apt && pip install -r /root/ws/src/tabletop/requirements-dev.txt && print_status 'Successfully installed pip development dependencies!'"
     ],
     "customizations": {
         "vscode": {

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tabletop_server.nodes import Commander
-from tabletop_utils.ros import CommanderRecoverableErrors
+from tabletop_utils.ros import CommanderRecoverableError
 
 from tabletop_tasks.tasks.base import BaseTask
 from tabletop_tasks.trial_generators.base import (
@@ -21,14 +21,16 @@ class ForagingState(enum.Enum):
 
     NEXT_TRIAL_SPEC = 0
     FETCH = 1
-    FIXATION = 2
-    STIMULUS = 3
-    DELAY = 4
-    RESPONSE = 5
-    REVEAL = 6
-    SEND_FEEDBACK = 7
-    RETURN = 8
-    FINISHED = 9
+    PRESENT = 2
+    FIXATION = 3
+    STIMULUS = 4
+    DELAY = 5
+    RESPONSE = 6
+    REVEAL = 7
+    SEND_FEEDBACK = 8
+    UNPRESENT = 9
+    RETURN = 10
+    FINISHED = 11
 
 
 class ForagingTask(BaseTask):
@@ -142,8 +144,14 @@ class ForagingTask(BaseTask):
         # Fetch object
         await self.commander.fetch_object(
             object_id=self._trial_spec.object_id,
-            end_goal=self._trial_spec.object_pose,
         )
+
+    async def _present(self):
+        """Present object."""
+        self.log("Present phase")
+
+        # Present object
+        await self.commander.present_object(goal=self._trial_spec.object_pose)
 
     # TODO: Wait indefinitely until fixation is broken
     async def _fixation(self) -> bool:
@@ -248,17 +256,21 @@ class ForagingTask(BaseTask):
         self.log(f"Sending trial feedback: {self._trial_feedback}")
         self._trial_generator.send(self._trial_feedback)
 
-    async def _return(self):
-        """Return object."""
-        self.log("Returning object")
-
+    async def _unpresent(self):
+        """Unpresent object."""
+        self.log("Unpresent phase")
         arm_door_task = self.commander.arm_door_close_and_wait()
         smartglass_task = self.commander.smartglass_occlude()
-        return_task = self.commander.return_object()
 
-        await return_task
         await arm_door_task
         await smartglass_task
+
+        await self.commander.unpresent_object()
+
+    async def _return(self):
+        """Return object."""
+        self.log("Returning phase")
+        self.return_task = self.commander.return_object()
 
     async def run(self):
         """Run a trial."""
@@ -276,6 +288,9 @@ class ForagingTask(BaseTask):
                                     self._state = ForagingState.FINISHED
                             case ForagingState.FETCH:
                                 await self._fetch()
+                                self._state = ForagingState.PRESENT
+                            case ForagingState.PRESENT:
+                                await self._present()
                                 self._state = ForagingState.FIXATION
                             case ForagingState.FIXATION:
                                 if await self._fixation():
@@ -302,6 +317,9 @@ class ForagingTask(BaseTask):
                                 self._state = ForagingState.SEND_FEEDBACK
                             case ForagingState.SEND_FEEDBACK:
                                 self.send_trial_feedback()
+                                self._state = ForagingState.UNPRESENT
+                            case ForagingState.UNPRESENT:
+                                await self._unpresent()
                                 self._state = ForagingState.RETURN
                             case ForagingState.RETURN:
                                 await self._return()
@@ -310,10 +328,8 @@ class ForagingTask(BaseTask):
                                 self.log("Foraging task finished")
                                 return
                             case _:
-                                raise ValueError(
-                                    f"Invalid state: {self._state}"
-                                )
-                except CommanderRecoverableErrors:
+                                assert False, f"Invalid state: {self._state}"
+                except (TimeoutError, CommanderRecoverableError):
                     self.log("Recoverable error, sending trial feedback")
                     if self._state != ForagingState.RETURN:
                         self.send_trial_feedback()

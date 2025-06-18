@@ -6,6 +6,7 @@ from launch.actions import (
     SetEnvironmentVariable,
     Shutdown,
 )
+from launch.conditions import IfCondition
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -90,9 +91,21 @@ def declare_arguments():
             choices=["true", "false", "null"],
         ),
         DeclareLaunchArgument(
+            "use_cache",
+            default_value="null",
+            description="Whether to use the trajectory cache",
+            choices=["true", "false", "null"],
+        ),
+        DeclareLaunchArgument(
+            "initial_object",
+            default_value="null",
+            description="The name or index of the initial attached object",
+        ),
+        DeclareLaunchArgument(
             "optimize_python",
             default_value="false",
-            description="Whether to optimize the Python code for the commander with the PYTHONOPTIMIZE environment variable",
+            description="Whether to optimize the Python code for the "
+            "commander with the PYTHONOPTIMIZE environment variable",
             choices=["true", "false"],
         ),
         # ROS Warehouse
@@ -106,12 +119,6 @@ def declare_arguments():
             "commander_log_level",
             default_value="INFO",
             description="Commander log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "moveit_py_log_level",
-            default_value="WARN",
-            description="MoveItPy log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
@@ -147,14 +154,15 @@ def generate_launch_description():
     coroutine_name = LaunchConfiguration("coroutine_name")
     coroutine_config = LaunchConfiguration("coroutine_config")
     new_cache = LaunchConfiguration("new_cache")
+    use_cache = LaunchConfiguration("use_cache")
     optimize_python = LaunchConfiguration("optimize_python")
+    initial_object = LaunchConfiguration("initial_object")
 
     # ROS Warehouse
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
 
     # Logging
     commander_log_level = LaunchConfiguration("commander_log_level")
-    moveit_py_log_level = LaunchConfiguration("moveit_py_log_level")
     moveit_log_level = LaunchConfiguration("moveit_log_level")
 
     # Commander output
@@ -181,12 +189,44 @@ def generate_launch_description():
         simulate = simulate_commander.perform(context) == "true"
         commander_overrides["simulate"] = simulate
 
+        # Velocity and acceleration scaling for simulation
+        if simulate:
+            commander_overrides["execution.totg.velocity_scaling_factor"] = 1.0
+            commander_overrides[
+                "execution.totg.acceleration_scaling_factor"
+            ] = 1.0
+
         # Clear cache
         new_cache_value = new_cache.perform(context)
         if new_cache_value != "null":
             commander_overrides["trajectory_cache.kwargs.new_cache"] = (
                 new_cache_value == "true"
             )
+
+        # Use cache
+        use_cache_value = use_cache.perform(context)
+        if use_cache_value != "null":
+            commander_overrides["trajectory_cache.use_cached_trajectories"] = (
+                use_cache_value == "true"
+            )
+
+        # Initial attached object
+        initial_object_value = initial_object.perform(context)
+        if initial_object_value != "null":
+            idx = initial_object_value.split(",")
+            if len(idx) == 1:
+                commander_overrides["initial_attached_object"] = (
+                    initial_object_value
+                )
+            elif len(idx) == 2:
+                commander_overrides["initial_attached_object_idx"] = [
+                    int(idx[0]),
+                    int(idx[1]),
+                ]
+            else:
+                raise ValueError(
+                    f"Invalid initial object index: {initial_object_value}"
+                )
 
         # Save the scoped overrides
         commander_overrides_scoped = {
@@ -221,13 +261,12 @@ def generate_launch_description():
     # Python Optimize
     optimize_python_action = SetEnvironmentVariable(
         name="PYTHONOPTIMIZE",
-        value=IfElseSubstitution(
-            EqualsSubstitution(optimize_python, "true"), "1", "0"
-        ),
+        value="1",
+        condition=IfCondition(optimize_python),
     )
 
     logger_levels = [
-        ["moveit_py:=", moveit_py_log_level],
+        moveit_log_level,
         ["commander:=", commander_log_level],
         ["trajectory_cache:=", commander_log_level],
         "rcl:=FATAL",
@@ -240,8 +279,7 @@ def generate_launch_description():
     ]
     logger_levels_args = []
     for logger in logger_levels:
-        logger_levels_args.append("--log-level")
-        logger_levels_args.append(logger)
+        logger_levels_args.extend(["--log-level", logger])
 
     # Commander Node
     commander = Node(
@@ -257,11 +295,7 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
             },
         ],
-        ros_arguments=[
-            "--log-level",
-            moveit_log_level,
-            *logger_levels_args,
-        ],
+        ros_arguments=[*logger_levels_args],
         arguments=[
             IfElseSubstitution(
                 NotEqualsSubstitution(coroutine_module, "null"),
