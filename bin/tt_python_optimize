@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Get bin directory and source utils
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/utils.bash
 
 set -e

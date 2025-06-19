@@ -77,7 +77,12 @@ organized as troubleshooting guide!).
 3. Don't try to use the `AIOExecutor` to run the `commander` node. You will be
     stuck trying to figure out why your little ROS services aren't responding
     and why you keep going through intermittent periods of successful ROS node
-    execution and complete radio silence. It is because ROS
+    execution and complete radio silence. It is because ROS (I forget what I
+    was going to say here. Something unsavory I'm sure).
+
+4. Additionally, for some reason you must run the rclpy executor in a separate
+    thread from the asyncio thread. Something to do with the backwards way
+    rclpy handles tasks. I'm not sure why this is the case, but it is.
 
 ## Flic
 

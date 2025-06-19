@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
-project_dir=$(get_parent_dir $bin_dir 1)
 
 target_arg="--target upload"
 while [[ $# -gt 0 ]]; do
@@ -37,11 +36,11 @@ if [ "$clean" = "true" ]; then
         fi
     fi
     print_status "Cleaning build directory"
-    sudo rm -rf $project_dir/ros/tabletop_teensy/.pio
+    sudo rm -rf $TABLETOP_DIR/ros/tabletop_teensy/.pio
 fi
 
 print_status "Building Teensy code"
-while ! pio run $target_arg --project-dir $project_dir/ros/tabletop_teensy; do
+while ! pio run $target_arg --project-dir $TABLETOP_DIR/ros/tabletop_teensy; do
     print_status "Build failed, retrying..."
     sleep 1
 done

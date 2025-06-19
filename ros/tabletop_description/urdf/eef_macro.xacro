@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
   <xacro:include filename="$(find tabletop_description)/urdf/sphere_macro.xacro" />
+  <xacro:include filename="$(find tabletop_description)/urdf/cylinder_macro.xacro" />
   <xacro:macro name="eef"
     params="
     tf_prefix
@@ -12,7 +13,8 @@
     <xacro:property name="radius" value="0.0315" />
     <xacro:property name="mass" value="0.5" />
     <xacro:property name="sphere_radius" value="0.06" />
-    <xacro:property name="sphere_mass" value="0.01" />
+    <xacro:property name="bounding_cylinder_radius" value="0.05" />
+    <xacro:property name="bounding_cylinder_length" value="0.11" />
 
     <link name="${tf_prefix}eef_link">
       <visual>
@@ -20,12 +22,15 @@
           <mesh filename="package://tabletop_description/meshes/visual/eef.stl" />
         </geometry>
         <origin xyz="0 0 0" rpy="0 0 0" />
+        <material name="black">
+          <color rgba="0 0 0 1" />
+        </material>
       </visual>
       <collision>
         <geometry>
-          <mesh filename="package://tabletop_description/meshes/collision/eef.stl" />
+          <cylinder radius="${radius}" length="${length}" />
         </geometry>
-        <origin xyz="0 0 0" rpy="0 0 0" />
+        <origin xyz="0 0 ${length/2}" rpy="0 0 0" />
       </collision>
       <inertial>
         <mass value="${mass}" />
@@ -37,10 +42,10 @@
     </link>
 
     <xacro:sphere
+      name="eef_sphere"
       tf_prefix="${tf_prefix}"
       parent="${parent}"
       radius="${sphere_radius}"
-      mass="${sphere_mass}"
     >
       <xacro:insert_block name="origin" />
     </xacro:sphere>
@@ -60,6 +65,16 @@
       <parent link="${tf_prefix}eef_link" />
       <child link="${tf_prefix}eef" />
     </joint>
+
+    <!-- <xacro:cylinder
+      name="bounding_cylinder"
+      tf_prefix="${tf_prefix}"
+      parent="${tf_prefix}eef"
+      radius="${bounding_cylinder_radius}"
+      length="${bounding_cylinder_length}"
+    >
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </xacro:cylinder> -->
 
   </xacro:macro>
 

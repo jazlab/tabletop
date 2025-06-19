@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
-project_dir=$(get_parent_dir $bin_dir 1)
-# source $project_dir/env_files/robot.env
+# source $TABLETOP_DIR/env_files/robot.env
 
 # if [ $# -eq 0 ]; then
 #     source="$project_dir/ur_robot/programs/*.urcap"
@@ -22,6 +21,6 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-source="$project_dir/ur_robot/programs/*.urcap"
+source="$TABLETOP_DIR/ur_robot/programs/*.urcap"
 dest="root@$1:/programs"
 scp $source $dest

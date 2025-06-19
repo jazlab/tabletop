@@ -96,11 +96,16 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          sphere:
+          eef_sphere:
             Alpha: 1
             Show Axes: false
             Show Trail: false
             Value: true
+          # bounding_cylinder:
+          #   Alpha: 1
+          #   Show Axes: false
+          #   Show Trail: false
+          #   Value: true
           tool0:
             Alpha: 1
             Show Axes: false

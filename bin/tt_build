@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
+source /opt/ros/${ROS_DISTRO}/setup.bash
 
 set -e
 
@@ -74,9 +75,6 @@ else
     package_selection="--packages-up-to tabletop"
 fi
 
-# Set build paths
-build_paths=("$COLCON_WS/src/tabletop")
-
 # Clean workspace
 if [ "$clean_all" = "true" ]; then
     tt_clean_ws --all
@@ -91,7 +89,7 @@ sudo apt upgrade -y
 sudo apt dist-upgrade -y
 rosdep update
 
-# Set ROS environment
+# Source ROS environment again after rosdep update
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
 # Remove any existing MoveIt2 debian packages

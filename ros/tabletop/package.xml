@@ -14,7 +14,6 @@
     <exec_depend>tabletop_moveit_config</exec_depend>
     <exec_depend>tabletop_msgs</exec_depend>
     <exec_depend>tabletop_utils</exec_depend>
-    <exec_depend>tabletop_teensy</exec_depend>
     <exec_depend>tabletop_server</exec_depend>
     <exec_depend>tabletop_tasks</exec_depend>
 

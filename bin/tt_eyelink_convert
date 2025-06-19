@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
 
 set -e
 
 # Parse command line arguments
-results_dir=$(get_parent_dir $bin_dir 1)/results/eyelink
+results_dir=$TABLETOP_DIR/results/eyelink
 edf2asc_args=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dir)
             shift # past argument
-            if [[ -z "$1" ]]; then
-                print_error "Error: --dir requires a results directory argument."
+            if [[ ! -d "$1" ]]; then
+                print_error "Error: Results directory '$1' not found."
+                print_error "Usage: $0 [--dir <results_dir>] [--clean] <edf2asc_args...>"
                 exit 1
             fi
             results_dir="$1"
@@ -28,12 +29,6 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-
-# Check if the results directory exists
-if [ ! -d "$results_dir" ]; then
-  print_error "Error: Results directory '$results_dir' not found."
-  exit 1
-fi
 
 if [ "$clean" = true ]; then
     print_status "Cleaning up existing .asc files in $results_dir..."

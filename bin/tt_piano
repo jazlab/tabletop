@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
-source $bin_dir/setup.bash
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+TABLETOP_DIR=$(realpath $bin_dir/..)
 
 set -e
 

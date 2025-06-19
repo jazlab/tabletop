@@ -191,10 +191,8 @@ def generate_launch_description():
 
         # Velocity and acceleration scaling for simulation
         if simulate:
-            commander_overrides["execution.totg.velocity_scaling_factor"] = 1.0
-            commander_overrides[
-                "execution.totg.acceleration_scaling_factor"
-            ] = 1.0
+            commander_overrides["execution.velocity_scaling_factor"] = 0.5
+            commander_overrides["execution.acceleration_scaling_factor"] = 0.5
 
         # Clear cache
         new_cache_value = new_cache.perform(context)

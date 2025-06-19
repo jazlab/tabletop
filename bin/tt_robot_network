@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
-project_dir=$(get_parent_dir $bin_dir 1)
-source $project_dir/env_files/robot.env
+source $TABLETOP_DIR/env_files/robot.env
 
 if [ "${ROBOT_IP%.*}" != "${REVERSE_IP%.*}" ]; then
     print_status "Error: ROBOT_IP and REVERSE_IP must share the same first 3 octets"

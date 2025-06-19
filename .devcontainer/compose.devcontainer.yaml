@@ -11,7 +11,10 @@ services:
     hostname: devcontainer
     # ports:
     #   - 8008:8008 # PlatformIO HTTP port
-    command: sleep infinity
+    command: bash -c
+      "git config --global --add safe.directory /root/ws/src/tabletop
+      && git config --global --add safe.directory /root/ws/src/moveit2
+      && sleep infinity"
 
 networks:
   tabletop_net:

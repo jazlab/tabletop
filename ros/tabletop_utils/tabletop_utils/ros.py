@@ -191,10 +191,9 @@ class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
 class InvalidTrajectoryError(CommanderRecoverableError):
     """Invalid trajectory."""
 
-    def __init__(self, trajectory: RobotTrajectory, invalid_index: list[int]):
+    def __init__(self, trajectory: RobotTrajectory):
         self.trajectory = trajectory
-        self.invalid_index = invalid_index
-        super().__init__(f"Invalid trajectory at indices: {invalid_index}")
+        super().__init__("Invalid trajectory")
 
 
 class ObjectManipulationError(CommanderRecoverableError):
@@ -736,6 +735,56 @@ def add_primitive_collision_object_msg(
     return collision_object
 
 
+TrimeshPrimitive = (
+    trimesh.primitives.Box
+    | trimesh.primitives.Sphere
+    | trimesh.primitives.Cylinder
+)
+
+
+def add_primitive_collision_object_msg_from_geometry(
+    object_id: str,
+    pose_stamped: PoseStamped,
+    *,
+    geometry: trimesh.Trimesh | trimesh.Scene,
+    subframe_names: Optional[list[str]] = None,
+    subframe_poses: Optional[list[Pose]] = None,
+) -> CollisionObject:
+    """Create a collision object from a trimesh geometry."""
+    collision_object = add_collision_object_msg(
+        object_id, pose_stamped, subframe_names, subframe_poses
+    )
+
+    primitives: list[TrimeshPrimitive]
+    if isinstance(geometry, trimesh.Scene):
+        primitives = [x.bounding_primitive for x in geometry.geometry.values()]
+    else:
+        primitives = [geometry.bounding_primitive]
+
+    for primitive in primitives:
+        params = primitive.to_dict()
+        if isinstance(primitive, trimesh.primitives.Box):
+            primitive_msg = SolidPrimitive(
+                type=SolidPrimitive.BOX, dimensions=params["extents"]
+            )
+        elif isinstance(primitive, trimesh.primitives.Sphere):
+            primitive_msg = SolidPrimitive(
+                type=SolidPrimitive.SPHERE, dimensions=[params["radius"]]
+            )
+        elif isinstance(primitive, trimesh.primitives.Cylinder):
+            primitive_msg = SolidPrimitive(
+                type=SolidPrimitive.CYLINDER,
+                dimensions=[params["height"], params["radius"]],
+            )
+        else:
+            raise ValueError(f"Invalid primitive type: {type(primitive)}")
+        collision_object.primitives.append(primitive_msg)  # type: ignore
+        pose = pose_msg_from_matrix(np.array(params["transform"]))
+        collision_object.primitive_poses.append(pose)  # type: ignore
+
+    return collision_object
+
+
 def add_mesh_collision_object_msg(
     object_id: str,
     pose_stamped: PoseStamped,
@@ -773,7 +822,6 @@ def add_mesh_collision_object_msg(
         )
 
     collision_object.meshes.append(mesh)  # type: ignore
-    # collision_object.mesh_poses.append(pose_stamped.pose)  # type: ignore
 
     return collision_object
 
@@ -839,3 +887,16 @@ def robot_trajectory_from_msg(
     trajectory.set_robot_trajectory_msg(state, trajectory_msg)
     trajectory.joint_model_group_name = joint_model_group_name
     return trajectory
+
+
+def robot_trajectory_copy(
+    trajectory: RobotTrajectory,
+) -> RobotTrajectory:
+    """Copy a RobotTrajectory object."""
+    state = trajectory[0]
+    new_trajectory = RobotTrajectory(state.robot_model)
+    new_trajectory.set_robot_trajectory_msg(
+        state, trajectory.get_robot_trajectory_msg()
+    )
+    new_trajectory.joint_model_group_name = trajectory.joint_model_group_name
+    return new_trajectory

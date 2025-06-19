@@ -378,23 +378,23 @@ class BaseNode(Node):
             destroy_service_client = False
 
         try:
-            self.log(
-                f"Calling {service_client.service_name} service asynchronously...",
-                severity="DEBUG",
-            )
+            # self.log(
+            #     f"Calling {service_client.service_name} service asynchronously...",
+            #     severity="DEBUG",
+            # )
             future = service_client.call_async(srv_request)
 
             async with asyncio.timeout(timeout):
                 response = cast(SrvTypeResponse, await future)
-            self.log(
-                f"Service call to {service_client.service_name} finished with response:",
-                severity="DEBUG",
-            )
-            self.log_ros_msg(
-                response,
-                title=f"{service_client.service_name} response",
-                severity="DEBUG",
-            )
+            # self.log(
+            #     f"Service call to {service_client.service_name} finished with response:",
+            #     severity="DEBUG",
+            # )
+            # self.log_ros_msg(
+            #     response,
+            #     title=f"{service_client.service_name} response",
+            #     severity="DEBUG",
+            # )
             validate_service_response(response, service_client)
             return response
         finally:

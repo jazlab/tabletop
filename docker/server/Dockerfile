@@ -28,9 +28,11 @@ RUN curl -fsSL -o /tmp/get-platformio.py \
     && ln -s $HOME/.platformio/penv/bin/pio $HOME/.local/bin/pio \
     && ln -s $HOME/.platformio/penv/bin/piodebuggdb $HOME/.local/bin/piodebuggdb
 
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
 # Install pip packages
 COPY ./requirements.txt /tmp/requirements.txt
-RUN pip install --break-system-packages -r /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
 
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
@@ -40,6 +42,9 @@ COPY ./starship.toml /tmp/starship.toml
 RUN mkdir -p $HOME/.config \
     && mv /tmp/starship.toml $HOME/.config/starship.toml
 
-# Add tabletop setup to bashrc
+# Update .bashrc
+RUN echo 'export PATH=$HOME/.local/bin:$PATH' >> $HOME/.bashrc
+RUN echo 'source /opt/ros/jazzy/setup.bash' >> $HOME/.bashrc
+RUN echo 'source $HOME/ws/install/setup.bash' >> $HOME/.bashrc
 RUN echo 'source $HOME/ws/src/tabletop/bin/setup.bash' >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc

@@ -1,6 +1,5 @@
 import logging
 import os
-from collections import OrderedDict
 from typing import Any, Optional, TypeVar, cast
 
 import numpy as np
@@ -180,22 +179,6 @@ def simplify_bounding_primitive(geometry: GeometryT) -> GeometryT:
         return geometry  # type: ignore
     else:
         return geometry.bounding_primitive.to_mesh()
-
-
-def get_bounding_primitives_mesh_scene(
-    scene: trimesh.Scene,
-) -> OrderedDict[str, trimesh.Trimesh]:
-    """Get the bounding primitives for each mesh in a scene.
-
-    Args:
-        scene: The scene to get the bounding primitives for.
-
-    Returns:
-        A dictionary of mesh names and their bounding primitives.
-    """
-    return OrderedDict(
-        (k, v.bounding_primitive) for k, v in scene.geometry.items()
-    )
 
 
 def simplify_convex_hull(geometry: GeometryT) -> GeometryT:

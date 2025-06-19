@@ -1,22 +1,22 @@
-<?xml version="1.0"?>
-<robot xmlns:xacro="http://ros.org/wiki/xacro">
+<?xml version="1.0" encoding="utf-8"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-
-  <xacro:macro name="sphere"
+  <xacro:macro name="cylinder"
     params="
     name
     tf_prefix
     parent
     *origin
     radius
+    length
     ">
 
     <link name="${tf_prefix}${name}">
       <collision>
         <geometry>
-          <sphere radius="${radius}" />
+          <cylinder radius="${radius}" length="${length}" />
         </geometry>
-        <origin rpy="0 0 0" xyz="0 0 0" />
+        <origin xyz="0 0 ${length/2}" rpy="0 0 0" />
       </collision>
     </link>
 

@@ -74,7 +74,6 @@ from tabletop_msgs.srv import (
 )
 from tabletop_utils.mesh import (
     load_geometry,
-    simplify_bounding_primitive,
     simplify_convex_hull,
     simplify_quadratic_decimation,
     transform_geometry,
@@ -92,6 +91,7 @@ from tabletop_utils.ros import (
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
     add_primitive_collision_object_msg,
+    add_primitive_collision_object_msg_from_geometry,
     all_close_poses_stamped,
     arrays_from_pose_msg,
     attached_collision_object_msg,
@@ -101,6 +101,7 @@ from tabletop_utils.ros import (
     pose_msg,
     pose_msg_from_matrix,
     pose_stamped_msg,
+    robot_trajectory_copy,
 )
 from tabletop_utils.trajectory_cache import (
     FuzzyTrajectoryCache,
@@ -210,8 +211,8 @@ class Commander(BaseNode):
         "planning.pre_attach_offset",
         "planning.post_attach_offset",
         "execution.max_attempts",
-        "execution.totg.velocity_scaling_factor",
-        "execution.totg.acceleration_scaling_factor",
+        "execution.velocity_scaling_factor",
+        "execution.acceleration_scaling_factor",
         "trajectory_cache.use_cached_trajectories",
         "trajectory_cache.freeze_cache",
         "trajectory_cache.kwargs",
@@ -458,6 +459,7 @@ class Commander(BaseNode):
 
     def log_planning_scene(self, severity: str = DEFAULT_LOG_SEVERITY):
         """Log the planning scene."""
+        return
         if self.log_level < LoggingSeverity[severity]:
             return
 
@@ -1011,7 +1013,7 @@ class Commander(BaseNode):
                 "wrist_2_link",
                 "wrist_3_link",
                 "eef_link",
-                "sphere",
+                "eef_sphere",
             ]
             collision_object_ids = set(object_ids) - set(robot_link_ids)
             columns = robot_link_ids + list(collision_object_ids)
@@ -1405,11 +1407,9 @@ class Commander(BaseNode):
         match simplification:
             case "convex_hull":
                 geometry = simplify_convex_hull(geometry)
-            case "bounding_primitive":
-                geometry = simplify_bounding_primitive(geometry)
             case "quadratic_decimation":
                 geometry = simplify_quadratic_decimation(geometry)
-            case None:
+            case "bounding_primitive" | None:
                 pass
             case _:
                 raise ValueError(
@@ -1448,13 +1448,24 @@ class Commander(BaseNode):
             subframe_poses.extend(additional_subframe_poses)
 
         # Create collision object
-        collision_object = add_mesh_collision_object_msg(
-            object_id=object_id,
-            pose_stamped=pose_stamped,
-            mesh=geometry,
-            subframe_names=subframe_names,
-            subframe_poses=subframe_poses,
-        )
+        if simplification == "bounding_primitive":
+            collision_object = (
+                add_primitive_collision_object_msg_from_geometry(
+                    object_id=object_id,
+                    pose_stamped=pose_stamped,
+                    geometry=geometry,
+                    subframe_names=subframe_names,
+                    subframe_poses=subframe_poses,
+                )
+            )
+        else:
+            collision_object = add_mesh_collision_object_msg(
+                object_id=object_id,
+                pose_stamped=pose_stamped,
+                mesh=geometry,
+                subframe_names=subframe_names,
+                subframe_poses=subframe_poses,
+            )
 
         self.process_init_collision_object(
             collision_object=collision_object,
@@ -1841,6 +1852,7 @@ class Commander(BaseNode):
                 f"Moving and attaching initial object {object_id} from index {idx}"
             )
         else:
+            self.log("No initial attached object specified")
             return
 
         assert isinstance(object_id, str)
@@ -1999,7 +2011,7 @@ class Commander(BaseNode):
             object_id, self.get_parameter_wrapper("planning.post_fetch_offset")
         )
 
-    def pre_present_pose_stamped(self, object_id: str) -> PoseStamped:
+    def pre_present_pose_stamped(self, _: str) -> PoseStamped:
         """Get the pre-present pose."""
         return self.create_pose_stamped(
             **self.get_parameter_wrapper("planning.pre_present_pose")
@@ -2418,16 +2430,16 @@ class Commander(BaseNode):
         finally:
             cancel_event.set()
 
-    def apply_totg(
+    def _apply_totg(
         self,
         trajectory: RobotTrajectory,
         *,
-        velocity_scaling_factor: Optional[float] = None,
-        acceleration_scaling_factor: Optional[float] = None,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
         path_tolerance: Optional[float] = None,
         resample_dt: Optional[float] = None,
         min_angle_change: Optional[float] = None,
-    ):
+    ) -> RobotTrajectory:
         """Apply time parameterization to the given robot trajectory.
 
         Args:
@@ -2437,14 +2449,14 @@ class Commander(BaseNode):
             path_tolerance: The path tolerance to apply to the trajectory.
             resample_dt: The resample time step to apply to the trajectory.
             min_angle_change: The minimum angle change to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with time parameterization applied.
         """
+        trajectory = robot_trajectory_copy(trajectory)
 
         # Get the parameters from the parameter server if not provided
         kwargs = self.get_parameter_wrapper("execution.totg")
-        if velocity_scaling_factor is not None:
-            kwargs["velocity_scaling_factor"] = velocity_scaling_factor
-        if acceleration_scaling_factor is not None:
-            kwargs["acceleration_scaling_factor"] = acceleration_scaling_factor
         if path_tolerance is not None:
             kwargs["path_tolerance"] = path_tolerance
         if resample_dt is not None:
@@ -2456,8 +2468,8 @@ class Commander(BaseNode):
         old_duration = trajectory.duration
         old_path_length = trajectory.path_length
 
-        if "resample_dt" not in kwargs:
-            kwargs["resample_dt"] = old_duration / old_num_waypoints
+        # if "resample_dt" not in kwargs and old_duration != 0.0:
+        #     kwargs["resample_dt"] = old_duration / old_num_waypoints
 
         self.log(
             "Applying time parameterization to trajectory with kwargs "
@@ -2465,7 +2477,11 @@ class Commander(BaseNode):
             severity="DEBUG",
         )
         # Apply time parameterization
-        if not trajectory.apply_totg_time_parameterization(**kwargs):
+        if not trajectory.apply_totg_time_parameterization(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            **kwargs,
+        ):
             raise RuntimeError("Failed to apply time parameterization")
 
         self.log(
@@ -2476,32 +2492,81 @@ class Commander(BaseNode):
             severity="DEBUG",
         )
 
-    def _validate_trajectory(
-        self, trajectory: RobotTrajectory, group_name: Optional[str] = None
-    ):
+        return trajectory
+
+    def _apply_smoothing(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
+        mitigate_overshoot: Optional[bool] = None,
+        overshoot_threshold: Optional[float] = None,
+    ) -> RobotTrajectory:
+        """Apply ruckig smoothing to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply smoothing to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            mitigate_overshoot: Whether to mitigate overshoot.
+            overshoot_threshold: The overshoot threshold to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with smoothing applied.
+        """
+        trajectory = robot_trajectory_copy(trajectory)
+
+        kwargs = self.get_parameter_wrapper("execution.smoothing")
+        if mitigate_overshoot is not None:
+            kwargs["mitigate_overshoot"] = mitigate_overshoot
+        if overshoot_threshold is not None:
+            kwargs["overshoot_threshold"] = overshoot_threshold
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        self.log(
+            f"Applying smoothing to trajectory with kwargs {kwargs}",
+            severity="DEBUG",
+        )
+        # Apply smoothing
+        if not trajectory.apply_ruckig_smoothing(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            **kwargs,
+        ):
+            raise RuntimeError("Failed to apply smoothing")
+
+        self.log(
+            "Time parameterization applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+        return trajectory
+
+    def _validate_trajectory(self, trajectory: RobotTrajectory):
         """Validate the given robot trajectory.
 
         Args:
             trajectory: The robot trajectory to validate.
         """
-        self.log(
-            f"Validating trajectory with group name {group_name}",
-            severity="DEBUG",
-        )
+        self.log("Validating trajectory", severity="DEBUG")
 
-        if group_name is None:
-            group_name = self.planning_group_name
-
-        invalid_index = []
+        group_name = trajectory.joint_model_group_name
 
         with self.planning_scene_read_only() as scene:
             if not scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
                 verbose=True,
-                invalid_index=invalid_index,
+                invalid_index=[],
             ):
-                raise InvalidTrajectoryError(trajectory, invalid_index)
+                raise InvalidTrajectoryError(trajectory)
 
     def _execute_once_blocking(
         self, trajectory_msg: RobotTrajectoryMsg
@@ -2521,17 +2586,18 @@ class Commander(BaseNode):
         self,
         trajectory: RobotTrajectory,
         *,
-        totg: bool = True,
         validate_trajectory: bool = True,
         velocity_scaling_factor: Optional[float] = None,
         acceleration_scaling_factor: Optional[float] = None,
         path_tolerance: Optional[float] = None,
         resample_dt: Optional[float] = None,
+        mitigate_overshoot: Optional[bool] = None,
+        overshoot_threshold: Optional[float] = None,
         min_angle_change: Optional[float] = None,
         group_name: Optional[str] = None,
         max_execution_attempts: int = 1,
         cancel_event: Optional[threading.Event] = None,
-    ):
+    ) -> RobotTrajectory:
         """Execute the given robot trajectory, retrying up to max_execution_attempts times
         until successful.
 
@@ -2549,29 +2615,68 @@ class Commander(BaseNode):
             `_parse_execute_args()`: For implementation and parameter details
         """
         self.log(
-            f"Executing trajectory with totg {totg}, validate_trajectory {validate_trajectory}, "
+            f"Executing trajectory with validate_trajectory {validate_trajectory}, "
             f"velocity_scaling_factor {velocity_scaling_factor}, acceleration_scaling_factor {acceleration_scaling_factor}, "
             f"path_tolerance {path_tolerance}, resample_dt {resample_dt}, min_angle_change {min_angle_change}, "
             f"group_name {group_name}, max_execution_attempts {max_execution_attempts}, cancel_event {cancel_event}",
             severity="DEBUG",
         )
 
-        # Apply time parameterization
-        if totg:
-            self.apply_totg(
-                trajectory,
-                velocity_scaling_factor=velocity_scaling_factor,
-                acceleration_scaling_factor=acceleration_scaling_factor,
-                path_tolerance=path_tolerance,
-                resample_dt=resample_dt,
-                min_angle_change=min_angle_change,
+        if velocity_scaling_factor is None:
+            velocity_scaling_factor = cast(
+                float,
+                self.get_parameter_wrapper(
+                    "execution.velocity_scaling_factor"
+                ),
+            )
+        if acceleration_scaling_factor is None:
+            acceleration_scaling_factor = cast(
+                float,
+                self.get_parameter_wrapper(
+                    "execution.acceleration_scaling_factor"
+                ),
             )
 
+        # Apply time parameterization
+        totg_trajectory = self._apply_totg(
+            trajectory,
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            path_tolerance=path_tolerance,
+            resample_dt=resample_dt,
+            min_angle_change=min_angle_change,
+        )
+
+        # Apply smoothing
+        smoothed_trajectory = self._apply_smoothing(
+            totg_trajectory,
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            mitigate_overshoot=mitigate_overshoot,
+            overshoot_threshold=overshoot_threshold,
+        )
+
         if validate_trajectory:
-            self._validate_trajectory(trajectory, group_name=group_name)
+            try:
+                self._validate_trajectory(smoothed_trajectory)
+                trajectory = smoothed_trajectory
+            except InvalidTrajectoryError:
+                self.log(
+                    "Invalid trajectory after time parameterization and smoothing, validating totg trajectory",
+                    severity="WARN",
+                )
+                try:
+                    self._validate_trajectory(totg_trajectory)
+                    trajectory = totg_trajectory
+                except InvalidTrajectoryError:
+                    self.log(
+                        "Invalid trajectory after time parameterization and smoothing, validating unparameterized trajectory",
+                        severity="WARN",
+                    )
+                    self._validate_trajectory(trajectory)
 
         # Convert to trajectory message
-        trajectory_msg = trajectory.get_robot_trajectory_msg()
+        trajectory_msg = smoothed_trajectory.get_robot_trajectory_msg()
 
         # Execute the trajectory until successful or max attempts reached
         execution_statuses = []
@@ -2585,7 +2690,7 @@ class Commander(BaseNode):
                     f"Execution attempt {i + 1}/{max_execution_attempts} succeeded",
                     severity="DEBUG",
                 )
-                return
+                return trajectory
             else:
                 self.log(
                     f"Execution attempt {i + 1}/{max_execution_attempts} "
@@ -2599,7 +2704,7 @@ class Commander(BaseNode):
                 max_attempts=max_execution_attempts,
             )
 
-    async def execute(self, *args: Any, **kwargs: Any):
+    async def execute(self, *args: Any, **kwargs: Any) -> RobotTrajectory:
         """Execute the given robot trajectory in a separate thread.
 
         Retries up to max_execution_attempts times until successful.
@@ -2609,7 +2714,7 @@ class Commander(BaseNode):
         """
         cancel_event = threading.Event()
         try:
-            await asyncio.to_thread(
+            return await asyncio.to_thread(
                 self._execute_blocking,
                 *args,
                 cancel_event=cancel_event,
@@ -2779,12 +2884,20 @@ class Commander(BaseNode):
         """
         self.log(f"{phase.name} phase for object {object_id}")
 
-        planning_pipeline = "linear"
         goal = self._phase_to_goal(object_id, phase, goal)
+        extra_kwargs = {}
+        extra_kwargs["planning_pipeline"] = "linear"
 
         if phase in OBJECT_MANIPULATION_PHASES:
             self.allow_collision(
                 *zip(*self.allowed_object_manipulation_collisions)
+            )
+
+        if phase == ObjectPhase.DETACH:
+            extra_kwargs["velocity_scaling_factor"] = (
+                self.get_parameter_wrapper(
+                    "object_manipulation.detach_velocity_scaling_factor"
+                )
             )
 
         match phase:
@@ -2794,7 +2907,7 @@ class Commander(BaseNode):
                 | ObjectPhase.PRE_RETURN
                 | ObjectPhase.IDLE
             ):
-                planning_pipeline = "default"
+                extra_kwargs["planning_pipeline"] = "default"
             case (
                 ObjectPhase.PRE_ATTACH
                 | ObjectPhase.ATTACH
@@ -2809,7 +2922,7 @@ class Commander(BaseNode):
 
         try:
             to_cache_kwargs = await self.plan_and_execute(
-                goal, planning_pipeline=planning_pipeline, **kwargs
+                goal, **kwargs, **extra_kwargs
             )
         except (InvalidTrajectoryError, MaxAttemptsReachedError) as e:
             to_cache_kwargs = None
@@ -3200,7 +3313,7 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
     while True:
         await asyncio.sleep(1)
         eef_world = commander.eef_pose_stamped()
-        position, euler = arrays_from_pose_msg(eef_world.pose, euler=True)
+        position, _ = arrays_from_pose_msg(eef_world.pose, euler=True)
         position = position - origin_position
         commander.log(f"Eef relative position: {position.round(4).tolist()}")
 

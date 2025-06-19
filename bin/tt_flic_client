@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/setup.bash
 
-flic_client_exec=$(get_parent_dir $bin_dir 1)/flic_client/simpleclient
+flic_client_exec=$TABLETOP_DIR/flic_client/simpleclient
 
 $flic_client_exec 172.17.0.1 5551

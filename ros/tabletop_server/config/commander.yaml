@@ -33,19 +33,23 @@
       pre_present_state: pre_present
       pre_fetch_offset: [0.0, 0.02, -0.05]
       pre_attach_offset: [0.0, 0.02, 0.0]
-      post_attach_offset: [0.0, -0.075, 0.0]
-      post_fetch_offset: [0.0, -0.075, -0.15]
+      post_attach_offset: [0.0, -0.077, 0.0]
+      post_fetch_offset: [0.0, -0.077, -0.15]
       pre_present_pose:
         position: [0.9525, 0.4, 0.6]
         rpy: [0.0, 0.0, -1.5707]
 
     execution:
       max_attempts: 1
+      velocity_scaling_factor: 1.0
+      acceleration_scaling_factor: 1.0
       totg:
-        velocity_scaling_factor: 0.7
-        acceleration_scaling_factor: 1.0
+        path_tolerance: 0.01
         resample_dt: 0.01
         min_angle_change: 0.001
+      smoothing:
+        mitigate_overshoot: false
+        overshoot_threshold: 0.01
 
     trajectory_cache:
       use_cached_trajectories: true
@@ -69,8 +73,9 @@
       wrist_3_link: 0.01
 
     object_manipulation:
+      detach_velocity_scaling_factor: 1.0
       allowed_collisions:
-        sphere: rig
+        eef_sphere: rig
       touch_links:
         - eef_link
       mount_ids:
@@ -157,19 +162,19 @@
           6,2: [0.8967, 0.6284, -0.0065]
           7,0: [1.0433, 0.0024, 0.0009]
           7,1: [1.0423, 0.314, 0.0]
-          7,2: [1.0484, 0.6298, -0.0051]
+          7,2: [1.0484, 0.6268, -0.0065]
           8,0: [1.1927, 0.0048, 0.001]
           8,1: [1.19103, 0.3167, 0.001]
-          8,2: [1.1972, 0.6317, -0.0041]
+          8,2: [1.1972, 0.6317, -0.0035]
           9,0: [1.3421, 0.0046, 0.0021]
           9,1: [1.3405, 0.3175, 0.0001]
           9,2: [1.3462, 0.632, -0.0026]
         common_kwargs:
           allowed_collision_ids:
-            - sphere
+            - eef_sphere
           pose_stamped:
             rpy: [0.0, 0.0, -1.5707]
-          simplification: convex_hull
+          simplification: bounding_primitive
           color: orange
         object_kwargs:
           small_object_0:
