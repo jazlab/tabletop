@@ -3401,8 +3401,6 @@ def main(args=None):
 
     except KeyboardInterrupt:
         print("Keyboard interrupt")
-    except SystemExit:
-        print("System exit")
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore

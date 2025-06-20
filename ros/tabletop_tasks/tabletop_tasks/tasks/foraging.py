@@ -93,7 +93,7 @@ class ForagingTask(BaseTask):
         self._trial_feedback.broke_fixation = True
 
     async def wait_while_fixating(self, *tasks: asyncio.Task) -> bool:
-        """Wait while hand fixation is maintained.
+        """Wait for tasks to complete while hand fixation is maintained.
 
         Returns:
             True if fixation is not broken, False otherwise.
@@ -180,7 +180,9 @@ class ForagingTask(BaseTask):
         """Present stimulus."""
         self.log("Stimulus phase")
 
-        # Now that stimulus phase has started, this trial is over
+        # Now that stimulus phase has started, this trial cannot be
+        # retried and the next trial spec should be generated after this
+        # trial is finished.
         self._trial_feedback.next_trial_spec = True
 
         # Reveal stimulus

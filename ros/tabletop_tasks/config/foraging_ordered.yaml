@@ -5,7 +5,7 @@ tasks:
       fixation_duration: 0.5
       stimulus_duration: 0.5
       delay_duration: 0.5
-      response_timeout: 0.5
+      response_timeout: 10.0
       reward_duration: 0.1
       reveal_duration: 0.5
       trial_generator:

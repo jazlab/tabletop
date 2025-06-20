@@ -13,7 +13,6 @@ class Flic(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": False,
         "simulate_max_delay": 6.0,
-        "num_buttons": 1,
     }
 
     def __init__(self):
@@ -26,9 +25,6 @@ class Flic(BaseNode):
             "simulate_max_delay"
         )
 
-        # State variables
-        self.flic_last_time_pressed_ms = int(self.time() * 1000)
-
         # Services
         self.get_flic_service = self.create_service(
             GetFlic,
@@ -38,14 +34,16 @@ class Flic(BaseNode):
             else self.get_flic_callback,  # type: ignore
         )
 
-        # One-shot timers for delayed state updates
-        self.simulate_delay_timer = self.create_timer(
-            0.0, self.simulated_delay_timer_callback, autostart=False
-        )
+        # Simulated button press timer
+        if self.simulate:
+            self.simulated_last_time_pressed_ms = int(self.time() * 1000)
+            self.simulate_delay_timer = self.create_timer(
+                0.0, self.simulated_delay_timer_callback, autostart=False
+            )
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
 
-    def get_flic_callback(
+    async def get_flic_callback(
         self, request: GetFlic.Request, response: GetFlic.Response
     ) -> GetFlic.Response:
         # Set the response message
@@ -75,7 +73,7 @@ class Flic(BaseNode):
 
         # Set the response message
         response.success = True
-        response.last_time_pressed_ms = self.flic_last_time_pressed_ms
+        response.last_time_pressed_ms = self.simulated_last_time_pressed_ms
         response.message = (
             f"Flic last pressed at {response.last_time_pressed_ms} ms"
         )
@@ -84,35 +82,38 @@ class Flic(BaseNode):
         return response
 
     def simulated_delay_timer_callback(self):
-        self.flic_last_time_pressed_ms = int(self.time() * 1000)
+        self.simulated_last_time_pressed_ms = int(self.time() * 1000)
         self.simulate_delay_timer.cancel()
         self.log(f"Flic simulated delay for {self.simulate_cur_delay} seconds")
 
-    async def start_flic_client(self):
+    async def init_flic_client(self):
         """Start the flic client."""
         if self.simulate:
             self.log("Simulating flic client, no client started")
-            self.flic_client = None
         else:
-            self.log("Starting flic client")
+            self.log("Initializing flic client")
             loop = asyncio.get_event_loop()
             _, self.flic_client = await loop.create_connection(
                 lambda: AIOFlicClient(loop=loop), "172.17.0.1", 5551
             )
+
+            self.log("Connecting to existing buttons")
             await self.flic_client.connect_existing_buttons()
 
-    async def wait_for_buttons(self):
-        """Wait for the specified number of buttons to be connected."""
-        if self.simulate:
-            self.log("Simulating flic client, no buttons to wait for")
-        else:
-            assert self.flic_client is not None
-            await self.flic_client.connect_existing_buttons()
-            num_buttons = self.get_parameter_wrapper("num_buttons")
-            while self.flic_client.num_buttons < num_buttons:
-                self.log(f"Waiting for {self.flic_client.num_buttons} buttons")
-                await asyncio.sleep(0.25)
-            self.log(f"Connected to {self.flic_client.num_buttons} buttons")
+            self.log(
+                f"Flic client initialized with {self.flic_client.num_buttons} buttons"
+            )
+
+    async def wait_for_closed(self):
+        """Wait for the flic client to close."""
+        await self.flic_client.wait_for_closed()
+
+    def destroy_node(self):
+        """Destroy the node."""
+        if hasattr(self, "flic_client"):
+            self.log("Closing flic client")
+            self.flic_client.close()
+        super().destroy_node()
 
 
 async def main_async(args=None):
@@ -123,9 +124,8 @@ async def main_async(args=None):
         executor.add_node(flic)
 
         try:
-            await flic.start_flic_client()
-            await flic.wait_for_buttons()
-            await executor.spin()
+            await flic.init_flic_client()
+            await asyncio.gather(executor.spin(), flic.wait_for_closed())
         finally:
             print("Shutting down flic")
             flic.destroy_node()
@@ -133,11 +133,9 @@ async def main_async(args=None):
             executor.shutdown()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
-    except SystemExit:
-        print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
+        rclpy.try_shutdown()  # type: ignore
 
 
 def main():

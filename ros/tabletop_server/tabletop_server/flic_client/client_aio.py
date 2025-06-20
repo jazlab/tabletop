@@ -14,7 +14,6 @@ Bd addr are represented as standard python strings, e.g. "aa:bb:cc:dd:ee:ff".
 import argparse
 import asyncio
 import itertools
-import logging
 import struct
 import time
 from collections import namedtuple
@@ -22,7 +21,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-logger = logging.getLogger(__name__)
+import rclpy
+import rclpy.logging
+import rclpy.utilities
+
+logger = rclpy.logging.get_logger("flic_client")
 
 
 class CreateConnectionChannelError(Enum):
@@ -592,8 +595,10 @@ class FlicClient(asyncio.Protocol):
 
         self._scanners: dict[int, ButtonScanner] = {}
         self._scan_wizards: dict[int, ScanWizard] = {}
+        self._pending_connection_channels: dict[
+            int, ButtonConnectionChannel
+        ] = {}
         self._connection_channels: dict[int, ButtonConnectionChannel] = {}
-        self._bd_addrs: set[str] = set()
         self._battery_status_listeners: dict[int, BatteryStatusListener] = {}
 
         self._get_button_info_queue: asyncio.Queue[ButtonInfo] = (
@@ -612,7 +617,6 @@ class FlicClient(asyncio.Protocol):
 
     @property
     def num_buttons(self) -> int:
-        assert len(self._bd_addrs) == len(self._connection_channels)
         return len(self._connection_channels)
 
     @property
@@ -627,18 +631,14 @@ class FlicClient(asyncio.Protocol):
     def num_battery_status_listeners(self) -> int:
         return len(self._battery_status_listeners)
 
-    @property
-    def bd_addrs(self) -> list[str]:
-        return sorted(self._bd_addrs)
-
     ##############################################################
     # asyncio.Protocol methods
     ##############################################################
 
-    def connection_made(self, transport: asyncio.Transport) -> None:
+    def connection_made(self, transport: asyncio.Transport):
         self._transport = transport
 
-    def data_received(self, data: bytes) -> None:
+    def data_received(self, data: bytes):
         cdata = self._buffer + data
         self._buffer = b""
         while len(cdata):
@@ -652,10 +652,8 @@ class FlicClient(asyncio.Protocol):
                     self._buffer = cdata  # unlikely to happen but.....
                 break
 
-    def eof_received(self) -> None:
-        assert self._transport is not None
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.close())
+    def eof_received(self):
+        self.close()
 
     ##############################################################
     # Command sender
@@ -1069,14 +1067,17 @@ class FlicClient(asyncio.Protocol):
         error: CreateConnectionChannelError,
         connection_status: ConnectionStatus,
     ):
-        channel = self._connection_channels[conn_id]
+        channel = self._pending_connection_channels[conn_id]
         channel.on_create_connection_channel_response(
             error=error,
             connection_status=connection_status,
         )
-        if error != CreateConnectionChannelError.NoError:
-            del self._connection_channels[conn_id]
-            self._bd_addrs.remove(channel.bd_addr)
+        del self._pending_connection_channels[conn_id]
+
+        if error == CreateConnectionChannelError.NoError:
+            self._connection_channels[conn_id] = channel
+        else:
+            logger.warning(f"Failed to create connection channel: {error}")
 
     def on_connection_status_changed(
         self,
@@ -1090,7 +1091,9 @@ class FlicClient(asyncio.Protocol):
             disconnect_reason=disconnect_reason,
         )
 
-    def _update_button_times(self, click_type, channel):
+    def _update_button_times(
+        self, click_type: ClickType, channel: ButtonConnectionChannel
+    ):
         match click_type:
             case ClickType.ButtonUp:
                 self.last_time_button_up_sec = channel.last_time_button_up_sec
@@ -1183,7 +1186,6 @@ class FlicClient(asyncio.Protocol):
         channel = self._connection_channels[conn_id]
         channel.on_removed(removed_reason=removed_reason)
         del self._connection_channels[conn_id]
-        self._bd_addrs.remove(channel.bd_addr)
 
     def on_battery_status(
         self, listener_id: int, battery_percentage: int, timestamp: int
@@ -1273,14 +1275,12 @@ class FlicClient(asyncio.Protocol):
         """
         logger.info("Adding connection channel")
 
-        assert len(self._bd_addrs) == len(self._connection_channels)
         if channel.conn_id in self._connection_channels:
-            logger.warning("Connection channel already exists")
-            assert channel.bd_addr in self._bd_addrs
-            return
+            raise ValueError("Connection channel already exists")
+        elif channel.conn_id in self._pending_connection_channels:
+            raise ValueError("Connection channel is pending")
 
-        self._connection_channels[channel.conn_id] = channel
-        self._bd_addrs.add(channel.bd_addr)
+        self._pending_connection_channels[channel.conn_id] = channel
         self._send_command(
             "CmdCreateConnectionChannel",
             {
@@ -1299,11 +1299,8 @@ class FlicClient(asyncio.Protocol):
         """
         logger.info("Removing connection channel")
 
-        assert len(self._bd_addrs) == len(self._connection_channels)
         if channel.conn_id not in self._connection_channels:
-            logger.warning("Connection channel not found")
-            assert channel.bd_addr not in self._bd_addrs
-            return
+            raise ValueError("Connection channel not found")
 
         self._send_command(
             "CmdRemoveConnectionChannel", {"conn_id": channel.conn_id}
@@ -1365,12 +1362,16 @@ class FlicClient(asyncio.Protocol):
     # Connection methods
     ##############################################################
 
-    async def connect_existing_buttons(self) -> None:
+    async def connect_existing_buttons(self, timeout: Optional[float] = None):
         logger.info("Connecting to existing buttons")
         info = await self.get_info()
         for bd_addr in info.bd_addr_of_verified_buttons:
             cc = ButtonConnectionChannel(bd_addr, client=self)
             self.add_connection_channel(cc)
+
+        async with asyncio.timeout(timeout):
+            while len(self._pending_connection_channels) > 0:
+                await asyncio.sleep(0.1)
 
     async def scan_and_connect(self) -> bool:
         logger.info("Starting the scan")
@@ -1389,7 +1390,7 @@ class FlicClient(asyncio.Protocol):
     # Close methods
     ##############################################################
 
-    async def close(self):
+    def close(self):
         """Closes the transport and the client."""
         logger.info("Closing client")
         if self._transport is not None:
@@ -1405,39 +1406,66 @@ class FlicClient(asyncio.Protocol):
         await self._closed_event.wait()
 
 
-async def delete_async(host: str, port: int, bd_addr: Optional[str] = None):
+async def delete_async(host: str, port: int, addresses: str | list[str]):
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
         lambda: FlicClient(loop=loop), host, port
     )
 
     try:
-        await client.connect_existing_buttons()
-        initial_num_buttons = client.num_buttons
-        logger.info(f"Connected to {initial_num_buttons} buttons")
+        info = await client.get_info()
 
-        if bd_addr:
+        if isinstance(addresses, str):
+            if addresses == "all":
+                addresses = list(info.bd_addr_of_verified_buttons)
+            else:
+                addresses = [addresses]
+        elif len(addresses) == 0:
+            raise ValueError("No addresses provided")
+        elif any(
+            bd_addr not in info.bd_addr_of_verified_buttons
+            for bd_addr in addresses
+        ):
+            raise ValueError("Invalid address provided")
+
+        for bd_addr in addresses:
             client.delete_button(bd_addr)
-        else:
-            while client.num_buttons > 0:
-                client.delete_button(client.bd_addrs[0])
-                await asyncio.sleep(0.1)
-        logger.info(f"Deleted {initial_num_buttons} buttons")
+
+        await asyncio.sleep(1.0)
+
+        logger.info(f"Deleted {len(addresses)} buttons")
+    finally:
+        client.close()
+
+
+def delete(args: Any = None):
+    rclpy.init(args=args)
+
+    # Parse non-ROS arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("addresses", nargs="*")
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--host", type=str, default="172.17.0.1")
+    parser.add_argument("--port", type=int, default=5551)
+
+    non_ros_args = rclpy.utilities.remove_ros_args(args)
+    args, _ = parser.parse_known_args(non_ros_args)
+
+    if args.all:
+        if len(args.addresses) > 0:
+            raise ValueError("Cannot use --all and provide addresses")
+        addresses = "all"
+    elif len(args.addresses) < 1:
+        raise ValueError("No addresses provided")
+    else:
+        addresses = args.addresses
+
+    try:
+        asyncio.run(delete_async(args.host, args.port, addresses))
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
     finally:
-        await client.close()
-
-
-def delete():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", type=str, default="172.17.0.1")
-    parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument("--log-level", type=str, default="INFO")
-    parser.add_argument("--bd-addr", type=str, default="")
-    args = parser.parse_args()
-    logging.basicConfig(level=args.log_level)
-    asyncio.run(delete_async(args.host, args.port, args.bd_addr))
+        rclpy.shutdown()
 
 
 async def connect_async(host: str, port: int):
@@ -1453,24 +1481,25 @@ async def connect_async(host: str, port: int):
                 continue
             else:
                 logger.warning("Scan failed, sleeping for 3 seconds")
-                logger.info(client.bd_addrs)
                 await asyncio.sleep(3)
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt")
     finally:
-        await client.close()
+        client.close()
 
 
-def connect():
+def connect(args: Any = None):
+    rclpy.init(args=args)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument("--log-level", type=str, default="INFO")
-    args = parser.parse_args()
 
-    logging.basicConfig(level=args.log_level)
-    asyncio.run(connect_async(args.host, args.port))
+    non_ros_args = rclpy.utilities.remove_ros_args(args)
+    args, _ = parser.parse_known_args(non_ros_args)
 
-
-if __name__ == "__main__":
-    connect()
+    # logging.basicConfig(level=args.log_level)
+    try:
+        asyncio.run(connect_async(args.host, args.port))
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt")
+    finally:
+        rclpy.shutdown()

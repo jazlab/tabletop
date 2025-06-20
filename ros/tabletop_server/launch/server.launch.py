@@ -164,6 +164,12 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "flic_log_level",
+            default_value="INFO",
+            description="Flic log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "teensy_log_level",
             default_value="INFO",
             description="Teensy log level",
@@ -264,6 +270,7 @@ def generate_launch_description():
 
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
+    flic_log_level = LaunchConfiguration("flic_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
     rviz_log_level = LaunchConfiguration("rviz_log_level")
 
@@ -394,7 +401,7 @@ def generate_launch_description():
         executable="mock_teensy",
         output=mock_teensy_output,
         parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", ["teensy:=", teensy_log_level]],
+        ros_arguments=["--log-level", teensy_log_level],
         condition=IfCondition(use_mock_teensy),
     )
 
@@ -407,7 +414,7 @@ def generate_launch_description():
         parameters=[
             {"use_sim_time": use_sim_time, "simulate": simulate_flic},
         ],
-        ros_arguments=["--log-level", ["flic:=", default_log_level]],
+        ros_arguments=["--log-level", flic_log_level],
     )
 
     # RViz MoveIt Config
