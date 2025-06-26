@@ -8,7 +8,7 @@ export TABLETOP_DIR=$(get_parent_dir $bin_dir 1)
 export ROS_LOG_DIR=$TABLETOP_DIR/ros/logs
 export TABLETOP_BAG_DIR=$TABLETOP_DIR/ros/bags
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export PYTHONUNBUFFERED=1
+# export PYTHONUNBUFFERED=1
 
 # Update PATH
 export PATH=$bin_dir:$PATH

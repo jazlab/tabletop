@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import concurrent.futures
 import glob
 import hashlib
 import importlib
@@ -14,7 +15,6 @@ from collections.abc import (
     Iterable,
     Mapping,
 )
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from enum import IntEnum
 from types import TracebackType
@@ -248,6 +248,8 @@ class Commander(BaseNode):
             "commander", automatically_declare_parameters_from_overrides=True
         )
 
+        self.init_ros()
+
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
         self.init_attributes()
@@ -257,8 +259,6 @@ class Commander(BaseNode):
         self.init_attached_object()
 
         self.init_link_padding()
-
-        self.init_ros()
 
         self.log("Commander initialized")
 
@@ -284,7 +284,6 @@ class Commander(BaseNode):
         # Object manipulation lock
         self.object_manipulation_lock = asyncio.Lock()
 
-    # TODO: Add services
     def init_ros(self):
         """Create services for the commander.
 
@@ -299,6 +298,7 @@ class Commander(BaseNode):
         - /commander/plan_and_execute
         """
         # Subscribers
+        self.log(f"QOS: {QoSPresetProfiles.SENSOR_DATA.value}")
         self.teensy_sub = self.create_subscription(
             TeensySensor,
             "/teensy/sensor",
@@ -307,8 +307,8 @@ class Commander(BaseNode):
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._last_teensy_sensor = TeensySensor()
-        self._safe_to_execut_count = 0
-        self._safe_to_execute = True
+        self._safe_to_execute_count = 0
+        self._safe_to_execute = False
         self._teensy_sensor_lock = threading.Lock()
 
         client = self.create_client(
@@ -327,6 +327,7 @@ class Commander(BaseNode):
         self.flic_response_time_client.wait_for_server()
 
         # Services
+        # TODO: Add services
         # self.create_service(
         #     GetFrameTransform,
         #     "/commander/get_frame_transform",
@@ -3320,7 +3321,9 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
         commander.log(f"Eef relative position: {position.round(4).tolist()}")
 
 
-async def asyncio_runner(coro: Coroutine, max_workers: int):
+async def asyncio_runner(
+    coro: Coroutine, spin_future: concurrent.futures.Future, max_workers: int
+):
     """Run a coroutine in an asyncio event loop.
 
     This function sets the default executor for the asyncio event loop to the
@@ -3330,10 +3333,16 @@ async def asyncio_runner(coro: Coroutine, max_workers: int):
     Args:
         coro: The coroutine to run.
     """
-    with ThreadPoolExecutor(max_workers=max_workers) as tpe:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as tpe:
         loop = asyncio.get_event_loop()
         loop.set_default_executor(tpe)
-        await coro
+        spin_task = asyncio.wrap_future(spin_future)
+        coro_task = asyncio.create_task(coro)
+        done, _ = await asyncio.wait(
+            [spin_task, coro_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in done:
+            task.result()
 
 
 def main(args=None):
@@ -3384,11 +3393,13 @@ def main(args=None):
         executor = MultiThreadedExecutor(num_threads=args.max_workers)
         executor.add_node(commander)
 
-        with ThreadPoolExecutor(max_workers=1) as tpe:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
             try:
-                tpe.submit(executor.spin)
+                spin_future = tpe.submit(executor.spin)
                 coro = coro_fn(commander, args.coroutine_config)
-                asyncio.run(asyncio_runner(coro, args.max_workers))
+                asyncio.run(
+                    asyncio_runner(coro, spin_future, args.max_workers)
+                )
             finally:
                 try:
                     print("Shutting down commander")

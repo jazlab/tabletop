@@ -487,14 +487,14 @@ class AIOExecutor(Executor):
         future.add_done_callback(lambda x: self.wake())
         await self._spin_once_impl(timeout_sec, future.done)
 
+    async def spin(self):
+        await self._spin_impl()
+
     async def spin_until_future_complete(
         self, future: Future, timeout_sec: Optional[float] = None
     ):
         future.add_done_callback(lambda x: self.wake())
         await self._spin_impl(timeout_sec, future.done)
-
-    async def spin(self):
-        await self._spin_impl()
 
     def shutdown(self, timeout_sec: Optional[float] = None) -> bool:
         success = super().shutdown(timeout_sec)

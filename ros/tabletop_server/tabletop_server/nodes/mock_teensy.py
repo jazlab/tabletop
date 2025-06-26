@@ -2,12 +2,13 @@ import argparse
 import asyncio
 import random
 import time
+from copy import copy
 
 import debugpy
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
-from rclpy.qos import QoSPresetProfiles
+from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
@@ -66,7 +67,7 @@ analog_input_pin_states = {
 }
 
 
-SENSOR_PERIOD_MS = 10
+SENSOR_PERIOD_MS = 100
 SYNC_PULSE_BASE_PERIOD_MS = 1000
 SYNC_PULSE_DELAY_RANGE_MS = 200
 SYNC_PULSE_DURATION_MS = 100
@@ -244,13 +245,13 @@ class MockTeensy(BaseNode):
         )
 
         # Publishers
-        # qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
-        # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
+        qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
+        qos.durability = QoSDurabilityPolicy.VOLATILE
         # qos.depth = 1
         self.sensor_pub = self.create_publisher(
             TeensySensor,
             "teensy/sensor",
-            qos_profile=QoSPresetProfiles.SENSOR_DATA.value,
+            qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
 

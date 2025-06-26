@@ -1,11 +1,2 @@
---extra-index-url https://download.pytorch.org/whl/cu128
-jupyter
-numpy
-pyfqmr
-pyglet<2
-ros2-graph
-scikit-learn
 sr-research-pylink
-torch
-tqdm
 trimesh[easy]

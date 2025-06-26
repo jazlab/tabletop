@@ -3,8 +3,6 @@ import os
 from typing import Any, Optional, TypeVar, cast
 
 import numpy as np
-import pyfqmr
-import pyglet
 import trimesh
 from trimesh.exchange.dae import export_collada
 
@@ -23,7 +21,7 @@ def copy_geometry(geometry: GeometryT) -> GeometryT:
     if isinstance(geometry, trimesh.Scene):
         return trimesh.Scene(geometry.dump())  # type: ignore
     else:
-        return geometry.copy()
+        return geometry.copy()  # type: ignore
 
 
 def scale_geometry(geometry: GeometryT, scale: float) -> GeometryT:
@@ -48,7 +46,7 @@ def transform_geometry(geometry: GeometryT, tf: np.ndarray) -> GeometryT:
         The transformed mesh or scene.
     """
     geometry = copy_geometry(geometry)
-    return geometry.apply_transform(tf)
+    return cast(GeometryT, geometry.apply_transform(tf))
 
 
 def load_geometry(
@@ -109,6 +107,8 @@ def _simplify_quadratic_decimation_mesh(
     Returns:
         The simplified mesh.
     """
+    import pyfqmr
+
     mesh_simplifier = pyfqmr.Simplify()  # type: ignore
     mesh_simplifier.setMesh(mesh.vertices, mesh.faces)
     logging.basicConfig(level=logging.DEBUG)
@@ -211,6 +211,8 @@ def visualize_geometry(
     Args:
         geometry: The mesh or scene to visualize.
     """
+    import pyglet
+
     geometry = copy_geometry(geometry)
     if isinstance(geometry, trimesh.Trimesh):
         scene = trimesh.Scene([geometry])

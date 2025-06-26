@@ -111,7 +111,7 @@ def main(args=None):
     rclpy.init(args=args)
 
     try:
-        executor: rclpy.Executor = SingleThreadedExecutor()
+        executor = SingleThreadedExecutor()
         mock_dashboard = MockDashboard()
         executor.add_node(mock_dashboard)
 
@@ -128,7 +128,7 @@ def main(args=None):
         print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
+        rclpy.try_shutdown()  # type: ignore
 
 
 if __name__ == "__main__":

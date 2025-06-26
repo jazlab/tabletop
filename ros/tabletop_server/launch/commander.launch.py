@@ -128,6 +128,12 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "rcl_log_level",
+            default_value="WARN",
+            description="ROS log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "commander_output",
             default_value="both",
             description="Commander output",
@@ -164,6 +170,7 @@ def generate_launch_description():
     # Logging
     commander_log_level = LaunchConfiguration("commander_log_level")
     moveit_log_level = LaunchConfiguration("moveit_log_level")
+    rcl_log_level = LaunchConfiguration("rcl_log_level")
 
     # Commander output
     commander_output = LaunchConfiguration("commander_output")
@@ -269,13 +276,13 @@ def generate_launch_description():
         ["trajectory_cache:=", commander_log_level],
         ["tabletop.task:=", commander_log_level],
         ["tabletop.trial_generator:=", commander_log_level],
-        "rcl:=FATAL",
-        "rcl_action:=FATAL",
-        "rclcpp:=FATAL",
-        "rclcpp_action:=FATAL",
-        "pluginlib.ClassLoader:=FATAL",
-        "rmw_fastrtps_cpp:=FATAL",
-        "trac_ik_kinematics_plugin:=FATAL",
+        ["rcl:=", rcl_log_level],
+        ["rcl_action:=", rcl_log_level],
+        ["rclcpp:=", rcl_log_level],
+        ["rclcpp_action:=", rcl_log_level],
+        ["pluginlib.ClassLoader:=", rcl_log_level],
+        ["rmw_fastrtps_cpp:=", rcl_log_level],
+        ["trac_ik_kinematics_plugin:=", rcl_log_level],
     ]
     logger_levels_args = []
     for logger in logger_levels:
