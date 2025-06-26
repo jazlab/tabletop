@@ -7,7 +7,7 @@ source /opt/ros/${ROS_DISTRO}/setup.bash
 set -e
 
 print_usage() {
-    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all]"
+    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [--remove-moveit-apt] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all]"
 }
 
 pushd $COLCON_WS

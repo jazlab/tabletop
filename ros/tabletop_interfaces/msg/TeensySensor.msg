@@ -1,0 +1,11 @@
+builtin_interfaces/Time timestamp
+bool is_safety_laser_broken
+bool is_left_arm_locked
+bool is_right_arm_locked
+bool is_reward_active
+bool is_smartglass_revealed
+uint8[5] left_tactile_glove_states
+uint8[5] right_tactile_glove_states
+bool sync_pulse_state
+builtin_interfaces/Time sync_pulse_last_time_on
+builtin_interfaces/Time sync_pulse_last_time_off

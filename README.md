@@ -526,7 +526,7 @@ the repository's root directory:
 
 - `tabletop_description`: TableTop URDF description
 - `tabletop_moveit_config`: TableTop MoveIt configurations
-- `tabletop_msgs`: TableTop message definitions
+- `tabletop_interfaces`: TableTop message definitions
 - `tabletop_server`: TableTop server nodes and launch files
 - `tabletop_tasks`: TableTop task nodes and launch files
 - `tabletop_teensy`: TableTop Teensy nodes and launch files

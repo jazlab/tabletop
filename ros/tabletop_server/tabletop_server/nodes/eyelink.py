@@ -1,11 +1,9 @@
 import concurrent.futures
 import os
-import subprocess
 import threading
 import traceback
 from collections import deque
 from datetime import datetime
-from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -13,10 +11,18 @@ import rclpy
 from pylink import EyeLink as EyeLinkTracker
 from pylink.constants import MISSING_DATA
 from pylink.tracker import Sample, SampleData
+from rclpy.action.server import (
+    ActionServer,
+    CancelResponse,
+    GoalResponse,
+    ServerGoalHandle,
+)
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from std_srvs.srv import Trigger
-from tabletop_msgs.srv import GetSmoothPursuit
+from tabletop_interfaces.action import EyelinkSmoothPursuit
+from tabletop_utils.eyelink import edf_to_csv
 
 from tabletop_server.nodes.base import BaseNode
 
@@ -26,7 +32,9 @@ LEFT_EYE = 0
 RIGHT_EYE = 1
 BINOCULAR = 2
 
-type EyeData = (
+TABLETOP_DIR = os.environ.get("TABLETOP_DIR", "/root/ws/src/tabletop")
+
+EyeData = (
     tuple[
         int,
         tuple[float, float, float] | None,
@@ -40,11 +48,9 @@ class Eyelink(BaseNode):
     default_params = BaseNode.default_params | {
         "tracker_address": "100.1.1.1",
         "do_tracker_setup": True,
-        "wait_for_data_timeout": 1.0,
-        "sample_rate": 1000,
-        "smooth_pursuit_window": 0.1,
-        "smooth_pursuit_default_threshold": 4e4,
-        "smooth_pursuit_min_samples": 75,
+        "wait_for_data_timeout": 1.0,  # seconds
+        "sample_rate": 1000,  # Hz
+        "max_window": 0.5,  # seconds
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_event_filter": "null",
@@ -52,11 +58,13 @@ class Eyelink(BaseNode):
         "file_event_data": "null",
         "link_event_data": "null",
         "results_dir": "/root/ws/src/tabletop/results/eyelink",
-        "conversion_script_path": "/root/ws/src/tabletop/scripts/eyelink_convert.sh",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
-        "log_periodic_interval": 0.1,
         "log_samples": False,
         "log_smooth_pursuit": True,
+        "log_smooth_pursuit_window": 0.5,  # seconds
+        "log_smooth_pursuit_threshold": 4e4,  # pixels/s
+        "log_smooth_pursuit_min_samples": 75,
+        "log_period": 0.1,  # seconds
     }
 
     ###########################################################################
@@ -82,16 +90,23 @@ class Eyelink(BaseNode):
         This function will setup the ROS node. It will create a timer to log
         the eyelink status and a series of services to control the tracker.
         """
-        self.log_periodic_timer = self.create_timer(
-            self.get_parameter_wrapper("log_periodic_interval"),
-            self.log_periodic_callback,
+        # self.log_timer = self.create_timer(
+        #     self.get_parameter_wrapper("log_period"),
+        #     self.log_callback,
+        #     callback_group=MutuallyExclusiveCallbackGroup(),
+        # )
+        self.eyelink_smooth_pursuit_server = ActionServer(
+            self,
+            EyelinkSmoothPursuit,
+            "eyelink/smooth_pursuit",
+            self.smooth_pursuit_callback,
+            cancel_callback=self.smooth_pursuit_cancel_callback,
+            goal_callback=self.smooth_pursuit_goal_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        self.get_smooth_pursuit_service = self.create_service(
-            GetSmoothPursuit,
-            "eyelink/get_smooth_pursuit",
-            self.get_smooth_pursuit_callback,
-        )
+        self.goal_callback_lock = threading.Lock()
+        self.goal_ongoing = False
+
         self.eyelink_start_recording_service = self.create_service(
             Trigger,
             "eyelink/start_recording",
@@ -120,13 +135,11 @@ class Eyelink(BaseNode):
         the stop event and sample retrieval loop future.
         """
         sample_rate = self.get_parameter_wrapper("sample_rate")
-        smooth_pursuit_window = self.get_parameter_wrapper(
-            "smooth_pursuit_window"
-        )
+        self._max_window = self.get_parameter_wrapper("max_window")
         self.eye_data_queue: deque[EyeData] = deque(
-            maxlen=int(sample_rate * smooth_pursuit_window)
+            maxlen=int(sample_rate * self._max_window)
         )
-        self.eye_data_queue_lock = Lock()
+        self.eye_data_queue_lock = threading.Lock()
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.stop_sample_retrieval_event = threading.Event()
         self.stop_sample_retrieval_event.set()
@@ -200,7 +213,9 @@ class Eyelink(BaseNode):
         #     self.sample_retrieval_loop,
         #     stop_event=self.stop_sample_retrieval_event,
         # )
-        self.sample_retrieval_future = self.executor.create_task(  # type: ignore
+        if self.executor is None:
+            raise RuntimeError("Executor for Eyelink node is not set")
+        self.sample_retrieval_future = self.executor.create_task(
             self.sample_retrieval_loop,
             stop_event=self.stop_sample_retrieval_event,
         )
@@ -235,20 +250,6 @@ class Eyelink(BaseNode):
         self.tracker.stopRecording()
         self.recording = False
 
-    def edf_to_asc(self):
-        """Convert the EDF file to ASC format using the eyelink_convert.sh script."""
-        try:
-            script_path = self.get_parameter_wrapper("conversion_script_path")
-            results_dir = self.get_parameter_wrapper("results_dir")
-            extra_args = self.get_parameter_wrapper("edf2asc_extra_args")
-            subprocess.run(
-                [script_path, "--dir", results_dir, *extra_args], check=True
-            )
-            self.log("Successfully converted EDF to ASC")
-        except subprocess.CalledProcessError as e:
-            self.log(f"Error converting EDF to ASC: {e}", severity="ERROR")
-            raise RuntimeError("Error converting EDF to ASC") from e
-
     def close_data_file(self):
         """Closes the data file and transfers it to the local machine.
 
@@ -267,14 +268,16 @@ class Eyelink(BaseNode):
         os.makedirs(results_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        local_file_name = os.path.join(results_dir, f"{timestamp}.edf")
+        path = os.path.join(results_dir, f"{timestamp}.edf")
         try:
-            self.tracker.receiveDataFile("last.edf", local_file_name)
+            self.tracker.receiveDataFile("last.edf", path)
         except RuntimeError as e:
-            self.log(f"Error receiving data file: {e}", severity="ERROR")
             raise RuntimeError("Error receiving data file") from e
 
-        self.edf_to_asc()
+        self.log(f"Received EDF data file and saved to {path}")
+
+        csv_file_name = edf_to_csv(path, keep_asc=True)
+        self.log(f"Converted EDF to CSV: {csv_file_name}")
 
     def eye_available(self) -> int:
         """Get the eye available from the tracker.
@@ -387,14 +390,14 @@ class Eyelink(BaseNode):
         self.log("Starting sample retrieval loop")
         try:
             wait_for_data_timeout_ms = int(
-                self.get_parameter_wrapper("wait_for_data_timeout") * 1000
+                self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
             )
-            i = 0
-            start_time = self.time()
+            # i = 0
+            # start_time = self.ros_time()
             while not stop_event.is_set():
                 if not self.tracker.isConnected():
                     self.log("Tracker is not connected", severity="WARN")
-                    self.sleep(1)
+                    self.ros_sleep(1.0)
                     continue
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
@@ -412,44 +415,19 @@ class Eyelink(BaseNode):
                     eye_data = self.get_eye_data(sample)
                     with self.eye_data_queue_lock:
                         self.eye_data_queue.append(eye_data)
-                #     with self.sample_queue_lock:
-                #         self.sample_queue.append(sample)
-                # sample = Sample(
-                #     time=self.time(),
-                #     type=0,
-                #     flags=0x8000,
-                #     px=[1, 2],
-                #     py=[3, 4],
-                #     hx=[5, 6],
-                #     hy=[7, 8],
-                #     pa=[9, 10],
-                #     gx=[11, 12],
-                #     gy=[13, 14],
-                #     rx=[15, 16],
-                #     ry=[17, 18],
-                #     status=0,
-                #     input=0,
-                #     buttons=0,
-                #     htype=0,
-                #     hdata=0,
-                # )
-                # eye_data = self.get_valid_eye_data(sample)
-                # if eye_data is not None:
-                #     with self.sample_queue_lock:
-                #         self.sample_queue.append(eye_data)
-                i += 1
-                self.log("loop", severity="DEBUG")
-                if i % 100 == 0:
-                    self.log(
-                        f"Sample retrieval loop time: {(self.time() - start_time) / 100:.5f} s",
-                        severity="DEBUG",
-                    )
-                    start_time = self.time()
-                    i = 0
+
+                # i += 1
+                # if i % 100 == 0:
+                #     self.log(
+                #         f"Sample retrieval loop time: {(self.ros_time() - start_time) / 100:.5f} s",
+                #         severity="DEBUG",
+                #     )
+                #     start_time = self.ros_time()
+                #     i = 0
 
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
-                self.sleep(1e-5)
+                self.ros_sleep(1e-5)
         except Exception as e:
             self.log(
                 f"Error in sample retrieval loop: type={type(e)}, value={e}",
@@ -474,22 +452,34 @@ class Eyelink(BaseNode):
     # Smooth pursuit
     ###########################################################################
 
-    def get_smooth_pursuit(self, threshold: float | None = None) -> bool:
+    def get_smooth_pursuit(
+        self, window: float, threshold: int, min_samples: int
+    ) -> bool:
         """Check if the subject is smoothly pursuing.
 
         This function will check if the subject is smoothly pursuing by
         checking if the speed of the left and right eyes is below a threshold
         (the eye can only move smoothly if it is following a smoothly moving
         object, so we check if the speed remains below a threshold).
+
+        Args:
+            window: The window size in seconds.
+            threshold: The threshold for the speed of the eyes.
+
+        Returns:
+            True if the subject is smoothly pursuing, False otherwise.
         """
         self.log("Checking for smooth pursuit", severity="DEBUG")
 
         eye_data = self.get_last_eye_data()
-        if len(eye_data) == 0:
-            raise RuntimeError("No samples in queue")
+
+        num_samples = int(window * self.get_parameter_wrapper("sample_rate"))
+        assert num_samples > 0 and num_samples <= len(eye_data)
+
+        eye_data = eye_data[-num_samples:]
 
         # Track duration of smooth pursuit extraction, for logging purposes
-        start_time = self.time()
+        start_time = self.ros_time()
 
         # Extract eye data from samples
         timestamps = []
@@ -525,9 +515,7 @@ class Eyelink(BaseNode):
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
-        if timestamps.shape[0] < self.get_parameter_wrapper(
-            "smooth_pursuit_min_samples"
-        ):
+        if timestamps.shape[0] < min_samples:
             raise RuntimeError("Not enough valid samples")
 
         assert not np.any(left_positions == MISSING_DATA) or not np.any(
@@ -547,17 +535,15 @@ class Eyelink(BaseNode):
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of
         # the left and right eyes are below a threshold
-        if threshold is None:
-            threshold = self.get_parameter_wrapper(
-                "smooth_pursuit_default_threshold"
-            )
         is_smoothly_pursuing = np.all(
             np.stack([left_speed, right_speed], axis=1) < threshold
         ).item()
 
         # Log the smooth pursuit status and statistics about the eye speed data
         # if self.get_logger().get_effective_level() <= logging.DEBUG:
-        self.log(f"Time taken: {self.time() - start_time}", severity="DEBUG")
+        self.log(
+            f"Time taken: {self.ros_time() - start_time}", severity="DEBUG"
+        )
         if self.left_eye_available():
             left_speed_rounded = left_speed.round(2)
             # self.log(
@@ -585,54 +571,60 @@ class Eyelink(BaseNode):
     # ROS callbacks
     ###########################################################################
 
-    def log_periodic_callback(self):
-        """Periodically log the smooth pursuit status and the newest valid sample."""
-        self.log("Logging", severity="DEBUG")
-        try:
-            self.i += 1
-            if self.i % 10 == 0:
-                self.log(
-                    f"Log interval: {(self.get_clock().now() - self.start_time).nanoseconds / 1e9 / 10:.5f} s",
-                    severity="INFO",
-                )
-                self.start_time = self.get_clock().now()
-                self.i = 0
-        except AttributeError:
-            self.i = 0
-            self.start_time = self.get_clock().now()
+    # def log_callback(self):
+    #     """Periodically log the smooth pursuit status and the newest valid sample."""
+    #     self.log("Logging", severity="DEBUG")
+    #     try:
+    #         self.i += 1
+    #         if self.i % 10 == 0:
+    #             self.log(
+    #                 f"Log interval: {(self.ros_time() - self.log_start_time):.5f} s",
+    #                 severity="INFO",
+    #             )
+    #             self.log_start_time = self.ros_time()
+    #             self.i = 0
+    #     except AttributeError:
+    #         self.i = 0
+    #         self.log_start_time = self.ros_time()
 
-        if self.get_parameter_wrapper("log_smooth_pursuit"):
-            try:
-                is_smoothly_pursuing = self.get_smooth_pursuit()
-                self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
-            except RuntimeError as e:
-                self.log(
-                    f"Error getting smooth pursuit: {e}", severity="ERROR"
-                )
+    #     if self.get_parameter_wrapper("log_smooth_pursuit"):
+    #         try:
+    #             is_smoothly_pursuing = self.get_smooth_pursuit(
+    #                 self.get_parameter_wrapper("log_smooth_pursuit_window"),
+    #                 self.get_parameter_wrapper("log_smooth_pursuit_threshold"),
+    #                 self.get_parameter_wrapper(
+    #                     "log_smooth_pursuit_min_samples"
+    #                 ),
+    #             )
+    #             self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
+    #         except RuntimeError as e:
+    #             self.log(
+    #                 f"Error getting smooth pursuit: {e}", severity="ERROR"
+    #             )
 
-        if self.get_parameter_wrapper("log_samples"):
-            eye_data = self.get_last_eye_data()
-            if len(eye_data) == 0:
-                self.log(
-                    "No samples in queue during periodic log", severity="WARN"
-                )
-                return
-            for eye_datapoint in reversed(eye_data):
-                if eye_datapoint is None:
-                    continue
-                timestamp, left_data, right_data = eye_datapoint
+    #     if self.get_parameter_wrapper("log_samples"):
+    #         eye_data = self.get_last_eye_data()
+    #         if len(eye_data) == 0:
+    #             self.log(
+    #                 "No samples in queue during periodic log", severity="WARN"
+    #             )
+    #             return
+    #         for eye_datapoint in reversed(eye_data):
+    #             if eye_datapoint is None:
+    #                 continue
+    #             timestamp, left_data, right_data = eye_datapoint
 
-                self.log(f"Timestamp: {timestamp}")
-                if left_data is not None:
-                    self.log(
-                        f"Left eye x: {left_data[0]}, y: {left_data[1]}, diameter: {left_data[2]}"
-                    )
-                if right_data is not None:
-                    self.log(
-                        f"Right eye x: {right_data[0]}, y: {right_data[1]}, diameter: {right_data[2]}"
-                    )
-                return
-            self.log("Found no adequate samples", severity="WARN")
+    #             self.log(f"Timestamp: {timestamp}")
+    #             if left_data is not None:
+    #                 self.log(
+    #                     f"Left eye x: {left_data[0]}, y: {left_data[1]}, diameter: {left_data[2]}"
+    #                 )
+    #             if right_data is not None:
+    #                 self.log(
+    #                     f"Right eye x: {right_data[0]}, y: {right_data[1]}, diameter: {right_data[2]}"
+    #                 )
+    #             return
+    #         self.log("Found no adequate samples", severity="WARN")
 
     def open_data_file_callback(
         self, request: Trigger.Request, response: Trigger.Response
@@ -700,24 +692,92 @@ class Eyelink(BaseNode):
         response.message = "Recording stopped"
         return response
 
-    def get_smooth_pursuit_callback(
-        self,
-        request: GetSmoothPursuit.Request,
-        response: GetSmoothPursuit.Response,
-    ) -> GetSmoothPursuit.Response:
-        """Get the smooth pursuit status."""
-        try:
-            response.is_smoothly_pursuing = self.get_smooth_pursuit()
-        except RuntimeError as e:
-            response.is_smoothly_pursuing = False
-            response.success = False
-            response.message = f"Error getting smooth pursuit: {e}"
-            self.log(response.message, severity="ERROR")
-            return response
+    def smooth_pursuit_goal_callback(
+        self, goal: EyelinkSmoothPursuit.Goal
+    ) -> GoalResponse:
+        with self.goal_callback_lock:
+            if self.goal_ongoing:
+                self.log(
+                    "Cannot accept new goal, previous goal not finished",
+                    severity="WARN",
+                )
+                return GoalResponse.REJECT
+            elif Duration.from_msg(goal.window) > Duration(
+                seconds=self.get_parameter_wrapper("max_window")
+            ):
+                self.log(
+                    f"Window too long, must be less than {self.get_parameter_wrapper('max_window')} s",
+                    severity="WARN",
+                )
+                return GoalResponse.REJECT
+            else:
+                self.goal_ongoing = True
+                return GoalResponse.ACCEPT
 
-        response.success = True
-        response.message = f"Subject is {'smoothly' if response.is_smoothly_pursuing else 'not smoothly'} pursuing"
-        return response
+    def smooth_pursuit_cancel_callback(self, _) -> CancelResponse:
+        with self.goal_callback_lock:
+            if self.goal_ongoing:
+                return CancelResponse.ACCEPT
+            else:
+                self.log(
+                    "Cannot cancel goal, no goal in progress",
+                    severity="WARN",
+                )
+                return CancelResponse.REJECT
+
+    def smooth_pursuit_callback(
+        self, goal_handle: ServerGoalHandle
+    ) -> EyelinkSmoothPursuit.Result:
+        """Flic response time action callback."""
+        try:
+            self.log("Starting smooth pursuit")
+
+            # Get the smooth pursuit parameters from the goal
+            window = (
+                Duration.from_msg(goal_handle.request.window).nanoseconds / 1e9
+            )
+            threshold = goal_handle.request.threshold
+            min_samples = goal_handle.request.min_samples
+            last_time = self.get_clock().now()
+
+            # Get the initial smooth pursuit status
+            last_feedback = EyelinkSmoothPursuit.Feedback()
+            last_feedback.smooth_pursuit_started = self.get_smooth_pursuit(
+                window, threshold, min_samples
+            )
+            last_feedback.duration = Duration(seconds=0).to_msg()
+            goal_handle.publish_feedback(last_feedback)
+
+            # Loop until the goal is cancelled
+            while not goal_handle.is_cancel_requested:
+                self.ros_sleep(0.1)
+                smooth_pursuit = self.get_smooth_pursuit(
+                    window, threshold, min_samples
+                )
+                if smooth_pursuit != last_feedback.smooth_pursuit_started:
+                    cur_time = self.get_clock().now()
+                    feedback = EyelinkSmoothPursuit.Feedback()
+                    feedback.smooth_pursuit_started = smooth_pursuit
+                    duration = cur_time - last_time
+                    feedback.duration = duration.to_msg()
+                    goal_handle.publish_feedback(feedback)
+
+                    if smooth_pursuit:
+                        self.log(
+                            f"Smooth pursuit started after {duration.nanoseconds / 1e9:.2f} s"
+                        )
+                    else:
+                        self.log(
+                            f"Smooth pursuit ended after {duration.nanoseconds / 1e9:.2f} s"
+                        )
+                    last_time = cur_time
+                    last_feedback = feedback
+
+            goal_handle.canceled()
+            return EyelinkSmoothPursuit.Result()
+        finally:
+            with self.goal_callback_lock:
+                self.goal_ongoing = False
 
     ###########################################################################
     # Node lifecycle
@@ -779,7 +839,7 @@ def main(args=None):
         print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
+        rclpy.try_shutdown()  # type: ignore
 
 
 # TODO: Something is fucking wrong, help me

@@ -1,4 +1,4 @@
-uint32 timestamp
+builtin_interfaces/Time timestamp
 float32 left_x
 float32 left_y
 float32 left_diameter

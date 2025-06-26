@@ -6,6 +6,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
     SetEnvironmentVariable,
+    Shutdown,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -208,13 +209,13 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "mock_teensy_output",
-            default_value="own_log",
+            default_value="both",
             description="Mock Teensy output",
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "flic_output",
-            default_value="own_log",
+            default_value="both",
             description="Flic output",
             choices=["log", "both", "screen", "own_log"],
         ),
@@ -372,6 +373,7 @@ def generate_launch_description():
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", default_log_level],
         condition=IfCondition(use_mock_robot),
+        on_exit=[Shutdown()],
     )
 
     # Micro ROS Agent
@@ -392,6 +394,7 @@ def generate_launch_description():
             micro_ros_verbosity,
         ],
         condition=UnlessCondition(use_mock_teensy),
+        on_exit=[Shutdown()],
     )
 
     # Mock Teensy
@@ -403,6 +406,7 @@ def generate_launch_description():
         parameters=[{"use_sim_time": use_sim_time}],
         ros_arguments=["--log-level", teensy_log_level],
         condition=IfCondition(use_mock_teensy),
+        on_exit=[Shutdown()],
     )
 
     # Flic
@@ -415,6 +419,7 @@ def generate_launch_description():
             {"use_sim_time": use_sim_time, "simulate": simulate_flic},
         ],
         ros_arguments=["--log-level", flic_log_level],
+        on_exit=[Shutdown()],
     )
 
     # RViz MoveIt Config

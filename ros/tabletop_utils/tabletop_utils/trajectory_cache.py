@@ -1,5 +1,5 @@
+import bisect
 import datetime
-import heapq
 import json
 import os
 import threading
@@ -662,9 +662,9 @@ class FuzzyTrajectoryCache(Shelf):
     ):
         """Set an item in the database.
 
-        If the key is not in the database, a new heap is created.
-        If the key is in the database, the value is pushed to the heap.
-        If the heap has more than `max_trajectories` elements, the trajectory
+        If the key is not in the database, a new list is created.
+        If the key is in the database, the value is inserted in the list.
+        If the list has more than `max_trajectories` elements, the trajectory
         with the longest path length is removed.
 
         Args:
@@ -685,8 +685,10 @@ class FuzzyTrajectoryCache(Shelf):
             else:
                 self._validate_db_values(values)
 
-            heapq.heappush(values, value)
-            values = values[: self._max_trajectories]
+            bisect.insort_left(values, value)
+            if len(values) > self._max_trajectories:
+                values.pop()
+
             super().__setitem__(fuzzy_key, values)
 
     def cache_trajectory(
@@ -776,7 +778,7 @@ class FuzzyTrajectoryCache(Shelf):
             key: The key to get the values for.
 
         Returns:
-            The heap of values for the given key.
+            The sorted list of values for the given key.
         """
         fuzzy_key = self.get_fuzzy_key(key)
         logger.debug(f"Getting values for key: {fuzzy_key}")
@@ -845,7 +847,7 @@ class FuzzyTrajectoryCache(Shelf):
             group_name: The group name of the trajectory.
 
         Returns:
-            The heap of trajectories for the given key.
+            The sorted list of trajectories for the given key.
         """
         if isinstance(goal, RobotState):
             cache_pose_link = None

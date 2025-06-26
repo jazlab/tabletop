@@ -34,12 +34,32 @@
             "justMyCode": false
         },
         {
-            "name": "Python Debugger: Attach to run_tasks",
+            "name": "Python Debugger: Attach to commander",
             "type": "debugpy",
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 4567
+                "port": 1300
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: Attach to flic",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 1301
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: Attach to mock teensy",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 1302
             },
             "justMyCode": false
         }

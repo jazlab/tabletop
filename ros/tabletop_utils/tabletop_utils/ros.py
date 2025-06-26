@@ -1,6 +1,7 @@
 import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
+from enum import Enum
 from typing import Any, Optional, Protocol
 
 import numpy as np
@@ -10,7 +11,6 @@ from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
-from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from moveit_msgs.msg import (
@@ -126,19 +126,49 @@ class SrvType(Protocol):
     Response: Any
 
 
+# Enums
+
+
+class PostProcessingErrorCodes(Enum):
+    """Post processing error codes."""
+
+    TOTG_FAILED = -1
+    SMOOTHING_FAILED = -2
+    INVALID_TRAJECTORY = -3
+
+
 # Exception definitions
+
+
+class ServiceCallError(Exception):
+    """Service call failed."""
+
+
+class ServiceCallTimeoutError(ServiceCallError):
+    """Service call timed out."""
+
+
+class ServiceCallUnsuccessfulError(ServiceCallError):
+    """Service call returned with a failure status."""
 
 
 class CommanderRecoverableError(Exception):
     """Recoverable error that can be retried."""
 
 
-class ServiceCallError(CommanderRecoverableError):
-    """Service call failed."""
+class PlanningError(CommanderRecoverableError):
+    """Planning error."""
 
-
-class ServiceCallUnsuccessfulError(CommanderRecoverableError):
-    """Service call returned with a failure status."""
+    def __init__(
+        self, error_code: MoveItErrorCodes | PostProcessingErrorCodes
+    ):
+        self.error_code = error_code
+        if isinstance(error_code, PostProcessingErrorCodes):
+            super().__init__(f"Post processing error: {error_code.name}")
+        else:
+            super().__init__(
+                f"MoveIt error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}"
+            )
 
 
 class MaxAttemptsReachedError(CommanderRecoverableError):
@@ -149,19 +179,15 @@ class MaxPlanningAttemptsReachedError(MaxAttemptsReachedError):
     """Maximum number of planning attempts reached."""
 
     def __init__(
-        self, plan_responses: list[MotionPlanResponse], max_attempts: int
+        self, planning_errors: list[PlanningError], max_attempts: int
     ):
-        self.error_codes = [
-            response.error_code.val for response in plan_responses
-        ]
-        if all(code == self.error_codes[0] for code in self.error_codes):
-            error_code_str = f"same error code: {MOVEIT_ERROR_CODE_MAP[self.error_codes[0]]}"
-        else:
-            error_code_strs = [
-                MOVEIT_ERROR_CODE_MAP[code] for code in self.error_codes
-            ]
-            error_code_str = f"different error codes: {error_code_strs}"
+        self.planning_errors = planning_errors
         self.max_attempts = max_attempts
+        if all(e == planning_errors[0] for e in planning_errors):
+            error_code_str = f"same error: {planning_errors[0]}"
+        else:
+            error_code_strs = [str(e) for e in planning_errors]
+            error_code_str = f"different errors: {error_code_strs}"
         super().__init__(
             f"Max planning attempts ({max_attempts}) reached with {error_code_str}"
         )
@@ -186,6 +212,10 @@ class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
         super().__init__(
             f"Max execution attempts ({max_attempts}) reached with {status_str}"
         )
+
+
+class NotSafeToExecuteError(CommanderRecoverableError):
+    """Not safe to execute."""
 
 
 class InvalidTrajectoryError(CommanderRecoverableError):
@@ -240,12 +270,12 @@ def validate_service_response(
         The response from the service call.
 
     Raises:
-        TimeoutError: If the service call timed out.
-        ServiceCallError: If the service call failed.
+        ServiceCallTimeoutError: If the service call timed out.
+        ServiceCallUnsuccessfulError: If the service call returned with a failure status.
     """
     if response is None:
         error_msg = f"{service_client.service_name} service call timed out!"
-        raise TimeoutError(error_msg)
+        raise ServiceCallTimeoutError(error_msg)
     elif hasattr(response, "success") and not response.success:  # type: ignore
         error_msg = (
             f"{service_client.service_name} service call returned "

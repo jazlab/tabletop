@@ -17,6 +17,7 @@ import itertools
 import struct
 import time
 from collections import namedtuple
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -147,23 +148,20 @@ class ButtonConnectionChannel:
     def __init__(
         self,
         bd_addr: str,
-        client: Any,
         latency_mode: LatencyMode = LatencyMode.LowLatency,
         auto_disconnect_time: int = 511,
     ):
         self._conn_id = next(ButtonConnectionChannel._cnt)
         self._bd_addr = bd_addr
-        assert isinstance(client, FlicClient)
-        self._client = client
         self._latency_mode = latency_mode
         self._auto_disconnect_time = auto_disconnect_time
 
-        self.last_time_button_up_sec = -1
-        self.last_time_button_down_sec = -1
-        self.last_time_button_click_sec = -1
-        self.last_time_button_single_click_sec = -1
-        self.last_time_button_double_click_sec = -1
-        self.last_time_button_hold_sec = -1
+        self.last_time_button_up = -1
+        self.last_time_button_down = -1
+        self.last_time_button_click = -1
+        self.last_time_button_single_click = -1
+        self.last_time_button_double_click = -1
+        self.last_time_button_hold = -1
 
     @property
     def conn_id(self):
@@ -177,43 +175,17 @@ class ButtonConnectionChannel:
     def latency_mode(self):
         return self._latency_mode
 
+    @latency_mode.setter
+    def latency_mode(self, latency_mode: LatencyMode):
+        self._latency_mode = latency_mode
+
     @property
     def auto_disconnect_time(self):
         return self._auto_disconnect_time
 
-    @latency_mode.setter
-    def latency_mode(self, latency_mode: LatencyMode):
-        if self._client is None:
-            self._latency_mode = latency_mode
-            return
-
-        self._latency_mode = latency_mode
-        if not self._client._closed:
-            self._client._send_command(
-                "CmdChangeModeParameters",
-                {
-                    "conn_id": self._conn_id,
-                    "latency_mode": self._latency_mode,
-                    "auto_disconnect_time": self._auto_disconnect_time,
-                },
-            )
-
     @auto_disconnect_time.setter
     def auto_disconnect_time(self, auto_disconnect_time: int):
-        if self._client is None:
-            self._auto_disconnect_time = auto_disconnect_time
-            return
-
         self._auto_disconnect_time = auto_disconnect_time
-        if not self._client._closed:
-            self._client._send_command(
-                "CmdChangeModeParameters",
-                {
-                    "conn_id": self._conn_id,
-                    "latency_mode": self._latency_mode,
-                    "auto_disconnect_time": self._auto_disconnect_time,
-                },
-            )
 
     def on_create_connection_channel_response(self, error, connection_status):
         logger.info(
@@ -237,56 +209,36 @@ class ButtonConnectionChannel:
             f"connection_status: {connection_status}, " + disconnect_reason_str
         )
 
-    def _on_button(self, evt_type, click_type, was_queued, time_diff):
+    def on_button_event(
+        self,
+        click_type: ClickType,
+        was_queued: bool,
+        time_diff: int,
+        event_time: float,
+    ):
         logger.info(
-            f"{evt_type} | "
+            f"{click_type.name} | "
             f"addr: {self._bd_addr}, "
-            f"type: {click_type}, "
             f"was_queued: {was_queued}, "
-            f"time_diff: {time_diff}"
-            f"time: {time.time()}"
+            f"time_diff: {time_diff}, "
+            f"time: {event_time}"
         )
-        match click_type:
-            case ClickType.ButtonUp:
-                self.last_time_button_up_sec = time.time()
-            case ClickType.ButtonDown:
-                self.last_time_button_down_sec = time.time()
-            case ClickType.ButtonClick:
-                self.last_time_button_click_sec = time.time()
-            case ClickType.ButtonSingleClick:
-                self.last_time_button_single_click_sec = time.time()
-            case ClickType.ButtonDoubleClick:
-                self.last_time_button_double_click_sec = time.time()
-            case ClickType.ButtonHold:
-                self.last_time_button_hold_sec = time.time()
-
-    def on_button_up_or_down(self, click_type, was_queued, time_diff):
-        self._on_button("Button up or down", click_type, was_queued, time_diff)
-
-    def on_button_click_or_hold(self, click_type, was_queued, time_diff):
-        self._on_button(
-            "Button click or hold", click_type, was_queued, time_diff
-        )
-
-    def on_button_single_or_double_click(
-        self, click_type, was_queued, time_diff
-    ):
-        self._on_button(
-            "Button single or double click",
-            click_type,
-            was_queued,
-            time_diff,
-        )
-
-    def on_button_single_or_double_click_or_hold(
-        self, click_type, was_queued, time_diff
-    ):
-        self._on_button(
-            "Button single or double click or hold",
-            click_type,
-            was_queued,
-            time_diff,
-        )
+        if was_queued:
+            logger.info("Button event was queued, skipping last time update")
+        else:
+            match click_type:
+                case ClickType.ButtonDown:
+                    self.last_time_button_down = event_time
+                case ClickType.ButtonUp:
+                    self.last_time_button_up = event_time
+                case ClickType.ButtonClick:
+                    self.last_time_button_click = event_time
+                case ClickType.ButtonHold:
+                    self.last_time_button_hold = event_time
+                case ClickType.ButtonSingleClick:
+                    self.last_time_button_single_click = event_time
+                case ClickType.ButtonDoubleClick:
+                    self.last_time_button_double_click = event_time
 
 
 class ButtonScanner:
@@ -388,7 +340,6 @@ class ScanWizard:
     def on_completed(
         self,
         result: ScanWizardResult,
-        client: Any,
         latency_mode: LatencyMode,
         auto_disconnect_time: int,
     ):
@@ -402,7 +353,6 @@ class ScanWizard:
             )
             self._cc = ButtonConnectionChannel(
                 self._bd_addr,
-                client,
                 latency_mode,
                 auto_disconnect_time,
             )
@@ -586,10 +536,12 @@ class FlicClient(asyncio.Protocol):
         loop: asyncio.AbstractEventLoop,
         default_latency_mode: LatencyMode = LatencyMode.LowLatency,
         default_auto_disconnect_time: int = 511,
+        time_fn: Callable[[], float] = time.time,
     ):
         self._loop = loop
         self.default_latency_mode = default_latency_mode
         self.default_auto_disconnect_time = default_auto_disconnect_time
+        self.time = time_fn
         self._buffer = b""
         self._transport = None
 
@@ -608,12 +560,19 @@ class FlicClient(asyncio.Protocol):
 
         self._closed_event = asyncio.Event()
 
-        self.last_time_button_up_sec = -1
-        self.last_time_button_down_sec = -1
-        self.last_time_button_click_sec = -1
-        self.last_time_button_single_click_sec = -1
-        self.last_time_button_double_click_sec = -1
-        self.last_time_button_hold_sec = -1
+        self.last_time_button_up = -1
+        self.last_time_button_down = -1
+        self.last_time_button_click = -1
+        self.last_time_button_single_click = -1
+        self.last_time_button_double_click = -1
+        self.last_time_button_hold = -1
+
+        self.button_down_event = asyncio.Event()
+        self.button_up_event = asyncio.Event()
+        self.button_click_event = asyncio.Event()
+        self.button_single_click_event = asyncio.Event()
+        self.button_double_click_event = asyncio.Event()
+        self.button_hold_event = asyncio.Event()
 
     @property
     def num_buttons(self) -> int:
@@ -764,15 +723,13 @@ class FlicClient(asyncio.Protocol):
                 items["serial_number"] = items["serial_number"].decode("utf-8")
                 if items["serial_number"] == "":
                     items["serial_number"] = None
-
             case "EvtScanWizardCompleted":
                 items["result"] = ScanWizardResult(items["result"])
-
             case "EvtButtonDeleted":
                 pass  # EvtButtonDeleted starts with EvtButton but has no click_type
-
             case _ if event_name.startswith("EvtButton"):
                 items["click_type"] = ClickType(items["click_type"])
+                items["event_time"] = self.time()
 
         # Process event
         match event_name:
@@ -791,64 +748,37 @@ class FlicClient(asyncio.Protocol):
                         "already_connected_to_other_device"
                     ],
                 )
-
             case "EvtCreateConnectionChannelResponse":
                 self.on_create_connection_channel_response(
                     conn_id=items["conn_id"],
                     error=items["error"],
                     connection_status=items["connection_status"],
                 )
-
             case "EvtConnectionStatusChanged":
                 self.on_connection_status_changed(
                     conn_id=items["conn_id"],
                     connection_status=items["connection_status"],
                     disconnect_reason=items["disconnect_reason"],
                 )
-
             case "EvtConnectionChannelRemoved":
                 self.on_connection_channel_removed(
                     conn_id=items["conn_id"],
                     removed_reason=items["removed_reason"],
                 )
-
-            case "EvtButtonUpOrDown":
-                self.on_button_up_or_down(
-                    conn_id=items["conn_id"],
-                    click_type=items["click_type"],
-                    was_queued=items["was_queued"],
-                    time_diff=items["time_diff"],
-                )
-            case "EvtButtonClickOrHold":
-                self.on_button_click_or_hold(
-                    conn_id=items["conn_id"],
-                    click_type=items["click_type"],
-                    was_queued=items["was_queued"],
-                    time_diff=items["time_diff"],
-                )
-            case "EvtButtonSingleOrDoubleClick":
-                self.on_button_single_or_double_click(
-                    conn_id=items["conn_id"],
-                    click_type=items["click_type"],
-                    was_queued=items["was_queued"],
-                    time_diff=items["time_diff"],
-                )
-            case "EvtButtonSingleOrDoubleClickOrHold":
-                self.on_button_single_or_double_click_or_hold(
-                    conn_id=items["conn_id"],
-                    click_type=items["click_type"],
-                    was_queued=items["was_queued"],
-                    time_diff=items["time_diff"],
-                )
-
             case "EvtNewVerifiedButton":
                 self.on_new_verified_button(items["bd_addr"])
-
             case "EvtButtonDeleted":
                 self.on_button_deleted(
                     items["bd_addr"], items["deleted_by_this_client"]
                 )
-
+            case _ if event_name.startswith("EvtButton"):
+                self.on_button_event(
+                    conn_id=items["conn_id"],
+                    click_type=items["click_type"],
+                    was_queued=items["was_queued"],
+                    time_diff=items["time_diff"],
+                    event_time=items["event_time"],
+                )
             case "EvtGetInfoResponse":
                 self.on_got_info(
                     bluetooth_controller_state=items[
@@ -870,7 +800,6 @@ class FlicClient(asyncio.Protocol):
                         "bd_addr_of_verified_buttons"
                     ],
                 )
-
             case "EvtGetButtonInfoResponse":
                 self.on_got_button_info(
                     bd_addr=items["bd_addr"],
@@ -886,34 +815,28 @@ class FlicClient(asyncio.Protocol):
                         "max_concurrently_connected_buttons"
                     ]
                 )
-
             case "EvtGotSpaceForNewConnection":
                 self.on_got_space_for_new_connection(
                     max_concurrently_connected_buttons=items[
                         "max_concurrently_connected_buttons"
                     ]
                 )
-
             case "EvtBluetoothControllerStateChange":
                 self.on_bluetooth_controller_state_change(state=items["state"])
-
             case "EvtScanWizardFoundPrivateButton":
                 self.on_scan_wizard_found_private_button(
                     scan_wizard_id=items["scan_wizard_id"]
                 )
-
             case "EvtScanWizardFoundPublicButton":
                 self.on_scan_wizard_found_public_button(
                     scan_wizard_id=items["scan_wizard_id"],
                     bd_addr=items["bd_addr"],
                     name=items["name"],
                 )
-
             case "EvtScanWizardButtonConnected":
                 self.on_scan_wizard_button_connected(
                     scan_wizard_id=items["scan_wizard_id"]
                 )
-
             case "EvtScanWizardCompleted":
                 self.on_scan_wizard_completed(
                     scan_wizard_id=items["scan_wizard_id"],
@@ -983,7 +906,6 @@ class FlicClient(asyncio.Protocol):
         scan_wizard = self._scan_wizards[scan_wizard_id]
         scan_wizard.on_completed(
             result=result,
-            client=self,
             latency_mode=self.default_latency_mode,
             auto_disconnect_time=self.default_auto_disconnect_time,
         )
@@ -1091,92 +1013,44 @@ class FlicClient(asyncio.Protocol):
             disconnect_reason=disconnect_reason,
         )
 
-    def _update_button_times(
-        self, click_type: ClickType, channel: ButtonConnectionChannel
-    ):
-        match click_type:
-            case ClickType.ButtonUp:
-                self.last_time_button_up_sec = channel.last_time_button_up_sec
-            case ClickType.ButtonDown:
-                self.last_time_button_down_sec = (
-                    channel.last_time_button_down_sec
-                )
-            case ClickType.ButtonClick:
-                self.last_time_button_click_sec = (
-                    channel.last_time_button_click_sec
-                )
-            case ClickType.ButtonSingleClick:
-                self.last_time_button_single_click_sec = (
-                    channel.last_time_button_single_click_sec
-                )
-            case ClickType.ButtonDoubleClick:
-                self.last_time_button_double_click_sec = (
-                    channel.last_time_button_double_click_sec
-                )
-            case ClickType.ButtonHold:
-                self.last_time_button_hold_sec = (
-                    channel.last_time_button_hold_sec
-                )
-
-    def on_button_up_or_down(
+    def on_button_event(
         self,
         conn_id: int,
         click_type: ClickType,
         was_queued: bool,
         time_diff: int,
+        event_time: float,
     ):
         channel = self._connection_channels[conn_id]
-        channel.on_button_up_or_down(
+        channel.on_button_event(
             click_type=click_type,
             was_queued=was_queued,
             time_diff=time_diff,
+            event_time=event_time,
         )
-        self._update_button_times(click_type, channel)
 
-    def on_button_click_or_hold(
-        self,
-        conn_id: int,
-        click_type: ClickType,
-        was_queued: bool,
-        time_diff: int,
-    ):
-        channel = self._connection_channels[conn_id]
-        channel.on_button_click_or_hold(
-            click_type=click_type,
-            was_queued=was_queued,
-            time_diff=time_diff,
-        )
-        self._update_button_times(click_type, channel)
-
-    def on_button_single_or_double_click(
-        self,
-        conn_id: int,
-        click_type: ClickType,
-        was_queued: bool,
-        time_diff: int,
-    ):
-        channel = self._connection_channels[conn_id]
-        channel.on_button_single_or_double_click(
-            click_type=click_type,
-            was_queued=was_queued,
-            time_diff=time_diff,
-        )
-        self._update_button_times(click_type, channel)
-
-    def on_button_single_or_double_click_or_hold(
-        self,
-        conn_id: int,
-        click_type: ClickType,
-        was_queued: bool,
-        time_diff: int,
-    ):
-        channel = self._connection_channels[conn_id]
-        channel.on_button_single_or_double_click_or_hold(
-            click_type=click_type,
-            was_queued=was_queued,
-            time_diff=time_diff,
-        )
-        self._update_button_times(click_type, channel)
+        if was_queued:
+            logger.warn("Button event was queued, skipping last time update")
+        else:
+            match click_type:
+                case ClickType.ButtonDown:
+                    self.last_time_button_down = event_time
+                    self.button_down_event.set()
+                case ClickType.ButtonUp:
+                    self.last_time_button_up = event_time
+                    self.button_up_event.set()
+                case ClickType.ButtonClick:
+                    self.last_time_button_click = event_time
+                    self.button_click_event.set()
+                case ClickType.ButtonHold:
+                    self.last_time_button_hold = event_time
+                    self.button_hold_event.set()
+                case ClickType.ButtonSingleClick:
+                    self.last_time_button_single_click = event_time
+                    self.button_single_click_event.set()
+                case ClickType.ButtonDoubleClick:
+                    self.last_time_button_double_click = event_time
+                    self.button_double_click_event.set()
 
     def on_connection_channel_removed(
         self,
@@ -1291,7 +1165,7 @@ class FlicClient(asyncio.Protocol):
             },
         )
 
-    def remove_connection_channel(self, channel: ButtonConnectionChannel):
+    def remove_connection_channel(self, conn_id: int):
         """Remove a connection channel.
 
         This will stop listening for new events for a specific connection channel that has previously been added.
@@ -1299,11 +1173,36 @@ class FlicClient(asyncio.Protocol):
         """
         logger.info("Removing connection channel")
 
-        if channel.conn_id not in self._connection_channels:
+        if conn_id not in self._connection_channels:
             raise ValueError("Connection channel not found")
 
+        self._send_command("CmdRemoveConnectionChannel", {"conn_id": conn_id})
+
+    def update_connection_channel(
+        self,
+        conn_id: int,
+        latency_mode: Optional[LatencyMode] = None,
+        auto_disconnect_time: Optional[int] = None,
+    ):
+        """Update the connection channel parameters."""
+        channel = self._connection_channels[conn_id]
+
+        if latency_mode is None and auto_disconnect_time is None:
+            raise ValueError("No parameters to update")
+
+        if latency_mode is not None:
+            channel.latency_mode = latency_mode
+
+        if auto_disconnect_time is not None:
+            channel.auto_disconnect_time = auto_disconnect_time
+
         self._send_command(
-            "CmdRemoveConnectionChannel", {"conn_id": channel.conn_id}
+            "CmdChangeModeParameters",
+            {
+                "conn_id": channel.conn_id,
+                "latency_mode": channel.latency_mode,
+                "auto_disconnect_time": channel.auto_disconnect_time,
+            },
         )
 
     def add_battery_status_listener(self, listener: BatteryStatusListener):
@@ -1366,7 +1265,11 @@ class FlicClient(asyncio.Protocol):
         logger.info("Connecting to existing buttons")
         info = await self.get_info()
         for bd_addr in info.bd_addr_of_verified_buttons:
-            cc = ButtonConnectionChannel(bd_addr, client=self)
+            cc = ButtonConnectionChannel(
+                bd_addr,
+                self.default_latency_mode,
+                self.default_auto_disconnect_time,
+            )
             self.add_connection_channel(cc)
 
         async with asyncio.timeout(timeout):
@@ -1385,6 +1288,15 @@ class FlicClient(asyncio.Protocol):
             return True
         else:
             return False
+
+    ##############################################################
+    # Event methods
+    ##############################################################
+
+    async def wait_for_button_down(self):
+        """Wait for a button to be pressed."""
+        self.button_down_event.clear()
+        await self.button_down_event.wait()
 
     ##############################################################
     # Close methods

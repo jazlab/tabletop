@@ -3,7 +3,6 @@ ros-jazzy-ros2controlcli
 ros-jazzy-cv-bridge
 ros-jazzy-tf-transformations
 ros-jazzy-rmw-fastrtps-cpp
-ros-jazzy-rmw-cyclonedds-cpp
 ros-jazzy-trac-ik-kinematics-plugin
 ros-jazzy-ros-testing
 ros-jazzy-launch-pytest

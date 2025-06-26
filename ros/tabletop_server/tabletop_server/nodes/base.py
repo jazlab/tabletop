@@ -9,18 +9,17 @@ from rclpy.exceptions import (
     ParameterAlreadyDeclaredException,
     ParameterNotDeclaredException,
 )
-from rclpy.logging import LoggingSeverity
+from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 from tabletop_utils.common import yaml_dump_string
 from tabletop_utils.ros import (
+    ServiceCallTimeoutError,
     SrvType,
     SrvTypeRequest,
     SrvTypeResponse,
     msg_to_dict,
     validate_service_response,
 )
-
-DEFAULT_LOG_SEVERITY = "INFO"
 
 
 class BaseNode(Node):
@@ -48,36 +47,86 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_params(severity="DEBUG")
+        self.log_parameters(severity="DEBUG")
 
     def log(
-        self, message: Any, severity: str = DEFAULT_LOG_SEVERITY, **kwargs
+        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
     ):
         """
         Log a message with the given severity.
         """
-        if rclpy.ok():
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if rclpy.ok():  # type: ignore
             match severity:
-                case "DEBUG":
+                case LoggingSeverity.DEBUG:
                     self.get_logger().debug(message, **kwargs)
-                case "INFO":
+                case LoggingSeverity.INFO:
                     self.get_logger().info(message, **kwargs)
-                case "WARN":
+                case LoggingSeverity.WARN:
                     self.get_logger().warning(message, **kwargs)
-                case "ERROR":
+                case LoggingSeverity.ERROR:
                     self.get_logger().error(message, **kwargs)
-                case "FATAL":
+                case LoggingSeverity.FATAL:
                     self.get_logger().fatal(message, **kwargs)
                 case _:
                     raise ValueError(f"Invalid severity: {severity}")
+        elif severity >= self.log_level:
+            print(f"{severity.name}: {message}")
+            return True
         else:
-            if LoggingSeverity[severity] >= self.log_level:
-                print(f"{severity}: {message}")
+            return False
 
     @property
     def log_level(self) -> LoggingSeverity:
         """Get the log severity."""
         return self.get_logger().get_effective_level()
+
+    def log_ros_msg(
+        self,
+        msg: Any,
+        title: Optional[str] = None,
+        severity: str | LoggingSeverity = "INFO",
+    ) -> bool:
+        """Log a ROS message as a YAML string."""
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if severity >= self.log_level:
+            string = yaml_dump_string(
+                msg_to_dict(msg),
+                width=self.get_parameter_wrapper("yaml_width"),
+            )
+            if title is not None:
+                string = f"{title}:\n{string}"
+            success = self.log(string, severity=severity)
+            assert success
+            return True
+        else:
+            return False
+
+    def log_parameters(
+        self, prefix: str = "", severity: str | LoggingSeverity = "INFO"
+    ) -> bool:
+        """
+        Log all parameters with the given prefix.
+        """
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if severity >= self.log_level:
+            params = self.get_nested_parameters(prefix)
+            string = yaml_dump_string(
+                params, width=self.get_parameter_wrapper("yaml_width")
+            )
+            if prefix:
+                string = f"Parameters with prefix {prefix}:\n{string}"
+            success = self.log(string, severity=severity)
+            assert success
+            return True
+        else:
+            return False
 
     def _check_parameters(self):
         """
@@ -117,37 +166,6 @@ class BaseNode(Node):
                     severity="WARN",
                 )
 
-    def log_params(
-        self, prefix: str = "", severity: str = DEFAULT_LOG_SEVERITY
-    ):
-        """
-        Log all parameters with the given prefix.
-        """
-        if self.log_level < LoggingSeverity[severity]:
-            return
-
-        prefix = (
-            f"{prefix}." if prefix and not prefix.endswith(".") else prefix
-        )
-        params = self.get_parameters_by_prefix(prefix)
-        for param in params.values():
-            self.log(f"{param.name}: {param.value}", severity=severity)  # type: ignore
-
-    def log_ros_msg(
-        self,
-        msg: Any,
-        title: Optional[str] = None,
-        severity: str = DEFAULT_LOG_SEVERITY,
-    ):
-        """Log a ROS message as a YAML string."""
-        if self.log_level < LoggingSeverity[severity]:
-            return
-
-        string = yaml_dump_string(msg_to_dict(msg))
-        if title is not None:
-            string = f"{title}\n{string}"
-        self.log(string, severity=severity)
-
     def get_nested_parameters(self, prefix: str = "") -> dict:
         """Get a nested dictionary of parameters with the given prefix.
 
@@ -181,11 +199,11 @@ class BaseNode(Node):
         except ParameterNotDeclaredException:
             return self.get_nested_parameters(name)
 
-    def time(self) -> float:
+    def ros_time(self) -> float:
         """Get the current time in seconds from the ROS2 clock."""
         return float(self.get_clock().now().nanoseconds) / 1e9
 
-    def sleep(self, seconds: float):
+    def ros_sleep(self, seconds: float):
         """Sleep for the given number of seconds."""
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
             raise RuntimeError("ROS2 clock did not sleep correctly")
@@ -204,12 +222,12 @@ class BaseNode(Node):
             self.log(msg, severity="ERROR")
             raise ValueError(msg)
 
-        service_client = self.create_client(
+        srv_client = self.create_client(
             srv_type,
             srv_name,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        return service_client
+        return srv_client
 
     def validate_service_client(
         self,
@@ -238,7 +256,7 @@ class BaseNode(Node):
         Args:
             srv_type: The type of the service.
             srv_name: The name of the service.
-            service_client: The service client to use.
+            srv_client: The service client to use.
             timeout_sec: The timeout in seconds.
 
         Raises:
@@ -287,7 +305,7 @@ class BaseNode(Node):
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         *,
-        service_client: Optional[Client] = None,
+        srv_client: Optional[Client] = None,
         timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
         """Call a service synchronously, returning the response.
@@ -314,28 +332,34 @@ class BaseNode(Node):
 
         # If the service client is not provided, create a new one and destroy
         # it after the service call
-        if service_client is None:
-            service_client = self.create_client_helper(srv_type, srv_name)
+        if srv_client is None:
+            srv_client = self.create_client_helper(srv_type, srv_name)
             destroy_service_client = True
         else:
-            self.validate_service_client(service_client, srv_type, srv_name)
+            self.validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
-            self.log(
-                f"Calling {service_client.service_name} service...",
-                severity="DEBUG",
-            )
-            response: SrvTypeResponse | None = service_client.call(
-                srv_request, timeout_sec=timeout
-            )
-            validate_service_response(response, service_client)
-            assert response is not None
-            return response
+            # self.log(
+            #     f"Calling {service_client.service_name} service...",
+            #     severity="DEBUG",
+            # )
+            response = srv_client.call(srv_request, timeout_sec=timeout)
+            # self.log(
+            #     f"Service call to {service_client.service_name} finished with response:",
+            #     severity="DEBUG",
+            # )
+            # self.log_ros_msg(
+            #     response,
+            #     title=f"{service_client.service_name} response",
+            #     severity="DEBUG",
+            # )
+            validate_service_response(response, srv_client)
+            return cast(SrvTypeResponse, response)
         finally:
             # Destroy the service client if it was created by this function
             if destroy_service_client:
-                self.destroy_client(service_client)
+                self.destroy_client(srv_client)
 
     async def service_call_async(
         self,
@@ -343,7 +367,7 @@ class BaseNode(Node):
         srv_type: Optional[type[SrvType]] = None,
         srv_name: Optional[str] = None,
         *,
-        service_client: Optional[Client] = None,
+        srv_client: Optional[Client] = None,
         timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
         """Call a service asynchronously, returning a future and the service client.
@@ -352,7 +376,7 @@ class BaseNode(Node):
             srv_request: The request message for the service.
             srv_type: The type of the service.
             srv_name: The name of the service.
-            service_client: The service client to use.
+            srv_client: The service client to use.
             timeout: The timeout in seconds.
 
         Returns:
@@ -370,11 +394,11 @@ class BaseNode(Node):
 
         # If the service client is not provided, create a new one and
         # destroy it after the service call
-        if service_client is None:
-            service_client = self.create_client_helper(srv_type, srv_name)
+        if srv_client is None:
+            srv_client = self.create_client_helper(srv_type, srv_name)
             destroy_service_client = True
         else:
-            self.validate_service_client(service_client, srv_type, srv_name)
+            self.validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
@@ -382,10 +406,10 @@ class BaseNode(Node):
             #     f"Calling {service_client.service_name} service asynchronously...",
             #     severity="DEBUG",
             # )
-            future = service_client.call_async(srv_request)
+            future = srv_client.call_async(srv_request)
 
             async with asyncio.timeout(timeout):
-                response = cast(SrvTypeResponse, await future)
+                response = await future
             # self.log(
             #     f"Service call to {service_client.service_name} finished with response:",
             #     severity="DEBUG",
@@ -395,8 +419,12 @@ class BaseNode(Node):
             #     title=f"{service_client.service_name} response",
             #     severity="DEBUG",
             # )
-            validate_service_response(response, service_client)
-            return response
+            validate_service_response(response, srv_client)
+            return cast(SrvTypeResponse, response)
+        except TimeoutError:
+            raise ServiceCallTimeoutError(
+                f"{srv_client.service_name} service call timed out!"
+            )
         finally:
             if destroy_service_client:
-                self.destroy_client(service_client)
+                self.destroy_client(srv_client)

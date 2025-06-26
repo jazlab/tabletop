@@ -26,7 +26,7 @@
   <depend>rosbag2_py</depend>
   <depend>tabletop_server</depend>
   <depend>tabletop_moveit_config</depend>
-  <depend>tabletop_msgs</depend>
+  <depend>tabletop_interfaces</depend>
 
 
   <test_depend>ament_copyright</test_depend>

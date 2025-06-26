@@ -1,7 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
 jupyter
 numpy
-pandas
 pyfqmr
 pyglet<2
 ros2-graph

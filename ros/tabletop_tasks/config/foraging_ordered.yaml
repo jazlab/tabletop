@@ -32,5 +32,10 @@ tasks:
               rpy: [0.0, 0.2, -1.5707]
             - position: [0.9, 0.4, 0.6]
               rpy: [0.0, -0.3, -1.5707]
-          occlude: true
+          arms:
+            - left
+            - right
+            - both
+          occlude:
+            - false
           num_trials: 100000

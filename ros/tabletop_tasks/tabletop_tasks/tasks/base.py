@@ -1,9 +1,13 @@
 """Base task module."""
 
-import asyncio
 from abc import ABC, abstractmethod
+from typing import Any
 
+import rclpy.logging
+from rclpy.impl.logging_severity import LoggingSeverity
 from tabletop_server.nodes import Commander
+
+logger = rclpy.logging.get_logger("tabletop_task")
 
 
 class BaseTask(ABC):
@@ -23,13 +27,39 @@ class BaseTask(ABC):
         """Get the commander instance."""
         return self._commander
 
-    def log(self, message: str, severity: str = "INFO") -> None:
-        """Log a message."""
-        self.commander.log(message, severity)
+    @property
+    def log_level(self) -> LoggingSeverity:
+        """Get the log severity."""
+        return logger.get_effective_level()
 
-    def schedule_sleep(self, delay: float) -> asyncio.Task:
-        """Schedule a sleep."""
-        return self.commander.schedule(asyncio.sleep(delay))  # type: ignore
+    def log(
+        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
+    ):
+        """
+        Log a message with the given severity.
+        """
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if rclpy.ok():  # type: ignore
+            match severity:
+                case LoggingSeverity.DEBUG:
+                    logger.debug(message, **kwargs)
+                case LoggingSeverity.INFO:
+                    logger.info(message, **kwargs)
+                case LoggingSeverity.WARN:
+                    logger.warning(message, **kwargs)
+                case LoggingSeverity.ERROR:
+                    logger.error(message, **kwargs)
+                case LoggingSeverity.FATAL:
+                    logger.fatal(message, **kwargs)
+                case _:
+                    raise ValueError(f"Invalid severity: {severity}")
+        elif severity >= self.log_level:
+            print(f"{severity.name}: {message}")
+            return True
+        else:
+            return False
 
     @abstractmethod
     async def run(self) -> None:

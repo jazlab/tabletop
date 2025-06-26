@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import glob
 import hashlib
-import heapq
 import importlib
 import json
 import os
@@ -19,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from enum import IntEnum
 from types import TracebackType
-from typing import Any, ContextManager, Optional, Self, cast
+from typing import Any, ContextManager, Literal, Optional, Self, cast
 
 import debugpy
 import numpy as np
@@ -59,16 +58,18 @@ from moveit_msgs.msg import (
     PlanningScene as PlanningSceneMsg,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
+from rclpy.action.client import ActionClient, ClientGoalHandle
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
+from rclpy.qos import QoSPresetProfiles
 from std_srvs.srv import Trigger
-from tabletop_msgs.srv import (
-    GetArmDoor,
-    GetFlic,
-    GetHandFixation,
-    GetReward,
-    SetArmDoor,
+from tabletop_interfaces.action import FlicResponseTime
+from tabletop_interfaces.msg import TeensySensor
+from tabletop_interfaces.srv import (
+    SetArmLock,
     SetReward,
     SetSmartglass,
 )
@@ -85,8 +86,12 @@ from tabletop_utils.ros import (
     MaxAttemptsReachedError,
     MaxExecutionAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
+    NotSafeToExecuteError,
     ObjectManipulationError,
+    PlanningError,
     PlanningGoalT,
+    PostProcessingErrorCodes,
+    ServiceCallError,
     ServiceCallUnsuccessfulError,
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
@@ -109,8 +114,7 @@ from tabletop_utils.trajectory_cache import (
 from tf_transformations import identity_matrix
 from ur_dashboard_msgs.srv import Load
 
-from tabletop_server.nodes.base import DEFAULT_LOG_SEVERITY, BaseNode
-from tabletop_server.nodes.mock_teensy import ArmDoorState
+from tabletop_server.nodes.base import BaseNode
 
 
 def asyncio_task_decorator(
@@ -180,7 +184,7 @@ class ObjectPhase(IntEnum):
     IDLE = 13
 
 
-OBJECT_MANIPULATION_PHASES = [
+OBJECT_MOUNT_PHASES = [
     ObjectPhase.PRE_ATTACH,
     ObjectPhase.ATTACH,
     ObjectPhase.POST_ATTACH,
@@ -196,29 +200,35 @@ class Commander(BaseNode):
     default_params: dict[str, Any] = BaseNode.default_params | {}
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
+        "max_workers",
         "dashboard.installation",
         "dashboard.program",
         "teensy.spin_period",
-        "teensy.arm_door_timeout",
-        "flic.spin_period",
         "planning.max_attempts",
         "planning.group_name",
         "planning.default_pipeline",
         "planning.linear_pipeline",
         "planning.planning_link",
-        "planning.idle_state",
-        "planning.pre_fetch_offset",
-        "planning.pre_attach_offset",
-        "planning.post_attach_offset",
+        "planning.position_tolerance",
+        "planning.orientation_tolerance",
+        "planning.use_euler_tolerance",
+        "trajectory_post_processing.apply_totg",
+        "trajectory_post_processing.apply_smoothing",
         "execution.max_attempts",
-        "execution.velocity_scaling_factor",
-        "execution.acceleration_scaling_factor",
+        "predefined_states.idle_state",
+        "predefined_poses.pre_fetch_offset",
+        "predefined_poses.pre_attach_offset",
+        "predefined_poses.post_attach_offset",
+        "predefined_poses.post_fetch_offset",
+        "predefined_poses.pre_present_pose",
         "trajectory_cache.use_cached_trajectories",
         "trajectory_cache.freeze_cache",
         "trajectory_cache.kwargs",
+        "object_manipulation.detach_velocity_scaling_factor",
         "object_manipulation.allowed_collisions",
         "object_manipulation.touch_links",
         "object_manipulation.mount_ids",
+        "link_padding",
         "planning_scene.dir",
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
@@ -248,7 +258,7 @@ class Commander(BaseNode):
 
         self.init_link_padding()
 
-        self.init_services()
+        self.init_ros()
 
         self.log("Commander initialized")
 
@@ -262,18 +272,20 @@ class Commander(BaseNode):
             "trajectory_cache.kwargs"
         )
         self.trajectory_cache = FuzzyTrajectoryCache(
-            rig_hash=self.rig_hash,
-            **trajectory_cache_config,
+            rig_hash=self.rig_hash, **trajectory_cache_config
         )
 
         # Whether the robot has been reset
         self.initial_reset = False
 
+        # Execution lock
+        self.execution_lock = threading.Lock()
+
         # Object manipulation lock
         self.object_manipulation_lock = asyncio.Lock()
 
     # TODO: Add services
-    def init_services(self):
+    def init_ros(self):
         """Create services for the commander.
 
         Services:
@@ -286,7 +298,35 @@ class Commander(BaseNode):
         - /commander/disallow_collision
         - /commander/plan_and_execute
         """
-        pass
+        # Subscribers
+        self.teensy_sub = self.create_subscription(
+            TeensySensor,
+            "/teensy/sensor",
+            self.teensy_sensor_callback,
+            qos_profile=QoSPresetProfiles.SENSOR_DATA.value,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._last_teensy_sensor = TeensySensor()
+        self._safe_to_execut_count = 0
+        self._safe_to_execute = True
+        self._teensy_sensor_lock = threading.Lock()
+
+        client = self.create_client(
+            SetArmLock,
+            "/teensy/set_arm_lock",
+        )
+        client.wait_for_service()
+        self.destroy_client(client)
+
+        # Action clients
+        self.flic_response_time_client = ActionClient(
+            self,
+            FlicResponseTime,
+            "/flic/response_time",
+        )
+        self.flic_response_time_client.wait_for_server()
+
+        # Services
         # self.create_service(
         #     GetFrameTransform,
         #     "/commander/get_frame_transform",
@@ -382,8 +422,8 @@ class Commander(BaseNode):
         return self.get_parameter_wrapper("planning.planning_link")
 
     @property
-    def allowed_object_manipulation_collisions(self) -> list[tuple[str, str]]:
-        """Get the allowed object manipulation collisions from the parameter server."""
+    def allowed_object_mount_collisions(self) -> list[tuple[str, str]]:
+        """Get the allowed object mount collisions from the parameter server."""
         return [
             (id_0, id_1)
             for id_0, id_1 in self.get_parameter_wrapper(
@@ -434,7 +474,7 @@ class Commander(BaseNode):
         plan_response: MotionPlanResponse,
         attempt: int,
         max_attempts: int,
-        severity: str = DEFAULT_LOG_SEVERITY,
+        severity: str = "INFO",
     ):
         """Log a motion plan response.
 
@@ -457,9 +497,8 @@ class Commander(BaseNode):
             )
         self.log(" | ".join(msg), severity=severity)
 
-    def log_planning_scene(self, severity: str = DEFAULT_LOG_SEVERITY):
+    def log_planning_scene(self, severity: str = "INFO"):
         """Log the planning scene."""
-        return
         if self.log_level < LoggingSeverity[severity]:
             return
 
@@ -480,7 +519,7 @@ class Commander(BaseNode):
                 severity=severity,
             )
 
-    def log_collision_matrix(self, severity: str = DEFAULT_LOG_SEVERITY):
+    def log_collision_matrix(self, severity: str = "INFO"):
         """Log the collision matrix."""
         if self.log_level < LoggingSeverity[severity]:
             return
@@ -490,7 +529,7 @@ class Commander(BaseNode):
             severity=severity,
         )
 
-    def log_collision_objects(self, severity: str = DEFAULT_LOG_SEVERITY):
+    def log_collision_objects(self, severity: str = "INFO"):
         """Log the collision objects."""
         if self.log_level < LoggingSeverity[severity]:
             return
@@ -610,95 +649,112 @@ class Commander(BaseNode):
                     await asyncio.sleep(3)
 
     ###########################################################################
-    ########## Teensy Interface ###############################################
+    ########## IO ROS Interface ###############################################
     ###########################################################################
 
-    async def _get_arm_door(self) -> GetArmDoor.Response:
-        """Get the arm door state asynchronously."""
-        response = await self.service_call_async(
-            srv_request=GetArmDoor.Request(),
-            srv_type=GetArmDoor,
-            srv_name="/teensy/get_arm_door",
-        )
-        return cast(GetArmDoor.Response, response)
+    # Subscribers
 
-    async def _get_reward(self) -> GetReward.Response:
-        """Get the reward state asynchronously."""
-        response = await self.service_call_async(
-            srv_request=GetReward.Request(),
-            srv_type=GetReward,
-            srv_name="/teensy/get_reward",
+    def teensy_sensor_callback(self, msg: TeensySensor):
+        """Callback for the teensy sensor."""
+        safe_to_execute_required_count = self.get_parameter_wrapper(
+            "teensy.safe_to_execute_required_count"
         )
-        return cast(GetReward.Response, response)
+        with self._teensy_sensor_lock:
+            self._last_teensy_sensor = msg
 
-    async def _get_hand_fixation(self) -> GetHandFixation.Response:
-        """Get the hand fixation state asynchronously."""
-        response = await self.service_call_async(
-            srv_request=GetHandFixation.Request(),
-            srv_type=GetHandFixation,
-            srv_name="/teensy/get_hand_fixation",
-        )
-        return cast(GetHandFixation.Response, response)
+            if (
+                msg.is_left_arm_locked
+                and msg.is_right_arm_locked
+                and not msg.is_safety_laser_broken
+            ):
+                self._safe_to_execute_count += 1
+            else:
+                self._safe_to_execute_count = 0
 
-    async def _get_flic(self) -> GetFlic.Response:
-        """Get the flic state asynchronously."""
+            self._safe_to_execute = (
+                self._safe_to_execute_count > safe_to_execute_required_count
+            )
+
+        # If it is not safe to execute and the robot is executing, stop execution
+        if not self.safe_to_execute and self.execution_lock.locked():
+            self.log(
+                "Arms not locked or safety laser broken, stopping execution",
+                severity="WARN",
+            )
+            self.trajectory_execution_manager.stop_execution()
+
+    @property
+    def last_teensy_sensor(self) -> TeensySensor:
+        """Get the last teensy sensor."""
+        with self._teensy_sensor_lock:
+            return deepcopy(self._last_teensy_sensor)
+
+    @property
+    def safe_to_execute(self) -> bool:
+        """Get the is safe to execute state."""
+        with self._teensy_sensor_lock:
+            return self._safe_to_execute
+
+    # Service client setters
+
+    async def _set_arm_lock(
+        self, arm: Literal["left", "right", "both"], lock: bool
+    ) -> SetArmLock.Response:
+        """Set the arm lock state."""
+        if arm not in ["left", "right", "both"]:
+            raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
+
+        left = arm in ["left", "both"]
+        right = arm in ["right", "both"]
+
         response = await self.service_call_async(
-            srv_request=GetFlic.Request(),
-            srv_type=GetFlic,
-            srv_name="/flic/get_flic",
+            srv_request=SetArmLock.Request(
+                left_arm=left, right_arm=right, lock=lock
+            ),
+            srv_type=SetArmLock,
+            srv_name="/teensy/set_arm_lock",
         )
-        return cast(GetFlic.Response, response)
+        return cast(SetArmLock.Response, response)
 
     @asyncio_task_decorator
-    async def smartglass_reveal(self) -> SetSmartglass.Response:
-        """Coroutine to call the smartglass service to reveal the smartglass asynchronously."""
-        self.log("Smartglass Reveal")
-        response = await self.service_call_async(
-            srv_request=SetSmartglass.Request(is_revealed=True),
-            srv_type=SetSmartglass,
-            srv_name="/teensy/set_smartglass",
-        )
-        return cast(SetSmartglass.Response, response)
+    async def arm_release(
+        self, arm: Literal["left", "right", "both"]
+    ) -> SetArmLock.Response:
+        """Release the arm lock."""
+        return await self._set_arm_lock(arm, lock=False)
+
+    async def _arm_lock_and_wait(
+        self, timeout: Optional[float] = None
+    ) -> bool:
+        """Lock arms and wait for safety laser to be unbroken
+
+        Args:
+            timeout: Timeout in seconds. If None, the default timeout from
+                parameters is used.
+
+        Returns:
+            True if arms were locked and safety laser was unbroken within the timeout,
+            False otherwise.
+        """
+        self.log("Locking arms and waiting until safe to execute")
+        await self._set_arm_lock("both", lock=True)
+
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        try:
+            async with asyncio.timeout(timeout):
+                while not self.safe_to_execute:
+                    await asyncio.sleep(spin_period)
+            return True
+        except TimeoutError:
+            return False
 
     @asyncio_task_decorator
-    async def smartglass_occlude(self) -> SetSmartglass.Response:
-        """Coroutine to call the smartglass service to occlude the smartglass asynchronously."""
-        self.log("Smartglass Occlude")
-        response = await self.service_call_async(
-            srv_request=SetSmartglass.Request(is_revealed=False),
-            srv_type=SetSmartglass,
-            srv_name="/teensy/set_smartglass",
-        )
-        return cast(SetSmartglass.Response, response)
+    async def arm_lock_and_wait(self, timeout: Optional[float] = None) -> bool:
+        """Lock arms and wait for safety laser to be unbroken"""
+        return await self._arm_lock_and_wait(timeout)
 
-    async def _start_arm_door_open(self) -> SetArmDoor.Response:
-        """Coroutine to call the arm door service to open the arm door asynchronously."""
-        self.log("Arm Door Open")
-        response = await self.service_call_async(
-            srv_request=SetArmDoor.Request(open=True),
-            srv_type=SetArmDoor,
-            srv_name="/teensy/set_arm_door",
-        )
-        return cast(SetArmDoor.Response, response)
-
-    async def _start_arm_door_close(self) -> SetArmDoor.Response:
-        """
-        Coroutine to call the arm door service to close the arm door
-        asynchronously.
-        """
-        self.log("Arm Door Close")
-        response = await self.service_call_async(
-            srv_request=SetArmDoor.Request(open=False),
-            srv_type=SetArmDoor,
-            srv_name="/teensy/set_arm_door",
-        )
-        return cast(SetArmDoor.Response, response)
-
-    async def _start_reward(self, duration: float) -> SetReward.Response:
-        """
-        Coroutine to call the reward service to deliver a reward for a given
-        duration.
-        """
+    async def _set_reward(self, duration: float) -> SetReward.Response:
+        """Set the reward state."""
         self.log(f"Delivering reward for {duration} s")
         if duration < 0:
             raise ValueError("Duration must be greater than 0!")
@@ -709,177 +765,69 @@ class Commander(BaseNode):
         )
         return cast(SetReward.Response, response)
 
-    async def _wait_for_arm_door_open(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Wait for arm door to open, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        timeout = (
-            timeout
-            if timeout is not None
-            else self.get_parameter_wrapper("teensy.arm_door_timeout")
-        )
-        try:
-            async with asyncio.timeout(timeout):
-                response = await self._get_arm_door()
-                if response.state == ArmDoorState.OPEN:
-                    return True
-
-                while response.state != ArmDoorState.OPEN:
-                    response = await self._get_arm_door()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    async def _wait_for_arm_door_close(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Wait for arm door to close."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        timeout = (
-            timeout
-            if timeout is not None
-            else self.get_parameter_wrapper("teensy.arm_door_timeout")
-        )
-        response = await self._get_arm_door()
-        if response.is_closed:
-            return True
-        try:
-            async with asyncio.timeout(timeout):
-                while not response.is_closed:
-                    response = await self._get_arm_door()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    async def _wait_for_reward(self, duration: float) -> bool:
-        """Wait for reward to start, then return True."""
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        timeout = duration + 2 * spin_period  # TODO: 2 is arbitrary, check
-        response = await self._get_reward()
-        if response.is_active:
-            return True
-        try:
-            async with asyncio.timeout(timeout):
-                while not response.is_active:
-                    response = await self._get_reward()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    @asyncio_task_decorator
-    async def wait_for_hand_fixation_press(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Wait for hand fixation to be pressed
-
-        Args:
-            timeout: Timeout in seconds. If None, the default timeout from
-                parameters is used.
-
-        Returns:
-            True if hand fixation was pressed within the timeout,
-            False otherwise.
-        """
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        initial_fixation = await self._get_hand_fixation()
-        if initial_fixation.is_pressed:
-            return True
-        fixation = initial_fixation
-        try:
-            async with asyncio.timeout(timeout):
-                while (
-                    fixation.last_time_pressed_ms
-                    == initial_fixation.last_time_pressed_ms
-                ):
-                    fixation = await self._get_hand_fixation()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    # TODO: Consider reimplementing using action server model (unsure if this is possible with the teensy)
-    @asyncio_task_decorator
-    async def wait_for_hand_fixation_release(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Wait for hand fixation to be released
-
-        Args:
-            timeout: Timeout in seconds. If None, the default timeout from
-                parameters is used.
-
-        Returns:
-            True if hand fixation was released within the timeout,
-            False otherwise.
-        """
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        initial_fixation = await self._get_hand_fixation()
-        if not initial_fixation.is_pressed:
-            return True
-        fixation = initial_fixation
-        try:
-            async with asyncio.timeout(timeout):
-                while (
-                    fixation.last_time_released_ms
-                    == initial_fixation.last_time_released_ms
-                ):
-                    fixation = await self._get_hand_fixation()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    # TODO: Potential race condition (between monkey and get_flic lol)
-    @asyncio_task_decorator
-    async def wait_for_flic_press(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Wait for flic button press, then return True."""
-        spin_period = self.get_parameter_wrapper("flic.spin_period")
-
-        initial_flic = await self._get_flic()
-        flic = initial_flic
-        try:
-            async with asyncio.timeout(timeout):
-                while (
-                    flic.last_time_pressed_ms
-                    == initial_flic.last_time_pressed_ms
-                ):
-                    flic = await self._get_flic()
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    @asyncio_task_decorator
-    async def arm_door_open_and_wait(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Open arm door and wait for it to be open."""
-        await self._start_arm_door_open()
-        return await self._wait_for_arm_door_open(timeout)
-
-    @asyncio_task_decorator
-    async def arm_door_close_and_wait(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Close arm door and wait for it to be closed."""
-        await self._start_arm_door_close()
-        return await self._wait_for_arm_door_close(timeout)
-
     @asyncio_task_decorator
     async def reward_and_wait(self, duration: float):
         """Start reward and wait for it to be active."""
-        await self._start_reward(duration)
-        # Default timeout is duration plus spin period if not specified
-        timeout = duration + self.get_parameter_wrapper("teensy.spin_period")
+        await self._set_reward(duration)
 
-        if not await self._wait_for_reward(timeout):
-            raise RuntimeError("Reward took longer than expected timeout")
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+        timeout = duration + spin_period
+        try:
+            async with asyncio.timeout(timeout):
+                while self.last_teensy_sensor.is_reward_active:
+                    await asyncio.sleep(spin_period)
+            return True
+        except TimeoutError:
+            return False
+
+    async def _set_smartglass(self, reveal: bool) -> SetSmartglass.Response:
+        """Set the smartglass state."""
+        self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
+        response = await self.service_call_async(
+            srv_request=SetSmartglass.Request(reveal=reveal),
+            srv_type=SetSmartglass,
+            srv_name="/teensy/set_smartglass",
+        )
+        return cast(SetSmartglass.Response, response)
+
+    @asyncio_task_decorator
+    async def smartglass_reveal(self) -> SetSmartglass.Response:
+        """Reveal the smartglass."""
+        return await self._set_smartglass(True)
+
+    @asyncio_task_decorator
+    async def smartglass_occlude(self) -> SetSmartglass.Response:
+        """Occlude the smartglass."""
+        return await self._set_smartglass(False)
+
+    # TODO: Potential race condition (between monkey and get_flic lol)
+    @asyncio_task_decorator
+    async def flic_response_time(
+        self, timeout: Optional[float] = None
+    ) -> float | None:
+        """Wait for flic button press, then return response time, or None if timeout is reached."""
+        try:
+            async with asyncio.timeout(timeout):
+                goal_handle = cast(
+                    ClientGoalHandle,
+                    await self.flic_response_time_client.send_goal_async(
+                        FlicResponseTime.Goal()
+                    ),
+                )
+                if not goal_handle.accepted:
+                    raise RuntimeError("Flic goal not accepted")
+
+                try:
+                    response = await goal_handle.get_result_async()
+                    response_time = Duration.from_msg(
+                        response.result.response_time
+                    )
+                    return response_time.nanoseconds / 1e9
+                except asyncio.CancelledError:
+                    goal_handle.cancel_goal_async()
+                    raise
+        except TimeoutError:
+            return None
 
     ###########################################################################
     ########## Planning scene #################################################
@@ -1760,8 +1708,8 @@ class Commander(BaseNode):
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
                     self.load_object_init_kwargs(object_init_kwargs_path)
-                    self.log_planning_scene(severity="DEBUG")
-                    self.log_collision_matrix(severity="DEBUG")
+                    # self.log_planning_scene(severity="DEBUG")
+                    # self.log_collision_matrix(severity="DEBUG")
                     return
                 else:
                     self.log(
@@ -1802,9 +1750,9 @@ class Commander(BaseNode):
             )
 
         # Log planning scene
-        self.log_planning_scene(severity="DEBUG")
+        # self.log_planning_scene(severity="DEBUG")
         # self.log_collision_objects(severity="DEBUG")
-        self.log_collision_matrix(severity="DEBUG")
+        # self.log_collision_matrix(severity="DEBUG")
 
         # Save planning scene to file
         os.makedirs(config["dir"], exist_ok=True)
@@ -1876,10 +1824,12 @@ class Commander(BaseNode):
     ) -> RobotState:
         """Get the named target state from the planning component."""
         if target_name == "idle":
-            target_name = self.get_parameter_wrapper("planning.idle_state")
+            target_name = self.get_parameter_wrapper(
+                "predefined_states.idle_state"
+            )
         elif target_name == "pre_present":
             target_name = self.get_parameter_wrapper(
-                "planning.pre_present_state"
+                "predefined_states.pre_present_state"
             )
 
         joint_state_dict = self.get_planning_component(
@@ -1970,7 +1920,7 @@ class Commander(BaseNode):
             self.collision_object_init_kwargs[object_id]["pose_stamped"]
         )
 
-    def object_init_pose_stamped_with_offset(
+    def _object_init_pose_stamped_with_offset(
         self, object_id: str, offset: list[float]
     ) -> PoseStamped:
         """Get the initial pose of an object from the parameters with an offset."""
@@ -1984,14 +1934,16 @@ class Commander(BaseNode):
 
     def pre_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the pre-fetch pose of an object."""
-        return self.object_init_pose_stamped_with_offset(
-            object_id, self.get_parameter_wrapper("planning.pre_fetch_offset")
+        return self._object_init_pose_stamped_with_offset(
+            object_id,
+            self.get_parameter_wrapper("predefined_poses.pre_fetch_offset"),
         )
 
     def pre_attach_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the pre-attach pose of an object."""
-        return self.object_init_pose_stamped_with_offset(
-            object_id, self.get_parameter_wrapper("planning.pre_attach_offset")
+        return self._object_init_pose_stamped_with_offset(
+            object_id,
+            self.get_parameter_wrapper("predefined_poses.pre_attach_offset"),
         )
 
     def attach_pose_stamped(self, object_id: str) -> PoseStamped:
@@ -2000,21 +1952,22 @@ class Commander(BaseNode):
 
     def post_attach_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the post-attach pose of an object."""
-        return self.object_init_pose_stamped_with_offset(
+        return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.get_parameter_wrapper("planning.post_attach_offset"),
+            self.get_parameter_wrapper("predefined_poses.post_attach_offset"),
         )
 
     def post_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the post-fetch pose of an object."""
-        return self.object_init_pose_stamped_with_offset(
-            object_id, self.get_parameter_wrapper("planning.post_fetch_offset")
+        return self._object_init_pose_stamped_with_offset(
+            object_id,
+            self.get_parameter_wrapper("predefined_poses.post_fetch_offset"),
         )
 
     def pre_present_pose_stamped(self, _: str) -> PoseStamped:
         """Get the pre-present pose."""
         return self.create_pose_stamped(
-            **self.get_parameter_wrapper("planning.pre_present_pose")
+            **self.get_parameter_wrapper("predefined_poses.pre_present_pose")
         )
 
     # Return poses
@@ -2099,15 +2052,24 @@ class Commander(BaseNode):
 
     def _parse_plan_args(
         self,
-        goal: PlanningGoalT,
+        goal: Optional[PlanningGoalT] = None,
         *,
         start_state: Optional[RobotState] = None,
         group_name: Optional[str] = None,
         pose_link: Optional[str] = None,
         planning_pipeline: str | list[str] = "default",
         path_constraints: Optional[Constraints] = None,
-        max_plan_attempts: Optional[int] = None,
         planning_scene: Optional[PlanningScene] = None,
+        apply_totg: Optional[bool] = None,
+        apply_smoothing: Optional[bool] = None,
+        velocity_scaling_factor: Optional[float] = None,
+        acceleration_scaling_factor: Optional[float] = None,
+        path_tolerance: Optional[float] = None,
+        resample_dt: Optional[float] = None,
+        min_angle_change: Optional[float] = None,
+        mitigate_overshoot: Optional[bool] = None,
+        overshoot_threshold: Optional[float] = None,
+        max_plan_attempts: Optional[int] = None,
         **unused_kwargs: Any,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Parse the planning kwargs.
@@ -2121,24 +2083,23 @@ class Commander(BaseNode):
             path_constraints: The path constraints to use.
             max_plan_attempts: The maximum number of planning attempts.
             planning_scene: The planning scene to use.
+            totg: Whether to apply time parameterization to the trajectory.
+            apply_smoothing: Whether to apply smoothing to the trajectory.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            path_tolerance: The path tolerance to apply to the trajectory.
+            resample_dt: The resample time step to apply to the trajectory.
+            min_angle_change: The minimum angle change to apply to the trajectory.
+            mitigate_overshoot: Whether to mitigate overshoot.
+            overshoot_threshold: The overshoot threshold to apply to the trajectory.
+            validate_trajectory: Whether to validate the trajectory.
             **unused_kwargs: Additional keyword arguments that are not used for
                 planning.
 
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
         """
-        self.log(
-            f"Parsing plan args with goal {goal}, "
-            f"start_state {start_state}, "
-            f"group_name {group_name}, "
-            f"pose_link {pose_link}, "
-            f"planning_pipeline {planning_pipeline}, "
-            f"path_constraints {path_constraints}, "
-            f"max_plan_attempts {max_plan_attempts}, "
-            f"planning_scene {planning_scene}, "
-            f"unused_kwargs {unused_kwargs}",
-            severity="DEBUG",
-        )
+        self.log("Parsing plan args", severity="DEBUG")
 
         # TODO: Implement pose_link functionality
         if pose_link is not None and pose_link != self.planning_link:
@@ -2159,6 +2120,8 @@ class Commander(BaseNode):
             group_name = self.planning_group_name
 
         # Set the goal to the target state if the goal is a configuration name
+        if goal is None:
+            raise ValueError("Goal is required")
         if isinstance(goal, str):
             goal = self.get_target_state(goal, group_name)
         elif isinstance(goal, PoseStamped):
@@ -2188,36 +2151,94 @@ class Commander(BaseNode):
                     f"Planning pipelines besides 'default' and 'linear' are not supported: {pipeline}"
                 )
 
+        # Set the planning pipeline to the first pipeline if there is only one
         if len(planning_pipeline) == 1:
             planning_pipeline = planning_pipeline[0]
 
+        # Set the apply totg and apply smoothing if not provided
+        trajectory_kwargs = self.get_parameter_wrapper(
+            "trajectory_post_processing"
+        )
+        if apply_totg is None:
+            apply_totg = trajectory_kwargs["apply_totg"]
+
+        if apply_smoothing is None:
+            apply_smoothing = trajectory_kwargs["apply_smoothing"]
+
+        # Set the velocity scaling factor if not provided
+        if velocity_scaling_factor is None:
+            velocity_scaling_factor = trajectory_kwargs[
+                "velocity_scaling_factor"
+            ]
+        if acceleration_scaling_factor is None:
+            acceleration_scaling_factor = trajectory_kwargs[
+                "acceleration_scaling_factor"
+            ]
+
+        # Set the totg kwargs if not provided
+        if apply_totg:
+            totg_kwargs = trajectory_kwargs["totg"]
+            totg_kwargs["velocity_scaling_factor"] = velocity_scaling_factor
+            totg_kwargs["acceleration_scaling_factor"] = (
+                acceleration_scaling_factor
+            )
+            if path_tolerance is not None:
+                totg_kwargs["path_tolerance"] = path_tolerance
+            if resample_dt is not None:
+                totg_kwargs["resample_dt"] = resample_dt
+            if min_angle_change is not None:
+                totg_kwargs["min_angle_change"] = min_angle_change
+        else:
+            totg_kwargs = None
+
+        # Set the smoothing kwargs if not provided
+        if apply_smoothing:
+            smoothing_kwargs = trajectory_kwargs["smoothing"]
+            smoothing_kwargs["velocity_scaling_factor"] = (
+                velocity_scaling_factor
+            )
+            smoothing_kwargs["acceleration_scaling_factor"] = (
+                acceleration_scaling_factor
+            )
+            if mitigate_overshoot is not None:
+                smoothing_kwargs["mitigate_overshoot"] = mitigate_overshoot
+            if overshoot_threshold is not None:
+                smoothing_kwargs["overshoot_threshold"] = overshoot_threshold
+        else:
+            smoothing_kwargs = None
+
+        # Set the max plan attempts if not provided
         if max_plan_attempts is None:
             max_plan_attempts = cast(
                 int, self.get_parameter_wrapper("planning.max_attempts")
             )
 
-        return {
-            "goal": goal,
-            "start_state": start_state,
-            "pose_link": pose_link,
-            "group_name": group_name,
-            "planning_pipeline": planning_pipeline,
-            "path_constraints": path_constraints,
+        kwargs = {
+            "pre_planning_kwargs": {
+                "goal": goal,
+                "start_state": start_state,
+                "pose_link": pose_link,
+                "group_name": group_name,
+                "planning_pipeline": planning_pipeline,
+                "path_constraints": path_constraints,
+            },
+            "planning_kwargs": {
+                "planning_scene": planning_scene,
+                "apply_totg": apply_totg,
+                "apply_smoothing": apply_smoothing,
+                "totg_kwargs": totg_kwargs,
+                "smoothing_kwargs": smoothing_kwargs,
+            },
             "max_plan_attempts": max_plan_attempts,
-            "planning_scene": planning_scene,
-        }, unused_kwargs
+        }
 
-    def _parse_plan_and_execute_args(
-        self,
-        goal: PlanningGoalT,
-        **kwargs: Any,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Parse the planning and execute kwargs."""
-        plan_kwargs, execute_kwargs = self._parse_plan_args(goal, **kwargs)
-        execute_kwargs["group_name"] = plan_kwargs["group_name"]
-        return plan_kwargs, execute_kwargs
+        self.log(
+            f"Parsed plan args: {kwargs}",
+            severity="DEBUG",
+        )
+        return kwargs, unused_kwargs
 
-    def _get_planning_component_and_request_params(
+    def _pre_plan(
         self,
         goal: PlanningGoalT,
         *,
@@ -2296,13 +2317,129 @@ class Commander(BaseNode):
 
         return planning_component, request_params
 
+    def _apply_totg(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
+        path_tolerance: float,
+        resample_dt: float,
+        min_angle_change: float,
+    ) -> RobotTrajectory | None:
+        """Apply time parameterization to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply time parameterization to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            path_tolerance: The path tolerance to apply to the trajectory.
+            resample_dt: The resample time step to apply to the trajectory.
+            min_angle_change: The minimum angle change to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with time parameterization applied.
+        """
+        self.log(
+            "Applying time parameterization to trajectory with "
+            f"velocity_scaling_factor {velocity_scaling_factor}, "
+            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
+            f"path_tolerance {path_tolerance}, "
+            f"resample_dt {resample_dt}, "
+            f"min_angle_change {min_angle_change}",
+            severity="DEBUG",
+        )
+
+        trajectory = robot_trajectory_copy(trajectory)
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        if not trajectory.apply_totg_time_parameterization(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            path_tolerance=path_tolerance,
+            resample_dt=resample_dt,
+            min_angle_change=min_angle_change,
+        ):
+            return None
+
+        self.log(
+            "Time parameterization applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+        return trajectory
+
+    def _apply_smoothing(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
+        mitigate_overshoot: bool,
+        overshoot_threshold: float,
+    ) -> RobotTrajectory | None:
+        """Apply ruckig smoothing to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply smoothing to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            mitigate_overshoot: Whether to mitigate overshoot.
+            overshoot_threshold: The overshoot threshold to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with smoothing applied.
+        """
+        trajectory = robot_trajectory_copy(trajectory)
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        self.log(
+            f"Applying smoothing to trajectory with "
+            f"velocity_scaling_factor {velocity_scaling_factor}, "
+            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
+            f"mitigate_overshoot {mitigate_overshoot}, "
+            f"overshoot_threshold {overshoot_threshold}",
+            severity="DEBUG",
+        )
+
+        if not trajectory.apply_ruckig_smoothing(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            mitigate_overshoot=mitigate_overshoot,
+            overshoot_threshold=overshoot_threshold,
+        ):
+            return None
+
+        self.log(
+            "Smoothing applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+        return trajectory
+
     def _plan_once_blocking(
         self,
         planning_component: PlanningComponent,
         request_params: PlanRequestParameters
         | MultiPipelinePlanRequestParameters,
         planning_scene: Optional[PlanningScene] = None,
-    ) -> MotionPlanResponse:
+        apply_totg: bool = True,
+        apply_smoothing: bool = True,
+        totg_kwargs: Optional[dict[str, Any]] = None,
+        smoothing_kwargs: Optional[dict[str, Any]] = None,
+    ) -> RobotTrajectory:
         """Plan a trajectory to the given waypoint once.
 
         Args:
@@ -2314,26 +2451,61 @@ class Commander(BaseNode):
             severity="DEBUG",
         )
         if isinstance(request_params, MultiPipelinePlanRequestParameters):
-            return planning_component.plan(
+            plan_response = planning_component.plan(
                 self.moveit_py,
                 multi_plan_parameters=request_params,
                 planning_scene=planning_scene,
             )
         else:
-            return planning_component.plan(
+            plan_response = planning_component.plan(
                 self.moveit_py,
                 single_plan_parameters=request_params,
                 planning_scene=planning_scene,
             )
 
+        if not plan_response:
+            raise PlanningError(plan_response.error_code)
+
+        trajectory = plan_response.trajectory
+
+        if apply_totg:
+            assert totg_kwargs is not None
+            if not (trajectory := self._apply_totg(trajectory, **totg_kwargs)):
+                self.log(
+                    "Time parameterization failed",
+                    severity="WARN",
+                )
+                raise PlanningError(PostProcessingErrorCodes.TOTG_FAILED)
+
+        if apply_smoothing:
+            assert smoothing_kwargs is not None
+            if not (
+                trajectory := self._apply_smoothing(
+                    trajectory, **smoothing_kwargs
+                )
+            ):
+                self.log(
+                    "Smoothing failed",
+                    severity="WARN",
+                )
+                raise PlanningError(PostProcessingErrorCodes.SMOOTHING_FAILED)
+
+        if apply_totg or apply_smoothing:
+            if not self._validate_trajectory(trajectory):
+                raise PlanningError(
+                    PostProcessingErrorCodes.INVALID_TRAJECTORY
+                )
+
+        return trajectory
+
     def _plan_blocking(
         self,
-        goal: PlanningGoalT,
+        goal: Optional[PlanningGoalT] = None,
         *,
         cancel_event: Optional[threading.Event] = None,
         parse_kwargs: bool = True,
         **kwargs: Any,
-    ) -> MotionPlanResponse | None:
+    ) -> RobotTrajectory | None:
         """
         Plan a trajectory to the given waypoint, retrying up to max_plan_attempts
         times until successful.
@@ -2364,8 +2536,11 @@ class Commander(BaseNode):
         if parse_kwargs:
             kwargs, unused_kwargs = self._parse_plan_args(goal, **kwargs)
             assert len(unused_kwargs) == 0, f"Unused kwargs: {unused_kwargs}"
-        else:
-            kwargs["goal"] = goal
+
+        pre_planning_kwargs = kwargs["pre_planning_kwargs"]
+        planning_kwargs = kwargs["planning_kwargs"]
+
+        goal = pre_planning_kwargs["goal"]
 
         if isinstance(goal, PoseStamped) and self.all_close_pose_stamped(
             goal, self.eef_pose_stamped()
@@ -2373,50 +2548,43 @@ class Commander(BaseNode):
             self.log("Already at goal, skipping planning")
             return None
 
-        max_plan_attempts = kwargs.pop("max_plan_attempts")
-        planning_scene = kwargs.pop("planning_scene")
-
         # Get the planning component and request parameters
-        planning_component, request_params = (
-            self._get_planning_component_and_request_params(**kwargs)
+        planning_component, request_params = self._pre_plan(
+            **pre_planning_kwargs
         )
 
         # Plan until successful or max attempts reached
-        plan_responses = []
+        plan_errors = []
+        max_plan_attempts = kwargs["max_plan_attempts"]
         for i in range(max_plan_attempts):
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Plan cancelled")
-
-            plan_response = self._plan_once_blocking(
-                planning_component, request_params, planning_scene
-            )
-            if plan_response:
-                self.log_plan_response(
-                    plan_response,
-                    attempt=i,
-                    max_attempts=max_plan_attempts,
+            try:
+                trajectory = self._plan_once_blocking(
+                    planning_component,
+                    request_params,
+                    **planning_kwargs,
+                )
+                self.log(
+                    f"Planning attempt {i + 1}/{max_plan_attempts} succeeded",
                     severity="DEBUG",
                 )
                 break
-            else:
-                plan_responses.append(plan_response)
-                self.log_plan_response(
-                    plan_response,
-                    attempt=i,
-                    max_attempts=max_plan_attempts,
+            except PlanningError as e:
+                self.log(
+                    f"Planning attempt {i + 1}/{max_plan_attempts} failed: {e}",
                     severity="DEBUG",
                 )
+                plan_errors.append(e)
         else:
             raise MaxPlanningAttemptsReachedError(
-                plan_responses=plan_responses,
+                planning_errors=plan_errors,
                 max_attempts=max_plan_attempts,
             )
 
-        return plan_response
+        return trajectory
 
-    async def plan(
-        self, *args: Any, **kwargs: Any
-    ) -> MotionPlanResponse | None:
+    async def plan(self, *args: Any, **kwargs: Any) -> RobotTrajectory | None:
         """Asynchronously calls `plan()` method in a separate thread.
 
         See Also:
@@ -2430,126 +2598,7 @@ class Commander(BaseNode):
         finally:
             cancel_event.set()
 
-    def _apply_totg(
-        self,
-        trajectory: RobotTrajectory,
-        *,
-        velocity_scaling_factor: float,
-        acceleration_scaling_factor: float,
-        path_tolerance: Optional[float] = None,
-        resample_dt: Optional[float] = None,
-        min_angle_change: Optional[float] = None,
-    ) -> RobotTrajectory:
-        """Apply time parameterization to the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to apply time parameterization to.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            path_tolerance: The path tolerance to apply to the trajectory.
-            resample_dt: The resample time step to apply to the trajectory.
-            min_angle_change: The minimum angle change to apply to the trajectory.
-
-        Returns:
-            The robot trajectory with time parameterization applied.
-        """
-        trajectory = robot_trajectory_copy(trajectory)
-
-        # Get the parameters from the parameter server if not provided
-        kwargs = self.get_parameter_wrapper("execution.totg")
-        if path_tolerance is not None:
-            kwargs["path_tolerance"] = path_tolerance
-        if resample_dt is not None:
-            kwargs["resample_dt"] = resample_dt
-        if min_angle_change is not None:
-            kwargs["min_angle_change"] = min_angle_change
-
-        old_num_waypoints = len(trajectory)
-        old_duration = trajectory.duration
-        old_path_length = trajectory.path_length
-
-        # if "resample_dt" not in kwargs and old_duration != 0.0:
-        #     kwargs["resample_dt"] = old_duration / old_num_waypoints
-
-        self.log(
-            "Applying time parameterization to trajectory with kwargs "
-            f"{kwargs}",
-            severity="DEBUG",
-        )
-        # Apply time parameterization
-        if not trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            **kwargs,
-        ):
-            raise RuntimeError("Failed to apply time parameterization")
-
-        self.log(
-            "Time parameterization applied successfully with: "
-            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
-            f"duration {old_duration} -> {trajectory.duration}, "
-            f"path length {old_path_length} -> {trajectory.path_length}",
-            severity="DEBUG",
-        )
-
-        return trajectory
-
-    def _apply_smoothing(
-        self,
-        trajectory: RobotTrajectory,
-        *,
-        velocity_scaling_factor: float,
-        acceleration_scaling_factor: float,
-        mitigate_overshoot: Optional[bool] = None,
-        overshoot_threshold: Optional[float] = None,
-    ) -> RobotTrajectory:
-        """Apply ruckig smoothing to the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to apply smoothing to.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            mitigate_overshoot: Whether to mitigate overshoot.
-            overshoot_threshold: The overshoot threshold to apply to the trajectory.
-
-        Returns:
-            The robot trajectory with smoothing applied.
-        """
-        trajectory = robot_trajectory_copy(trajectory)
-
-        kwargs = self.get_parameter_wrapper("execution.smoothing")
-        if mitigate_overshoot is not None:
-            kwargs["mitigate_overshoot"] = mitigate_overshoot
-        if overshoot_threshold is not None:
-            kwargs["overshoot_threshold"] = overshoot_threshold
-
-        old_num_waypoints = len(trajectory)
-        old_duration = trajectory.duration
-        old_path_length = trajectory.path_length
-
-        self.log(
-            f"Applying smoothing to trajectory with kwargs {kwargs}",
-            severity="DEBUG",
-        )
-        # Apply smoothing
-        if not trajectory.apply_ruckig_smoothing(
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            **kwargs,
-        ):
-            raise RuntimeError("Failed to apply smoothing")
-
-        self.log(
-            "Time parameterization applied successfully with: "
-            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
-            f"duration {old_duration} -> {trajectory.duration}, "
-            f"path length {old_path_length} -> {trajectory.path_length}",
-            severity="DEBUG",
-        )
-
-        return trajectory
-
-    def _validate_trajectory(self, trajectory: RobotTrajectory):
+    def _validate_trajectory(self, trajectory: RobotTrajectory) -> bool:
         """Validate the given robot trajectory.
 
         Args:
@@ -2560,13 +2609,14 @@ class Commander(BaseNode):
         group_name = trajectory.joint_model_group_name
 
         with self.planning_scene_read_only() as scene:
-            if not scene.is_path_valid(
+            if scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
                 verbose=True,
                 invalid_index=[],
             ):
-                raise InvalidTrajectoryError(trajectory)
+                return True
+        return False
 
     def _execute_once_blocking(
         self, trajectory_msg: RobotTrajectoryMsg
@@ -2580,24 +2630,20 @@ class Commander(BaseNode):
         """
         self.log("Executing trajectory once", severity="DEBUG")
         self.trajectory_execution_manager.push(trajectory_msg)
-        return self.trajectory_execution_manager.execute_and_wait()
+        if not self.safe_to_execute:
+            raise NotSafeToExecuteError("Tried to execute while not safe")
+
+        with self.execution_lock:
+            return self.trajectory_execution_manager.execute_and_wait()
 
     def _execute_blocking(
         self,
         trajectory: RobotTrajectory,
         *,
         validate_trajectory: bool = True,
-        velocity_scaling_factor: Optional[float] = None,
-        acceleration_scaling_factor: Optional[float] = None,
-        path_tolerance: Optional[float] = None,
-        resample_dt: Optional[float] = None,
-        mitigate_overshoot: Optional[bool] = None,
-        overshoot_threshold: Optional[float] = None,
-        min_angle_change: Optional[float] = None,
-        group_name: Optional[str] = None,
         max_execution_attempts: int = 1,
         cancel_event: Optional[threading.Event] = None,
-    ) -> RobotTrajectory:
+    ):
         """Execute the given robot trajectory, retrying up to max_execution_attempts times
         until successful.
 
@@ -2616,67 +2662,15 @@ class Commander(BaseNode):
         """
         self.log(
             f"Executing trajectory with validate_trajectory {validate_trajectory}, "
-            f"velocity_scaling_factor {velocity_scaling_factor}, acceleration_scaling_factor {acceleration_scaling_factor}, "
-            f"path_tolerance {path_tolerance}, resample_dt {resample_dt}, min_angle_change {min_angle_change}, "
-            f"group_name {group_name}, max_execution_attempts {max_execution_attempts}, cancel_event {cancel_event}",
+            f"max_execution_attempts {max_execution_attempts}, cancel_event {cancel_event}",
             severity="DEBUG",
         )
 
-        if velocity_scaling_factor is None:
-            velocity_scaling_factor = cast(
-                float,
-                self.get_parameter_wrapper(
-                    "execution.velocity_scaling_factor"
-                ),
-            )
-        if acceleration_scaling_factor is None:
-            acceleration_scaling_factor = cast(
-                float,
-                self.get_parameter_wrapper(
-                    "execution.acceleration_scaling_factor"
-                ),
-            )
-
-        # Apply time parameterization
-        totg_trajectory = self._apply_totg(
-            trajectory,
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            path_tolerance=path_tolerance,
-            resample_dt=resample_dt,
-            min_angle_change=min_angle_change,
-        )
-
-        # Apply smoothing
-        smoothed_trajectory = self._apply_smoothing(
-            totg_trajectory,
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            mitigate_overshoot=mitigate_overshoot,
-            overshoot_threshold=overshoot_threshold,
-        )
-
         if validate_trajectory:
-            try:
-                self._validate_trajectory(smoothed_trajectory)
-                trajectory = smoothed_trajectory
-            except InvalidTrajectoryError:
-                self.log(
-                    "Invalid trajectory after time parameterization and smoothing, validating totg trajectory",
-                    severity="WARN",
-                )
-                try:
-                    self._validate_trajectory(totg_trajectory)
-                    trajectory = totg_trajectory
-                except InvalidTrajectoryError:
-                    self.log(
-                        "Invalid trajectory after time parameterization and smoothing, validating unparameterized trajectory",
-                        severity="WARN",
-                    )
-                    self._validate_trajectory(trajectory)
+            self._validate_trajectory(trajectory)
 
         # Convert to trajectory message
-        trajectory_msg = smoothed_trajectory.get_robot_trajectory_msg()
+        trajectory_msg = trajectory.get_robot_trajectory_msg()
 
         # Execute the trajectory until successful or max attempts reached
         execution_statuses = []
@@ -2690,7 +2684,7 @@ class Commander(BaseNode):
                     f"Execution attempt {i + 1}/{max_execution_attempts} succeeded",
                     severity="DEBUG",
                 )
-                return trajectory
+                return
             else:
                 self.log(
                     f"Execution attempt {i + 1}/{max_execution_attempts} "
@@ -2704,7 +2698,7 @@ class Commander(BaseNode):
                 max_attempts=max_execution_attempts,
             )
 
-    async def execute(self, *args: Any, **kwargs: Any) -> RobotTrajectory:
+    async def execute(self, *args: Any, **kwargs: Any):
         """Execute the given robot trajectory in a separate thread.
 
         Retries up to max_execution_attempts times until successful.
@@ -2714,7 +2708,7 @@ class Commander(BaseNode):
         """
         cancel_event = threading.Event()
         try:
-            return await asyncio.to_thread(
+            await asyncio.to_thread(
                 self._execute_blocking,
                 *args,
                 cancel_event=cancel_event,
@@ -2759,16 +2753,15 @@ class Commander(BaseNode):
         )
 
         # Parse the planning kwargs
-        parsed_kwargs, execute_kwargs = self._parse_plan_and_execute_args(
-            goal, **kwargs
-        )
+        parsed_kwargs, execute_kwargs = self._parse_plan_args(goal, **kwargs)
+        pre_planning_kwargs = parsed_kwargs["pre_planning_kwargs"]
 
         # Attempt to get the cached trajectory, otherwise plan and execute normally
         if self.use_cached_trajectories:
-            start_state = parsed_kwargs["start_state"]
-            goal_key = parsed_kwargs["goal"]
-            pose_link = parsed_kwargs["pose_link"]
-            group_name = parsed_kwargs["group_name"]
+            start_state = pre_planning_kwargs["start_state"]
+            goal_key = pre_planning_kwargs["goal"]
+            pose_link = pre_planning_kwargs["pose_link"]
+            group_name = pre_planning_kwargs["group_name"]
             try:
                 trajectories = self.trajectory_cache.get_trajectories(
                     start_state=start_state,
@@ -2784,25 +2777,18 @@ class Commander(BaseNode):
                 self.log(
                     "Cached trajectories found, trying to execute in order of path length"
                 )
-                num_trajectories = len(trajectories)
-                i = 0
-                while len(trajectories) > 0:
-                    trajectory = heapq.heappop(trajectories)
+                for trajectory in trajectories:
                     try:
-                        await self.execute(
-                            trajectory,
-                            **execute_kwargs,
-                        )
+                        await self.execute(trajectory, **execute_kwargs)
                         return
                     except (
                         MaxExecutionAttemptsReachedError,
                         InvalidTrajectoryError,
                     ) as e:
                         self.log(
-                            f"Error while executing cached trajectory {i + 1}/{num_trajectories}: {e}",
+                            f"Error while executing cached trajectory: {e}",
                             severity="WARN",
                         )
-                        i += 1
                 self.log(
                     "All cached trajectories failed, planning and executing normally"
                 )
@@ -2811,18 +2797,20 @@ class Commander(BaseNode):
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        response = await self.plan(parse_kwargs=False, **parsed_kwargs)
-        if response is None:
+        if (
+            trajectory := await self.plan(parse_kwargs=False, **parsed_kwargs)
+        ) is None:
             return
-
-        await self.execute(response.trajectory, **execute_kwargs)
+        await self.execute(
+            trajectory, validate_trajectory=False, **execute_kwargs
+        )
 
         to_cache_kwargs = {
-            "trajectory": response.trajectory,
-            "pose_link": parsed_kwargs["pose_link"],
-            "true_start_state": parsed_kwargs["start_state"],
+            "trajectory": trajectory,
+            "pose_link": pre_planning_kwargs["pose_link"],
+            "true_start_state": pre_planning_kwargs["start_state"],
             "true_end_state": self.current_state,
-            "true_goal": parsed_kwargs["goal"],
+            "true_goal": pre_planning_kwargs["goal"],
         }
 
         # Cache the trajectory if requested
@@ -2888,10 +2876,8 @@ class Commander(BaseNode):
         extra_kwargs = {}
         extra_kwargs["planning_pipeline"] = "linear"
 
-        if phase in OBJECT_MANIPULATION_PHASES:
-            self.allow_collision(
-                *zip(*self.allowed_object_manipulation_collisions)
-            )
+        if phase in OBJECT_MOUNT_PHASES:
+            self.allow_collision(*zip(*self.allowed_object_mount_collisions))
 
         if phase == ObjectPhase.DETACH:
             extra_kwargs["velocity_scaling_factor"] = (
@@ -2947,9 +2933,9 @@ class Commander(BaseNode):
                 case _:
                     raise
         finally:
-            if phase in OBJECT_MANIPULATION_PHASES:
+            if phase in OBJECT_MOUNT_PHASES:
                 self.disallow_collision(
-                    *zip(*self.allowed_object_manipulation_collisions)
+                    *zip(*self.allowed_object_mount_collisions)
                 )
             match phase:
                 case (
@@ -3185,13 +3171,23 @@ class Commander(BaseNode):
             timeout: Optional timeout for resetting the commander
         """
         self.log("Resetting commander")
+
         async with asyncio.timeout(timeout):
             while True:
                 try:
+                    if not self.safe_to_execute:
+                        self.log(
+                            "Cannot reset commander until safe to execute",
+                            severity="WARN",
+                        )
+                        await self._arm_lock_and_wait()
                     await self.reset_dashboard(timeout)
                     await self.reset_rig()
                     break
-                except (TimeoutError, CommanderRecoverableError) as e:
+                except (
+                    ServiceCallError,
+                    CommanderRecoverableError,
+                ) as e:
                     self.log(
                         "Caught exception while resetting commander:",
                         severity="WARN",
@@ -3245,6 +3241,13 @@ class Commander(BaseNode):
                         f"{exc_type.__name__}: {exc_value}", severity="ERROR"
                     )
                     self.log(f"Traceback: {exc_tb}", severity="DEBUG")
+                    if exc_type is NotSafeToExecuteError:
+                        self.log(
+                            "Not safe to execute, waiting for safe to execute",
+                            severity="WARN",
+                        )
+                        await self._arm_lock_and_wait()
+                        return True
                     if exc_type is MaxExecutionAttemptsReachedError:
                         self.log(
                             "Sleeping for 5 seconds before resetting commander",
@@ -3280,7 +3283,6 @@ class Commander(BaseNode):
     ###########################################################################
 
     def destroy_node(self):
-        self.log("Destroying commander node", severity="DEBUG")
         if hasattr(self, "trajectory_cache"):
             self.trajectory_cache.close()
         if hasattr(self, "moveit_py"):
@@ -3372,14 +3374,14 @@ def main(args=None):
 
     if args.debug:
         print("Debug mode enabled")
-        debugpy.listen(4567)
+        debugpy.listen(1300)
         print("Waiting for debugger to attach")
         debugpy.wait_for_client()
         print("Debugger attached")
 
     try:
         commander = Commander()
-        executor = SingleThreadedExecutor()
+        executor = MultiThreadedExecutor(num_threads=args.max_workers)
         executor.add_node(commander)
 
         with ThreadPoolExecutor(max_workers=1) as tpe:

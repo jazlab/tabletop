@@ -26,8 +26,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ "$clean" = "true" ]; then
-    if [ "$yes" != "true" ]; then
+if [[ $clean = true ]]; then
+    if [[ $yes != true ]]; then
         read -p "Are you sure you want to clean the build directory? This will delete all build artifacts. [y/N] " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -41,6 +41,11 @@ fi
 
 print_status "Building Teensy code"
 while ! pio run $target_arg --project-dir $TABLETOP_DIR/ros/tabletop_teensy; do
-    print_status "Build failed, retrying..."
-    sleep 1
+    if [[ -n $target_arg ]]; then
+        print_status "Build failed, retrying..."
+        sleep 1
+    else
+        print_status "Build failed, aborting..."
+        exit 1
+    fi
 done

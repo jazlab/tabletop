@@ -5,6 +5,9 @@
 
 /commander:
   ros__parameters:
+    default_service_wait_timeout: 5.0
+    default_service_call_timeout: 2.0
+
     exit_on_error: false
 
     max_workers: 4
@@ -14,10 +17,7 @@
       program: external_control.urp
 
     teensy:
-      spin_period: 0.05
-      arm_door_timeout: 2.0
-
-    flic:
+      safe_to_execute_required_count: 5
       spin_period: 0.05
 
     planning:
@@ -29,18 +29,10 @@
       position_tolerance: 0.01
       orientation_tolerance: 0.02
       use_euler_tolerance: true
-      idle_state: ready_for_action
-      pre_present_state: pre_present
-      pre_fetch_offset: [0.0, 0.02, -0.05]
-      pre_attach_offset: [0.0, 0.02, 0.0]
-      post_attach_offset: [0.0, -0.077, 0.0]
-      post_fetch_offset: [0.0, -0.077, -0.15]
-      pre_present_pose:
-        position: [0.9525, 0.4, 0.6]
-        rpy: [0.0, 0.0, -1.5707]
 
-    execution:
-      max_attempts: 1
+    trajectory_post_processing:
+      apply_totg: true
+      apply_smoothing: true
       velocity_scaling_factor: 1.0
       acceleration_scaling_factor: 1.0
       totg:
@@ -50,6 +42,31 @@
       smoothing:
         mitigate_overshoot: false
         overshoot_threshold: 0.01
+
+    execution:
+      max_attempts: 1
+
+    predefined_states:
+      idle_state: ready_for_action
+      pre_present_state: pre_present
+
+    predefined_poses:
+      pre_fetch_offset: [0.0, 0.02, -0.05]
+      pre_attach_offset: [0.0, 0.02, 0.0]
+      post_attach_offset: [0.0, -0.077, 0.0]
+      post_fetch_offset: [0.0, -0.077, -0.15]
+      pre_present_pose:
+        position: [0.9525, 0.4, 0.6]
+        rpy: [0.0, 0.0, -1.5707]
+
+    object_manipulation:
+      detach_velocity_scaling_factor: 1.0
+      allowed_collisions:
+        eef_sphere: rig
+      touch_links:
+        - eef_link
+      mount_ids:
+        - rig
 
     trajectory_cache:
       use_cached_trajectories: true
@@ -71,15 +88,6 @@
       wrist_1_link: 0.03
       wrist_2_link: 0.03
       wrist_3_link: 0.01
-
-    object_manipulation:
-      detach_velocity_scaling_factor: 1.0
-      allowed_collisions:
-        eef_sphere: rig
-      touch_links:
-        - eef_link
-      mount_ids:
-        - rig
 
     planning_scene:
       dir: /root/ws/src/tabletop/ros/planning_scene/

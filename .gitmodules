@@ -1,8 +1,3 @@
-[submodule "ros/uros/drive_base"]
-	path = ros/uros/drive_base
-	url = https://github.com/micro-ROS/drive_base.git
-	branch = master
-
 [submodule "ros/uros/micro-ROS-Agent"]
 	path = ros/uros/micro-ROS-Agent
 	url = https://github.com/micro-ROS/micro-ROS-Agent.git

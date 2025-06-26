@@ -1,7 +1,0 @@
-bool arm_door_closed_state
-uint8 arm_door_state
-bool fixation_button_state
-bool sync_pulse_state
-int64 sync_pulse_last_time_on_ms
-int64 sync_pulse_last_time_off_ms
-uint8[5] tactile_glove_states

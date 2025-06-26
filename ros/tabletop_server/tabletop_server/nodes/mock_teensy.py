@@ -1,23 +1,19 @@
+import argparse
 import asyncio
 import random
-from enum import Enum
+import time
 
+import debugpy
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.duration import Duration
+from rclpy.qos import QoSPresetProfiles
 from std_msgs.msg import String
-from tabletop_msgs.msg import TeensySensor
-from tabletop_msgs.srv import (
-    GetArmDoor,
-    GetHandFixation,
-    GetReward,
-    SetArmDoor,
-    SetReward,
-    SetSmartglass,
-)
+from tabletop_interfaces.msg import TeensySensor
+from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
 
-from tabletop_server.executor import AIOExecutor
+from tabletop_server import aio_executor
 from tabletop_server.nodes.base import BaseNode
-
-DEFAULT_LOG_SEVERITY = "INFO"
 
 # Define constants for digital pin states
 HIGH = True
@@ -28,184 +24,259 @@ A1 = 15
 A2 = 16
 A3 = 17
 A4 = 18
+A5 = 19
+A6 = 20
+A7 = 21
+A8 = 22
+A9 = 23
 
 # Define pin assignments similar to main.cpp
-ARM_DOOR_OPEN_CONTROL_PIN = 1
-ARM_DOOR_CLOSE_CONTROL_PIN = 2
+# Solenoid for locking the arm
+# Setting the lock pin to HIGH does not mean the arm is locked
+# The arm is only locked when the locked state pin is HIGH
+LEFT_ARM_LOCK_CONTROL_PIN = 1
+RIGHT_ARM_LOCK_CONTROL_PIN = 2
 SMARTGLASS_CONTROL_PIN = 3
 REWARD_CONTROL_PIN = 4
-HAND_FIXATION_STATE_PIN = 34
-ARM_DOOR_CLOSED_STATE_PIN = 37
-SYNC_PULSE_PIN = 9
-GLOVE_STATE_PINS = [A0, A1, A2, A3, A4]
+SYNC_PULSE_CONTROL_PIN = 9
+LEFT_ARM_LOCKED_STATE_PIN = 34
+RIGHT_ARM_LOCKED_STATE_PIN = 35
+SAFETY_LASER_BROKEN_STATE_PIN = 36
+LEFT_GLOVE_STATE_PINS = [A0, A1, A2, A3, A4]
+RIGHT_GLOVE_STATE_PINS = [A5, A6, A7, A8, A9]
 
-# Simulated state for digital pins
-digital_pin_states = {
-    ARM_DOOR_OPEN_CONTROL_PIN: LOW,
-    ARM_DOOR_CLOSE_CONTROL_PIN: LOW,
+# Simulated pin states
+digital_output_pin_states = {
+    LEFT_ARM_LOCK_CONTROL_PIN: LOW,
+    RIGHT_ARM_LOCK_CONTROL_PIN: LOW,
     SMARTGLASS_CONTROL_PIN: LOW,
     REWARD_CONTROL_PIN: LOW,
-    ARM_DOOR_CLOSED_STATE_PIN: random.choice([HIGH, LOW]),
-    HAND_FIXATION_STATE_PIN: LOW,
-    SYNC_PULSE_PIN: LOW,
+    SYNC_PULSE_CONTROL_PIN: LOW,
 }
 
-analog_pin_states = {p: random.randint(0, 1023) for p in GLOVE_STATE_PINS}
+digital_input_pin_states = {
+    LEFT_ARM_LOCKED_STATE_PIN: random.choice([HIGH, LOW]),
+    RIGHT_ARM_LOCKED_STATE_PIN: random.choice([HIGH, LOW]),
+    SAFETY_LASER_BROKEN_STATE_PIN: random.choice([HIGH, LOW]),
+}
+
+analog_input_pin_states = {
+    p: random.randint(0, 1023)
+    for p in LEFT_GLOVE_STATE_PINS + RIGHT_GLOVE_STATE_PINS
+}
 
 
 SENSOR_PERIOD_MS = 10
 SYNC_PULSE_BASE_PERIOD_MS = 1000
 SYNC_PULSE_DELAY_RANGE_MS = 200
 SYNC_PULSE_DURATION_MS = 100
-ARM_DOOR_PERIOD_MS = 1000
-
-
-class ArmDoorState(Enum):
-    OPEN = 0
-    OPENING = 1
-    CLOSED = 2
-    CLOSING = 3
-
-
-def change_pin_state(pin, value: bool):
-    """Change a pin state
-
-    Used to change the state of a pin that is not directly controllable by the Teensy
-    for simulation purposes.
-    """
-    digital_pin_states[pin] = value
 
 
 def digital_write(pin, value: bool):
-    digital_pin_states[pin] = value
+    """Write a digital value to a pin."""
+    assert (
+        pin in digital_output_pin_states
+    ), f"Pin {pin} not found in digital_output_pin_states"
+    digital_output_pin_states[pin] = value
 
 
 def digital_read(pin) -> bool:
-    return digital_pin_states[pin]
+    """Read a digital value from a pin."""
+    assert (
+        pin in digital_input_pin_states
+    ), f"Pin {pin} not found in digital_input_pin_states"
+    return digital_input_pin_states[pin]
 
 
 def analog_read(pin) -> int:
-    # Simulate an analog read with a random value
-    return analog_pin_states[pin]
+    assert (
+        pin in analog_input_pin_states
+    ), f"Pin {pin} not found in analog_input_pin_states"
+    return analog_input_pin_states[pin]
+
+
+def _change_input_pin_state(pin, value: bool):
+    assert (
+        pin in digital_input_pin_states
+    ), f"Pin {pin} not found in digital_input_pin_states"
+    digital_input_pin_states[pin] = value
+
+
+def _read_output_pin_state(pin) -> bool:
+    assert (
+        pin in digital_output_pin_states
+    ), f"Pin {pin} not found in digital_output_pin_states"
+    return digital_output_pin_states[pin]
+
+
+async def _sleep_and_change_input_pin_state(
+    pin, value: bool, delay_sec: float
+):
+    await asyncio.sleep(delay_sec)
+    _change_input_pin_state(pin, value)
 
 
 async def monkey_loop(
-    min_press_sec: float,
-    max_press_sec: float,
-    min_release_sec: float,
-    max_release_sec: float,
+    min_arm_locked_delay_sec: float,
+    max_arm_locked_delay_sec: float,
+    safety_laser_broken_when_locked_prob: float,
+    safety_laser_broken_when_unlocked_prob: float,
+    loop_period_sec: float,
 ):
-    while True:
-        if digital_read(HAND_FIXATION_STATE_PIN):
-            delay = random.uniform(min_press_sec, max_press_sec)
-        else:
-            delay = random.uniform(min_release_sec, max_release_sec)
-        await asyncio.sleep(delay)
-        digital_write(
-            HAND_FIXATION_STATE_PIN, not digital_read(HAND_FIXATION_STATE_PIN)
+    """Simulate the monkey's actions.
+
+    This function is responsible for simulating the monkey's actions, such as
+    locking and unlocking the arms, and breaking the safety laser.
+
+    If both arms are locked, break the safety laser with a small probability
+    (to test arm lock failure handling)
+    Otherwise, the safety laser is broken with a higher probability and
+    the arm locked states are updated to reflect the arm lock control
+    pins (with some delay to reflect the monkey taking time to put their
+    arms in the arm lock)
+    """
+
+    if (
+        min_arm_locked_delay_sec < 0
+        or max_arm_locked_delay_sec < min_arm_locked_delay_sec
+        or loop_period_sec < max_arm_locked_delay_sec
+    ):
+        raise ValueError(
+            f"Invalid delays: 0 <= min_arm_locked_delay_sec <= max_arm_locked_delay_sec <= loop_period_sec, "
+            f"got {min_arm_locked_delay_sec}, {max_arm_locked_delay_sec}, {loop_period_sec}"
         )
+
+    while True:
+        start_time = time.time()
+        left_arm_lock_task = None
+        right_arm_lock_task = None
+
+        if digital_read(LEFT_ARM_LOCKED_STATE_PIN) and digital_read(
+            RIGHT_ARM_LOCKED_STATE_PIN
+        ):
+            # If both arms are locked, break the safety laser with a small probability
+            _change_input_pin_state(
+                SAFETY_LASER_BROKEN_STATE_PIN,
+                (random.uniform(0, 1) < safety_laser_broken_when_locked_prob),
+            )
+        else:
+            # Otherwise, break the safety laser with a higher probability
+            _change_input_pin_state(
+                SAFETY_LASER_BROKEN_STATE_PIN,
+                random.uniform(0, 1) < safety_laser_broken_when_unlocked_prob,
+            )
+
+            # Update the left arm locked state based on the left arm lock pin
+            if _read_output_pin_state(LEFT_ARM_LOCK_CONTROL_PIN) == HIGH:
+                if digital_read(LEFT_ARM_LOCKED_STATE_PIN) == LOW:
+                    delay = random.uniform(
+                        min_arm_locked_delay_sec, max_arm_locked_delay_sec
+                    )
+                    left_arm_lock_task = asyncio.create_task(
+                        _sleep_and_change_input_pin_state(
+                            LEFT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                        )
+                    )
+            else:
+                _change_input_pin_state(LEFT_ARM_LOCKED_STATE_PIN, LOW)
+
+            # Update the right arm locked state based on the right arm lock pin
+            if _read_output_pin_state(RIGHT_ARM_LOCK_CONTROL_PIN) == HIGH:
+                if digital_read(RIGHT_ARM_LOCKED_STATE_PIN) == LOW:
+                    delay = random.uniform(
+                        min_arm_locked_delay_sec, max_arm_locked_delay_sec
+                    )
+                    right_arm_lock_task = asyncio.create_task(
+                        _sleep_and_change_input_pin_state(
+                            RIGHT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                        )
+                    )
+            else:
+                _change_input_pin_state(RIGHT_ARM_LOCKED_STATE_PIN, LOW)
+
+            if left_arm_lock_task is not None:
+                await left_arm_lock_task
+            if right_arm_lock_task is not None:
+                await right_arm_lock_task
+
+        # Sleep for the remaining time in the loop period
+        delay = loop_period_sec - (time.time() - start_time)
+        await asyncio.sleep(delay)
 
 
 class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
-        "simulate_hand_fixation_min_press_sec": 10.0,
-        "simulate_hand_fixation_max_press_sec": 15.0,
-        "simulate_hand_fixation_min_release_sec": 0.1,
-        "simulate_hand_fixation_max_release_sec": 0.6,
+        "monkey_loop.min_arm_locked_delay_sec": 0.5,
+        "monkey_loop.max_arm_locked_delay_sec": 0.8,
+        "monkey_loop.safety_laser_broken_when_locked_prob": 0.05,
+        "monkey_loop.safety_laser_broken_when_unlocked_prob": 0.5,
+        "monkey_loop.loop_period_sec": 1.0,
     }
 
     def __init__(self):
-        self.log_pub = None
         super().__init__("teensy")
 
         # Log publisher
         self.log_pub = self.create_publisher(String, "teensy/log", 10)
 
-        # Simulation parameters
-        self.simulate_hand_fixation_min_press_sec: float = (
-            self.get_parameter_wrapper("simulate_hand_fixation_min_press_sec")
-        )
-        self.simulate_hand_fixation_max_press_sec: float = (
-            self.get_parameter_wrapper("simulate_hand_fixation_max_press_sec")
-        )
-        self.simulate_hand_fixation_min_release_sec: float = (
-            self.get_parameter_wrapper(
-                "simulate_hand_fixation_min_release_sec"
-            )
-        )
-        self.simulate_hand_fixation_max_release_sec: float = (
-            self.get_parameter_wrapper(
-                "simulate_hand_fixation_max_release_sec"
-            )
-        )
-
         # Monkey loop
+        monkey_loop_kwargs = self.get_parameter_wrapper("monkey_loop")
         self.monkey_loop = asyncio.create_task(
-            monkey_loop(
-                self.simulate_hand_fixation_min_press_sec,
-                self.simulate_hand_fixation_max_press_sec,
-                self.simulate_hand_fixation_min_release_sec,
-                self.simulate_hand_fixation_max_release_sec,
-            )
+            monkey_loop(**monkey_loop_kwargs)
         )
 
         # State variables
-        self.hand_fixation_last_time_pressed_ms = int(self.time() * 1000)
-        self.hand_fixation_last_time_released_ms = int(self.time() * 1000)
+        self.sync_pulse_control_pin_state = LOW
+        self.sync_pulse_last_time_on = self.get_clock().now()
+        self.sync_pulse_last_time_off = self.get_clock().now()
+        self.reward_control_pin_state = LOW
+        self.smartglass_control_pin_state = LOW
 
-        self.sync_pulse_state = False
-        self.sync_pulse_last_time_on_ms = int(self.time() * 1000)
-        self.sync_pulse_last_time_off_ms = int(self.time() * 1000)
-
-        self.reward_active = False
-
-        if digital_read(ARM_DOOR_CLOSED_STATE_PIN):
-            self.arm_door_state = ArmDoorState.CLOSED
-        else:
-            self.arm_door_state = ArmDoorState.OPEN
+        # Write the initial pin states
+        digital_write(LEFT_ARM_LOCK_CONTROL_PIN, HIGH)
+        digital_write(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH)
+        digital_write(
+            SMARTGLASS_CONTROL_PIN, self.smartglass_control_pin_state
+        )
+        digital_write(REWARD_CONTROL_PIN, self.reward_control_pin_state)
+        digital_write(
+            SYNC_PULSE_CONTROL_PIN, self.sync_pulse_control_pin_state
+        )
 
         # Publishers
+        # qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
+        # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
+        # qos.depth = 1
         self.sensor_pub = self.create_publisher(
-            TeensySensor, "teensy/sensors", 10
+            TeensySensor,
+            "teensy/sensor",
+            qos_profile=QoSPresetProfiles.SENSOR_DATA.value,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
         # Services
-        self.set_arm_door_service = self.create_service(
-            SetArmDoor,
-            "teensy/set_arm_door",
-            self.set_arm_door_callback,
+        # qos = copy(QoSPresetProfiles.SERVICES_DEFAULT.value)
+        # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
+        self.set_arm_lock_service = self.create_service(
+            SetArmLock,
+            "teensy/set_arm_lock",
+            self.set_arm_lock_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        self.get_arm_door_service = self.create_service(
-            GetArmDoor,
-            "teensy/get_arm_door",
-            self.get_arm_door_callback,
-        )
-
         self.set_smartglass_service = self.create_service(
             SetSmartglass,
             "teensy/set_smartglass",
             self.set_smartglass_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
-
         self.set_reward_service = self.create_service(
             SetReward,
             "teensy/set_reward",
             self.set_reward_callback,
-        )
-        self.get_reward_service = self.create_service(
-            GetReward,
-            "teensy/get_reward",
-            self.get_reward_callback,
-        )
-
-        self.get_hand_fixation_service = self.create_service(
-            GetHandFixation,
-            "teensy/get_hand_fixation",
-            self.get_hand_fixation_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
         # Timers
-
         self.sensor_timer = self.create_timer(
             SENSOR_PERIOD_MS / 1000.0, self.sensor_timer_callback
         )
@@ -224,63 +295,35 @@ class MockTeensy(BaseNode):
         self.reward_timer = self.create_timer(
             0.0, self.reward_timer_callback, autostart=False
         )
-        self.arm_door_timer = self.create_timer(
-            ARM_DOOR_PERIOD_MS / 1000.0,
-            self.arm_door_timer_callback,
-            autostart=False,
-        )
 
-    def log(self, message: str, severity: str = DEFAULT_LOG_SEVERITY):
+        self.log("MockTeensy initialized")
+
+    def log(self, message: str, severity: str = "INFO"):
         super().log(message, severity)
-        if self.log_pub is not None:
-            self.log_pub.publish(String(data=message))
-
-    def sensor_timer_callback(self):
-        # Populate sensor message
-        sensor_msg = TeensySensor()
-        sensor_msg.arm_door_state = self.arm_door_state.value
-        sensor_msg.arm_door_closed_state = digital_read(
-            ARM_DOOR_CLOSED_STATE_PIN
-        )
-        sensor_msg.fixation_button_state = digital_read(
-            HAND_FIXATION_STATE_PIN
-        )
-
-        # Update hand fixation timestamps
-        if sensor_msg.fixation_button_state:
-            self.hand_fixation_last_time_pressed_ms = int(self.time() * 1000)
-        else:
-            self.hand_fixation_last_time_released_ms = int(self.time() * 1000)
-
-        # Update tactile glove states
-        for i, p in enumerate(GLOVE_STATE_PINS):
-            sensor_msg.tactile_glove_states[i] = analog_read(p)
-
-        # Update sync pulse state
-        sensor_msg.sync_pulse_state = self.sync_pulse_state
-        sensor_msg.sync_pulse_last_time_on_ms = self.sync_pulse_last_time_on_ms
-        sensor_msg.sync_pulse_last_time_off_ms = (
-            self.sync_pulse_last_time_off_ms
-        )
-
-        self.sensor_pub.publish(sensor_msg)
+        if hasattr(self, "log_pub"):
+            self.log_pub.publish(String(data=f"{severity}: {message}"))
 
     def sync_pulse_end_timer_callback(self):
-        digital_write(SYNC_PULSE_PIN, LOW)
-        self.sync_pulse_state = False
-        self.sync_pulse_last_time_off_ms = int(self.time() * 1000)
+        assert self.sync_pulse_control_pin_state == HIGH
+        digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
+        self.sync_pulse_control_pin_state = LOW
+        self.sync_pulse_last_time_off = self.get_clock().now()
 
         self.sync_pulse_end_timer.cancel()
 
+        duration_ms = (
+            self.sync_pulse_last_time_off - self.sync_pulse_last_time_on
+        ).nanoseconds / 1e6
         self.log(
-            f"Sync pulse ended after {self.sync_pulse_last_time_off_ms - self.sync_pulse_last_time_on_ms} ms",
+            f"Sync pulse ended after {duration_ms:.1f} ms",
             severity="DEBUG",
         )
 
     def sync_pulse_start_timer_callback(self):
-        digital_write(SYNC_PULSE_PIN, HIGH)
-        self.sync_pulse_state = True
-        self.sync_pulse_last_time_on_ms = int(self.time() * 1000)
+        assert self.sync_pulse_control_pin_state == LOW
+        digital_write(SYNC_PULSE_CONTROL_PIN, HIGH)
+        self.sync_pulse_control_pin_state = HIGH
+        self.sync_pulse_last_time_on = self.get_clock().now()
 
         self.sync_pulse_start_timer.cancel()
 
@@ -292,24 +335,62 @@ class MockTeensy(BaseNode):
         )
 
     def sync_pulse_base_timer_callback(self):
-        assert not self.sync_pulse_state
-
-        digital_write(SYNC_PULSE_PIN, LOW)
-        self.sync_pulse_state = False
+        assert self.sync_pulse_control_pin_state == LOW
+        digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
+        self.sync_pulse_control_pin_state = LOW
 
         # Generate a random delay between 0 and 200 ms
-        delay = random.uniform(0, SYNC_PULSE_DELAY_RANGE_MS / 1000.0)
-        self.log(
-            f"Scheduling sync pulse start in {delay * 1000:.1f} ms",
-            severity="DEBUG",
-        )
-        self.sync_pulse_start_timer.timer_period_ns = delay * 1e9
+        delay_ms = random.uniform(0, SYNC_PULSE_DELAY_RANGE_MS)
+        self.sync_pulse_start_timer.timer_period_ns = delay_ms * 1e6
         self.sync_pulse_start_timer.reset()
 
         self.log(
-            f"Sync pulse start timer scheduled for {delay * 1000:.1f} ms",
+            f"Sync pulse start timer scheduled for {delay_ms:.1f} ms",
             severity="DEBUG",
         )
+
+    def set_arm_lock_callback(
+        self, request: SetArmLock.Request, response: SetArmLock.Response
+    ):
+        if not request.left_arm and not request.right_arm:
+            response.success = False
+            response.message = "No arm specified"
+            self.log(response.message, severity="WARN")
+            return response
+
+        pin_state = HIGH if request.lock else LOW
+        if request.left_arm:
+            digital_write(LEFT_ARM_LOCK_CONTROL_PIN, pin_state)
+            if not request.right_arm:
+                message_arm = "Left arm"
+        if request.right_arm:
+            digital_write(RIGHT_ARM_LOCK_CONTROL_PIN, pin_state)
+            if not request.left_arm:
+                message_arm = "Right arm"
+
+        if request.left_arm and request.right_arm:
+            message_arm = "Both arms"
+
+        response.success = True
+        response.message = (
+            f"{message_arm} {'locked' if request.lock else 'released'}"
+        )
+        self.log(response.message)
+
+        return response
+
+    def set_smartglass_callback(
+        self, request: SetSmartglass.Request, response: SetSmartglass.Response
+    ):
+        pin_state = HIGH if request.reveal else LOW
+        digital_write(SMARTGLASS_CONTROL_PIN, pin_state)
+        response.success = True
+        response.message = (
+            f"Smartglass {'revealed' if request.reveal else 'occluded'}"
+        )
+        self.log(response.message)
+
+        return response
 
     def reward_timer_callback(self):
         digital_write(REWARD_CONTROL_PIN, LOW)
@@ -332,171 +413,73 @@ class MockTeensy(BaseNode):
         digital_write(REWARD_CONTROL_PIN, HIGH)
         self.reward_active = True
 
-        duration_ms = request.duration_ms
-        self.reward_timer.timer_period_ns = duration_ms * 1e6
+        duration = Duration.from_msg(request.duration)
+        self.reward_timer.timer_period_ns = duration.nanoseconds
         self.reward_timer.reset()
 
         # Set the response message
         response.success = True
-        response.message = f"Reward started for {duration_ms} ms"
-        self.log(response.message)
-        return response
-
-    def get_reward_callback(
-        self, request: GetReward.Request, response: GetReward.Response
-    ):
-        response.is_active = self.reward_active
-        response.success = True
         response.message = (
-            f"Reward is {'active' if response.is_active else 'inactive'}"
-        )
-        self.log(response.message, severity="DEBUG")
-        return response
-
-    def arm_door_timer_callback(self):
-        # Update the pin state
-        digital_write(ARM_DOOR_OPEN_CONTROL_PIN, LOW)
-        digital_write(ARM_DOOR_CLOSE_CONTROL_PIN, LOW)
-
-        # Update the internal state
-        match self.arm_door_state:
-            case ArmDoorState.OPENING:
-                self.arm_door_state = ArmDoorState.OPEN
-            case ArmDoorState.CLOSING:
-                self.arm_door_state = ArmDoorState.CLOSED
-                change_pin_state(ARM_DOOR_CLOSED_STATE_PIN, HIGH)
-            case _:
-                assert False, "Arm door state is not OPENING or CLOSING when timer callback is called"
-
-        self.arm_door_timer.cancel()
-
-        self.log(f"Arm door reached state {self.arm_door_state.name}")
-
-    def set_arm_door_callback(
-        self, request: SetArmDoor.Request, response: SetArmDoor.Response
-    ):
-        assert (digital_read(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) == (
-            self.arm_door_state == ArmDoorState.CLOSED
-        ), "Arm door state is not consistent with closed state pin"
-
-        if not self.arm_door_timer.is_canceled():
-            assert (
-                self.arm_door_state
-                in (
-                    ArmDoorState.OPENING,
-                    ArmDoorState.CLOSING,
-                )
-            ), "Arm door state is not OPENING or CLOSING when arm door timer is still running"
-            assert (
-                digital_read(ARM_DOOR_CLOSED_STATE_PIN) == LOW
-            ), "Arm door closed state pin is not HIGH when arm door timer is still running"
-
-        time_since_last_call_ms = self.arm_door_timer.time_since_last_call()
-
-        if request.open:
-            match self.arm_door_state:
-                case ArmDoorState.OPEN:
-                    response.success = True
-                    response.message = "Arm door already open"
-                    self.log(response.message)
-                    return response
-                case ArmDoorState.OPENING:
-                    response.success = True
-                    response.message = "Arm door is already opening"
-                    self.log(response.message)
-                    return response
-                case ArmDoorState.CLOSED:
-                    self.log("Arm door is closed, opening")
-                    duration_ms = ARM_DOOR_PERIOD_MS
-                    change_pin_state(ARM_DOOR_CLOSED_STATE_PIN, LOW)
-                case ArmDoorState.CLOSING:
-                    self.log("Arm door is closing, reversing")
-                    duration_ms = time_since_last_call_ms
-
-            digital_write(ARM_DOOR_OPEN_CONTROL_PIN, HIGH)
-            digital_write(ARM_DOOR_CLOSE_CONTROL_PIN, LOW)
-            self.arm_door_state = ArmDoorState.OPENING
-        else:
-            match self.arm_door_state:
-                case ArmDoorState.OPEN:
-                    self.log("Arm door is open, closing")
-                    duration_ms = ARM_DOOR_PERIOD_MS
-                case ArmDoorState.OPENING:
-                    self.log("Arm door is opening, reversing")
-                    duration_ms = time_since_last_call_ms
-                case ArmDoorState.CLOSED:
-                    response.success = True
-                    response.message = "Arm door already closed"
-                    self.log(response.message)
-                    return response
-                case ArmDoorState.CLOSING:
-                    response.success = True
-                    response.message = "Arm door is already closing"
-                    self.log(response.message)
-                    return response
-
-            digital_write(ARM_DOOR_OPEN_CONTROL_PIN, LOW)
-            digital_write(ARM_DOOR_CLOSE_CONTROL_PIN, HIGH)
-            self.arm_door_state = ArmDoorState.CLOSING
-
-        self.arm_door_timer.timer_period_ns = duration_ms * 1e6
-        self.arm_door_timer.reset()
-
-        # Set the response message
-        response.success = True
-        response.message = f"Arm door {'open' if request.open else 'close'} started for {duration_ms} ms"
-        self.log(response.message)
-
-        return response
-
-    def get_arm_door_callback(
-        self, request: GetArmDoor.Request, response: GetArmDoor.Response
-    ):
-        assert (digital_read(ARM_DOOR_CLOSED_STATE_PIN) == HIGH) == (
-            self.arm_door_state == ArmDoorState.CLOSED
-        ), "Arm door state is not consistent with closed state pin"
-
-        response.is_closed = digital_read(ARM_DOOR_CLOSED_STATE_PIN)
-        response.state = self.arm_door_state.value
-        response.success = True
-        response.message = f"Arm door closed state pin is {'HIGH' if response.is_closed else 'LOW'} and arm door state is {self.arm_door_state.name.lower()}"
-        self.log(response.message, severity="DEBUG")
-        return response
-
-    def get_hand_fixation_callback(
-        self,
-        request: GetHandFixation.Request,
-        response: GetHandFixation.Response,
-    ):
-        response.is_pressed = digital_read(HAND_FIXATION_STATE_PIN)
-        response.last_time_pressed_ms = self.hand_fixation_last_time_pressed_ms
-        response.last_time_released_ms = (
-            self.hand_fixation_last_time_released_ms
-        )
-        response.success = True
-        response.message = f"Hand fixation is {'pressed' if response.is_pressed else 'released'}"
-        self.log(response.message, severity="DEBUG")
-
-        return response
-
-    def set_smartglass_callback(
-        self, request: SetSmartglass.Request, response: SetSmartglass.Response
-    ):
-        digital_write(SMARTGLASS_CONTROL_PIN, request.reveal)
-        response.success = True
-        response.message = (
-            f"Smartglass {'revealed' if request.reveal else 'occluded'}"
+            f"Reward started for {duration.nanoseconds / 1e9:.2f} s"
         )
         self.log(response.message)
 
         return response
+
+    def sensor_timer_callback(self):
+        # Populate sensor message
+        sensor_msg = TeensySensor()
+        sensor_msg.timestamp = self.get_clock().now().to_msg()
+        sensor_msg.is_safety_laser_broken = digital_read(
+            SAFETY_LASER_BROKEN_STATE_PIN
+        )
+        sensor_msg.is_left_arm_locked = digital_read(LEFT_ARM_LOCKED_STATE_PIN)
+        sensor_msg.is_right_arm_locked = digital_read(
+            RIGHT_ARM_LOCKED_STATE_PIN
+        )
+
+        sensor_msg.is_reward_active = self.reward_control_pin_state == HIGH
+        sensor_msg.is_smartglass_revealed = (
+            self.smartglass_control_pin_state == HIGH
+        )
+
+        # Update tactile glove states
+        for i, p in enumerate(LEFT_GLOVE_STATE_PINS):
+            sensor_msg.left_tactile_glove_states[i] = analog_read(p)
+        for i, p in enumerate(RIGHT_GLOVE_STATE_PINS):
+            sensor_msg.right_tactile_glove_states[i] = analog_read(p)
+
+        # Update sync pulse state
+        sensor_msg.sync_pulse_state = self.sync_pulse_control_pin_state == HIGH
+        sensor_msg.sync_pulse_last_time_on = (
+            self.sync_pulse_last_time_on.to_msg()
+        )
+        sensor_msg.sync_pulse_last_time_off = (
+            self.sync_pulse_last_time_off.to_msg()
+        )
+
+        self.sensor_pub.publish(sensor_msg)
 
 
 async def main_async(args=None):
     rclpy.init(args=args)
 
+    # Parse non-ROS arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False)
+
+    non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
+    args, _ = parser.parse_known_args(non_ros_args)
+
+    if args.debug:
+        print("Debug mode enabled")
+        debugpy.listen(1302)
+        print("Waiting for debugger to attach")
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
     try:
-        executor = AIOExecutor()
+        executor = aio_executor.AIOExecutor()
         mock_teensy = MockTeensy()
         executor.add_node(mock_teensy)
 
@@ -507,14 +490,13 @@ async def main_async(args=None):
             mock_teensy.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
-    except KeyboardInterrupt:
-        print("Keyboard interrupt")
-    except SystemExit:
-        print("System exit")
     finally:
         print("Shutting down rclpy")
-        rclpy.try_shutdown()
+        rclpy.try_shutdown()  # type: ignore
 
 
-def main():
-    asyncio.run(main_async())
+def main(args=None):
+    try:
+        asyncio.run(main_async(args))
+    except KeyboardInterrupt:
+        pass

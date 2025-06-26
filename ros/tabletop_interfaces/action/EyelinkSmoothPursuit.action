@@ -1,0 +1,10 @@
+# The window of time to consider for smooth pursuit
+builtin_interfaces/Duration window
+uint32 threshold
+uint32 min_samples
+---
+---
+# Whether smooth pursuit started or ended
+bool smooth_pursuit_started
+# The duration of smooth pursuit
+builtin_interfaces/Duration duration

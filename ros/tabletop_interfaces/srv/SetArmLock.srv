@@ -1,0 +1,6 @@
+bool left_arm
+bool right_arm
+bool lock
+---
+bool success
+string message
