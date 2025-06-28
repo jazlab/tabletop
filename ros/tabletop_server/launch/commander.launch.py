@@ -274,15 +274,15 @@ def generate_launch_description():
         moveit_log_level,
         ["commander:=", commander_log_level],
         ["trajectory_cache:=", commander_log_level],
-        ["tabletop.task:=", commander_log_level],
-        ["tabletop.trial_generator:=", commander_log_level],
+        ["tabletop_task:=", commander_log_level],
+        ["trial_generator:=", commander_log_level],
         ["rcl:=", rcl_log_level],
         ["rcl_action:=", rcl_log_level],
         ["rclcpp:=", rcl_log_level],
         ["rclcpp_action:=", rcl_log_level],
         ["pluginlib.ClassLoader:=", rcl_log_level],
         ["rmw_fastrtps_cpp:=", rcl_log_level],
-        ["trac_ik_kinematics_plugin:=", rcl_log_level],
+        # ["trac_ik_kinematics_plugin:=", rcl_log_level],
     ]
     logger_levels_args = []
     for logger in logger_levels:

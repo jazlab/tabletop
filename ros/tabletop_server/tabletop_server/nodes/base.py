@@ -61,15 +61,15 @@ class BaseNode(Node):
         if rclpy.ok():  # type: ignore
             match severity:
                 case LoggingSeverity.DEBUG:
-                    self.get_logger().debug(message, **kwargs)
+                    return self.get_logger().debug(message, **kwargs)
                 case LoggingSeverity.INFO:
-                    self.get_logger().info(message, **kwargs)
+                    return self.get_logger().info(message, **kwargs)
                 case LoggingSeverity.WARN:
-                    self.get_logger().warning(message, **kwargs)
+                    return self.get_logger().warning(message, **kwargs)
                 case LoggingSeverity.ERROR:
-                    self.get_logger().error(message, **kwargs)
+                    return self.get_logger().error(message, **kwargs)
                 case LoggingSeverity.FATAL:
-                    self.get_logger().fatal(message, **kwargs)
+                    return self.get_logger().fatal(message, **kwargs)
                 case _:
                     raise ValueError(f"Invalid severity: {severity}")
         elif severity >= self.log_level:

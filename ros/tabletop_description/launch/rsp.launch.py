@@ -48,7 +48,7 @@ def generate_launch_description():
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
-
+    # General arguments
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
     physical_params_file = LaunchConfiguration("physical_params_file")
     visual_params_file = LaunchConfiguration("visual_params_file")
@@ -72,6 +72,7 @@ def generate_launch_description():
     reverse_port = LaunchConfiguration("reverse_port")
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
+    initial_positions_file = LaunchConfiguration("initial_positions_file")
 
     script_filename = PathJoinSubstitution(
         [
@@ -190,6 +191,10 @@ def generate_launch_description():
             " ",
             "trajectory_port:=",
             trajectory_port,
+            " ",
+            "initial_positions_file:=",
+            initial_positions_file,
+            " ",
         ]
     )
     robot_description = {
@@ -203,15 +208,18 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "ur_type",
-            description="Typo/series of used UR robot.",
+            description="Type/series of used UR robot.",
             choices=[
                 "ur3",
                 "ur3e",
                 "ur5",
                 "ur5e",
+                "ur7e",
                 "ur10",
                 "ur10e",
+                "ur12e",
                 "ur16e",
+                "ur15",
                 "ur20",
                 "ur30",
             ],
@@ -346,27 +354,6 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "initial_joint_controller",
-            default_value="scaled_joint_trajectory_controller",
-            description="Initially loaded robot controller.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "activate_joint_controller",
-            default_value="true",
-            description="Activate loaded joint controller.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "launch_dashboard_client",
-            default_value="true",
-            description="Launch Dashboard Client?",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
             "use_tool_communication",
             default_value="false",
             description="Only available for e series!",
@@ -469,6 +456,19 @@ def generate_launch_description():
             "trajectory_port",
             default_value="50003",
             description="Port that will be opened for trajectory control.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "initial_positions_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_description"),
+                    "config",
+                    "initial_positions.yaml",
+                ]
+            ),
+            description="Initial positions file for the robot.",
         )
     )
 

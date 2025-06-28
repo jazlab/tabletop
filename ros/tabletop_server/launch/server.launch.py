@@ -33,26 +33,15 @@ def declare_arguments():
             description="Using or not time from simulation",
         ),
         DeclareLaunchArgument(
-            "ur_type",
-            default_value="ur5e",
-            description="Type/series of used UR robot.",
-            choices=[
-                "ur3",
-                "ur3e",
-                "ur5",
-                "ur5e",
-                "ur10",
-                "ur10e",
-                "ur16e",
-                "ur20",
-                "ur30",
-            ],
-        ),
-        DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
+        ),
+        DeclareLaunchArgument(
+            "ur_type",
+            default_value="ur5e",
+            description="Type/series of used UR robot.",
         ),
         # UR Robot Driver
         DeclareLaunchArgument(
@@ -61,26 +50,9 @@ def declare_arguments():
             description="Controller spawner timeout",
         ),
         DeclareLaunchArgument(
-            "description_launchfile",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_description"),
-                    "launch",
-                    "rsp.launch.py",
-                ]
-            ),
-            description="URDF/XACRO description file with the robot.",
-        ),
-        DeclareLaunchArgument(
-            "description_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("tabletop_description"),
-                    "urdf",
-                    "tabletop_control.urdf.xacro",
-                ]
-            ),
-            description="URDF/XACRO description file with the robot.",
+            "initial_joint_controller",
+            default_value="scaled_joint_trajectory_controller",
+            description="Initially loaded robot controller.",
         ),
         # Teensy
         DeclareLaunchArgument(
@@ -237,15 +209,14 @@ def declare_arguments():
 def generate_launch_description():
     # Common
     use_sim_time = LaunchConfiguration("use_sim_time")
-    ur_type = LaunchConfiguration("ur_type")
     robot_mode = LaunchConfiguration("robot_mode")
+    ur_type = LaunchConfiguration("ur_type")
 
     # UR Robot Driver
     controller_spawner_timeout = LaunchConfiguration(
         "controller_spawner_timeout"
     )
-    description_launchfile = LaunchConfiguration("description_launchfile")
-    description_file = LaunchConfiguration("description_file")
+    initial_joint_controller = LaunchConfiguration("initial_joint_controller")
 
     # Teensy
     micro_ros_transport = LaunchConfiguration("micro_ros_transport")
@@ -353,10 +324,23 @@ def generate_launch_description():
                     "reverse_ip": reverse_ip,
                     "use_mock_hardware": use_mock_robot,
                     "controller_spawner_timeout": controller_spawner_timeout,
+                    "initial_joint_controller": initial_joint_controller,
                     "launch_rviz": "false",
                     "kinematics_params_file": kinematics_params_file,
-                    "description_launchfile": description_launchfile,
-                    "description_file": description_file,
+                    "description_launchfile": PathJoinSubstitution(
+                        [
+                            FindPackageShare("tabletop_description"),
+                            "launch",
+                            "rsp.launch.py",
+                        ]
+                    ),
+                    "description_file": PathJoinSubstitution(
+                        [
+                            FindPackageShare("tabletop_description"),
+                            "urdf",
+                            "tabletop.urdf.xacro",
+                        ]
+                    ),
                     "use_sim_time": use_sim_time,
                 }.items(),
             ),
@@ -425,7 +409,7 @@ def generate_launch_description():
     # RViz MoveIt Config
     moveit_config = (
         MoveItConfigsBuilder(
-            robot_name="ur", package_name="tabletop_moveit_config"
+            robot_name="ur5e", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
             file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}

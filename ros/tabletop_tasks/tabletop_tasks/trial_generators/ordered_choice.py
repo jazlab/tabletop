@@ -57,7 +57,6 @@ class OrderedChoice(BaseTrialGenerator):
         """Return a trial."""
         if self._trial_counter >= self._num_trials:
             raise StopIteration
-        self._trial_counter += 1
 
         occlude, pose, arm, object_id = self._parameter_grid[
             self._trial_counter % len(self._parameter_grid)
@@ -68,6 +67,8 @@ class OrderedChoice(BaseTrialGenerator):
             arm=arm,
             occlude=occlude,
         )
+
+        self._trial_counter += 1
 
         return trial_spec
 

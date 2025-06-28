@@ -32,7 +32,6 @@ from moveit.core.collision_detection import (  # type: ignore
     CollisionRequest,
     CollisionResult,
 )
-from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_interface import MotionPlanResponse  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_model import RobotModel  # type: ignore
@@ -50,7 +49,6 @@ from moveit_msgs.msg import AllowedCollisionMatrix as AllowedCollisionMatrixMsg
 from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
-    Constraints,
     LinkPadding,
     ObjectColor,
 )
@@ -82,7 +80,8 @@ from tabletop_utils.mesh import (
 from tabletop_utils.ros import (
     MOVEIT_ERROR_CODE_MAP,
     CommanderRecoverableError,
-    InvalidTrajectoryError,
+    ExecuteRequest,
+    ExecutionError,
     MaxAttemptsReachedError,
     MaxExecutionAttemptsReachedError,
     MaxPlanningAttemptsReachedError,
@@ -90,14 +89,17 @@ from tabletop_utils.ros import (
     ObjectManipulationError,
     PlanningError,
     PlanningGoalT,
-    PostProcessingErrorCodes,
+    PlanRequest,
     ServiceCallError,
     ServiceCallUnsuccessfulError,
+    TrajectoryError,
+    TrajectoryErrorCodes,
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
     add_primitive_collision_object_msg,
     add_primitive_collision_object_msg_from_geometry,
     all_close_poses_stamped,
+    all_close_robot_states,
     arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
@@ -117,9 +119,9 @@ from ur_dashboard_msgs.srv import Load
 from tabletop_server.nodes.base import BaseNode
 
 
-def asyncio_task_decorator(
-    coro_fn: Callable[..., Coroutine],
-) -> Callable[..., asyncio.Task]:
+def asyncio_task_decorator[T](
+    coro_fn: Callable[..., Coroutine[None, None, T]],
+) -> Callable[..., asyncio.Task[T]]:
     """
     Decorator for methods that should be run in the current asyncio.TaskGroup.
 
@@ -167,6 +169,37 @@ def object_manipulation_lock_decorator(
     return wrapper
 
 
+def safe_to_execute_decorator(
+    coro_fn: Callable[..., Coroutine],
+) -> Callable[..., Coroutine]:
+    """Decorator for methods that should be run with the safe to execute lock."""
+
+    async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
+        while True:
+            try:
+                return await coro_fn(self, *args, **kwargs)
+            except NotSafeToExecuteError as e:
+                self.log(
+                    f"Not safe to execute while running {coro_fn.__name__}: {e}",
+                    severity="WARN",
+                )
+                self.log(
+                    f"{coro_fn.__name__} called with args: {args} and kwargs: {kwargs}",
+                    severity="WARN",
+                )
+                self.log(
+                    "Locking arms and waiting for safe to execute",
+                    severity="WARN",
+                )
+                await self._arm_lock_and_wait()
+                self.log(
+                    f"Arms locked and safe to execute, retrying {coro_fn.__name__}",
+                    severity="WARN",
+                )
+
+    return wrapper
+
+
 class ObjectPhase(IntEnum):
     PRE_FETCH = 0
     PRE_ATTACH = 1
@@ -204,17 +237,11 @@ class Commander(BaseNode):
         "dashboard.installation",
         "dashboard.program",
         "teensy.spin_period",
-        "planning.max_attempts",
-        "planning.group_name",
-        "planning.default_pipeline",
-        "planning.linear_pipeline",
-        "planning.planning_link",
+        "planning.defaults",
         "planning.position_tolerance",
         "planning.orientation_tolerance",
         "planning.use_euler_tolerance",
-        "trajectory_post_processing.apply_totg",
-        "trajectory_post_processing.apply_smoothing",
-        "execution.max_attempts",
+        "execution.defaults",
         "predefined_states.idle_state",
         "predefined_poses.pre_fetch_offset",
         "predefined_poses.pre_attach_offset",
@@ -252,21 +279,18 @@ class Commander(BaseNode):
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
-        self.init_attributes()
-
         self.init_planning_scene()
 
         self.init_attached_object()
 
         self.init_link_padding()
 
+        self.init_extra_attributes()
+
         self.log("Commander initialized")
 
-    def init_attributes(self):
+    def init_extra_attributes(self):
         """Setup variables for the commander."""
-        # Collision object kwargs
-        self.collision_object_init_kwargs: dict[str, dict[str, Any]] = {}
-
         # Trajectory cache
         trajectory_cache_config = self.get_parameter_wrapper(
             "trajectory_cache.kwargs"
@@ -298,7 +322,6 @@ class Commander(BaseNode):
         - /commander/plan_and_execute
         """
         # Subscribers
-        self.log(f"QOS: {QoSPresetProfiles.SENSOR_DATA.value}")
         self.teensy_sub = self.create_subscription(
             TeensySensor,
             "/teensy/sensor",
@@ -311,12 +334,24 @@ class Commander(BaseNode):
         self._safe_to_execute = False
         self._teensy_sensor_lock = threading.Lock()
 
-        client = self.create_client(
+        self.set_arm_lock_client = self.create_client(
             SetArmLock,
             "/teensy/set_arm_lock",
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        client.wait_for_service()
-        self.destroy_client(client)
+        self.set_reward_client = self.create_client(
+            SetReward,
+            "/teensy/set_reward",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.set_smartglass_client = self.create_client(
+            SetSmartglass,
+            "/teensy/set_smartglass",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.set_arm_lock_client.wait_for_service()
+        self.set_reward_client.wait_for_service()
+        self.set_smartglass_client.wait_for_service()
 
         # Action clients
         self.flic_response_time_client = ActionClient(
@@ -385,7 +420,7 @@ class Commander(BaseNode):
             The planning component for the specified group.
         """
         if group_name is None:
-            group_name = self.planning_group_name
+            group_name = self.default_group_name
         return self.moveit_py.get_planning_component(group_name)
 
     @property
@@ -413,14 +448,14 @@ class Commander(BaseNode):
         return self.get_parameter_wrapper("simulate")
 
     @property
-    def planning_group_name(self) -> str:
+    def default_group_name(self) -> str:
         """Get the planning group name from the parameter server."""
-        return self.get_parameter_wrapper("planning.group_name")
+        return self.get_parameter_wrapper("planning.defaults.group_name")
 
     @property
-    def planning_link(self) -> str:
+    def default_pose_link(self) -> str:
         """Get the planning link from the parameter server."""
-        return self.get_parameter_wrapper("planning.planning_link")
+        return self.get_parameter_wrapper("planning.defaults.pose_link")
 
     @property
     def allowed_object_mount_collisions(self) -> list[tuple[str, str]]:
@@ -650,7 +685,7 @@ class Commander(BaseNode):
                     await asyncio.sleep(3)
 
     ###########################################################################
-    ########## IO ROS Interface ###############################################
+    ########## ROS Interface ##################################################
     ###########################################################################
 
     # Subscribers
@@ -712,8 +747,7 @@ class Commander(BaseNode):
             srv_request=SetArmLock.Request(
                 left_arm=left, right_arm=right, lock=lock
             ),
-            srv_type=SetArmLock,
-            srv_name="/teensy/set_arm_lock",
+            srv_client=self.set_arm_lock_client,
         )
         return cast(SetArmLock.Response, response)
 
@@ -759,10 +793,11 @@ class Commander(BaseNode):
         self.log(f"Delivering reward for {duration} s")
         if duration < 0:
             raise ValueError("Duration must be greater than 0!")
+
+        duration_msg = Duration(seconds=duration).to_msg()
         response = await self.service_call_async(
-            srv_request=SetReward.Request(duration_ms=int(duration * 1000)),
-            srv_type=SetReward,
-            srv_name="/teensy/set_reward",
+            srv_request=SetReward.Request(duration=duration_msg),
+            srv_client=self.set_reward_client,
         )
         return cast(SetReward.Response, response)
 
@@ -786,8 +821,7 @@ class Commander(BaseNode):
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
         response = await self.service_call_async(
             srv_request=SetSmartglass.Request(reveal=reveal),
-            srv_type=SetSmartglass,
-            srv_name="/teensy/set_smartglass",
+            srv_client=self.set_smartglass_client,
         )
         return cast(SetSmartglass.Response, response)
 
@@ -1032,7 +1066,7 @@ class Commander(BaseNode):
     ) -> CollisionResult:
         """Check if an object is colliding with the planning scene."""
         if group_name is None:
-            group_name = self.planning_group_name
+            group_name = self.default_group_name
 
         self.log(f"Checking collision for group {group_name}")
 
@@ -1052,7 +1086,7 @@ class Commander(BaseNode):
     def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
         """Check if the current state of the planning scene is colliding."""
         if group_name is None:
-            group_name = self.planning_group_name
+            group_name = self.default_group_name
 
         with self.planning_scene_read_only() as scene:
             return scene.is_state_colliding(group_name)
@@ -1675,6 +1709,8 @@ class Commander(BaseNode):
 
         self.remove_all_collision_objects()
 
+        self.collision_object_init_kwargs: dict[str, dict[str, Any]] = {}
+
         config: dict[str, Any] = self.get_parameter_wrapper("planning_scene")
 
         scene_path = os.path.join(config["dir"], "scene.txt")
@@ -1807,7 +1843,7 @@ class Commander(BaseNode):
         assert isinstance(object_id, str)
         self.move_collision_object(object_id, self.eef_pose_stamped())
         self.attach_collision_object(
-            object_id, self.planning_link, touch_links=self.touch_links
+            object_id, self.default_pose_link, touch_links=self.touch_links
         )
 
     ###########################################################################
@@ -1900,7 +1936,7 @@ class Commander(BaseNode):
     def eef_pose_stamped(self, frame_id: Optional[str] = None) -> PoseStamped:
         """Get the current end-effector pose."""
         with self.planning_scene_read_only() as scene:
-            eef_pose = scene.current_state.get_pose(self.planning_link)
+            eef_pose = scene.current_state.get_pose(self.default_pose_link)
 
         pose_stamped = self.create_pose_stamped(
             pose=deepcopy(eef_pose), frame_id=self.planning_frame
@@ -2051,203 +2087,82 @@ class Commander(BaseNode):
     def get_empty_trajectory(self) -> RobotTrajectory:
         return RobotTrajectory(self.robot_model)
 
-    def _parse_plan_args(
-        self,
-        goal: Optional[PlanningGoalT] = None,
-        *,
-        start_state: Optional[RobotState] = None,
-        group_name: Optional[str] = None,
-        pose_link: Optional[str] = None,
-        planning_pipeline: str | list[str] = "default",
-        path_constraints: Optional[Constraints] = None,
-        planning_scene: Optional[PlanningScene] = None,
-        apply_totg: Optional[bool] = None,
-        apply_smoothing: Optional[bool] = None,
-        velocity_scaling_factor: Optional[float] = None,
-        acceleration_scaling_factor: Optional[float] = None,
-        path_tolerance: Optional[float] = None,
-        resample_dt: Optional[float] = None,
-        min_angle_change: Optional[float] = None,
-        mitigate_overshoot: Optional[bool] = None,
-        overshoot_threshold: Optional[float] = None,
-        max_plan_attempts: Optional[int] = None,
-        **unused_kwargs: Any,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+    def get_default_plan_request(self) -> PlanRequest:
+        """Get the default plan request."""
+        kwargs = self.get_parameter_wrapper("planning.defaults")
+        return PlanRequest(
+            goal=PoseStamped(), start_state=self.current_state, **kwargs
+        )
+
+    def create_plan_request(
+        self, goal: PlanningGoalT, **kwargs: Any
+    ) -> tuple[PlanRequest, dict[str, Any]]:
         """Parse the planning kwargs.
 
         Args:
             goal: The goal to plan for.
-            start_state: The start state to plan for.
-            group_name: The name of the planning group.
-            pose_link: The link to use for the goal pose.
-            planning_pipeline: The planning pipeline to use.
-            path_constraints: The path constraints to use.
-            max_plan_attempts: The maximum number of planning attempts.
-            planning_scene: The planning scene to use.
-            totg: Whether to apply time parameterization to the trajectory.
-            apply_smoothing: Whether to apply smoothing to the trajectory.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            path_tolerance: The path tolerance to apply to the trajectory.
-            resample_dt: The resample time step to apply to the trajectory.
-            min_angle_change: The minimum angle change to apply to the trajectory.
-            mitigate_overshoot: Whether to mitigate overshoot.
-            overshoot_threshold: The overshoot threshold to apply to the trajectory.
-            validate_trajectory: Whether to validate the trajectory.
-            **unused_kwargs: Additional keyword arguments that are not used for
-                planning.
+            **kwargs: Additional keyword arguments to override the default plan
+                request.
 
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
         """
         self.log("Parsing plan args", severity="DEBUG")
 
+        request = self.get_default_plan_request()
+
         # TODO: Implement pose_link functionality
-        if pose_link is not None and pose_link != self.planning_link:
+        if "pose_link" in kwargs and kwargs["pose_link"] != request.pose_link:
             raise NotImplementedError(
                 "pose_link functionality is not implemented"
             )
 
-        # Set start state to current state if not provided
-        if start_state is None:
-            start_state = self.current_state
-
-        # Set pose_link to planning link if not provided
-        if pose_link is None:
-            pose_link = self.planning_link
-
-        # Set the group name to the planning group name if not provided
-        if group_name is None:
-            group_name = self.planning_group_name
+        # Override the default kwargs with the provided kwargs
+        for key in request.__slots__:
+            if key in kwargs:
+                setattr(request, key, kwargs.pop(key))
 
         # Set the goal to the target state if the goal is a configuration name
-        if goal is None:
-            raise ValueError("Goal is required")
         if isinstance(goal, str):
-            goal = self.get_target_state(goal, group_name)
+            goal = self.get_target_state(goal, request.group_name)
         elif isinstance(goal, PoseStamped):
             if goal.header.frame_id != self.planning_frame:
                 goal = self.change_reference_frame(goal, self.planning_frame)
+        request.goal = goal
 
-        # Set the planning pipeline(s) from the parameter server if the planning
-        # pipeline(s) equals "default" or "linear"
-        if isinstance(planning_pipeline, str):
-            planning_pipeline = [planning_pipeline]
+        return request, kwargs
 
-        for i, pipeline in enumerate(planning_pipeline):
-            if pipeline == "default":
-                planning_pipeline[i] = self.get_parameter_wrapper(
-                    "planning.default_pipeline"
-                )
-            elif pipeline == "linear":
-                if not isinstance(goal, PoseStamped):
-                    raise ValueError(
-                        "Linear pipeline requires a PoseStamped goal"
-                    )
-                planning_pipeline[i] = self.get_parameter_wrapper(
-                    "planning.linear_pipeline"
-                )
-            else:
-                raise ValueError(
-                    f"Planning pipelines besides 'default' and 'linear' are not supported: {pipeline}"
-                )
+    def get_default_execute_request(self) -> ExecuteRequest:
+        """Get the default execute request."""
+        kwargs = self.get_parameter_wrapper("execution.defaults")
+        return ExecuteRequest(trajectory=self.get_empty_trajectory(), **kwargs)
 
-        # Set the planning pipeline to the first pipeline if there is only one
-        if len(planning_pipeline) == 1:
-            planning_pipeline = planning_pipeline[0]
+    def create_execute_request(
+        self, trajectory: RobotTrajectory, **kwargs: Any
+    ) -> tuple[ExecuteRequest, dict[str, Any]]:
+        """Create an execute request.
 
-        # Set the apply totg and apply smoothing if not provided
-        trajectory_kwargs = self.get_parameter_wrapper(
-            "trajectory_post_processing"
-        )
-        if apply_totg is None:
-            apply_totg = trajectory_kwargs["apply_totg"]
+        Args:
+            trajectory: The robot trajectory to execute.
+            **kwargs: Additional keyword arguments to override the default
+                execute request.
 
-        if apply_smoothing is None:
-            apply_smoothing = trajectory_kwargs["apply_smoothing"]
+        Returns:
+            An execute request.
+        """
+        request = self.get_default_execute_request()
 
-        # Set the velocity scaling factor if not provided
-        if velocity_scaling_factor is None:
-            velocity_scaling_factor = trajectory_kwargs[
-                "velocity_scaling_factor"
-            ]
-        if acceleration_scaling_factor is None:
-            acceleration_scaling_factor = trajectory_kwargs[
-                "acceleration_scaling_factor"
-            ]
+        request.trajectory = trajectory
 
-        # Set the totg kwargs if not provided
-        if apply_totg:
-            totg_kwargs = trajectory_kwargs["totg"]
-            totg_kwargs["velocity_scaling_factor"] = velocity_scaling_factor
-            totg_kwargs["acceleration_scaling_factor"] = (
-                acceleration_scaling_factor
-            )
-            if path_tolerance is not None:
-                totg_kwargs["path_tolerance"] = path_tolerance
-            if resample_dt is not None:
-                totg_kwargs["resample_dt"] = resample_dt
-            if min_angle_change is not None:
-                totg_kwargs["min_angle_change"] = min_angle_change
-        else:
-            totg_kwargs = None
+        # Override the default kwargs with the provided kwargs
+        for key in request.__slots__:
+            if key in kwargs:
+                setattr(request, key, kwargs.pop(key))
 
-        # Set the smoothing kwargs if not provided
-        if apply_smoothing:
-            smoothing_kwargs = trajectory_kwargs["smoothing"]
-            smoothing_kwargs["velocity_scaling_factor"] = (
-                velocity_scaling_factor
-            )
-            smoothing_kwargs["acceleration_scaling_factor"] = (
-                acceleration_scaling_factor
-            )
-            if mitigate_overshoot is not None:
-                smoothing_kwargs["mitigate_overshoot"] = mitigate_overshoot
-            if overshoot_threshold is not None:
-                smoothing_kwargs["overshoot_threshold"] = overshoot_threshold
-        else:
-            smoothing_kwargs = None
-
-        # Set the max plan attempts if not provided
-        if max_plan_attempts is None:
-            max_plan_attempts = cast(
-                int, self.get_parameter_wrapper("planning.max_attempts")
-            )
-
-        kwargs = {
-            "pre_planning_kwargs": {
-                "goal": goal,
-                "start_state": start_state,
-                "pose_link": pose_link,
-                "group_name": group_name,
-                "planning_pipeline": planning_pipeline,
-                "path_constraints": path_constraints,
-            },
-            "planning_kwargs": {
-                "planning_scene": planning_scene,
-                "apply_totg": apply_totg,
-                "apply_smoothing": apply_smoothing,
-                "totg_kwargs": totg_kwargs,
-                "smoothing_kwargs": smoothing_kwargs,
-            },
-            "max_plan_attempts": max_plan_attempts,
-        }
-
-        self.log(
-            f"Parsed plan args: {kwargs}",
-            severity="DEBUG",
-        )
-        return kwargs, unused_kwargs
+        return request, kwargs
 
     def _pre_plan(
-        self,
-        goal: PlanningGoalT,
-        *,
-        start_state: RobotState,
-        pose_link: str,
-        group_name: str,
-        planning_pipeline: str | list[str],
-        path_constraints: Constraints | None,
+        self, request: PlanRequest
     ) -> tuple[
         PlanningComponent,
         PlanRequestParameters | MultiPipelinePlanRequestParameters,
@@ -2255,180 +2170,57 @@ class Commander(BaseNode):
         """Get the planning component and request parameters for the given kwargs.
 
         Args:
-            goal: The goal to plan for.
-            start_state: The start state to plan for.
-            pose_link: The link to use for the goal pose.
-            group_name: The name of the planning group.
-            planning_pipeline: The planning pipeline to use.
-            path_constraints: The path constraints to use.
+            request: The request to plan for.
 
         Returns:
             A tuple of the planning component and request parameters.
         """
         self.log(
-            f"Preparing planning component and request parameters with "
-            f"goal {goal}, "
-            f"start_state {start_state}, "
-            f"pose_link {pose_link}, "
-            f"group_name {group_name}, "
-            f"planning_pipeline {planning_pipeline}, "
-            f"path_constraints {path_constraints}",
+            f"Preparing planning component and request parameters with request {request}",
             severity="DEBUG",
         )
 
-        planning_component = self.get_planning_component(group_name)
+        planning_component = self.get_planning_component(request.group_name)
 
         # Set start state
-        if not planning_component.set_start_state(robot_state=start_state):
-            raise ValueError(f"Invalid start state: {start_state}")
+        if not planning_component.set_start_state(
+            robot_state=request.start_state
+        ):
+            raise ValueError(f"Invalid start state: {request.start_state}")
 
         # Check that pose_link is the planning link
-        if pose_link != self.planning_link:
+        if request.pose_link != self.default_pose_link:
             raise NotImplementedError(
                 "pose_link functionality is not implemented"
             )
 
         # Set goal state
         goal_kwargs = {}
-        if isinstance(goal, PoseStamped):
-            goal_kwargs["pose_stamped_msg"] = goal
-            goal_kwargs["pose_link"] = pose_link
-        elif isinstance(goal, RobotState):
-            goal_kwargs["robot_state"] = goal
-        elif isinstance(goal, str):
-            goal_kwargs["configuration_name"] = goal
+        if isinstance(request.goal, PoseStamped):
+            goal_kwargs["pose_stamped_msg"] = request.goal
+            goal_kwargs["pose_link"] = request.pose_link
+        else:
+            goal_kwargs["robot_state"] = request.goal
 
         if not planning_component.set_goal_state(**goal_kwargs):
-            raise ValueError(f"Invalid goal: {goal}")
+            raise ValueError(f"Invalid goal: {request.goal}")
 
         # Set path constraints
-        if path_constraints is not None:
-            planning_component.set_path_constraints(path_constraints)
+        if request.path_constraints is not None:
+            planning_component.set_path_constraints(request.path_constraints)
 
         # Plan
-        if isinstance(planning_pipeline, str):
+        if isinstance(request.planning_pipeline, str):
             request_params = PlanRequestParameters(
-                self.moveit_py, planning_pipeline
+                self.moveit_py, request.planning_pipeline
             )
         else:
-            assert isinstance(planning_pipeline, (list, tuple))
+            assert isinstance(request.planning_pipeline, (list, tuple))
             request_params = MultiPipelinePlanRequestParameters(
-                self.moveit_py, planning_pipeline
+                self.moveit_py, request.planning_pipeline
             )
 
         return planning_component, request_params
-
-    def _apply_totg(
-        self,
-        trajectory: RobotTrajectory,
-        *,
-        velocity_scaling_factor: float,
-        acceleration_scaling_factor: float,
-        path_tolerance: float,
-        resample_dt: float,
-        min_angle_change: float,
-    ) -> RobotTrajectory | None:
-        """Apply time parameterization to the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to apply time parameterization to.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            path_tolerance: The path tolerance to apply to the trajectory.
-            resample_dt: The resample time step to apply to the trajectory.
-            min_angle_change: The minimum angle change to apply to the trajectory.
-
-        Returns:
-            The robot trajectory with time parameterization applied.
-        """
-        self.log(
-            "Applying time parameterization to trajectory with "
-            f"velocity_scaling_factor {velocity_scaling_factor}, "
-            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
-            f"path_tolerance {path_tolerance}, "
-            f"resample_dt {resample_dt}, "
-            f"min_angle_change {min_angle_change}",
-            severity="DEBUG",
-        )
-
-        trajectory = robot_trajectory_copy(trajectory)
-
-        old_num_waypoints = len(trajectory)
-        old_duration = trajectory.duration
-        old_path_length = trajectory.path_length
-
-        if not trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            path_tolerance=path_tolerance,
-            resample_dt=resample_dt,
-            min_angle_change=min_angle_change,
-        ):
-            return None
-
-        self.log(
-            "Time parameterization applied successfully with: "
-            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
-            f"duration {old_duration} -> {trajectory.duration}, "
-            f"path length {old_path_length} -> {trajectory.path_length}",
-            severity="DEBUG",
-        )
-
-        return trajectory
-
-    def _apply_smoothing(
-        self,
-        trajectory: RobotTrajectory,
-        *,
-        velocity_scaling_factor: float,
-        acceleration_scaling_factor: float,
-        mitigate_overshoot: bool,
-        overshoot_threshold: float,
-    ) -> RobotTrajectory | None:
-        """Apply ruckig smoothing to the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to apply smoothing to.
-            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
-            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
-            mitigate_overshoot: Whether to mitigate overshoot.
-            overshoot_threshold: The overshoot threshold to apply to the trajectory.
-
-        Returns:
-            The robot trajectory with smoothing applied.
-        """
-        trajectory = robot_trajectory_copy(trajectory)
-
-        old_num_waypoints = len(trajectory)
-        old_duration = trajectory.duration
-        old_path_length = trajectory.path_length
-
-        self.log(
-            f"Applying smoothing to trajectory with "
-            f"velocity_scaling_factor {velocity_scaling_factor}, "
-            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
-            f"mitigate_overshoot {mitigate_overshoot}, "
-            f"overshoot_threshold {overshoot_threshold}",
-            severity="DEBUG",
-        )
-
-        if not trajectory.apply_ruckig_smoothing(
-            velocity_scaling_factor=velocity_scaling_factor,
-            acceleration_scaling_factor=acceleration_scaling_factor,
-            mitigate_overshoot=mitigate_overshoot,
-            overshoot_threshold=overshoot_threshold,
-        ):
-            return None
-
-        self.log(
-            "Smoothing applied successfully with: "
-            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
-            f"duration {old_duration} -> {trajectory.duration}, "
-            f"path length {old_path_length} -> {trajectory.path_length}",
-            severity="DEBUG",
-        )
-
-        return trajectory
 
     def _plan_once_blocking(
         self,
@@ -2436,10 +2228,6 @@ class Commander(BaseNode):
         request_params: PlanRequestParameters
         | MultiPipelinePlanRequestParameters,
         planning_scene: Optional[PlanningScene] = None,
-        apply_totg: bool = True,
-        apply_smoothing: bool = True,
-        totg_kwargs: Optional[dict[str, Any]] = None,
-        smoothing_kwargs: Optional[dict[str, Any]] = None,
     ) -> RobotTrajectory:
         """Plan a trajectory to the given waypoint once.
 
@@ -2467,44 +2255,13 @@ class Commander(BaseNode):
         if not plan_response:
             raise PlanningError(plan_response.error_code)
 
-        trajectory = plan_response.trajectory
-
-        if apply_totg:
-            assert totg_kwargs is not None
-            if not (trajectory := self._apply_totg(trajectory, **totg_kwargs)):
-                self.log(
-                    "Time parameterization failed",
-                    severity="WARN",
-                )
-                raise PlanningError(PostProcessingErrorCodes.TOTG_FAILED)
-
-        if apply_smoothing:
-            assert smoothing_kwargs is not None
-            if not (
-                trajectory := self._apply_smoothing(
-                    trajectory, **smoothing_kwargs
-                )
-            ):
-                self.log(
-                    "Smoothing failed",
-                    severity="WARN",
-                )
-                raise PlanningError(PostProcessingErrorCodes.SMOOTHING_FAILED)
-
-        if apply_totg or apply_smoothing:
-            if not self._validate_trajectory(trajectory):
-                raise PlanningError(
-                    PostProcessingErrorCodes.INVALID_TRAJECTORY
-                )
-
-        return trajectory
+        return plan_response.trajectory
 
     def _plan_blocking(
         self,
-        goal: Optional[PlanningGoalT] = None,
-        *,
+        *args: Any,
+        request: Optional[PlanRequest] = None,
         cancel_event: Optional[threading.Event] = None,
-        parse_kwargs: bool = True,
         **kwargs: Any,
     ) -> RobotTrajectory | None:
         """
@@ -2512,78 +2269,68 @@ class Commander(BaseNode):
         times until successful.
 
         Args:
-            goal: The goal to plan for.
-            parse_kwargs: Whether to parse the kwargs.
+            *args: Arguments to pass to `create_plan_request()`.
+            request: The request to plan for. If not provided, the request is
+                created from args and kwargs.
             cancel_event: An event that can be used to cancel planning.
-            **kwargs: Additional keyword arguments to pass to `_parse_plan_args()`.
+            **kwargs: Keyword arguments to pass to `create_plan_request()`.
+
         Returns:
-            The planned trajectory.
+            The planned trajectory, or None if the goal is already reached.
+
         Raises:
-            MaxAttemptsReachedError: If the maximum number of planning attempts
-                is reached.
+            MaxPlanningAttemptsReachedError: If the maximum number of planning
+                attempts is reached.
             asyncio.CancelledError: If the planning is cancelled by the cancel_event.
 
         See Also:
-            `_parse_plan_args()`: For implementation and parameter details
-            `_get_planning_component_and_request_params()`: For further
-                implementation details
+            `create_plan_request()`: For parameter details
         """
-        self.log(
-            f"Planning trajectory with goal {goal}, kwargs {kwargs}",
-            severity="DEBUG",
-        )
-
         # Parse the planning args if requested
-        if parse_kwargs:
-            kwargs, unused_kwargs = self._parse_plan_args(goal, **kwargs)
-            assert len(unused_kwargs) == 0, f"Unused kwargs: {unused_kwargs}"
+        if request is None:
+            request, unused_kwargs = self.create_plan_request(*args, **kwargs)
+            if len(unused_kwargs) > 0:
+                raise ValueError(f"Unused kwargs: {unused_kwargs}")
+        elif len(args) > 0 or len(kwargs) > 0:
+            raise ValueError(
+                f"Additional arguments ({args}) or kwargs ({kwargs}) "
+                "cannot be provided if plan_request is provided"
+            )
 
-        pre_planning_kwargs = kwargs["pre_planning_kwargs"]
-        planning_kwargs = kwargs["planning_kwargs"]
-
-        goal = pre_planning_kwargs["goal"]
-
-        if isinstance(goal, PoseStamped) and self.all_close_pose_stamped(
-            goal, self.eef_pose_stamped()
+        # Check if the goal is already reached
+        if isinstance(
+            request.goal, PoseStamped
+        ) and self.all_close_pose_stamped(
+            request.goal, self.eef_pose_stamped()
         ):
             self.log("Already at goal, skipping planning")
             return None
 
         # Get the planning component and request parameters
-        planning_component, request_params = self._pre_plan(
-            **pre_planning_kwargs
-        )
+        planning_component, request_params = self._pre_plan(request)
 
         # Plan until successful or max attempts reached
-        plan_errors = []
-        max_plan_attempts = kwargs["max_plan_attempts"]
-        for i in range(max_plan_attempts):
+        errors: list[PlanningError] = []
+        for i in range(request.max_plan_attempts):
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Plan cancelled")
             try:
                 trajectory = self._plan_once_blocking(
-                    planning_component,
-                    request_params,
-                    **planning_kwargs,
+                    planning_component, request_params, request.planning_scene
                 )
                 self.log(
-                    f"Planning attempt {i + 1}/{max_plan_attempts} succeeded",
+                    f"Planning attempt {i + 1}/{request.max_plan_attempts} succeeded",
                     severity="DEBUG",
                 )
-                break
+                return trajectory
             except PlanningError as e:
                 self.log(
-                    f"Planning attempt {i + 1}/{max_plan_attempts} failed: {e}",
-                    severity="DEBUG",
+                    f"Planning attempt {i + 1}/{request.max_plan_attempts} failed: {e}",
+                    severity="WARN",
                 )
-                plan_errors.append(e)
+                errors.append(e)
         else:
-            raise MaxPlanningAttemptsReachedError(
-                planning_errors=plan_errors,
-                max_attempts=max_plan_attempts,
-            )
-
-        return trajectory
+            raise MaxPlanningAttemptsReachedError(errors)
 
     async def plan(self, *args: Any, **kwargs: Any) -> RobotTrajectory | None:
         """Asynchronously calls `plan()` method in a separate thread.
@@ -2599,7 +2346,125 @@ class Commander(BaseNode):
         finally:
             cancel_event.set()
 
-    def _validate_trajectory(self, trajectory: RobotTrajectory) -> bool:
+    def _apply_totg(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
+        path_tolerance: float,
+        resample_dt: float,
+        min_angle_change: float,
+    ) -> RobotTrajectory:
+        """Apply time parameterization to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply time parameterization to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            path_tolerance: The path tolerance to apply to the trajectory.
+            resample_dt: The resample time step to apply to the trajectory.
+            min_angle_change: The minimum angle change to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with time parameterization applied.
+
+        Raises:
+            PostProcessingError: If time parameterization fails.
+        """
+        self.log(
+            "Applying time parameterization to trajectory with "
+            f"velocity_scaling_factor {velocity_scaling_factor}, "
+            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
+            f"path_tolerance {path_tolerance}, "
+            f"resample_dt {resample_dt}, "
+            f"min_angle_change {min_angle_change}",
+            severity="DEBUG",
+        )
+
+        trajectory = robot_trajectory_copy(trajectory)
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        if not trajectory.apply_totg_time_parameterization(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            path_tolerance=path_tolerance,
+            resample_dt=resample_dt,
+            min_angle_change=min_angle_change,
+        ):
+            raise TrajectoryError(TrajectoryErrorCodes.TOTG_FAILED)
+
+        self.log(
+            "Time parameterization applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+        return trajectory
+
+    def _apply_smoothing(
+        self,
+        trajectory: RobotTrajectory,
+        *,
+        velocity_scaling_factor: float,
+        acceleration_scaling_factor: float,
+        mitigate_overshoot: bool,
+        overshoot_threshold: float,
+    ) -> RobotTrajectory:
+        """Apply ruckig smoothing to the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to apply smoothing to.
+            velocity_scaling_factor: The velocity scaling factor to apply to the trajectory.
+            acceleration_scaling_factor: The acceleration scaling factor to apply to the trajectory.
+            mitigate_overshoot: Whether to mitigate overshoot.
+            overshoot_threshold: The overshoot threshold to apply to the trajectory.
+
+        Returns:
+            The robot trajectory with smoothing applied.
+
+        Raises:
+            PostProcessingError: If smoothing fails.
+        """
+        trajectory = robot_trajectory_copy(trajectory)
+
+        old_num_waypoints = len(trajectory)
+        old_duration = trajectory.duration
+        old_path_length = trajectory.path_length
+
+        self.log(
+            f"Applying smoothing to trajectory with "
+            f"velocity_scaling_factor {velocity_scaling_factor}, "
+            f"acceleration_scaling_factor {acceleration_scaling_factor}, "
+            f"mitigate_overshoot {mitigate_overshoot}, "
+            f"overshoot_threshold {overshoot_threshold}",
+            severity="DEBUG",
+        )
+
+        if not trajectory.apply_ruckig_smoothing(
+            velocity_scaling_factor=velocity_scaling_factor,
+            acceleration_scaling_factor=acceleration_scaling_factor,
+            mitigate_overshoot=mitigate_overshoot,
+            overshoot_threshold=overshoot_threshold,
+        ):
+            raise TrajectoryError(TrajectoryErrorCodes.SMOOTHING_FAILED)
+
+        self.log(
+            "Smoothing applied successfully with: "
+            f"number of waypoints {old_num_waypoints} -> {len(trajectory)}, "
+            f"duration {old_duration} -> {trajectory.duration}, "
+            f"path length {old_path_length} -> {trajectory.path_length}",
+            severity="DEBUG",
+        )
+
+        return trajectory
+
+    def _validate_trajectory(self, trajectory: RobotTrajectory):
         """Validate the given robot trajectory.
 
         Args:
@@ -2610,18 +2475,15 @@ class Commander(BaseNode):
         group_name = trajectory.joint_model_group_name
 
         with self.planning_scene_read_only() as scene:
-            if scene.is_path_valid(
+            if not scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
                 verbose=True,
                 invalid_index=[],
             ):
-                return True
-        return False
+                raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
 
-    def _execute_once_blocking(
-        self, trajectory_msg: RobotTrajectoryMsg
-    ) -> ExecutionStatus:
+    def _execute_once_blocking(self, trajectory_msg: RobotTrajectoryMsg):
         """Execute the given robot trajectory message once.
 
         Args:
@@ -2632,26 +2494,37 @@ class Commander(BaseNode):
         self.log("Executing trajectory once", severity="DEBUG")
         self.trajectory_execution_manager.push(trajectory_msg)
         if not self.safe_to_execute:
-            raise NotSafeToExecuteError("Tried to execute while not safe")
+            raise NotSafeToExecuteError()
 
         with self.execution_lock:
-            return self.trajectory_execution_manager.execute_and_wait()
+            execution_status = (
+                self.trajectory_execution_manager.execute_and_wait()
+            )
+        if not self.safe_to_execute:
+            raise NotSafeToExecuteError(execution_status)
+
+        if not execution_status:
+            raise ExecutionError(execution_status)
+
+        return execution_status
 
     def _execute_blocking(
         self,
-        trajectory: RobotTrajectory,
-        *,
-        validate_trajectory: bool = True,
-        max_execution_attempts: int = 1,
+        *args: Any,
+        request: Optional[ExecuteRequest] = None,
         cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
     ):
         """Execute the given robot trajectory, retrying up to max_execution_attempts times
         until successful.
 
         Args:
-            trajectory: The robot trajectory to execute.
-            parse_kwargs: Whether to parse the kwargs.
-            **kwargs: Additional keyword arguments to pass to `_parse_execute_args()`.
+            *args: Arguments to pass to `create_execute_request()`.
+            request: The request to execute. If not provided, the request is
+                created from args and kwargs.
+            cancel_event: An event that can be used to cancel execution.
+            **kwargs: Keyword arguments to pass to `create_execute_request()`.
+
         Returns:
             ExecutionStatus: The status of the execution.
         Raises:
@@ -2659,45 +2532,67 @@ class Commander(BaseNode):
                 is reached.
             asyncio.CancelledError: If the execution is cancelled by the cancel_event.
         See Also:
-            `_parse_execute_args()`: For implementation and parameter details
+            `create_execute_request()`: For parameter details
         """
-        self.log(
-            f"Executing trajectory with validate_trajectory {validate_trajectory}, "
-            f"max_execution_attempts {max_execution_attempts}, cancel_event {cancel_event}",
-            severity="DEBUG",
-        )
+        if request is None:
+            request, unused_kwargs = self.create_execute_request(
+                *args, **kwargs
+            )
+            if len(unused_kwargs) > 0:
+                raise ValueError(f"Unused kwargs: {unused_kwargs}")
+        elif len(args) > 0 or len(kwargs) > 0:
+            raise ValueError(
+                f"Additional arguments ({args}) or kwargs ({kwargs}) "
+                "cannot be provided if request is provided"
+            )
 
-        if validate_trajectory:
-            self._validate_trajectory(trajectory)
+        if request.apply_totg:
+            request.trajectory = self._apply_totg(
+                request.trajectory,
+                velocity_scaling_factor=request.velocity_scaling_factor,
+                acceleration_scaling_factor=request.acceleration_scaling_factor,
+                path_tolerance=request.path_tolerance,
+                resample_dt=request.resample_dt,
+                min_angle_change=request.min_angle_change,
+            )
+
+        if request.apply_smoothing:
+            request.trajectory = self._apply_smoothing(
+                request.trajectory,
+                velocity_scaling_factor=request.velocity_scaling_factor,
+                acceleration_scaling_factor=request.acceleration_scaling_factor,
+                mitigate_overshoot=request.mitigate_overshoot,
+                overshoot_threshold=request.overshoot_threshold,
+            )
+
+        if request.validate_trajectory:
+            self._validate_trajectory(request.trajectory)
 
         # Convert to trajectory message
-        trajectory_msg = trajectory.get_robot_trajectory_msg()
+        trajectory_msg = request.trajectory.get_robot_trajectory_msg()
 
         # Execute the trajectory until successful or max attempts reached
-        execution_statuses = []
-        for i in range(max_execution_attempts):
+        errors: list[ExecutionError] = []
+        for i in range(request.max_execution_attempts):
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Execution cancelled")
 
             execution_status = self._execute_once_blocking(trajectory_msg)
             if execution_status:
                 self.log(
-                    f"Execution attempt {i + 1}/{max_execution_attempts} succeeded",
+                    f"Execution attempt {i + 1}/{request.max_execution_attempts} succeeded",
                     severity="DEBUG",
                 )
                 return
             else:
                 self.log(
-                    f"Execution attempt {i + 1}/{max_execution_attempts} "
+                    f"Execution attempt {i + 1}/{request.max_execution_attempts} "
                     f"failed with status {execution_status.status}",
                     severity="DEBUG",
                 )
-                execution_statuses.append(execution_status)
+                errors.append(execution_status)
         else:
-            raise MaxExecutionAttemptsReachedError(
-                execution_statuses=execution_statuses,
-                max_attempts=max_execution_attempts,
-            )
+            raise MaxExecutionAttemptsReachedError(errors)
 
     async def execute(self, *args: Any, **kwargs: Any):
         """Execute the given robot trajectory in a separate thread.
@@ -2732,43 +2627,64 @@ class Commander(BaseNode):
         else:
             self.log("Cache is frozen, skipping cache")
 
+    def _robot_moved(self, old_state: RobotState) -> bool:
+        """Check if the robot has moved.
+
+        Args:
+            old_state: The old state of the robot.
+
+        Returns:
+            True if the robot has moved, False otherwise.
+        """
+        tolerance = self.get_parameter_wrapper(
+            "execution.robot_moved_tolerance"
+        )
+        return not all_close_robot_states(
+            old_state, self.current_state, position_tolerance=tolerance
+        )
+
+    @safe_to_execute_decorator
     async def plan_and_execute(
-        self,
-        goal: PlanningGoalT,
-        cache_trajectory: bool = True,
-        **kwargs: Any,
+        self, *args: Any, cache_trajectory: bool = True, **kwargs: Any
     ) -> dict[str, Any] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
-            goal: The goal to plan for.
+            *args: Arguments to pass to `create_plan_request()`.
             cache_trajectory: Whether to cache the planned trajectory.
-            **kwargs: Keyword arguments to pass to `_parse_plan_and_execute_args()`.
+            **kwargs: Keyword arguments to pass to `create_plan_request()`
+                and `execute()`.
 
         Returns:
             A dictionary containing the kwargs to cache the trajectory, or None
             if the trajectory was found in the cache.
+
+        Raises:
+            MaxAttemptsReachedError: If the maximum number of plan or execute
+                attempts is reached.
+            TrajectoryError: If the trajectory post-processing fails or the
+                trajectory is invalid.
         """
         self.log(
             "Planning and executing trajectory (with cache)", severity="DEBUG"
         )
 
-        # Parse the planning kwargs
-        parsed_kwargs, execute_kwargs = self._parse_plan_args(goal, **kwargs)
-        pre_planning_kwargs = parsed_kwargs["pre_planning_kwargs"]
+        if "start_state" in kwargs:
+            raise ValueError("start_state is not allowed in plan_and_execute")
 
-        # Attempt to get the cached trajectory, otherwise plan and execute normally
+        start_state = self.current_state
+
+        # Parse the planning kwargs
+        plan_request, execute_kwargs = self.create_plan_request(
+            *args, start_state=start_state, **kwargs
+        )
+
+        # Attempt to execute the cached trajectory, otherwise plan and execute normally
         if self.use_cached_trajectories:
-            start_state = pre_planning_kwargs["start_state"]
-            goal_key = pre_planning_kwargs["goal"]
-            pose_link = pre_planning_kwargs["pose_link"]
-            group_name = pre_planning_kwargs["group_name"]
             try:
+                # TODO: Refactor so caching happens in the plan() function
                 trajectories = self.trajectory_cache.get_trajectories(
-                    start_state=start_state,
-                    goal=goal_key,
-                    pose_link=pose_link,
-                    group_name=group_name,
+                    plan_request
                 )
             except KeyError:
                 self.log(
@@ -2784,12 +2700,18 @@ class Commander(BaseNode):
                         return
                     except (
                         MaxExecutionAttemptsReachedError,
-                        InvalidTrajectoryError,
+                        TrajectoryError,
                     ) as e:
                         self.log(
                             f"Error while executing cached trajectory: {e}",
                             severity="WARN",
                         )
+                        if self._robot_moved(start_state):
+                            self.log(
+                                "Robot moved, skipping cached trajectories"
+                            )
+                            break
+
                 self.log(
                     "All cached trajectories failed, planning and executing normally"
                 )
@@ -2798,9 +2720,12 @@ class Commander(BaseNode):
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        if (
-            trajectory := await self.plan(parse_kwargs=False, **parsed_kwargs)
-        ) is None:
+        # Reset the start state to the current state
+        plan_request.start_state = self.current_state
+
+        # Plan and execute normally
+        trajectory = await self.plan(request=plan_request)
+        if trajectory is None:
             return
         await self.execute(
             trajectory, validate_trajectory=False, **execute_kwargs
@@ -2808,10 +2733,8 @@ class Commander(BaseNode):
 
         to_cache_kwargs = {
             "trajectory": trajectory,
-            "pose_link": pre_planning_kwargs["pose_link"],
-            "true_start_state": pre_planning_kwargs["start_state"],
+            "request": plan_request,
             "true_end_state": self.current_state,
-            "true_goal": pre_planning_kwargs["goal"],
         }
 
         # Cache the trajectory if requested
@@ -2894,7 +2817,7 @@ class Commander(BaseNode):
                 | ObjectPhase.PRE_RETURN
                 | ObjectPhase.IDLE
             ):
-                extra_kwargs["planning_pipeline"] = "default"
+                del extra_kwargs["planning_pipeline"]
             case (
                 ObjectPhase.PRE_ATTACH
                 | ObjectPhase.ATTACH
@@ -2911,7 +2834,7 @@ class Commander(BaseNode):
             to_cache_kwargs = await self.plan_and_execute(
                 goal, **kwargs, **extra_kwargs
             )
-        except (InvalidTrajectoryError, MaxAttemptsReachedError) as e:
+        except (MaxExecutionAttemptsReachedError, TrajectoryError) as e:
             to_cache_kwargs = None
             match phase:
                 case (
@@ -2928,9 +2851,7 @@ class Commander(BaseNode):
                         f"Attempting to plan and execute {phase.name} phase with default pipeline",
                         severity="WARN",
                     )
-                    await self.plan_and_execute(
-                        goal, planning_pipeline="default", **kwargs
-                    )
+                    await self.plan_and_execute(goal, **kwargs)
                 case _:
                     raise
         finally:
@@ -2953,7 +2874,7 @@ class Commander(BaseNode):
             case ObjectPhase.ATTACH:
                 self.attach_collision_object(
                     object_id,
-                    self.planning_link,
+                    self.default_pose_link,
                     touch_links=self.touch_links,
                 )
             case ObjectPhase.DETACH:
@@ -3006,7 +2927,7 @@ class Commander(BaseNode):
                 )
                 if kwargs is not None:
                     to_cache_kwargs.append(kwargs)
-        except (InvalidTrajectoryError, MaxAttemptsReachedError) as e:
+        except (MaxAttemptsReachedError, TrajectoryError) as e:
             self.log(
                 f"Error while fetching object: {e}",
                 severity="ERROR",
@@ -3154,7 +3075,7 @@ class Commander(BaseNode):
                     await self.return_object()
                 else:
                     await self.plan_and_execute(end_goal)
-            except (InvalidTrajectoryError, MaxAttemptsReachedError):
+            except (MaxAttemptsReachedError, TrajectoryError):
                 if self.simulate:
                     self.log(
                         "Max attempts reached while resetting rig.",
@@ -3413,7 +3334,7 @@ def main(args=None):
                     print(f"Error while shutting down executor: {e}")
 
     except KeyboardInterrupt:
-        print("Keyboard interrupt")
+        pass
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore

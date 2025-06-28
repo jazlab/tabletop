@@ -75,7 +75,7 @@ ompl_persistent_lazy_prm:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
-pilz_lin:
+linear:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: pilz_industrial_motion_planner

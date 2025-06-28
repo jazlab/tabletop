@@ -45,7 +45,7 @@ def generate_launch_description():
                 [
                     FindPackageShare("tabletop_description"),
                     "urdf",
-                    "tabletop_control.urdf.xacro",
+                    "tabletop.urdf.xacro",
                 ]
             ),
         }.items(),

@@ -9,7 +9,7 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.impl.logging_severity import LoggingSeverity
 from tabletop_server.nodes import Commander
 
-logger = rclpy.logging.get_logger("tabletop_trial_generator")
+logger = rclpy.logging.get_logger("trial_generator")
 
 
 class TrialSpec(NamedTuple):
@@ -61,15 +61,15 @@ class BaseTrialGenerator:
         if rclpy.ok():  # type: ignore
             match severity:
                 case LoggingSeverity.DEBUG:
-                    logger.debug(message, **kwargs)
+                    return logger.debug(message, **kwargs)
                 case LoggingSeverity.INFO:
-                    logger.info(message, **kwargs)
+                    return logger.info(message, **kwargs)
                 case LoggingSeverity.WARN:
-                    logger.warning(message, **kwargs)
+                    return logger.warning(message, **kwargs)
                 case LoggingSeverity.ERROR:
-                    logger.error(message, **kwargs)
+                    return logger.error(message, **kwargs)
                 case LoggingSeverity.FATAL:
-                    logger.fatal(message, **kwargs)
+                    return logger.fatal(message, **kwargs)
                 case _:
                     raise ValueError(f"Invalid severity: {severity}")
         elif severity >= self.log_level:

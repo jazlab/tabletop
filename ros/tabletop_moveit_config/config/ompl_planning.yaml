@@ -8,7 +8,7 @@ request_adapters:
   - default_planning_request_adapters/CheckStartStateCollision
 response_adapters:
   - default_planning_response_adapters/ValidateSolution
-  - default_planning_response_adapters/AddTimeOptimalParameterization
+  # - default_planning_response_adapters/AddTimeOptimalParameterization
   # - default_planning_response_adapters/DisplayMotionPath
 
 planner_configs:
@@ -206,7 +206,7 @@ planner_configs:
     num_planners: 16 # The number of default planners to use for planning
     planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTstar,RRTstar,RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect
 
-ur_manipulator:
+manipulator:
   planner_configs:
     - AnytimePathShortening
     - SBL

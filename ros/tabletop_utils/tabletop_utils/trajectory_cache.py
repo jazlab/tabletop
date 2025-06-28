@@ -18,6 +18,7 @@ from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from tabletop_utils import dbm_sqlite3
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import (
+    PlanRequest,
     all_close_poses_stamped,
     all_close_robot_states,
     arrays_from_pose_msg,
@@ -46,21 +47,21 @@ class FuzzyTrajectoryCacheKey:
         # Type check
         if not isinstance(self.start_state, RobotState):
             raise ValueError(
-                f"Start state is not a RobotState: {self.start_state}"
+                f"Start state must be a RobotState: {self.start_state}"
             )
         if not isinstance(self.goal, (RobotState, PoseStamped)):
             raise ValueError(
-                f"Goal is not a RobotState or PoseStamped: {self.goal}"
+                f"Goal must be a RobotState or PoseStamped: {self.goal}"
             )
         if self.pose_link is not None and not isinstance(self.pose_link, str):
-            raise ValueError(f"Pose link is not a string: {self.pose_link}")
+            raise ValueError(f"Pose link must be a string: {self.pose_link}")
         if not isinstance(self.group_name, str):
-            raise ValueError(f"Group name is not a string: {self.group_name}")
+            raise ValueError(f"Group name must be a string: {self.group_name}")
 
         # Check that the start state is in the world frame
         if self.start_state.robot_model.model_frame != "world":
             raise ValueError(
-                f"Start state robot model frame is not 'world': "
+                f"Start state robot model frame must be 'world': "
                 f"{self.start_state.robot_model.model_frame}"
             )
 
@@ -69,7 +70,7 @@ class FuzzyTrajectoryCacheKey:
             self.group_name
         ):
             raise ValueError(
-                f"Start state robot model does not have joint model group: "
+                f"Start state robot model must have joint model group: "
                 f"{self.group_name}"
             )
 
@@ -77,14 +78,14 @@ class FuzzyTrajectoryCacheKey:
             # Check that the goal state is in the world frame
             if self.goal.robot_model.model_frame != "world":
                 raise ValueError(
-                    f"Goal robot model frame is not 'world': "
+                    f"Goal robot model frame must be 'world': "
                     f"{self.goal.robot_model.model_frame}"
                 )
 
             # Check that the pose link is not provided if the goal is a RobotState
             if self.pose_link is not None:
                 raise ValueError(
-                    f"Pose link is provided for a RobotState goal: "
+                    f"Pose link must not be provided for a RobotState goal: "
                     f"{self.pose_link}"
                 )
 
@@ -93,21 +94,21 @@ class FuzzyTrajectoryCacheKey:
                 self.group_name
             ):
                 raise ValueError(
-                    f"Goal robot model does not have joint model group: "
+                    f"Goal robot model must have joint model group: "
                     f"{self.group_name}"
                 )
         else:
             # Check that the goal pose is in the world frame
             if self.goal.header.frame_id != "world":
                 raise ValueError(
-                    f"Goal pose frame id is not 'world': "
+                    f"Goal pose frame id must be 'world': "
                     f"{self.goal.header.frame_id}"
                 )
 
             # Check that the pose link is provided if the goal is a PoseStamped
             if self.pose_link is None:
                 raise ValueError(
-                    "Pose link is not provided for a PoseStamped goal"
+                    "Pose link must be provided for a PoseStamped goal"
                 )
 
     def _fuzz_float(self, value: float, tolerance: float) -> int:
@@ -543,54 +544,50 @@ class FuzzyTrajectoryCache(Shelf):
     def _validate_trajectory_quality(
         self,
         trajectory: RobotTrajectory,
-        *,
-        pose_link: str,
-        true_start_state: Optional[RobotState] = None,
+        request: PlanRequest,
         true_end_state: Optional[RobotState] = None,
-        true_goal: Optional[RobotState | PoseStamped] = None,
     ):
         """Validate that the trajectory is valid for the given ground truth states and pose."""
         trajectory_start_state: RobotState = trajectory[0]
         trajectory_end_state: RobotState = trajectory[len(trajectory) - 1]
         trajectory_start_pose = pose_stamped_msg(
-            pose=trajectory_start_state.get_pose(pose_link),
+            pose=trajectory_start_state.get_pose(request.pose_link),
             frame_id=trajectory_start_state.robot_model.model_frame,
         )
         trajectory_end_pose = pose_stamped_msg(
-            pose=trajectory_end_state.get_pose(pose_link),
+            pose=trajectory_end_state.get_pose(request.pose_link),
             frame_id=trajectory_end_state.robot_model.model_frame,
         )
 
         # Check that the trajectory start state and pose
         # are close to the true start state and pose
-        if true_start_state is not None:
-            if not all_close_robot_states(
-                trajectory_start_state,
-                true_start_state,
-                position_tolerance=self.robot_state_tolerance,
-            ):
-                raise ValueError(
-                    "True start state is not close to the trajectory start state. "
-                    f"True start state joint positions: {true_start_state.joint_positions}, "
-                    f"Trajectory start state joint positions: {trajectory_start_state.joint_positions}"
-                )
-
-            true_start_pose = pose_stamped_msg(
-                pose=true_start_state.get_pose(pose_link),
-                frame_id=true_start_state.robot_model.model_frame,
+        if not all_close_robot_states(
+            trajectory_start_state,
+            request.start_state,
+            position_tolerance=self.robot_state_tolerance,
+        ):
+            raise ValueError(
+                "Request start state is not close to the trajectory start state. "
+                f"Request start state joint positions: {request.start_state.joint_positions}, "
+                f"Trajectory start state joint positions: {trajectory_start_state.joint_positions}"
             )
-            if not all_close_poses_stamped(
-                trajectory_start_pose,
-                true_start_pose,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
-                use_euler_tolerance=self.use_euler_tolerance,
-            ):
-                raise ValueError(
-                    "True start pose is not close to the trajectory start pose. "
-                    f"True start pose: {true_start_pose}, "
-                    f"Trajectory start pose: {trajectory_start_pose}"
-                )
+
+        request_start_pose = pose_stamped_msg(
+            pose=request.start_state.get_pose(request.pose_link),
+            frame_id=request.start_state.robot_model.model_frame,
+        )
+        if not all_close_poses_stamped(
+            trajectory_start_pose,
+            request_start_pose,
+            position_tolerance=self.position_tolerance,
+            orientation_tolerance=self.orientation_tolerance,
+            use_euler_tolerance=self.use_euler_tolerance,
+        ):
+            raise ValueError(
+                f"Request start pose is not close to the trajectory start pose. "
+                f"Request start pose: {request_start_pose}, "
+                f"Trajectory start pose: {trajectory_start_pose}"
+            )
 
         # Check that the trajectory end state and pose
         # are close to the true end state and pose
@@ -607,7 +604,7 @@ class FuzzyTrajectoryCache(Shelf):
                 )
 
             true_end_pose = pose_stamped_msg(
-                pose=true_end_state.get_pose(pose_link),
+                pose=true_end_state.get_pose(request.pose_link),
                 frame_id=true_end_state.robot_model.model_frame,
             )
             if not all_close_poses_stamped(
@@ -625,35 +622,34 @@ class FuzzyTrajectoryCache(Shelf):
 
         # Check that the trajectory end state and pose
         # are close to the true goal
-        if true_goal is not None:
-            if isinstance(true_goal, RobotState):
-                if not all_close_robot_states(
-                    trajectory_end_state,
-                    true_goal,
-                    position_tolerance=self.robot_state_tolerance,
-                ):
-                    raise ValueError(
-                        "True goal state is not close to the trajectory end state. "
-                        f"True goal state joint positions: {true_goal.joint_positions}, "
-                        f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
-                    )
-                true_goal_pose = pose_stamped_msg(
-                    pose=true_goal.get_pose(pose_link),
-                    frame_id=true_goal.robot_model.model_frame,
+        if isinstance(request.goal, RobotState):
+            if not all_close_robot_states(
+                trajectory_end_state,
+                request.goal,
+                position_tolerance=self.robot_state_tolerance,
+            ):
+                raise ValueError(
+                    f"Request goal state is not close to the trajectory end state. "
+                    f"Request goal state joint positions: {request.goal.joint_positions}, "
+                    f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
                 )
-            else:
-                true_goal_pose = true_goal
+            request_goal_pose = pose_stamped_msg(
+                pose=request.goal.get_pose(request.pose_link),
+                frame_id=request.goal.robot_model.model_frame,
+            )
+        else:
+            request_goal_pose = request.goal
 
             if not all_close_poses_stamped(
                 trajectory_end_pose,
-                true_goal_pose,
+                request_goal_pose,
                 position_tolerance=self.position_tolerance,
                 orientation_tolerance=self.orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
             ):
                 raise ValueError(
-                    "True goal pose is not close to the trajectory end pose. "
-                    f"True goal pose: {true_goal_pose}, "
+                    f"Request goal pose is not close to the trajectory end pose. "
+                    f"Request goal pose: {request_goal_pose}, "
                     f"Trajectory end pose: {trajectory_end_pose}"
                 )
 
@@ -695,53 +691,36 @@ class FuzzyTrajectoryCache(Shelf):
         self,
         trajectory: RobotTrajectory,
         *,
-        pose_link: str,
-        true_start_state: Optional[RobotState] = None,
+        request: PlanRequest,
         true_end_state: Optional[RobotState] = None,
-        true_goal: Optional[RobotState | PoseStamped] = None,
-        _cache_reverse: bool = True,
+        _reverse: bool = False,
     ):
         """Cache a trajectory.
 
         Args:
             trajectory: The trajectory to cache.
-            true_start_state: The true start state of the robot, to check the
-                quality of the trajectory. If not provided, the trajectory is
-                cached without checking the quality.
-            true_end_state: The true final state of the robot, to check the
-                quality of the trajectory. If not provided, the trajectory is
-                cached without checking the quality.
-            true_goal_pose: The true goal pose of the robot, to check the quality
-                of the trajectory. If not provided, the trajectory is cached
-                without checking the quality.
-            pose_link: The link to use for the pose if the goal is a PoseStamped.
-                If the goal is a RobotState, the pose link is not used to cache
-                the trajectory, but it is used to validate the trajectory
-                quality and to cache additional entries with the same start
-                state and the PoseStamped goal associated with the pose link
-                for the given goal state.
+
             _cache_reverse: Whether to cache the reverse trajectory
                 (used internally).
         """
-        # Check that the trajectory is valid
-        try:
-            self._validate_trajectory_quality(
-                trajectory,
-                pose_link=pose_link,
-                true_start_state=true_start_state,
-                true_end_state=true_end_state,
-                true_goal=true_goal,
-            )
-        except ValueError as e:
-            logger.warning(f"Trajectory is not valid: {e}. Skipping cache.")
-            return
+        # Check that the trajectory is valid only
+        if not _reverse:
+            try:
+                self._validate_trajectory_quality(
+                    trajectory, request, true_end_state
+                )
+            except ValueError as e:
+                logger.warning(
+                    f"Trajectory is not valid: {e}. Skipping cache."
+                )
+                return
 
         # Extract the start and end states, the end pose, and the group name
         # from the trajectory
         start_state: RobotState = trajectory[0]
         end_state: RobotState = trajectory[len(trajectory) - 1]
         end_pose = pose_stamped_msg(
-            pose=end_state.get_pose(pose_link),
+            pose=end_state.get_pose(request.pose_link),
             frame_id=end_state.robot_model.model_frame,
         )
         group_name = trajectory.joint_model_group_name
@@ -752,7 +731,7 @@ class FuzzyTrajectoryCache(Shelf):
         )
         # Start state to end pose key
         pose_key = FuzzyTrajectoryCacheKey(
-            start_state, end_pose, pose_link, group_name
+            start_state, end_pose, request.pose_link, group_name
         )
 
         # Cache the trajectory
@@ -760,13 +739,11 @@ class FuzzyTrajectoryCache(Shelf):
         self.__setitem__(pose_key, value)
         self.__setitem__(state_key, value)
 
-        if _cache_reverse:
+        if not _reverse:
             self.cache_trajectory(
                 trajectory.reverse(),
-                pose_link=pose_link,
-                true_start_state=true_end_state,
-                true_end_state=true_start_state,
-                _cache_reverse=False,
+                request=request,
+                _reverse=True,
             )
 
     def __getitem__(
@@ -788,53 +765,33 @@ class FuzzyTrajectoryCache(Shelf):
         self._validate_db_values(values)
         return values
 
-    def get_best_trajectory(
-        self,
-        *,
-        start_state: RobotState,
-        goal: RobotState | PoseStamped,
-        pose_link: str,
-        group_name: str,
-    ) -> RobotTrajectory:
+    def get_best_trajectory(self, request: PlanRequest) -> RobotTrajectory:
         """Get the best trajectory for a given key.
 
         Args:
-            start_state: The start state of the trajectory.
-            goal: The goal of the trajectory.
-            pose_link: The link to use for the pose if the goal is a PoseStamped.
-                If the goal is a RobotState, the pose link is not used to
-                retrieve the trajectory, but it is used to validate the
-                trajectory quality.
-            group_name: The group name of the trajectory.
+            request: The request to get the best trajectory for.
 
         Returns:
             The best trajectory for the given key.
         """
-        if isinstance(goal, RobotState):
+        if isinstance(request.goal, RobotState):
             cache_pose_link = None
         else:
-            cache_pose_link = pose_link
+            cache_pose_link = request.pose_link
 
         key = FuzzyTrajectoryCacheKey(
-            start_state, goal, cache_pose_link, group_name
+            request.start_state,
+            request.goal,
+            cache_pose_link,
+            request.group_name,
         )
-        trajectory = self.__getitem__(key)[0].get_trajectory(start_state)
-        self._validate_trajectory_quality(
-            trajectory,
-            pose_link=pose_link,
-            true_start_state=start_state,
-            true_goal=goal,
+        trajectory = self.__getitem__(key)[0].get_trajectory(
+            request.start_state
         )
+        self._validate_trajectory_quality(trajectory, request)
         return trajectory
 
-    def get_trajectories(
-        self,
-        *,
-        start_state: RobotState,
-        goal: RobotState | PoseStamped,
-        pose_link: str,
-        group_name: str,
-    ) -> list[RobotTrajectory]:
+    def get_trajectories(self, request: PlanRequest) -> list[RobotTrajectory]:
         """Get all trajectories for a given key.
 
         Args:
@@ -849,24 +806,23 @@ class FuzzyTrajectoryCache(Shelf):
         Returns:
             The sorted list of trajectories for the given key.
         """
-        if isinstance(goal, RobotState):
+        if isinstance(request.goal, RobotState):
             cache_pose_link = None
         else:
-            cache_pose_link = pose_link
+            cache_pose_link = request.pose_link
 
         key = FuzzyTrajectoryCacheKey(
-            start_state, goal, cache_pose_link, group_name
+            request.start_state,
+            request.goal,
+            cache_pose_link,
+            request.group_name,
         )
         trajectories = [
-            v.get_trajectory(start_state) for v in self.__getitem__(key)
+            v.get_trajectory(request.start_state)
+            for v in self.__getitem__(key)
         ]
         for trajectory in trajectories:
-            self._validate_trajectory_quality(
-                trajectory,
-                pose_link=pose_link,
-                true_start_state=start_state,
-                true_goal=goal,
-            )
+            self._validate_trajectory_quality(trajectory, request)
         return trajectories
 
     def __contains__(self, key: FuzzyTrajectoryCacheKey) -> bool:
@@ -881,14 +837,7 @@ class FuzzyTrajectoryCache(Shelf):
         with self._lock:
             return super().__contains__(self.get_fuzzy_key(key))
 
-    def has_trajectory(
-        self,
-        *,
-        start_state: RobotState,
-        goal: RobotState | PoseStamped,
-        pose_link: str | None,
-        group_name: str,
-    ) -> bool:
+    def has_trajectory(self, request: PlanRequest) -> bool:
         """Check if a trajectory exists for a given key.
 
         Args:
@@ -900,7 +849,12 @@ class FuzzyTrajectoryCache(Shelf):
         Returns:
             True if a trajectory exists for the given key, False otherwise.
         """
-        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link, group_name)
+        key = FuzzyTrajectoryCacheKey(
+            request.start_state,
+            request.goal,
+            request.pose_link,
+            request.group_name,
+        )
         return self.__contains__(key)
 
     def __delitem__(self, key: FuzzyTrajectoryCacheKey):
@@ -912,14 +866,7 @@ class FuzzyTrajectoryCache(Shelf):
         with self._lock:
             super().__delitem__(self.get_fuzzy_key(key))
 
-    def delete_trajectory(
-        self,
-        *,
-        start_state: RobotState,
-        goal: RobotState | PoseStamped,
-        pose_link: str | None,
-        group_name: str,
-    ):
+    def delete_trajectory(self, request: PlanRequest):
         """Delete all trajectories for a given key.
 
         Args:
@@ -928,7 +875,12 @@ class FuzzyTrajectoryCache(Shelf):
             pose_link: The link to use for the pose.
             group_name: The group name of the trajectory.
         """
-        key = FuzzyTrajectoryCacheKey(start_state, goal, pose_link, group_name)
+        key = FuzzyTrajectoryCacheKey(
+            request.start_state,
+            request.goal,
+            request.pose_link,
+            request.group_name,
+        )
         self.__delitem__(key)
 
     def open(self, flag: str = "w"):

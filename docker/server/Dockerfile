@@ -28,11 +28,10 @@ RUN curl -fsSL -o /tmp/get-platformio.py \
     && ln -s $HOME/.platformio/penv/bin/pio $HOME/.local/bin/pio \
     && ln -s $HOME/.platformio/penv/bin/piodebuggdb $HOME/.local/bin/piodebuggdb
 
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
-
 # Install pip packages
 COPY ./requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt
+RUN pip install --break-system-packages -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y

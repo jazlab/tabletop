@@ -6,6 +6,7 @@ from copy import copy
 
 import debugpy
 import rclpy
+import rclpy.logging
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
@@ -15,6 +16,8 @@ from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
 
 from tabletop_server import aio_executor
 from tabletop_server.nodes.base import BaseNode
+
+monkey_logger = rclpy.logging.get_logger("wiggins")
 
 # Define constants for digital pin states
 HIGH = True
@@ -160,6 +163,8 @@ async def monkey_loop(
                 SAFETY_LASER_BROKEN_STATE_PIN,
                 (random.uniform(0, 1) < safety_laser_broken_when_locked_prob),
             )
+            if digital_read(SAFETY_LASER_BROKEN_STATE_PIN):
+                monkey_logger.info("Wiggins has broken confinement!!!!!!!!")
         else:
             # Otherwise, break the safety laser with a higher probability
             _change_input_pin_state(
@@ -209,9 +214,9 @@ class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
         "monkey_loop.min_arm_locked_delay_sec": 0.5,
         "monkey_loop.max_arm_locked_delay_sec": 0.8,
-        "monkey_loop.safety_laser_broken_when_locked_prob": 0.05,
+        "monkey_loop.safety_laser_broken_when_locked_prob": 0.0,
         "monkey_loop.safety_laser_broken_when_unlocked_prob": 0.5,
-        "monkey_loop.loop_period_sec": 1.0,
+        "monkey_loop.loop_period_sec": 2.0,
     }
 
     def __init__(self):
@@ -247,7 +252,6 @@ class MockTeensy(BaseNode):
         # Publishers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
         qos.durability = QoSDurabilityPolicy.VOLATILE
-        # qos.depth = 1
         self.sensor_pub = self.create_publisher(
             TeensySensor,
             "teensy/sensor",
