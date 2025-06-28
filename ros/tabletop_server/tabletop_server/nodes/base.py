@@ -286,7 +286,7 @@ class BaseNode(Node):
             if not service_client.wait_for_service(timeout_sec=timeout):
                 error_msg = f"{srv_name} not available!"
                 self.log(error_msg, severity="ERROR")
-                raise TimeoutError(error_msg)
+                raise ServiceCallTimeoutError(error_msg)
             self.log(f"{srv_name} service is available", severity="DEBUG")
         finally:
             # Destroy the service client if it was created by this function

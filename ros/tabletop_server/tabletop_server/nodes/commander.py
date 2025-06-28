@@ -656,33 +656,34 @@ class Commander(BaseNode):
     async def reset_dashboard(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
+        config = self.get_parameter_wrapper("dashboard")
         async with asyncio.timeout(timeout):
-            # Timeout included in wait_for_dashboard to stop the thread
-            # from waiting longer than timeout
-            await self.wait_for_dashboard("close_popup", timeout)
-            await self.dashboard_trigger("/dashboard_client/close_popup")
-            await self.dashboard_trigger(
-                "/dashboard_client/close_safety_popup"
-            )
-            await self.dashboard_trigger(
-                "/dashboard_client/unlock_protective_stop"
-            )
-            await self.dashboard_load(
-                "/dashboard_client/load_program",
-                self.get_parameter_wrapper("dashboard.program"),
-            )
-            await self.dashboard_trigger("/dashboard_client/brake_release")
             while True:
-                try:
-                    await self.dashboard_trigger("/dashboard_client/play")
-                    break
-                except ServiceCallUnsuccessfulError:
-                    self.log(
-                        "Failed attempt to play dashboard program, "
-                        "retrying after 3 seconds...",
-                        severity="WARN",
-                    )
-                    await asyncio.sleep(3)
+                # Timeout included in wait_for_dashboard to stop the thread
+                # from waiting longer than timeout
+                await self.wait_for_dashboard("close_popup", timeout)
+                await self.dashboard_trigger("/dashboard_client/close_popup")
+                await self.dashboard_trigger(
+                    "/dashboard_client/close_safety_popup"
+                )
+                await self.dashboard_trigger(
+                    "/dashboard_client/unlock_protective_stop"
+                )
+                await self.dashboard_load(
+                    "/dashboard_client/load_program", config["program"]
+                )
+                await self.dashboard_trigger("/dashboard_client/brake_release")
+                for _ in range(config["play_retries"]):
+                    try:
+                        await self.dashboard_trigger("/dashboard_client/play")
+                        return
+                    except ServiceCallUnsuccessfulError:
+                        self.log(
+                            f"Failed attempt to play dashboard program, "
+                            f"retrying after {config['play_retry_delay']} seconds...",
+                            severity="WARN",
+                        )
+                        await asyncio.sleep(config["play_retry_delay"])
 
     ###########################################################################
     ########## ROS Interface ##################################################
@@ -2080,6 +2081,28 @@ class Commander(BaseNode):
             use_euler_tolerance,
         )
 
+    def all_close_robot_states(
+        self,
+        robot_state1: RobotState,
+        robot_state2: RobotState,
+        position_tolerance: Optional[float | dict[str, float]] = None,
+        velocity_tolerance: Optional[float | dict[str, float]] = None,
+        acceleration_tolerance: Optional[float | dict[str, float]] = None,
+    ) -> bool:
+        """Check if two robot states are all close."""
+        if position_tolerance is None:
+            position_tolerance = self.get_parameter_wrapper(
+                "planning.position_tolerance"
+            )
+        assert position_tolerance is not None
+        return all_close_robot_states(
+            robot_state1,
+            robot_state2,
+            position_tolerance,
+            velocity_tolerance,
+            acceleration_tolerance,
+        )
+
     ###########################################################################
     ########## Planning and execution #########################################
     ###########################################################################
@@ -2298,12 +2321,14 @@ class Commander(BaseNode):
             )
 
         # Check if the goal is already reached
-        if isinstance(
-            request.goal, PoseStamped
-        ) and self.all_close_pose_stamped(
-            request.goal, self.eef_pose_stamped()
-        ):
-            self.log("Already at goal, skipping planning")
+        if isinstance(request.goal, PoseStamped):
+            if self.all_close_pose_stamped(
+                request.goal, self.eef_pose_stamped()
+            ):
+                self.log("Already at goal, skipping planning")
+                return None
+        elif self.all_close_robot_states(request.goal, self.current_state):
+            self.log("Already at start state, skipping planning")
             return None
 
         # Get the planning component and request parameters
@@ -2627,7 +2652,7 @@ class Commander(BaseNode):
         else:
             self.log("Cache is frozen, skipping cache")
 
-    def _robot_moved(self, old_state: RobotState) -> bool:
+    def robot_moved(self, old_state: RobotState) -> bool:
         """Check if the robot has moved.
 
         Args:
@@ -2639,7 +2664,7 @@ class Commander(BaseNode):
         tolerance = self.get_parameter_wrapper(
             "execution.robot_moved_tolerance"
         )
-        return not all_close_robot_states(
+        return not self.all_close_robot_states(
             old_state, self.current_state, position_tolerance=tolerance
         )
 
@@ -2706,7 +2731,7 @@ class Commander(BaseNode):
                             f"Error while executing cached trajectory: {e}",
                             severity="WARN",
                         )
-                        if self._robot_moved(start_state):
+                        if self.robot_moved(start_state):
                             self.log(
                                 "Robot moved, skipping cached trajectories"
                             )

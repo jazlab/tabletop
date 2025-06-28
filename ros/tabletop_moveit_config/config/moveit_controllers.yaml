@@ -5,17 +5,30 @@ trajectory_execution:
   allowed_execution_duration_scaling: 1.2
   allowed_goal_duration_margin: 0.5
   allowed_start_tolerance: 0.02 # radians
-  allowed_stop_tolerance: 0.005 # radians/s
+  allowed_stop_tolerance: 0.02 # radians/s
   execution_duration_monitoring: true # May lead to unexpectedly aborted goals with scaled JTC
 
 moveit_simple_controller_manager:
   controller_names:
     - scaled_joint_trajectory_controller
+    - passthrough_trajectory_controller
 
   scaled_joint_trajectory_controller:
     action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
     default: true
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+
+  passthrough_trajectory_controller:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: false
     joints:
       - shoulder_pan_joint
       - shoulder_lift_joint

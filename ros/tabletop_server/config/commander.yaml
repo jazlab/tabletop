@@ -10,6 +10,8 @@
     dashboard:
       installation: default.installation
       program: external_control.urp
+      play_retries: 3
+      play_retry_delay: 3
 
     teensy:
       safe_to_execute_required_count: 5
@@ -25,6 +27,7 @@
         max_plan_attempts: 5
       position_tolerance: 0.01
       orientation_tolerance: 0.02
+      robot_state_tolerance: 0.02
       use_euler_tolerance: true
 
     execution:
@@ -34,9 +37,9 @@
         validate_trajectory: true
         apply_totg: true
         apply_smoothing: true
-        velocity_scaling_factor: 1.0
+        velocity_scaling_factor: 0.3
         acceleration_scaling_factor: 1.0
-        path_tolerance: 0.01
+        path_tolerance: 0.001
         resample_dt: 0.01
         min_angle_change: 0.001
         mitigate_overshoot: false
