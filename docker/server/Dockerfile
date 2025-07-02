@@ -2,11 +2,19 @@ FROM ros:jazzy
 
 SHELL ["/bin/bash", "-c"]
 
+# Add mirror to apt sources
+COPY ./mirrors.sources /etc/apt/sources.list.d/mirrors.sources
+
+RUN apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install apt dependencies
 RUN apt-get update \
     && apt-get install -y ca-certificates software-properties-common \
     && apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key \
-    && add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
+    && add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main' \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install apt packages
 COPY ./apt.list /tmp/apt.list
@@ -14,7 +22,9 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y \
     $(cat /tmp/apt.list) \
-    && rm /tmp/apt.list
+    && rm /tmp/apt.list \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set workspace directory
 WORKDIR $HOME
