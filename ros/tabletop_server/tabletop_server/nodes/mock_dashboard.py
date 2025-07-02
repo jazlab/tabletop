@@ -1,7 +1,9 @@
 import rclpy
+from rclpy.action.server import ActionServer, ServerGoalHandle
 from rclpy.executors import SingleThreadedExecutor
 from std_srvs.srv import Trigger
-from ur_dashboard_msgs.srv import Load
+from ur_dashboard_msgs.action import SetMode
+from ur_dashboard_msgs.srv import Load as DashboardLoad
 
 from tabletop_server.nodes.base import BaseNode
 
@@ -20,7 +22,9 @@ class MockDashboard(BaseNode):
             Trigger,
             "/dashboard_client/close_popup",
             lambda request, response: self.trigger_callback(
-                request, response, "close_popup"
+                request,  # type: ignore
+                response,
+                "close_popup",
             ),
         )
 
@@ -28,7 +32,9 @@ class MockDashboard(BaseNode):
             Trigger,
             "/dashboard_client/close_safety_popup",
             lambda request, response: self.trigger_callback(
-                request, response, "close_safety_popup"
+                request,  # type: ignore
+                response,
+                "close_safety_popup",
             ),
         )
 
@@ -36,23 +42,29 @@ class MockDashboard(BaseNode):
             Trigger,
             "/dashboard_client/unlock_protective_stop",
             lambda request, response: self.trigger_callback(
-                request, response, "unlock_protective_stop"
+                request,  # type: ignore
+                response,
+                "unlock_protective_stop",
             ),
         )
 
         self.load_program_srv = self.create_service(
-            Load,
+            DashboardLoad,
             "/dashboard_client/load_program",
             lambda request, response: self.load_callback(
-                request, response, "load_program"
+                request,  # type: ignore
+                response,
+                "load_program",
             ),
         )
 
         self.load_installation_srv = self.create_service(
-            Load,
+            DashboardLoad,
             "/dashboard_client/load_installation",
             lambda request, response: self.load_callback(
-                request, response, "load_installation"
+                request,  # type: ignore
+                response,
+                "load_installation",
             ),
         )
 
@@ -60,7 +72,9 @@ class MockDashboard(BaseNode):
             Trigger,
             "/dashboard_client/brake_release",
             lambda request, response: self.trigger_callback(
-                request, response, "brake_release"
+                request,  # type: ignore
+                response,
+                "brake_release",
             ),
         )
 
@@ -68,13 +82,34 @@ class MockDashboard(BaseNode):
             Trigger,
             "/dashboard_client/play",
             lambda request, response: self.trigger_callback(
-                request, response, "play"
+                request,  # type: ignore
+                response,
+                "play",
             ),
+        )
+
+        self.set_mode_server = ActionServer(
+            self,
+            SetMode,
+            "/ur_robot_state_helper/set_mode",
+            self.set_mode_callback,
         )
 
         self.log("Mock Dashboard initialized")
 
-    def trigger_callback(self, request, response, service_name: str):
+    def set_mode_callback(self, goal_handle: ServerGoalHandle):
+        """Callback for SetMode action server."""
+        self.log("Received SetMode request")
+        self.log_ros_msg(goal_handle.request)
+        goal_handle.succeed()
+        return SetMode.Result(success=True, message="Success")
+
+    def trigger_callback(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+        service_name: str,
+    ):
         """
         Generic callback for Trigger services.
 
@@ -85,12 +120,17 @@ class MockDashboard(BaseNode):
         Returns:
             The populated Trigger response
         """
-        self.log(f"Mock Dashboard received request: {service_name}")
+        self.log(f"Received {service_name} trigger request")
         response.success = True
         response.message = f"Successfully processed {service_name}"
         return response
 
-    def load_callback(self, request, response, service_name: str):
+    def load_callback(
+        self,
+        request: DashboardLoad.Request,
+        response: DashboardLoad.Response,
+        service_name: str,
+    ):
         """
         Callback for Load service.
 
@@ -101,7 +141,7 @@ class MockDashboard(BaseNode):
         Returns:
             The populated Load response
         """
-        self.log(f"Mock Dashboard {service_name}: {request.filename}")
+        self.log(f"Received {service_name} load request: {request.filename}")
         response.success = True
         response.answer = f"Loading {request.filename}"
         return response

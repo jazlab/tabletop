@@ -12,25 +12,25 @@
 joint_limits:
   shoulder_pan_joint:
     has_acceleration_limits: true
-    max_acceleration: 30.0
+    max_acceleration: 20.0
     has_velocity_limits: true
     max_velocity: 3.1416
     has_jerk_limits: true
-    max_jerk: 2000.0
+    max_jerk: 500.0
   shoulder_lift_joint:
     has_acceleration_limits: true
-    max_acceleration: 30.0
+    max_acceleration: 20.0
     has_velocity_limits: true
     max_velocity: 3.1416
     has_jerk_limits: true
-    max_jerk: 2000.0
+    max_jerk: 500.0
   elbow_joint:
     has_acceleration_limits: true
-    max_acceleration: 30.0
+    max_acceleration: 20.0
     has_velocity_limits: true
     max_velocity: 3.1416
     has_jerk_limits: true
-    max_jerk: 2000.0
+    max_jerk: 500.0
   wrist_1_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0

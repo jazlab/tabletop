@@ -4,13 +4,14 @@ services:
   devcontainer:
     extends:
       file: ../compose.yaml
-      service: server
-    # privileged: true
-    # volumes:
-    #   - /dev:/dev
+      service: server_base
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /tmp/.X11-unix:/tmp/.X11-unix
     hostname: devcontainer
-    # ports:
-    #   - 8008:8008 # PlatformIO HTTP port
+    environment:
+      - DISPLAY=$DISPLAY
     command: bash -c
       "git config --global --add safe.directory /root/ws/src/tabletop
       && git config --global --add safe.directory /root/ws/src/moveit2

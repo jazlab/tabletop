@@ -17,7 +17,7 @@ import itertools
 import struct
 import time
 from collections import namedtuple
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -150,11 +150,24 @@ class ButtonConnectionChannel:
         bd_addr: str,
         latency_mode: LatencyMode = LatencyMode.LowLatency,
         auto_disconnect_time: int = 511,
+        log_click_types: Iterable[ClickType] = (ClickType.ButtonDown,),
     ):
+        """Initialize a ButtonConnectionChannel.
+
+        Args:
+            bd_addr: The Bluetooth address of the button.
+            latency_mode: The latency mode to use for the connection.
+            auto_disconnect_time: The auto-disconnect time in seconds.
+            log_click_types: The click types to log.
+        """
         self._conn_id = next(ButtonConnectionChannel._cnt)
         self._bd_addr = bd_addr
         self._latency_mode = latency_mode
         self._auto_disconnect_time = auto_disconnect_time
+        self._log_click_types = set(log_click_types)
+
+        self.created_event = asyncio.Event()
+        self.created_success = False
 
         self.last_time_button_up = -1
         self.last_time_button_down = -1
@@ -164,15 +177,15 @@ class ButtonConnectionChannel:
         self.last_time_button_hold = -1
 
     @property
-    def conn_id(self):
+    def conn_id(self) -> int:
         return self._conn_id
 
     @property
-    def bd_addr(self):
+    def bd_addr(self) -> str:
         return self._bd_addr
 
     @property
-    def latency_mode(self):
+    def latency_mode(self) -> LatencyMode:
         return self._latency_mode
 
     @latency_mode.setter
@@ -180,23 +193,41 @@ class ButtonConnectionChannel:
         self._latency_mode = latency_mode
 
     @property
-    def auto_disconnect_time(self):
+    def auto_disconnect_time(self) -> int:
         return self._auto_disconnect_time
 
     @auto_disconnect_time.setter
     def auto_disconnect_time(self, auto_disconnect_time: int):
         self._auto_disconnect_time = auto_disconnect_time
 
-    def on_create_connection_channel_response(self, error, connection_status):
+    def on_create_connection_channel_response(
+        self,
+        error: CreateConnectionChannelError,
+        connection_status: ConnectionStatus,
+    ):
+        assert (
+            not self.created_event.is_set()
+        ), "Create connection channel response already received"
         logger.info(
             f"Create connection channel response: {error} {connection_status}"
         )
+        self.created_success = error == CreateConnectionChannelError.NoError
+        self.created_event.set()
 
-    def on_removed(self, removed_reason):
+    async def _wait_for_created(self) -> bool:
+        await self.created_event.wait()
+        return self.created_success
+
+    async def __await__(self):
+        return self._wait_for_created().__await__()
+
+    def on_removed(self, removed_reason: RemovedReason):
         logger.info(f"Removed: {removed_reason}")
 
     def on_connection_status_changed(
-        self, connection_status, disconnect_reason
+        self,
+        connection_status: ConnectionStatus,
+        disconnect_reason: DisconnectReason,
     ):
         disconnect_reason_str = (
             f"disconnect_reason: {disconnect_reason}"
@@ -216,29 +247,27 @@ class ButtonConnectionChannel:
         time_diff: int,
         event_time: float,
     ):
-        logger.info(
-            f"{click_type.name} | "
-            f"addr: {self._bd_addr}, "
-            f"was_queued: {was_queued}, "
-            f"time_diff: {time_diff}, "
-            f"time: {event_time}"
-        )
-        if was_queued:
-            logger.info("Button event was queued, skipping last time update")
-        else:
-            match click_type:
-                case ClickType.ButtonDown:
-                    self.last_time_button_down = event_time
-                case ClickType.ButtonUp:
-                    self.last_time_button_up = event_time
-                case ClickType.ButtonClick:
-                    self.last_time_button_click = event_time
-                case ClickType.ButtonHold:
-                    self.last_time_button_hold = event_time
-                case ClickType.ButtonSingleClick:
-                    self.last_time_button_single_click = event_time
-                case ClickType.ButtonDoubleClick:
-                    self.last_time_button_double_click = event_time
+        if click_type in self._log_click_types:
+            logger.info(
+                f"{click_type.name} | "
+                f"addr: {self._bd_addr}, "
+                f"was_queued: {was_queued}, "
+                f"time_diff: {time_diff}, "
+                f"time: {event_time}"
+            )
+        match click_type:
+            case ClickType.ButtonDown:
+                self.last_time_button_down = event_time
+            case ClickType.ButtonUp:
+                self.last_time_button_up = event_time
+            case ClickType.ButtonClick:
+                self.last_time_button_click = event_time
+            case ClickType.ButtonHold:
+                self.last_time_button_hold = event_time
+            case ClickType.ButtonSingleClick:
+                self.last_time_button_single_click = event_time
+            case ClickType.ButtonDoubleClick:
+                self.last_time_button_double_click = event_time
 
 
 class ButtonScanner:
@@ -290,13 +319,11 @@ class ScanWizard:
         self._scan_wizard_id = next(ScanWizard._cnt)
         self._bd_addr: str | None = None
         self._name: str | None = None
-        self._cc: ButtonConnectionChannel | None = None
         self._result: ScanWizardResult | None = None
-        self.completed = False
-        self.completed_event = asyncio.Event()
+        self._completed_event = asyncio.Event()
 
     @property
-    def scan_wizard_id(self):
+    def scan_wizard_id(self) -> int:
         return self._scan_wizard_id
 
     @property
@@ -308,17 +335,19 @@ class ScanWizard:
         return self._name
 
     @property
-    def cc(self) -> ButtonConnectionChannel | None:
-        if not self._completed:
-            raise RuntimeError("ScanWizard not completed")
-        return self._cc
-
-    @property
-    def result(self):
-        if not self._completed:
-            raise RuntimeError("ScanWizard not completed")
+    def result(self) -> ScanWizardResult:
+        if not self._completed_event.is_set():
+            raise asyncio.InvalidStateError("ScanWizard not completed")
         assert self._result is not None
         return self._result
+
+    async def _await_result(self) -> ScanWizardResult:
+        await self._completed_event.wait()
+        assert self._result is not None
+        return self._result
+
+    def __await__(self):
+        return self._await_result().__await__()
 
     def on_found_private_button(self):
         logger.info(
@@ -337,12 +366,7 @@ class ScanWizard:
             f"Button {self._bd_addr} ({self._name}) was connected, now verifying..."
         )
 
-    def on_completed(
-        self,
-        result: ScanWizardResult,
-        latency_mode: LatencyMode,
-        auto_disconnect_time: int,
-    ):
+    def on_completed(self, result: ScanWizardResult):
         logger.info(
             f"Scan wizard completed with result {result} for button {self._bd_addr} ({self._name})."
         )
@@ -351,18 +375,12 @@ class ScanWizard:
             logger.info(
                 f"Your button is now ready. The bd addr is {self._bd_addr}."
             )
-            self._cc = ButtonConnectionChannel(
-                self._bd_addr,
-                latency_mode,
-                auto_disconnect_time,
-            )
         else:
             logger.error(
                 f"Scan wizard failed with result {result} for button {self._bd_addr} ({self._name})."
             )
         self._result = result
-        self._completed = True
-        self.completed_event.set()
+        self._completed_event.set()
 
 
 class BatteryStatusListener:
@@ -536,17 +554,20 @@ class FlicClient(asyncio.Protocol):
         loop: asyncio.AbstractEventLoop,
         default_latency_mode: LatencyMode = LatencyMode.LowLatency,
         default_auto_disconnect_time: int = 511,
+        default_log_click_types: Iterable[ClickType] = (ClickType.ButtonDown,),
         time_fn: Callable[[], float] = time.time,
     ):
         self._loop = loop
         self.default_latency_mode = default_latency_mode
         self.default_auto_disconnect_time = default_auto_disconnect_time
+        self.default_log_click_types = default_log_click_types
         self.time = time_fn
         self._buffer = b""
         self._transport = None
 
         self._scanners: dict[int, ButtonScanner] = {}
-        self._scan_wizards: dict[int, ScanWizard] = {}
+        self._pending_scan_wizards: dict[int, ScanWizard] = {}
+        self._completed_scan_wizards: dict[int, ScanWizard] = {}
         self._pending_connection_channels: dict[
             int, ButtonConnectionChannel
         ] = {}
@@ -584,7 +605,9 @@ class FlicClient(asyncio.Protocol):
 
     @property
     def num_scan_wizards(self) -> int:
-        return len(self._scan_wizards)
+        return len(self._pending_scan_wizards) + len(
+            self._completed_scan_wizards
+        )
 
     @property
     def num_battery_status_listeners(self) -> int:
@@ -595,6 +618,7 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     def connection_made(self, transport: asyncio.Transport):
+        logger.info(f"Connection made to {type(transport)}: {transport}")
         self._transport = transport
 
     def data_received(self, data: bytes):
@@ -885,17 +909,17 @@ class FlicClient(asyncio.Protocol):
         logger.info(f"Button deleted: {bd_addr} {deleted_by_this_client}")
 
     def on_scan_wizard_found_private_button(self, scan_wizard_id: int):
-        scan_wizard = self._scan_wizards[scan_wizard_id]
+        scan_wizard = self._pending_scan_wizards[scan_wizard_id]
         scan_wizard.on_found_private_button()
 
     def on_scan_wizard_found_public_button(
         self, scan_wizard_id: int, bd_addr: str, name: str
     ):
-        scan_wizard = self._scan_wizards[scan_wizard_id]
+        scan_wizard = self._pending_scan_wizards[scan_wizard_id]
         scan_wizard.on_found_public_button(bd_addr, name)
 
     def on_scan_wizard_button_connected(self, scan_wizard_id: int):
-        scan_wizard = self._scan_wizards[scan_wizard_id]
+        scan_wizard = self._pending_scan_wizards[scan_wizard_id]
         scan_wizard.on_button_connected()
 
     def on_scan_wizard_completed(
@@ -903,12 +927,10 @@ class FlicClient(asyncio.Protocol):
         scan_wizard_id: int,
         result: ScanWizardResult,
     ):
-        scan_wizard = self._scan_wizards[scan_wizard_id]
-        scan_wizard.on_completed(
-            result=result,
-            latency_mode=self.default_latency_mode,
-            auto_disconnect_time=self.default_auto_disconnect_time,
-        )
+        scan_wizard = self._pending_scan_wizards[scan_wizard_id]
+        scan_wizard.on_completed(result=result)
+        del self._pending_scan_wizards[scan_wizard_id]
+        self._completed_scan_wizards[scan_wizard_id] = scan_wizard
 
     def on_got_info(
         self,
@@ -921,10 +943,6 @@ class FlicClient(asyncio.Protocol):
         currently_no_space_for_new_connection: bool,
         bd_addr_of_verified_buttons: tuple[str, ...],
     ):
-        logger.info(
-            f"Got info: {bluetooth_controller_state}, {my_bd_addr}, {my_bd_addr_type}, {max_pending_connections}, {max_concurrently_connected_buttons}, {current_pending_connections}, {currently_no_space_for_new_connection}, {bd_addr_of_verified_buttons}"
-        )
-
         info = Info(
             bluetooth_controller_state=bluetooth_controller_state,
             my_bd_addr=my_bd_addr,
@@ -935,6 +953,7 @@ class FlicClient(asyncio.Protocol):
             currently_no_space_for_new_connection=currently_no_space_for_new_connection,
             bd_addr_of_verified_buttons=bd_addr_of_verified_buttons,
         )
+        logger.info(f"Got info: {info}")
         self._get_info_queue.put_nowait(info)
 
     def on_got_button_info(
@@ -1029,28 +1048,25 @@ class FlicClient(asyncio.Protocol):
             event_time=event_time,
         )
 
-        if was_queued:
-            logger.warn("Button event was queued, skipping last time update")
-        else:
-            match click_type:
-                case ClickType.ButtonDown:
-                    self.last_time_button_down = event_time
-                    self.button_down_event.set()
-                case ClickType.ButtonUp:
-                    self.last_time_button_up = event_time
-                    self.button_up_event.set()
-                case ClickType.ButtonClick:
-                    self.last_time_button_click = event_time
-                    self.button_click_event.set()
-                case ClickType.ButtonHold:
-                    self.last_time_button_hold = event_time
-                    self.button_hold_event.set()
-                case ClickType.ButtonSingleClick:
-                    self.last_time_button_single_click = event_time
-                    self.button_single_click_event.set()
-                case ClickType.ButtonDoubleClick:
-                    self.last_time_button_double_click = event_time
-                    self.button_double_click_event.set()
+        match click_type:
+            case ClickType.ButtonDown:
+                self.last_time_button_down = event_time
+                self.button_down_event.set()
+            case ClickType.ButtonUp:
+                self.last_time_button_up = event_time
+                self.button_up_event.set()
+            case ClickType.ButtonClick:
+                self.last_time_button_click = event_time
+                self.button_click_event.set()
+            case ClickType.ButtonHold:
+                self.last_time_button_hold = event_time
+                self.button_hold_event.set()
+            case ClickType.ButtonSingleClick:
+                self.last_time_button_single_click = event_time
+                self.button_single_click_event.set()
+            case ClickType.ButtonDoubleClick:
+                self.last_time_button_double_click = event_time
+                self.button_double_click_event.set()
 
     def on_connection_channel_removed(
         self,
@@ -1107,11 +1123,14 @@ class FlicClient(asyncio.Protocol):
         The scan wizard will start directly once the scan wizard is added.
         """
         logger.info("Adding scan wizard")
-        if scan_wizard.scan_wizard_id in self._scan_wizards:
-            logger.info("Scan wizard already exists")
+        if scan_wizard.scan_wizard_id in self._pending_scan_wizards:
+            logger.info("Scan wizard already pending")
+            return False
+        if scan_wizard.scan_wizard_id in self._completed_scan_wizards:
+            logger.info("Scan wizard already completed")
             return False
 
-        self._scan_wizards[scan_wizard._scan_wizard_id] = scan_wizard
+        self._pending_scan_wizards[scan_wizard._scan_wizard_id] = scan_wizard
         self._send_command(
             "CmdCreateScanWizard",
             {"scan_wizard_id": scan_wizard._scan_wizard_id},
@@ -1128,7 +1147,7 @@ class FlicClient(asyncio.Protocol):
         If cancelled due to this command, "result" in the on_completed event will be "WizardCancelledByUser".
         """
         logger.info("Cancelling scan wizard")
-        if scan_wizard.scan_wizard_id not in self._scan_wizards:
+        if scan_wizard.scan_wizard_id not in self._pending_scan_wizards:
             return
 
         self._send_command(
@@ -1264,11 +1283,20 @@ class FlicClient(asyncio.Protocol):
     async def connect_existing_buttons(self, timeout: Optional[float] = None):
         logger.info("Connecting to existing buttons")
         info = await self.get_info()
-        for bd_addr in info.bd_addr_of_verified_buttons:
+        if info.max_concurrently_connected_buttons > 0:
+            num_connections = min(
+                info.max_concurrently_connected_buttons,
+                len(info.bd_addr_of_verified_buttons),
+            )
+        else:
+            num_connections = len(info.bd_addr_of_verified_buttons)
+
+        for bd_addr in info.bd_addr_of_verified_buttons[:num_connections]:
             cc = ButtonConnectionChannel(
                 bd_addr,
                 self.default_latency_mode,
                 self.default_auto_disconnect_time,
+                self.default_log_click_types,
             )
             self.add_connection_channel(cc)
 
@@ -1279,12 +1307,19 @@ class FlicClient(asyncio.Protocol):
     async def scan_and_connect(self) -> bool:
         logger.info("Starting the scan")
         scan_wizard = ScanWizard()
-        self.add_scan_wizard(scan_wizard)
-        await scan_wizard.completed_event.wait()
+        if not self.add_scan_wizard(scan_wizard):
+            return False
+        result = await scan_wizard
         logger.info("Scan completed")
-        if scan_wizard.result == ScanWizardResult.WizardSuccess:
-            assert scan_wizard.cc is not None
-            self.add_connection_channel(scan_wizard.cc)
+        if result == ScanWizardResult.WizardSuccess:
+            assert scan_wizard.bd_addr is not None
+            cc = ButtonConnectionChannel(
+                scan_wizard.bd_addr,
+                self.default_latency_mode,
+                self.default_auto_disconnect_time,
+                self.default_log_click_types,
+            )
+            self.add_connection_channel(cc)
             return True
         else:
             return False
@@ -1304,15 +1339,18 @@ class FlicClient(asyncio.Protocol):
 
     def close(self):
         """Closes the transport and the client."""
+        if self._closed_event.is_set():
+            return
+
         logger.info("Closing client")
         if self._transport is not None:
             self._transport.close()
-        self._closed = True
+            self._transport = None
         self._closed_event.set()
 
     @property
     def closed(self):
-        return self._closed
+        return self._closed_event.is_set()
 
     async def wait_for_closed(self):
         await self._closed_event.wait()
@@ -1380,20 +1418,34 @@ def delete(args: Any = None):
         rclpy.shutdown()
 
 
-async def connect_async(host: str, port: int):
+async def connect_async(host: str, port: int, max_wizards: int = 10):
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
-        lambda: FlicClient(loop=loop), host, port
+        lambda: FlicClient(
+            loop=loop,
+            default_log_click_types=[ClickType.ButtonDown],
+        ),
+        host,
+        port,
     )
 
-    try:
-        await client.connect_existing_buttons()
+    async def scan_and_connect_loop():
         while True:
-            if await client.scan_and_connect():
-                continue
-            else:
-                logger.warning("Scan failed, sleeping for 3 seconds")
-                await asyncio.sleep(3)
+            async with asyncio.TaskGroup() as tg:
+                for _ in range(max_wizards):
+                    tg.create_task(client.scan_and_connect())
+
+    try:
+        scan_task = asyncio.create_task(scan_and_connect_loop())
+        closed_task = asyncio.create_task(client.wait_for_closed())
+        try:
+            await asyncio.wait(
+                [scan_task, closed_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            scan_task.cancel()
+            closed_task.cancel()
     finally:
         client.close()
 
@@ -1404,6 +1456,7 @@ def connect(args: Any = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
+    parser.add_argument("--max-wizards", type=int, default=10)
 
     non_ros_args = rclpy.utilities.remove_ros_args(args)
     args, _ = parser.parse_known_args(non_ros_args)

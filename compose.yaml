@@ -99,10 +99,10 @@ services:
     extends: server_base
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
     # device_cgroup_rules:
-    #   - c 160:* rmw
+    #   - c 161:* rmw
     environment:
       - DISPLAY=$DISPLAY
 
@@ -116,8 +116,17 @@ services:
     pull_policy: always
     volumes:
       - ./flic_server:/flic_server
+    environment:
+      - HCI_DEV=${HCI_DEV:-hci0}
+      - BD_ADDR=${BD_ADDR:-c8:c6:ac:df:da:c2}
     command: bash -c
-      "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0 -h hci0 -w" # -w necessary, see musings.md
+      "/flic_server/flicd
+      --db-file /flic_server/sqlite.db
+      --my-bdaddr $$BD_ADDR
+      --server-addr 0.0.0.0
+      --server-port 5551
+      --hci-dev $$HCI_DEV
+      --wait-for-hci" # --wait-for-hci necessary, see musings.md
 
 networks:
   tabletop_net:

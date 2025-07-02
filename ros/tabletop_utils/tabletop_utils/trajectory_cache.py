@@ -139,8 +139,8 @@ class FuzzyTrajectoryCacheKey:
     def get_fuzzy_dict(
         self,
         robot_state_tolerance: RobotStateToleranceT,
-        position_tolerance: PositionToleranceT,
-        orientation_tolerance: OrientationToleranceT,
+        goal_position_tolerance: PositionToleranceT,
+        goal_orientation_tolerance: OrientationToleranceT,
         use_euler_tolerance: bool,
     ) -> dict[str, Any]:
         """Get the fuzzy key for a given key as a dictionary.
@@ -184,12 +184,12 @@ class FuzzyTrajectoryCacheKey:
                 self.goal.pose, euler=use_euler_tolerance
             )
             fuzzy_key_dict["goal"]["position"] = self._fuzz_iterable(
-                goal_position, position_tolerance
+                goal_position, goal_position_tolerance
             )
 
             # Fuzz the orientation
             fuzzy_key_dict["goal"]["orientation"] = self._fuzz_iterable(
-                goal_orientation, orientation_tolerance
+                goal_orientation, goal_orientation_tolerance
             )
 
         # Add the planning link
@@ -262,8 +262,8 @@ class FuzzyTrajectoryCache(Shelf):
     _symlink_filename: str = "cache.db"
 
     _robot_state_tolerance: RobotStateToleranceT
-    _position_tolerance: PositionToleranceT
-    _orientation_tolerance: OrientationToleranceT
+    _goal_position_tolerance: PositionToleranceT
+    _goal_orientation_tolerance: OrientationToleranceT
     _use_euler_tolerance: bool
     _max_trajectories: int
 
@@ -273,8 +273,8 @@ class FuzzyTrajectoryCache(Shelf):
         path: str,
         rig_hash: str,
         robot_state_tolerance: RobotStateToleranceT,
-        position_tolerance: PositionToleranceT,
-        orientation_tolerance: OrientationToleranceT,
+        goal_position_tolerance: PositionToleranceT,
+        goal_orientation_tolerance: OrientationToleranceT,
         use_euler_tolerance: bool = True,
         max_trajectories: int = 1,
         new_cache: bool = False,
@@ -285,9 +285,9 @@ class FuzzyTrajectoryCache(Shelf):
             rig_hash: The hash of the rig.
             robot_state_tolerance: The joint angle tolerance for the cache. If
                 a single float is provided, it is used for all 6 joints.
-            position_tolerance: The position tolerance for the cache. If a
+            goal_position_tolerance: The position tolerance for the cache. If a
                 single float is provided, it is used for all 3 dimensions.
-            orientation_tolerance: The orientation tolerance for the cache. If
+            goal_orientation_tolerance: The orientation tolerance for the cache. If
                 a single float is provided, it is used for all 4 dimensions.
             use_euler_tolerance: Whether to use euler tolerance instead of
                 quaternion tolerance.
@@ -371,12 +371,12 @@ class FuzzyTrajectoryCache(Shelf):
                 # Initialize the tolerances and save them locally for faster access
                 (
                     self._robot_state_tolerance,
-                    self._position_tolerance,
-                    self._orientation_tolerance,
+                    self._goal_position_tolerance,
+                    self._goal_orientation_tolerance,
                 ) = self._init_tolerances(
                     robot_state_tolerance,
-                    position_tolerance,
-                    orientation_tolerance,
+                    goal_position_tolerance,
+                    goal_orientation_tolerance,
                     use_euler_tolerance,
                 )
                 self._use_euler_tolerance = use_euler_tolerance
@@ -385,9 +385,9 @@ class FuzzyTrajectoryCache(Shelf):
                 self._validate_db(rig_hash)
 
                 logger.info(
-                    f"Initialized trajectory cache with orientation tolerance "
-                    f"{self._orientation_tolerance}, position tolerance "
-                    f"{self._position_tolerance}, robot state tolerance "
+                    f"Initialized trajectory cache with goal orientation tolerance "
+                    f"{self._goal_orientation_tolerance}, goal position tolerance "
+                    f"{self._goal_position_tolerance}, robot state tolerance "
                     f"{self._robot_state_tolerance}, and max trajectories "
                     f"{max_trajectories}."
                 )
@@ -405,8 +405,8 @@ class FuzzyTrajectoryCache(Shelf):
     def _init_tolerances(
         self,
         robot_state_tolerance: Any,
-        position_tolerance: Any,
-        orientation_tolerance: Any,
+        goal_position_tolerance: Any,
+        goal_orientation_tolerance: Any,
         use_euler_tolerance: bool,
     ) -> tuple[
         RobotStateToleranceT, PositionToleranceT, OrientationToleranceT
@@ -423,34 +423,41 @@ class FuzzyTrajectoryCache(Shelf):
         elif robot_state_tolerance <= 0:
             raise ValueError("robot_state_tolerance must be positive")
 
-        if is_iterable(position_tolerance):
-            position_tolerance = tuple(map(float, position_tolerance))
-            if len(position_tolerance) != 3:
-                raise ValueError("position_tolerance must be a 3-tuple")
-            if any(x <= 0 for x in position_tolerance):
-                raise ValueError("position_tolerance must be positive")
-        elif position_tolerance <= 0:
-            raise ValueError("position_tolerance must be positive")
+        if is_iterable(goal_position_tolerance):
+            goal_position_tolerance = tuple(
+                map(float, goal_position_tolerance)
+            )
+            if len(goal_position_tolerance) != 3:
+                raise ValueError("goal_position_tolerance must be a 3-tuple")
+            if any(x <= 0 for x in goal_position_tolerance):
+                raise ValueError("goal_position_tolerance must be positive")
+        elif goal_position_tolerance <= 0:
+            raise ValueError("goal_position_tolerance must be positive")
 
-        if is_iterable(orientation_tolerance):
-            orientation_tolerance = tuple(map(float, orientation_tolerance))
-            if (use_euler_tolerance and len(orientation_tolerance) != 3) or (
-                not use_euler_tolerance and len(orientation_tolerance) != 4
+        if is_iterable(goal_orientation_tolerance):
+            goal_orientation_tolerance = tuple(
+                map(float, goal_orientation_tolerance)
+            )
+            if (
+                use_euler_tolerance and len(goal_orientation_tolerance) != 3
+            ) or (
+                not use_euler_tolerance
+                and len(goal_orientation_tolerance) != 4
             ):
                 raise ValueError(
-                    "orientation_tolerance must be a 3-tuple if use_euler_tolerance "
+                    "goal_orientation_tolerance must be a 3-tuple if use_euler_tolerance "
                     "is True, and a 4-tuple if use_euler_tolerance is False, "
-                    f"but got {len(orientation_tolerance)}-tuple"
+                    f"but got {len(goal_orientation_tolerance)}-tuple"
                 )
-            if any(x <= 0 for x in orientation_tolerance):
-                raise ValueError("orientation_tolerance must be positive")
-        elif orientation_tolerance <= 0:
-            raise ValueError("orientation_tolerance must be positive")
+            if any(x <= 0 for x in goal_orientation_tolerance):
+                raise ValueError("goal_orientation_tolerance must be positive")
+        elif goal_orientation_tolerance <= 0:
+            raise ValueError("goal_orientation_tolerance must be positive")
 
         return (
             robot_state_tolerance,
-            position_tolerance,
-            orientation_tolerance,
+            goal_position_tolerance,
+            goal_orientation_tolerance,
         )
 
     def _validate_db(self, rig_hash: str):
@@ -461,8 +468,8 @@ class FuzzyTrajectoryCache(Shelf):
         metadata = {
             "rig_hash": rig_hash,
             "robot_state_tolerance": deepcopy(self._robot_state_tolerance),
-            "position_tolerance": self._position_tolerance,
-            "orientation_tolerance": self._orientation_tolerance,
+            "goal_position_tolerance": self._goal_position_tolerance,
+            "goal_orientation_tolerance": self._goal_orientation_tolerance,
             "use_euler_tolerance": self._use_euler_tolerance,
             "max_trajectories": self._max_trajectories,
         }
@@ -504,14 +511,14 @@ class FuzzyTrajectoryCache(Shelf):
         return self._robot_state_tolerance
 
     @property
-    def position_tolerance(self) -> PositionToleranceT:
+    def goal_position_tolerance(self) -> PositionToleranceT:
         """Position tolerance (stored in memory for faster access)"""
-        return self._position_tolerance
+        return self._goal_position_tolerance
 
     @property
-    def orientation_tolerance(self) -> OrientationToleranceT:
+    def goal_orientation_tolerance(self) -> OrientationToleranceT:
         """Orientation tolerance (stored in memory for faster access)"""
-        return self._orientation_tolerance
+        return self._goal_orientation_tolerance
 
     @property
     def use_euler_tolerance(self) -> bool:
@@ -527,8 +534,8 @@ class FuzzyTrajectoryCache(Shelf):
         """Get the fuzzy key for a given key and tolerances."""
         return key.get_fuzzy_string(
             self.robot_state_tolerance,
-            self.position_tolerance,
-            self.orientation_tolerance,
+            self.goal_position_tolerance,
+            self.goal_orientation_tolerance,
             self.use_euler_tolerance,
         )
 
@@ -579,8 +586,8 @@ class FuzzyTrajectoryCache(Shelf):
         if not all_close_poses_stamped(
             trajectory_start_pose,
             request_start_pose,
-            position_tolerance=self.position_tolerance,
-            orientation_tolerance=self.orientation_tolerance,
+            position_tolerance=self.goal_position_tolerance,
+            orientation_tolerance=self.goal_orientation_tolerance,
             use_euler_tolerance=self.use_euler_tolerance,
         ):
             raise ValueError(
@@ -610,8 +617,8 @@ class FuzzyTrajectoryCache(Shelf):
             if not all_close_poses_stamped(
                 trajectory_end_pose,
                 true_end_pose,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
+                position_tolerance=self.goal_position_tolerance,
+                orientation_tolerance=self.goal_orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
             ):
                 raise ValueError(
@@ -643,8 +650,8 @@ class FuzzyTrajectoryCache(Shelf):
             if not all_close_poses_stamped(
                 trajectory_end_pose,
                 request_goal_pose,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
+                position_tolerance=self.goal_position_tolerance,
+                orientation_tolerance=self.goal_orientation_tolerance,
                 use_euler_tolerance=self.use_euler_tolerance,
             ):
                 raise ValueError(

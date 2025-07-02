@@ -1,17 +1,28 @@
 import argparse
 import asyncio
+import logging
 import os
 import subprocess
 import time
 
 import mingus.core.scales as scales
 import mingus.midi.fluidsynth as fluidsynth
-from client_aio import (
-    ButtonConnectionChannel,
-    ClickType,
-    FlicClient,
-)
 from mingus.containers import Note
+
+try:
+    from tabletop_utils.flic_client import (
+        ButtonConnectionChannel,
+        ClickType,
+        FlicClient,
+    )
+except ImportError:
+    from flic_client import (
+        ButtonConnectionChannel,
+        ClickType,
+        FlicClient,
+    )
+
+logger = logging.getLogger(__name__)
 
 bd_addr_ordered = [
     "80:e4:da:7c:a6:0b",
@@ -28,14 +39,21 @@ bd_addr_ordered = [
 bd_addr_to_note = {}
 
 
-def on_button_up_or_down(self, click_type, was_queued, time_diff):
-    self._on_button("Button up or down", click_type, was_queued, time_diff)
-    note = bd_addr_to_note[self.bd_addr]
-    if click_type == ClickType.ButtonDown:
-        fluidsynth.play_Note(note)
+class PianoButtonConnectionChannel(ButtonConnectionChannel):  # type: ignore
+    def __init__(self, *args, note: Note, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.note = note
 
-
-ButtonConnectionChannel.on_button_up_or_down = on_button_up_or_down
+    def on_button_event(self, click_type, was_queued, time_diff, event_time):
+        logger.info(
+            f"Button event: {click_type} | "
+            f"addr: {self.bd_addr}, "
+            f"was_queued: {was_queued}, "
+            f"time_diff: {time_diff}, "
+            f"time: {event_time}"
+        )
+        if click_type == ClickType.ButtonDown:
+            fluidsynth.play_Note(self.note)
 
 
 def init_piano(soundfont: str, key: str, octave: int, scale: str):
@@ -83,7 +101,7 @@ async def run(
         print("Keyboard interrupt")
     finally:
         fluidsynth_process.terminate()
-        await client.close()
+        client.close()
 
 
 def main():

@@ -1,19 +1,7 @@
 {
-    "python.autoComplete.extraPaths": [
-        "/root/ws/build/tabletop_utils",
-        "/root/ws/install/tabletop_utils/lib/python3.12/site-packages",
-        "/root/ws/build/tabletop_tasks",
-        "/root/ws/install/tabletop_tasks/lib/python3.12/site-packages",
-        "/root/ws/build/tabletop_server",
-        "/root/ws/install/tabletop_server/lib/python3.12/site-packages",
-        "/root/ws/install/tabletop_interfaces/lib/python3.12/site-packages",
-        "/root/ws/install/moveit_py/lib/python3.12/site-packages",
-        "/root/ws/install/moveit_msgs/lib/python3.12/site-packages",
-        "/root/ws/build/moveit_configs_utils",
-        "/root/ws/install/moveit_configs_utils/lib/python3.12/site-packages",
-        "/root/ws/install/micro_ros_msgs/lib/python3.12/site-packages",
-        "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ],
     "cmake.ignoreCMakeListsMissing": true,
-    "git.detectSubmodules": false
+    "git.detectSubmodules": false,
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.typeCheckingMode": "basic",
+    "cursorpyright.analysis.useLibraryCodeForTypes": true
 }

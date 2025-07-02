@@ -13,8 +13,8 @@ from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
+from tabletop_utils.aio_executor import AIOExecutor
 
-from tabletop_server import aio_executor
 from tabletop_server.nodes.base import BaseNode
 
 monkey_logger = rclpy.logging.get_logger("wiggins")
@@ -214,16 +214,16 @@ class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
         "monkey_loop.min_arm_locked_delay_sec": 0.5,
         "monkey_loop.max_arm_locked_delay_sec": 0.8,
-        "monkey_loop.safety_laser_broken_when_locked_prob": 0.0,
+        "monkey_loop.safety_laser_broken_when_locked_prob": 0.1,
         "monkey_loop.safety_laser_broken_when_unlocked_prob": 0.5,
         "monkey_loop.loop_period_sec": 2.0,
     }
 
     def __init__(self):
-        super().__init__("teensy")
+        super().__init__("mock_teensy")
 
         # Log publisher
-        self.log_pub = self.create_publisher(String, "teensy/log", 10)
+        self.log_pub = self.create_publisher(String, "/teensy/log", 10)
 
         # Monkey loop
         monkey_loop_kwargs = self.get_parameter_wrapper("monkey_loop")
@@ -254,7 +254,7 @@ class MockTeensy(BaseNode):
         qos.durability = QoSDurabilityPolicy.VOLATILE
         self.sensor_pub = self.create_publisher(
             TeensySensor,
-            "teensy/sensor",
+            "/teensy/sensor",
             qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
@@ -264,19 +264,19 @@ class MockTeensy(BaseNode):
         # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
         self.set_arm_lock_service = self.create_service(
             SetArmLock,
-            "teensy/set_arm_lock",
+            "/teensy/set_arm_lock",
             self.set_arm_lock_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_smartglass_service = self.create_service(
             SetSmartglass,
-            "teensy/set_smartglass",
+            "/teensy/set_smartglass",
             self.set_smartglass_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_reward_service = self.create_service(
             SetReward,
-            "teensy/set_reward",
+            "/teensy/set_reward",
             self.set_reward_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
@@ -484,7 +484,7 @@ async def main_async(args=None):
         print("Debugger attached")
 
     try:
-        executor = aio_executor.AIOExecutor()
+        executor = AIOExecutor()
         mock_teensy = MockTeensy()
         executor.add_node(mock_teensy)
 

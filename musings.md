@@ -114,7 +114,7 @@ This gets its own section because it's a pain in the ass.
     *Both `host` and `port` are optional and default to `172.17.0.1` and `5551` respectively.*
 
 
-4. The `-w` flag in the `flic` container command is necessary to fix the
+4. The `--wait-for-hci` flag in the `flic` container command is necessary to fix the
     `Error: No HCI devices are available` error. It waits for a bluetooth device
     to be made available.
 

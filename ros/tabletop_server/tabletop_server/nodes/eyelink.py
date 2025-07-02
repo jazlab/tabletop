@@ -98,7 +98,7 @@ class Eyelink(BaseNode):
         self.eyelink_smooth_pursuit_server = ActionServer(
             self,
             EyelinkSmoothPursuit,
-            "eyelink/smooth_pursuit",
+            "/eyelink/smooth_pursuit",
             self.smooth_pursuit_callback,
             cancel_callback=self.smooth_pursuit_cancel_callback,
             goal_callback=self.smooth_pursuit_goal_callback,
@@ -109,22 +109,22 @@ class Eyelink(BaseNode):
 
         self.eyelink_start_recording_service = self.create_service(
             Trigger,
-            "eyelink/start_recording",
+            "/eyelink/start_recording",
             self.start_recording_callback,
         )
         self.eyelink_stop_recording_service = self.create_service(
             Trigger,
-            "eyelink/stop_recording",
+            "/eyelink/stop_recording",
             self.stop_recording_callback,
         )
         self.eyelink_open_data_file_service = self.create_service(
             Trigger,
-            "eyelink/open_data_file",
+            "/eyelink/open_data_file",
             self.open_data_file_callback,
         )
         self.eyelink_close_data_file_service = self.create_service(
             Trigger,
-            "eyelink/close_data_file",
+            "/eyelink/close_data_file",
             self.close_data_file_callback,
         )
 

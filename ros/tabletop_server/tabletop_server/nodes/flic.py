@@ -11,9 +11,9 @@ from rclpy.action.server import (
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from tabletop_interfaces.action import FlicResponseTime
+from tabletop_utils.aio_executor import AIOExecutor
+from tabletop_utils.flic_client import FlicClient
 
-from tabletop_server import aio_executor
-from tabletop_server.flic_client import AIOFlicClient
 from tabletop_server.nodes.base import BaseNode
 from tabletop_server.nodes.commander import argparse
 
@@ -41,7 +41,7 @@ class Flic(BaseNode):
         self.flic_response_time_server = ActionServer(
             self,
             FlicResponseTime,
-            "flic/response_time",
+            "/flic/response_time",
             self.flic_response_time_callback,
             cancel_callback=self.flic_response_time_cancel_callback,
             goal_callback=self.flic_response_time_goal_callback,
@@ -133,7 +133,7 @@ class Flic(BaseNode):
             self.log("Initializing flic client")
             loop = asyncio.get_event_loop()
             _, self.flic_client = await loop.create_connection(
-                lambda: AIOFlicClient(loop=loop),
+                lambda: FlicClient(loop=loop),
                 self.get_parameter_wrapper("server_ip"),
                 self.get_parameter_wrapper("server_port"),
             )
@@ -178,7 +178,7 @@ async def main_async(args=None):
         print("Debugger attached")
 
     try:
-        executor = aio_executor.AIOExecutor()
+        executor = AIOExecutor()
         flic = Flic()
         executor.add_node(flic)
 

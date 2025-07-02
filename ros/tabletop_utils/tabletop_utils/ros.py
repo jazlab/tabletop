@@ -143,16 +143,16 @@ class TrajectoryErrorCodes(Enum):
 # Exception definitions
 
 
-class ServiceCallError(Exception):
-    """Service call failed."""
-
-
-class ServiceCallTimeoutError(ServiceCallError):
+class ServiceCallTimeoutError(Exception):
     """Service call timed out."""
 
 
-class ServiceCallUnsuccessfulError(ServiceCallError):
+class ServiceCallUnsuccessfulError(Exception):
     """Service call returned with a failure status."""
+
+
+class ActionCallUnsuccessfulError(Exception):
+    """Action call failed."""
 
 
 class CommanderRecoverableError(Exception):
@@ -162,19 +162,42 @@ class CommanderRecoverableError(Exception):
 class PlanningError(CommanderRecoverableError):
     """Planning error."""
 
+
+class PlanOnceError(PlanningError):
+    """Planning error."""
+
     def __init__(self, error_code: MoveItErrorCodes):
         self.error_code = error_code
         super().__init__(
-            f"Planning error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}"
+            f"Plan once error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}"
         )
 
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, PlanningError):
+        if isinstance(other, PlanOnceError):
             return self.error_code.val == other.error_code.val
         return False
 
 
-class TrajectoryError(CommanderRecoverableError):
+class MaxPlanningAttemptsReachedError(PlanningError):
+    """Maximum number of planning attempts reached."""
+
+    def __init__(self, errors: list[PlanOnceError]):
+        self.errors = errors
+        if all(e == errors[0] for e in errors):
+            error_code_str = f"same error: {errors[0]}"
+        else:
+            error_code_strs = [str(e) for e in errors]
+            error_code_str = f"different errors: {error_code_strs}"
+        super().__init__(
+            f"Max planning attempts ({len(errors)}) reached with {error_code_str}"
+        )
+
+
+class ExecutionError(CommanderRecoverableError):
+    """Execution error."""
+
+
+class TrajectoryError(ExecutionError):
     """Trajectory error."""
 
     def __init__(self, error_code: TrajectoryErrorCodes):
@@ -187,66 +210,38 @@ class TrajectoryError(CommanderRecoverableError):
         return False
 
 
-class ExecutionError(CommanderRecoverableError):
-    """Execution error."""
+class ExecutionRejectedError(ExecutionError):
+    """Execution rejected (robot did not move)."""
 
     def __init__(self, execution_status: ExecutionStatus):
         self.execution_status = execution_status
-        super().__init__(f"Execution error: {execution_status.status}")
+        super().__init__(f"Execution rejected: {execution_status.status}")
 
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, ExecutionError):
+        if isinstance(other, ExecutionRejectedError):
             return (
                 self.execution_status.status == other.execution_status.status
             )
         return False
 
 
-class NotSafeToExecuteError(CommanderRecoverableError):
+class ExecutionInterruptedError(ExecutionError):
+    """Execution interrupted (robot moved but not to the goal)."""
+
+    def __init__(self, execution_status: ExecutionStatus):
+        self.execution_status = execution_status
+        super().__init__(f"Execution interrupted: {execution_status.status}")
+
+
+class NotSafeToExecuteError(ExecutionError):
     """Not safe to execute."""
 
     def __init__(self, execution_status: Optional[ExecutionStatus] = None):
         self.execution_status = execution_status
+        msg = "Not safe to execute"
         if execution_status is not None:
-            super().__init__(
-                f"Not safe to execute: execution interrupted with status: {execution_status.status}"
-            )
-        else:
-            super().__init__("Not safe to execute: execution prevented")
-
-
-class MaxAttemptsReachedError(CommanderRecoverableError):
-    """Maximum number of attempts reached."""
-
-
-class MaxPlanningAttemptsReachedError(MaxAttemptsReachedError):
-    """Maximum number of planning attempts reached."""
-
-    def __init__(self, errors: list[PlanningError]):
-        self.errors = errors
-        if all(e == errors[0] for e in errors):
-            error_code_str = f"same error: {errors[0]}"
-        else:
-            error_code_strs = [str(e) for e in errors]
-            error_code_str = f"different errors: {error_code_strs}"
-        super().__init__(
-            f"Max planning attempts ({len(errors)}) reached with {error_code_str}"
-        )
-
-
-class MaxExecutionAttemptsReachedError(MaxAttemptsReachedError):
-    """Maximum number of execution attempts reached."""
-
-    def __init__(self, errors: list[ExecutionError]):
-        self.errors = errors
-        if all(e == errors[0] for e in errors):
-            error_str = f"same error: {errors[0]}"
-        else:
-            error_strs = [str(e) for e in errors]
-            error_str = f"different errors: {error_strs}"
-        super().__init__(
-            f"Max execution attempts ({len(errors)}) reached with {error_str}"
-        )
+            msg += f": {execution_status.status}"
+        super().__init__(msg)
 
 
 class ObjectManipulationError(CommanderRecoverableError):
@@ -344,7 +339,6 @@ class ExecuteRequest:
     min_angle_change: float
     mitigate_overshoot: bool
     overshoot_threshold: float
-    max_execution_attempts: int
 
     def __post_init__(self):
         """Type check the request."""
@@ -765,8 +759,9 @@ def all_close_poses(
 def all_close_poses_stamped(
     pose_stamped1: PoseStamped,
     pose_stamped2: PoseStamped,
-    *args: Any,
-    **kwargs: Any,
+    position_tolerance: float | Iterable[float] | np.ndarray,
+    orientation_tolerance: float | Iterable[float] | np.ndarray,
+    use_euler_tolerance: bool = False,
 ) -> bool:
     """Check if two poses are close to each other.
 
@@ -782,7 +777,11 @@ def all_close_poses_stamped(
     if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
         raise ValueError("PoseStamped messages must have the same frame_id")
     return all_close_poses(
-        pose_stamped1.pose, pose_stamped2.pose, *args, **kwargs
+        pose_stamped1.pose,
+        pose_stamped2.pose,
+        position_tolerance,
+        orientation_tolerance,
+        use_euler_tolerance,
     )
 
 
@@ -848,10 +847,32 @@ def matrix_from_pose_msg(pose: Pose | Mapping[str, Any]) -> np.ndarray:
     return translation @ rotation
 
 
+def change_reference_frame_pose(
+    old_pose: Pose,
+    old_frame_transform: np.ndarray | Pose,
+    new_frame_transform: np.ndarray | Pose,
+) -> Pose:
+    """Change the reference frame of a pose."""
+    old_pose_matrix = matrix_from_pose_msg(old_pose)
+    if isinstance(old_frame_transform, Pose):
+        old_frame_transform = matrix_from_pose_msg(old_frame_transform)
+    if isinstance(new_frame_transform, Pose):
+        new_frame_transform = matrix_from_pose_msg(new_frame_transform)
+
+    # Compute the new pose in the transformed frame
+    reference_frame_transform = (
+        inverse_matrix(new_frame_transform) @ old_frame_transform
+    )
+    new_pose_matrix = reference_frame_transform @ old_pose_matrix
+
+    # Convert back to Pose message
+    return pose_msg_from_matrix(new_pose_matrix)
+
+
 def change_reference_frame_pose_stamped(
     old_pose_stamped: PoseStamped,
-    old_frame_transform: np.ndarray,
-    new_frame_transform: np.ndarray,
+    old_frame_transform: np.ndarray | Pose,
+    new_frame_transform: np.ndarray | Pose,
     new_frame_id: str,
 ) -> PoseStamped:
     """Transforms a pose from one frame to another.
@@ -862,26 +883,10 @@ def change_reference_frame_pose_stamped(
         new_frame_transform (np.ndarray): The transform from the new frame to the world frame.
         new_frame_id (str): The ID of the new frame.
     """
-
-    old_pose_matrix = matrix_from_pose_msg(old_pose_stamped.pose)
-
-    # Compute the new pose in the transformed frame
-    reference_frame_transform = (
-        inverse_matrix(new_frame_transform) @ old_frame_transform
+    new_pose = change_reference_frame_pose(
+        old_pose_stamped.pose, old_frame_transform, new_frame_transform
     )
-    new_pose_matrix = reference_frame_transform @ old_pose_matrix
-
-    # Convert back to Pose message
-    new_pose = pose_msg_from_matrix(new_pose_matrix)
-
-    # Create new PoseStamped message with updated frame_id
-    new_pose_stamped = pose_stamped_msg(
-        header=old_pose_stamped.header,
-        pose=new_pose,
-    )
-    new_pose_stamped.header.frame_id = new_frame_id
-
-    return new_pose_stamped
+    return pose_stamped_msg(frame_id=new_frame_id, pose=new_pose)
 
 
 # Collision object utilities
