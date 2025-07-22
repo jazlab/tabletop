@@ -10,9 +10,14 @@ from rclpy.action.server import (
     ServerGoalHandle,
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 from tabletop_utils.aio_executor import AIOExecutor
-from tabletop_utils.flic_client import FlicClient
+from tabletop_utils.flic_client import (
+    BluetoothControllerState,
+    ClickType,
+    FlicClient,
+)
 
 from tabletop_server.nodes.base import BaseNode
 from tabletop_server.nodes.commander import argparse
@@ -25,7 +30,8 @@ class Flic(BaseNode):
         "simulate_max_delay": 6.0,
         "server_ip": "172.17.0.1",
         "server_port": 5551,
-        "spin_period": 0.05,
+        "max_connections": 3,
+        "auto_disconnect_time": 30,
     }
 
     def __init__(self):
@@ -52,7 +58,9 @@ class Flic(BaseNode):
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
 
-    async def flic_response_time_goal_callback(self, _) -> GoalResponse:
+    async def flic_response_time_goal_callback(
+        self, goal_request: FlicResponseTime.Goal
+    ) -> GoalResponse:
         async with self.goal_lock:
             if hasattr(self, "cancel_event"):
                 self.log(
@@ -60,7 +68,21 @@ class Flic(BaseNode):
                     severity="WARN",
                 )
                 return GoalResponse.REJECT
+
+            if self.simulate:
+                self.log("Accepting goal for simulated button")
+                self.cancel_event = asyncio.Event()
+                return GoalResponse.ACCEPT
+
+            info = await self.flic_client.get_info()
+            if goal_request.bd_addr not in info.bd_addr_of_verified_buttons:
+                self.log(
+                    f"Button {goal_request.bd_addr} not found",
+                    severity="WARN",
+                )
+                return GoalResponse.REJECT
             else:
+                self.log(f"Accepting goal for button {goal_request.bd_addr}")
                 self.cancel_event = asyncio.Event()
                 return GoalResponse.ACCEPT
 
@@ -82,10 +104,9 @@ class Flic(BaseNode):
         """Flic response time action callback."""
         try:
             self.log("Flic response time action started")
-            result = FlicResponseTime.Result()
+            start_time = self.get_clock().now()
 
             # Button task to wait for the (potentially simulated) button to be pressed
-            start_time = self.get_clock().now()
             if self.simulate:
                 min_delay = self.get_parameter_wrapper("simulate_min_delay")
                 max_delay = self.get_parameter_wrapper("simulate_max_delay")
@@ -93,8 +114,13 @@ class Flic(BaseNode):
                     asyncio.sleep(random.uniform(min_delay, max_delay))
                 )
             else:
+                # Connect to the button
+                async with asyncio.timeout(1):
+                    cc = await self.flic_client.connect(
+                        goal_handle.request.bd_addr
+                    )
                 button_task = asyncio.create_task(
-                    self.flic_client.wait_for_button_down()
+                    cc.wait_for_button_event(ClickType.ButtonDown)
                 )
 
             # Cancel event task to terminate early
@@ -109,9 +135,16 @@ class Flic(BaseNode):
                 if cancel_task.done():
                     self.log("Flic response time action cancelled")
                     goal_handle.canceled()
-                    return result
+                    return FlicResponseTime.Result()
                 else:
-                    response_time = self.get_clock().now() - start_time
+                    assert button_task.done()
+                    if self.simulate:
+                        button_event_time = self.get_clock().now()
+                    else:
+                        button_event_time = button_task.result()
+                    assert isinstance(button_event_time, Time)
+                    response_time = button_event_time - start_time
+                    result = FlicResponseTime.Result()
                     result.response_time = response_time.to_msg()
                     self.log(
                         f"Flic response time: {response_time.nanoseconds / 1e9:.2f} s"
@@ -131,19 +164,31 @@ class Flic(BaseNode):
             self.log("Simulating flic client, no client started")
         else:
             self.log("Initializing flic client")
+            max_connections = self.get_parameter_wrapper("max_connections")
+            auto_disconnect_time = self.get_parameter_wrapper(
+                "auto_disconnect_time"
+            )
+            host = self.get_parameter_wrapper("server_ip")
+            port = self.get_parameter_wrapper("server_port")
             loop = asyncio.get_event_loop()
             _, self.flic_client = await loop.create_connection(
-                lambda: FlicClient(loop=loop),
-                self.get_parameter_wrapper("server_ip"),
-                self.get_parameter_wrapper("server_port"),
+                lambda: FlicClient(
+                    loop=loop,
+                    max_connection_channels=max_connections,
+                    default_auto_disconnect_time=auto_disconnect_time,
+                    time_fn=lambda: self.get_clock().now(),
+                ),
+                host,
+                port,
             )
+            info = await self.flic_client.get_info()
+            if (
+                info.bluetooth_controller_state
+                != BluetoothControllerState.Attached
+            ):
+                raise RuntimeError("Bluetooth controller not attached")
 
-            self.log("Connecting to existing buttons")
-            await self.flic_client.connect_existing_buttons()
-
-            self.log(
-                f"Flic client initialized with {self.flic_client.num_buttons} buttons"
-            )
+            await self.flic_client.disconnect_all()
 
     async def wait_for_closed(self):
         """Wait for the flic client to close."""
@@ -154,7 +199,7 @@ class Flic(BaseNode):
 
     def destroy_node(self):
         """Destroy the node."""
-        if hasattr(self, "flic_client"):
+        if hasattr(self, "flic_client") and not self.flic_client.closed:
             self.log("Closing flic client")
             self.flic_client.close()
         super().destroy_node()

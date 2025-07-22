@@ -13,6 +13,8 @@
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
 
+#include "core_pins.h"
+
 #if !defined(MICRO_ROS_TRANSPORT_ARDUINO_SERIAL)
 #  error This code only supports serial transport.
 #endif
@@ -26,8 +28,8 @@
 #define REWARD_CONTROL_PIN 1
 #define SYNC_PULSE_CONTROL_PIN 9
 #define LEFT_ARM_LOCKED_STATE_PIN 34
-#define RIGHT_ARM_LOCKED_STATE_PIN 37
-#define SAFETY_LASER_BROKEN_STATE_PIN 36
+#define RIGHT_ARM_LOCKED_STATE_PIN 35
+#define SAFETY_LASER_UNBROKEN_STATE_PIN 36
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = {A0, A1, A2, A3, A4};
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = {A5, A6, A7, A8, A9};
 
@@ -199,7 +201,7 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
     // Populate sensor message
     GET_CURRENT_ROS_TIME(sensor_msg.timestamp);
     sensor_msg.is_safety_laser_broken =
-        digitalRead(SAFETY_LASER_BROKEN_STATE_PIN);
+        !digitalRead(SAFETY_LASER_UNBROKEN_STATE_PIN);
     sensor_msg.is_left_arm_locked = digitalRead(LEFT_ARM_LOCKED_STATE_PIN);
     sensor_msg.is_right_arm_locked = digitalRead(RIGHT_ARM_LOCKED_STATE_PIN);
     sensor_msg.is_reward_active = reward_active;
@@ -383,6 +385,14 @@ void set_smartglass_callback(const void* req, void* res) {
   LOG("%s", response->message.data);
 }
 
+void reset_pins() {
+  digitalWrite(LEFT_ARM_LOCK_CONTROL_PIN, HIGH);
+  digitalWrite(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH);
+  digitalWrite(SMARTGLASS_CONTROL_PIN, LOW);
+  digitalWrite(REWARD_CONTROL_PIN, LOW);
+  digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
+}
+
 bool create_entities() {
   allocator = rcl_get_default_allocator();
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
@@ -489,16 +499,12 @@ void setup() {
   pinMode(SMARTGLASS_CONTROL_PIN, OUTPUT);
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
-  digitalWrite(LEFT_ARM_LOCK_CONTROL_PIN, HIGH);
-  digitalWrite(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH);
-  digitalWrite(SMARTGLASS_CONTROL_PIN, LOW);
-  digitalWrite(REWARD_CONTROL_PIN, LOW);
-  digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
+  reset_pins();
 
   // Initialize input pins
-  pinMode(LEFT_ARM_LOCKED_STATE_PIN, INPUT);
-  pinMode(RIGHT_ARM_LOCKED_STATE_PIN, INPUT);
-  pinMode(SAFETY_LASER_BROKEN_STATE_PIN, INPUT);
+  pinMode(LEFT_ARM_LOCKED_STATE_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_ARM_LOCKED_STATE_PIN, INPUT_PULLUP);
+  pinMode(SAFETY_LASER_UNBROKEN_STATE_PIN, INPUT_PULLUP);
   for (size_t i = 0; i < 5; i++) {
     pinMode(LEFT_GLOVE_STATE_PINS[i], INPUT);
   }
@@ -552,6 +558,7 @@ void loop() {
                 : WAITING_AGENT;);
     break;
   case AGENT_AVAILABLE:
+    reset_pins();
     state = create_entities() ? AGENT_CONNECTED : WAITING_AGENT;
     if (state == WAITING_AGENT) {
       destroy_entities();
@@ -574,6 +581,7 @@ void loop() {
     }
     break;
   case AGENT_DISCONNECTED:
+    reset_pins();
     destroy_entities();
     state = WAITING_AGENT;
     break;

@@ -70,7 +70,7 @@ analog_input_pin_states = {
 }
 
 
-SENSOR_PERIOD_MS = 100
+SENSOR_PERIOD_MS = 10
 SYNC_PULSE_BASE_PERIOD_MS = 1000
 SYNC_PULSE_DELAY_RANGE_MS = 200
 SYNC_PULSE_DURATION_MS = 100
@@ -155,6 +155,38 @@ async def monkey_loop(
         left_arm_lock_task = None
         right_arm_lock_task = None
 
+        # Update the left arm locked state based on the left arm lock pin
+        if _read_output_pin_state(
+            LEFT_ARM_LOCK_CONTROL_PIN
+        ) and not digital_read(LEFT_ARM_LOCKED_STATE_PIN):
+            delay = random.uniform(
+                min_arm_locked_delay_sec, max_arm_locked_delay_sec
+            )
+            left_arm_lock_task = asyncio.create_task(
+                _sleep_and_change_input_pin_state(
+                    LEFT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                )
+            )
+
+        # Update the right arm locked state based on the right arm lock pin
+        if _read_output_pin_state(
+            RIGHT_ARM_LOCK_CONTROL_PIN
+        ) and not digital_read(RIGHT_ARM_LOCKED_STATE_PIN):
+            delay = random.uniform(
+                min_arm_locked_delay_sec, max_arm_locked_delay_sec
+            )
+            right_arm_lock_task = asyncio.create_task(
+                _sleep_and_change_input_pin_state(
+                    RIGHT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                )
+            )
+
+        if left_arm_lock_task is not None:
+            await left_arm_lock_task
+        if right_arm_lock_task is not None:
+            await right_arm_lock_task
+
+        # Update the safety laser broken state based on the arm lock states
         if digital_read(LEFT_ARM_LOCKED_STATE_PIN) and digital_read(
             RIGHT_ARM_LOCKED_STATE_PIN
         ):
@@ -172,39 +204,6 @@ async def monkey_loop(
                 random.uniform(0, 1) < safety_laser_broken_when_unlocked_prob,
             )
 
-            # Update the left arm locked state based on the left arm lock pin
-            if _read_output_pin_state(LEFT_ARM_LOCK_CONTROL_PIN) == HIGH:
-                if digital_read(LEFT_ARM_LOCKED_STATE_PIN) == LOW:
-                    delay = random.uniform(
-                        min_arm_locked_delay_sec, max_arm_locked_delay_sec
-                    )
-                    left_arm_lock_task = asyncio.create_task(
-                        _sleep_and_change_input_pin_state(
-                            LEFT_ARM_LOCKED_STATE_PIN, HIGH, delay
-                        )
-                    )
-            else:
-                _change_input_pin_state(LEFT_ARM_LOCKED_STATE_PIN, LOW)
-
-            # Update the right arm locked state based on the right arm lock pin
-            if _read_output_pin_state(RIGHT_ARM_LOCK_CONTROL_PIN) == HIGH:
-                if digital_read(RIGHT_ARM_LOCKED_STATE_PIN) == LOW:
-                    delay = random.uniform(
-                        min_arm_locked_delay_sec, max_arm_locked_delay_sec
-                    )
-                    right_arm_lock_task = asyncio.create_task(
-                        _sleep_and_change_input_pin_state(
-                            RIGHT_ARM_LOCKED_STATE_PIN, HIGH, delay
-                        )
-                    )
-            else:
-                _change_input_pin_state(RIGHT_ARM_LOCKED_STATE_PIN, LOW)
-
-            if left_arm_lock_task is not None:
-                await left_arm_lock_task
-            if right_arm_lock_task is not None:
-                await right_arm_lock_task
-
         # Sleep for the remaining time in the loop period
         delay = loop_period_sec - (time.time() - start_time)
         await asyncio.sleep(delay)
@@ -214,9 +213,9 @@ class MockTeensy(BaseNode):
     default_params = BaseNode.default_params | {
         "monkey_loop.min_arm_locked_delay_sec": 0.5,
         "monkey_loop.max_arm_locked_delay_sec": 0.8,
-        "monkey_loop.safety_laser_broken_when_locked_prob": 0.1,
+        "monkey_loop.safety_laser_broken_when_locked_prob": 0.0,
         "monkey_loop.safety_laser_broken_when_unlocked_prob": 0.5,
-        "monkey_loop.loop_period_sec": 2.0,
+        "monkey_loop.loop_period_sec": 1.0,
     }
 
     def __init__(self):
@@ -235,16 +234,14 @@ class MockTeensy(BaseNode):
         self.sync_pulse_control_pin_state = LOW
         self.sync_pulse_last_time_on = self.get_clock().now()
         self.sync_pulse_last_time_off = self.get_clock().now()
-        self.reward_control_pin_state = LOW
-        self.smartglass_control_pin_state = LOW
+        self.reward_active = False
+        self.smartglass_revealed = False
 
         # Write the initial pin states
         digital_write(LEFT_ARM_LOCK_CONTROL_PIN, HIGH)
         digital_write(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH)
-        digital_write(
-            SMARTGLASS_CONTROL_PIN, self.smartglass_control_pin_state
-        )
-        digital_write(REWARD_CONTROL_PIN, self.reward_control_pin_state)
+        digital_write(SMARTGLASS_CONTROL_PIN, self.smartglass_revealed)
+        digital_write(REWARD_CONTROL_PIN, self.reward_active)
         digital_write(
             SYNC_PULSE_CONTROL_PIN, self.sync_pulse_control_pin_state
         )
@@ -252,6 +249,7 @@ class MockTeensy(BaseNode):
         # Publishers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
         qos.durability = QoSDurabilityPolicy.VOLATILE
+        qos.depth = 1
         self.sensor_pub = self.create_publisher(
             TeensySensor,
             "/teensy/sensor",
@@ -309,7 +307,7 @@ class MockTeensy(BaseNode):
             self.log_pub.publish(String(data=f"{severity}: {message}"))
 
     def sync_pulse_end_timer_callback(self):
-        assert self.sync_pulse_control_pin_state == HIGH
+        assert self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
         self.sync_pulse_last_time_off = self.get_clock().now()
@@ -325,7 +323,7 @@ class MockTeensy(BaseNode):
         )
 
     def sync_pulse_start_timer_callback(self):
-        assert self.sync_pulse_control_pin_state == LOW
+        assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, HIGH)
         self.sync_pulse_control_pin_state = HIGH
         self.sync_pulse_last_time_on = self.get_clock().now()
@@ -340,7 +338,7 @@ class MockTeensy(BaseNode):
         )
 
     def sync_pulse_base_timer_callback(self):
-        assert self.sync_pulse_control_pin_state == LOW
+        assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
 
@@ -366,10 +364,22 @@ class MockTeensy(BaseNode):
         pin_state = HIGH if request.lock else LOW
         if request.left_arm:
             digital_write(LEFT_ARM_LOCK_CONTROL_PIN, pin_state)
+
+            # For simulation purposes, we need to update the left arm locked state
+            # to reflect the arm lock control pin state
+            if not request.lock:
+                _change_input_pin_state(LEFT_ARM_LOCKED_STATE_PIN, LOW)
+
             if not request.right_arm:
                 message_arm = "Left arm"
         if request.right_arm:
             digital_write(RIGHT_ARM_LOCK_CONTROL_PIN, pin_state)
+
+            # For simulation purposes, we need to update the right arm locked state
+            # to reflect the arm lock control pin state
+            if not request.lock:
+                _change_input_pin_state(RIGHT_ARM_LOCKED_STATE_PIN, LOW)
+
             if not request.left_arm:
                 message_arm = "Right arm"
 
@@ -443,10 +453,8 @@ class MockTeensy(BaseNode):
             RIGHT_ARM_LOCKED_STATE_PIN
         )
 
-        sensor_msg.is_reward_active = self.reward_control_pin_state == HIGH
-        sensor_msg.is_smartglass_revealed = (
-            self.smartglass_control_pin_state == HIGH
-        )
+        sensor_msg.is_reward_active = self.reward_active
+        sensor_msg.is_smartglass_revealed = self.smartglass_revealed
 
         # Update tactile glove states
         for i, p in enumerate(LEFT_GLOVE_STATE_PINS):
@@ -455,7 +463,7 @@ class MockTeensy(BaseNode):
             sensor_msg.right_tactile_glove_states[i] = analog_read(p)
 
         # Update sync pulse state
-        sensor_msg.sync_pulse_state = self.sync_pulse_control_pin_state == HIGH
+        sensor_msg.sync_pulse_state = self.sync_pulse_control_pin_state
         sensor_msg.sync_pulse_last_time_on = (
             self.sync_pulse_last_time_on.to_msg()
         )

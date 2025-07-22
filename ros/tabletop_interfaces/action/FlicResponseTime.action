@@ -1,3 +1,4 @@
+string bd_addr
 ---
 builtin_interfaces/Duration response_time
 ---

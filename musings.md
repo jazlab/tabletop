@@ -141,7 +141,8 @@ This gets its own section because it's a pain in the ass.
 
 9. Some more fun bluetooth commands to try if all else fails:
     ```bash
-    sudo modprobe bluetooth # load the bluetooth module
+    sudo modprobe btusb # load the btusb module
+    sudo modprobe -r btusb # unload the btusb module
     hciconfig # list bluetooth devices
     sudo hciconfig hci1 up # bring up the bluetooth device
     sudo hciconfig hci1 down # bring down the bluetooth device

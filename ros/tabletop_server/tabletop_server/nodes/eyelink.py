@@ -46,7 +46,7 @@ EyeData = (
 
 class Eyelink(BaseNode):
     default_params = BaseNode.default_params | {
-        "tracker_address": "100.1.1.1",
+        "tracker_address": "192.168.13.30",
         "do_tracker_setup": True,
         "wait_for_data_timeout": 1.0,  # seconds
         "sample_rate": 1000,  # Hz

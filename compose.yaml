@@ -6,11 +6,6 @@ services:
       context: ./docker/novnc
       pull: true
     pull_policy: build
-    ports:
-      - 8080:8080
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.100
     restart: on-failure
     healthcheck:
       test: ["CMD", "/app/healthcheck.sh"]
@@ -19,6 +14,11 @@ services:
       retries: 3
       start_period: 10s
       start_interval: 2s
+    ports:
+      - 8080:8080
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.100
     environment:
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
@@ -115,18 +115,22 @@ services:
     image: ubuntu:latest
     pull_policy: always
     volumes:
-      - ./flic_server:/flic_server
+      - ./docker/flic:/app
     environment:
-      - HCI_DEV=${HCI_DEV:-hci0}
-      - BD_ADDR=${BD_ADDR:-c8:c6:ac:df:da:c2}
+      - HCI_DEV=hci0
+      - BD_ADDR=c8:c6:ac:df:da:c2
+      - PORT=5551
+      - SERVER_ADDR=0.0.0.0
     command: bash -c
-      "/flic_server/flicd
-      --db-file /flic_server/sqlite.db
+      "/app/flicd
+      --db-file /app/flic.db
       --my-bdaddr $$BD_ADDR
-      --server-addr 0.0.0.0
-      --server-port 5551
+      --server-addr $$SERVER_ADDR
+      --server-port $$PORT
       --hci-dev $$HCI_DEV
-      --wait-for-hci" # --wait-for-hci necessary, see musings.md
+      --wait-for-hci"
+
+
 
 networks:
   tabletop_net:

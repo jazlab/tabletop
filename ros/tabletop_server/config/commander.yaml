@@ -1,19 +1,51 @@
-# /**:
-#   ros__parameters:
-#     robot_description_planning:
-#       default_robot_padding: 0.0
-
 /commander:
   ros__parameters:
-    max_workers: 4
+    max_workers: 8
 
     dashboard:
       installation: default.installation
       program: external_control.urp
+      play_retries: 3
+      play_retry_delay: 1.0
 
     teensy:
       safe_to_execute_required_count: 5
       spin_period: 0.05
+
+    flic:
+      bd_addrs:
+        small_object_0: 90:88:a9:50:60:09
+        small_object_1: 90:88:a9:50:7b:d6
+        small_object_2: 90:88:a9:50:5c:ac
+        small_object_3: 90:88:a9:50:5f:19
+        small_object_4: 90:88:a9:50:60:0d
+        small_object_5: 90:88:a9:50:5d:f7
+        small_object_6: 90:88:a9:50:5f:db
+        small_object_7: 90:88:a9:50:61:4e
+        small_object_8: 90:88:a9:50:7c:7a
+        small_object_9: 90:88:a9:50:7c:b1
+        small_object_10: 90:88:a9:50:5f:6d
+        small_object_11: 90:88:a9:50:5e:c0
+        small_object_12: 90:88:a9:50:94:e5
+        small_object_13: 90:88:a9:50:65:da
+        small_object_14: 90:88:a9:50:7b:a3
+        small_object_15: 90:88:a9:50:60:9f
+        small_object_16: 90:88:a9:50:65:fb
+        small_object_17: 90:88:a9:50:7c:bb
+        small_object_18: 90:88:a9:50:7c:92
+        small_object_19: 90:88:a9:50:5f:af
+        small_object_20: 90:88:a9:50:60:0a
+        small_object_21: 90:88:a9:50:66:0f
+        small_object_22: 90:88:a9:50:62:eb
+        small_object_23: 90:88:a9:50:63:08
+        small_object_24: 90:88:a9:50:66:09
+        small_object_25: 90:88:a9:50:5f:74
+        small_object_26: 90:88:a9:50:60:10
+        small_object_27: 90:88:a9:50:93:a1
+        small_object_28: 90:88:a9:50:66:0d
+        small_object_29: 90:88:a9:50:60:11
+        small_object_30: 90:88:a9:50:5f:ac
+        small_object_31: 90:88:a9:50:65:ff
 
     planning:
       defaults:
@@ -43,7 +75,7 @@
       defaults:
         validate_trajectory: true
         apply_totg: true
-        apply_smoothing: true
+        apply_smoothing: false
         velocity_scaling_factor: 1.0
         acceleration_scaling_factor: 1.0
         path_tolerance: 0.002

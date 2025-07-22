@@ -15,7 +15,7 @@ from collections.abc import (
     Iterable,
     Mapping,
 )
-from copy import deepcopy
+from copy import copy, deepcopy
 from enum import IntEnum
 from types import TracebackType
 from typing import Any, ContextManager, Literal, Optional, Self, cast
@@ -26,6 +26,7 @@ import pandas as pd
 import rclpy
 import rclpy.utilities
 import yaml
+from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit.core.collision_detection import (  # type: ignore
     AllowedCollisionMatrix,  # type: ignore
@@ -60,7 +61,7 @@ from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
-from rclpy.qos import QoSPresetProfiles
+from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
 from tabletop_interfaces.action import FlicResponseTime
 from tabletop_interfaces.msg import TeensySensor
@@ -274,11 +275,14 @@ class Commander(BaseNode):
         """
         # Subscribers
 
+        qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
+        qos.durability = QoSDurabilityPolicy.VOLATILE
+        qos.depth = 1
         self.teensy_sub = self.create_subscription(
             TeensySensor,
             "/teensy/sensor",
             self.teensy_sensor_callback,
-            qos_profile=QoSPresetProfiles.SENSOR_DATA.value,
+            qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._last_teensy_sensor = TeensySensor()
@@ -305,11 +309,11 @@ class Commander(BaseNode):
         )
 
         # Action clients
-        self.set_mode_client = ActionClient(
-            self,
-            SetMode,
-            "/ur_robot_state_helper/set_mode",
-        )
+        # self.set_mode_client = ActionClient(
+        #     self,
+        #     SetMode,
+        #     "/ur_robot_state_helper/set_mode",
+        # )
         self.flic_response_time_client = ActionClient(
             self,
             FlicResponseTime,
@@ -318,15 +322,17 @@ class Commander(BaseNode):
 
         # Wait for ROS services and action servers
 
-        self.log("Waiting for ROS services and action servers")
+        self.log("Waiting for dashboard client")
         self.wait_for_service_blocking(
             DashboardLoad, "/dashboard_client/load_program"
         )
+        self.log("Waiting for teensy services")
         self.set_arm_lock_client.wait_for_service()
         self.set_reward_client.wait_for_service()
         self.set_smartglass_client.wait_for_service()
 
-        self.set_mode_client.wait_for_server()
+        # self.set_mode_client.wait_for_server()
+        self.log("Waiting for flic response time client")
         self.flic_response_time_client.wait_for_server()
         self.log("ROS services and action servers ready")
 
@@ -840,14 +846,20 @@ class Commander(BaseNode):
         await self._set_reward(duration)
 
         spin_period = self.get_parameter_wrapper("teensy.spin_period")
+
+        await asyncio.sleep(spin_period)
+        assert (
+            self.last_teensy_sensor.is_reward_active
+        ), "Reward not active after 1 spin period"
+
         timeout = duration + spin_period
         try:
             async with asyncio.timeout(timeout):
                 while self.last_teensy_sensor.is_reward_active:
                     await asyncio.sleep(spin_period)
-            return True
+                return True
         except TimeoutError:
-            return False
+            assert False, "Reward still active after duration"
 
     async def _set_smartglass(self, reveal: bool) -> SetSmartglass.Response:
         """Set the smartglass state."""
@@ -868,18 +880,20 @@ class Commander(BaseNode):
         """Occlude the smartglass."""
         return await self._set_smartglass(False)
 
-    # TODO: Potential race condition (between monkey and get_flic lol)
     @asyncio_task_decorator
     async def flic_response_time(
         self, timeout: Optional[float] = None
     ) -> float | None:
         """Wait for flic button press, then return response time, or None if timeout is reached."""
+        object_id = self.get_exactly_one_attached_object_id()
+        bd_addr = self.get_parameter_wrapper(f"flic.bd_addrs.{object_id}")
+
         try:
             async with asyncio.timeout(timeout):
                 goal_handle = cast(
                     ClientGoalHandle,
                     await self.flic_response_time_client.send_goal_async(
-                        FlicResponseTime.Goal()
+                        FlicResponseTime.Goal(bd_addr=bd_addr)
                     ),
                 )
                 if not goal_handle.accepted:
@@ -887,15 +901,17 @@ class Commander(BaseNode):
 
                 try:
                     response = await goal_handle.get_result_async()
-                    response_time = Duration.from_msg(
-                        response.result.response_time
-                    )
-                    return response_time.nanoseconds / 1e9
                 except asyncio.CancelledError:
                     goal_handle.cancel_goal_async()
                     raise
         except TimeoutError:
             return None
+
+        if response.status != GoalStatus.STATUS_SUCCEEDED:
+            raise RuntimeError("Flic goal failed")
+
+        response_time = Duration.from_msg(response.result.response_time)
+        return response_time.nanoseconds / 1e9
 
     ###########################################################################
     ########## Planning scene #################################################
@@ -2641,16 +2657,16 @@ class Commander(BaseNode):
             )
 
         for i in range(max_attempts):
+            if i > 0:
+                kwargs["cache_trajectory"] = False
             try:
                 response = await self._plan_and_execute_impl(*args, **kwargs)
+                break
             except NotSafeToExecuteError as e:
                 if i == max_attempts - 1:
                     raise
                 self.log(
-                    f"Not safe to execute while planning and executing: {e}",
-                    severity="WARN",
-                )
-                self.log(
+                    f"Error while planning and executing: {e}. "
                     "Locking arms and waiting for safety before retrying",
                     severity="WARN",
                 )
@@ -2663,13 +2679,11 @@ class Commander(BaseNode):
                 if i == max_attempts - 1:
                     raise
                 self.log(
-                    f"Execution interrupted while planning and executing: {e}",
-                    severity="WARN",
-                )
-                self.log(
+                    f"Error while planning and executing: {e}. "
                     "Resetting dashboard before retrying",
                     severity="WARN",
                 )
+                await asyncio.sleep(2)
                 await self.reset_dashboard()
                 self.log(
                     "Dashboard reset, retrying plan_and_execute",
@@ -2975,8 +2989,40 @@ class Commander(BaseNode):
     ###########################################################################
     ########## Reset rig #####################################################
     ###########################################################################
-
     async def reset_dashboard(
+        self, timeout: Optional[float] = None, init: bool = False
+    ):
+        """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
+        self.log("Resetting dashboard")
+        config = self.get_parameter_wrapper("dashboard")
+        async with asyncio.timeout(timeout):
+            while True:
+                # Timeout included in wait_for_dashboard to stop the thread
+                # from waiting longer than timeout
+                await self.dashboard_trigger("/dashboard_client/close_popup")
+                await self.dashboard_trigger(
+                    "/dashboard_client/close_safety_popup"
+                )
+                await self.dashboard_trigger(
+                    "/dashboard_client/unlock_protective_stop"
+                )
+                await self.dashboard_load(
+                    "/dashboard_client/load_program", config["program"]
+                )
+                await self.dashboard_trigger("/dashboard_client/brake_release")
+                for _ in range(config["play_retries"]):
+                    try:
+                        await self.dashboard_trigger("/dashboard_client/play")
+                        return
+                    except ServiceCallUnsuccessfulError:
+                        self.log(
+                            f"Failed attempt to play dashboard program, "
+                            f"retrying after {config['play_retry_delay']} seconds...",
+                            severity="WARN",
+                        )
+                        await asyncio.sleep(config["play_retry_delay"])
+
+    async def reset_dashboard_2(
         self, timeout: Optional[float] = None, init: bool = False
     ):
         """Reset the UR Dashboard."""
@@ -3016,7 +3062,10 @@ class Commander(BaseNode):
                 goal_handle.cancel_goal_async()
                 raise
 
-            if not response.result.success:
+            if (
+                response.status != GoalStatus.STATUS_SUCCEEDED
+                or not response.result.success
+            ):
                 raise ActionCallUnsuccessfulError("UR SetMode action failed")
 
     async def _move_out_of_collision_simulation(

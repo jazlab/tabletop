@@ -8,6 +8,7 @@
 **/log/
 **/bags/
 **/*.log
+**/nohup.out
 
 # Ignore build artifacts
 **/build/
@@ -23,8 +24,7 @@
 **/meshes/test/
 
 # Ignore flic files
-/flic_server/sqlite.db
-/flic_client/simpleclient
+**/flic.db
 
 # Ignore venv
 **/venv/
