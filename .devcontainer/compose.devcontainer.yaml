@@ -13,8 +13,7 @@ services:
     environment:
       - DISPLAY=$DISPLAY
     command: bash -c
-      "git config --global --add safe.directory /root/ws/src/tabletop
-      && git config --global --add safe.directory /root/ws/src/moveit2
+      "git config --global --add safe.directory $TABLETOP_DIR
       && sleep infinity"
 
 networks:

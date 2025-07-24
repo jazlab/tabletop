@@ -98,9 +98,6 @@ if [ "$remove_moveit_apt" = "true" ]; then
     sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
 fi
 
-# Update moveit2 repos
-tt_moveit_update
-
 # Install ROS 2 dependencies
 print_status "Installing ROS 2 dependencies"
 rosdep install -r --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y

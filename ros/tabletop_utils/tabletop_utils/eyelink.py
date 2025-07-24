@@ -128,7 +128,7 @@ def edf_to_csv(
     else:
         output_dir = os.path.dirname(output_path)
 
-    asc_path = edf_to_asc(edf_path, *edf2asc_args, output_dir=output_dir)
+    asc_path = edf_to_asc(edf_path, edf2asc_args, output_dir=output_dir)
     df = asc_to_df(asc_path, input_mapping)
     df.to_csv(output_path, index=False)
     if not keep_asc:

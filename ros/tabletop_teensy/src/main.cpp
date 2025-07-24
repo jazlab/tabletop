@@ -388,7 +388,7 @@ void set_smartglass_callback(const void* req, void* res) {
 void reset_pins() {
   digitalWrite(LEFT_ARM_LOCK_CONTROL_PIN, HIGH);
   digitalWrite(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH);
-  digitalWrite(SMARTGLASS_CONTROL_PIN, LOW);
+  digitalWrite(SMARTGLASS_CONTROL_PIN, HIGH);
   digitalWrite(REWARD_CONTROL_PIN, LOW);
   digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
 }

@@ -8,6 +8,10 @@ export TABLETOP_DIR=$(get_parent_dir $bin_dir 1)
 export ROS_LOG_DIR=$TABLETOP_DIR/ros/logs
 export TABLETOP_BAG_DIR=$TABLETOP_DIR/ros/bags
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export SIM_ROBOT_IP=192.168.12.20
+export SIM_REVERSE_IP=192.168.12.10
+export ROBOT_IP=192.168.13.20
+export REVERSE_IP=192.168.13.10
 export PYTHONUNBUFFERED=1
 
 # Update PATH

@@ -1518,6 +1518,7 @@ async def spin(client: FlicClient, period: float):
                 if remaining > 0:
                     await asyncio.sleep(remaining)
     finally:
+        print("Buttons pressed in order:")
         for channel in client._buttons_ordered.values():
             print(channel.bd_addr)
 

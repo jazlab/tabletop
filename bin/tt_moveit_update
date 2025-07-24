@@ -21,7 +21,6 @@ else
     fi
     popd
 fi
-popd
 
 print_status "Download complete!"
 # Download MoveIt2 dependency repos
@@ -30,6 +29,8 @@ for repo in moveit2/moveit2.repos $(f="moveit2/moveit2_${ROS_DISTRO}.repos"; tes
     print_status "Importing $repo..."
     vcs import < "$repo"
 done
+
+popd
 popd
 
 print_status "VCS import complete!"

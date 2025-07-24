@@ -29,6 +29,7 @@ services:
     restart: unless-stopped
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
+    init: true
     # platform: linux/amd64
     volumes:
       - ./ur_robot/urcaps:/urcaps

@@ -1,5 +1,6 @@
 /commander:
   ros__parameters:
+    simulate: true
     max_workers: 8
 
     dashboard:
@@ -14,38 +15,36 @@
 
     flic:
       bd_addrs:
-        small_object_0: 90:88:a9:50:60:09
-        small_object_1: 90:88:a9:50:7b:d6
-        small_object_2: 90:88:a9:50:5c:ac
-        small_object_3: 90:88:a9:50:5f:19
-        small_object_4: 90:88:a9:50:60:0d
-        small_object_5: 90:88:a9:50:5d:f7
-        small_object_6: 90:88:a9:50:5f:db
-        small_object_7: 90:88:a9:50:61:4e
-        small_object_8: 90:88:a9:50:7c:7a
-        small_object_9: 90:88:a9:50:7c:b1
-        small_object_10: 90:88:a9:50:5f:6d
-        small_object_11: 90:88:a9:50:5e:c0
-        small_object_12: 90:88:a9:50:94:e5
-        small_object_13: 90:88:a9:50:65:da
-        small_object_14: 90:88:a9:50:7b:a3
-        small_object_15: 90:88:a9:50:60:9f
-        small_object_16: 90:88:a9:50:65:fb
-        small_object_17: 90:88:a9:50:7c:bb
-        small_object_18: 90:88:a9:50:7c:92
-        small_object_19: 90:88:a9:50:5f:af
-        small_object_20: 90:88:a9:50:60:0a
-        small_object_21: 90:88:a9:50:66:0f
-        small_object_22: 90:88:a9:50:62:eb
-        small_object_23: 90:88:a9:50:63:08
-        small_object_24: 90:88:a9:50:66:09
-        small_object_25: 90:88:a9:50:5f:74
-        small_object_26: 90:88:a9:50:60:10
-        small_object_27: 90:88:a9:50:93:a1
-        small_object_28: 90:88:a9:50:66:0d
-        small_object_29: 90:88:a9:50:60:11
-        small_object_30: 90:88:a9:50:5f:ac
-        small_object_31: 90:88:a9:50:65:ff
+        small_object_0: 90:88:a9:50:5f:b6
+        small_object_1: 90:88:a9:50:5f:db
+        small_object_2: 90:88:a9:50:5d:f7
+        small_object_3: 90:88:a9:50:5f:92
+        small_object_4: 90:88:a9:50:7b:a3
+        small_object_5: 90:88:a9:50:65:da
+        small_object_6: 90:88:a9:50:63:08
+        small_object_7: 90:88:a9:50:62:eb
+        small_object_8: 90:88:a9:50:66:0f
+        small_object_9: 90:88:a9:50:61:4e
+        small_object_10: 90:88:a9:50:5f:ac
+        small_object_11: 90:88:a9:50:60:11
+        small_object_12: 90:88:a9:50:60:9f
+        small_object_13: 90:88:a9:50:66:10
+        small_object_14: 90:88:a9:50:7c:cc
+        small_object_15: 90:88:a9:50:65:ff
+        small_object_16: 90:88:a9:50:7d:8f
+        small_object_17: 90:88:a9:50:5e:c2
+        small_object_18: 90:88:a9:50:60:09
+        small_object_19: 90:88:a9:50:61:a5
+        small_object_20: 90:88:a9:50:5f:70
+        small_object_21: 90:88:a9:50:7c:7a
+        small_object_22: 90:88:a9:50:5f:87
+        small_object_23: 90:88:a9:50:7c:9d
+        small_object_24: 90:88:a9:50:7c:b1
+        small_object_25: 90:88:a9:50:7c:ba
+        small_object_26: 90:88:a9:50:75:07
+        small_object_27: 90:88:a9:50:65:fb
+        small_object_28: 90:88:a9:50:66:09
+        small_object_29: 90:88:a9:50:5f:68
 
     planning:
       defaults:
@@ -78,8 +77,8 @@
         apply_smoothing: false
         velocity_scaling_factor: 1.0
         acceleration_scaling_factor: 1.0
-        path_tolerance: 0.002
-        resample_dt: 0.01
+        path_tolerance: 0.001
+        resample_dt: 0.005
         min_angle_change: 0.001
         mitigate_overshoot: false
         overshoot_threshold: 0.002
@@ -351,8 +350,8 @@
             object_id: small_object_26
             color: [0.0, 0.75, 0.25, 1.0] # light cyan
             rel_pose:
-              position: [1.196, 0.6336, -0.004]
-              rpy: [0.0222, -0.0087, -1.5707]
+              position: [1.1973, 0.6292, -0.005]
+              rpy: [0.0015, -0.01, -1.5707]
           9,0:
             object_id: small_object_27
             color: [0.75, 0.5, 0.25, 1.0] # peach

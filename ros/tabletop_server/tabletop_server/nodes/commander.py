@@ -8,6 +8,7 @@ import json
 import os
 import pickle
 import threading
+import time
 import traceback
 from collections.abc import (
     Callable,
@@ -114,8 +115,8 @@ from tabletop_utils.trajectory_cache import (
     FuzzyTrajectoryCache,
 )
 from tf_transformations import identity_matrix
-from ur_dashboard_msgs.action import SetMode
-from ur_dashboard_msgs.msg import RobotMode
+from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
 
 from tabletop_server.nodes.base import BaseNode
@@ -250,6 +251,8 @@ class Commander(BaseNode):
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
+        self.init_collision_detector()
+
         self.init_planning_scene()
 
         self.init_attached_object()
@@ -336,6 +339,12 @@ class Commander(BaseNode):
         self.flic_response_time_client.wait_for_server()
         self.log("ROS services and action servers ready")
 
+    def init_collision_detector(self):
+        """Initialize the collision detector."""
+        with self.planning_scene_read_write() as scene:
+            scene.allocate_collision_detector("bullet")
+        time.sleep(0.25)
+
     def init_planning_scene(self):
         """Setup the planning scene
 
@@ -376,9 +385,6 @@ class Commander(BaseNode):
                 with open(rig_hash_path, "r") as f:
                     saved_rig_hash = f.read().strip()
                 if saved_config == config and saved_rig_hash == self.rig_hash:
-                    self.log(
-                        f"Loading planning scene from file {scene_path}",
-                    )
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
                     self.load_object_init_kwargs(object_init_kwargs_path)
@@ -720,6 +726,30 @@ class Commander(BaseNode):
             srv_name=srv_name,
         )
         return cast(DashboardLoad.Response, response)
+
+    async def dashboard_get_safety_mode(self) -> SafetyMode:
+        """Get the safety mode from the dashboard client."""
+        response = cast(
+            GetSafetyMode.Response,
+            await self.service_call_async(
+                srv_request=GetSafetyMode.Request(),
+                srv_type=GetSafetyMode,
+                srv_name="/dashboard_client/get_safety_mode",
+            ),
+        )
+        return response.safety_mode
+
+    async def dashboard_get_robot_mode(self) -> RobotMode:
+        """Get the robot mode from the dashboard client."""
+        response = cast(
+            GetRobotMode.Response,
+            await self.service_call_async(
+                srv_request=GetRobotMode.Request(),
+                srv_type=GetRobotMode,
+                srv_name="/dashboard_client/get_robot_mode",
+            ),
+        )
+        return response.robot_mode
 
     ###########################################################################
     ########## ROS Interface ##################################################
@@ -2550,13 +2580,18 @@ class Commander(BaseNode):
             self.log("Cache is frozen, skipping cache")
 
     async def _plan_and_execute_impl(
-        self, *args: Any, cache_trajectory: bool = True, **kwargs: Any
+        self,
+        *args: Any,
+        cache_trajectory: bool = True,
+        use_cache: bool = True,
+        **kwargs: Any,
     ) -> dict[str, Any] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
             *args: Arguments to pass to `create_plan_request()`.
             cache_trajectory: Whether to cache the planned trajectory.
+            use_cache: Whether to use the cached trajectory.
             **kwargs: Keyword arguments to pass to `create_plan_request()`
                 and `execute()`.
 
@@ -2584,7 +2619,7 @@ class Commander(BaseNode):
         )
 
         # Attempt to execute the cached trajectory, otherwise plan and execute normally
-        if self.use_cached_trajectories:
+        if self.use_cached_trajectories and use_cache:
             try:
                 # TODO: Refactor so caching happens in the plan() function
                 trajectories = self.trajectory_cache.get_trajectories(
@@ -2760,6 +2795,7 @@ class Commander(BaseNode):
         goal = self._get_phase_goal(phase, object_id, goal)
         extra_kwargs = {}
         extra_kwargs["planning_pipeline"] = "linear"
+        extra_kwargs["use_cache"] = False
 
         if phase in OBJECT_MOUNT_PHASES:
             self.allow_collision(*zip(*self.allowed_object_mount_collisions))
@@ -2779,6 +2815,7 @@ class Commander(BaseNode):
                 | ObjectPhase.IDLE
             ):
                 del extra_kwargs["planning_pipeline"]
+                del extra_kwargs["use_cache"]
             case (
                 ObjectPhase.PRE_ATTACH
                 | ObjectPhase.ATTACH
@@ -2989,6 +3026,7 @@ class Commander(BaseNode):
     ###########################################################################
     ########## Reset rig #####################################################
     ###########################################################################
+
     async def reset_dashboard(
         self, timeout: Optional[float] = None, init: bool = False
     ):
@@ -3010,6 +3048,21 @@ class Commander(BaseNode):
                     "/dashboard_client/load_program", config["program"]
                 )
                 await self.dashboard_trigger("/dashboard_client/brake_release")
+                safety_mode = await self.dashboard_get_safety_mode()
+                robot_mode = await self.dashboard_get_robot_mode()
+                while (
+                    safety_mode.mode != SafetyMode.NORMAL
+                    or robot_mode.mode != RobotMode.RUNNING
+                ):
+                    self.log(
+                        f"Safety mode is {safety_mode.mode}, "
+                        f"retrying after {config['play_retry_delay']} seconds...",
+                        severity="WARN",
+                    )
+                    await asyncio.sleep(config["play_retry_delay"])
+                    safety_mode = await self.dashboard_get_safety_mode()
+                    robot_mode = await self.dashboard_get_robot_mode()
+
                 for _ in range(config["play_retries"]):
                     try:
                         await self.dashboard_trigger("/dashboard_client/play")
@@ -3022,51 +3075,51 @@ class Commander(BaseNode):
                         )
                         await asyncio.sleep(config["play_retry_delay"])
 
-    async def reset_dashboard_2(
-        self, timeout: Optional[float] = None, init: bool = False
-    ):
-        """Reset the UR Dashboard."""
-        self.log("Resetting dashboard")
-        async with asyncio.timeout(timeout):
-            if init:
-                await self.dashboard_load(
-                    "/dashboard_client/load_program",
-                    self.get_parameter_wrapper("dashboard.program"),
-                )
+    # async def reset_dashboard_2(
+    #     self, timeout: Optional[float] = None, init: bool = False
+    # ):
+    #     """Reset the UR Dashboard."""
+    #     self.log("Resetting dashboard")
+    #     async with asyncio.timeout(timeout):
+    #         if init:
+    #             await self.dashboard_load(
+    #                 "/dashboard_client/load_program",
+    #                 self.get_parameter_wrapper("dashboard.program"),
+    #             )
 
-            await self.dashboard_trigger("/dashboard_client/close_popup")
-            await self.dashboard_trigger(
-                "/dashboard_client/close_safety_popup"
-            )
-            await self.dashboard_trigger(
-                "/dashboard_client/unlock_protective_stop"
-            )
-            goal_handle = cast(
-                ClientGoalHandle,
-                await self.set_mode_client.send_goal_async(
-                    SetMode.Goal(
-                        target_robot_mode=RobotMode.RUNNING,
-                        stop_program=True,
-                        play_program=True,
-                    )
-                ),
-            )
-            if not goal_handle.accepted:
-                raise ActionCallUnsuccessfulError(
-                    "UR SetMode action goal not accepted"
-                )
+    #         await self.dashboard_trigger("/dashboard_client/close_popup")
+    #         await self.dashboard_trigger(
+    #             "/dashboard_client/close_safety_popup"
+    #         )
+    #         await self.dashboard_trigger(
+    #             "/dashboard_client/unlock_protective_stop"
+    #         )
+    #         goal_handle = cast(
+    #             ClientGoalHandle,
+    #             await self.set_mode_client.send_goal_async(
+    #                 SetMode.Goal(
+    #                     target_robot_mode=RobotMode.RUNNING,
+    #                     stop_program=True,
+    #                     play_program=True,
+    #                 )
+    #             ),
+    #         )
+    #         if not goal_handle.accepted:
+    #             raise ActionCallUnsuccessfulError(
+    #                 "UR SetMode action goal not accepted"
+    #             )
 
-            try:
-                response = await goal_handle.get_result_async()
-            except asyncio.CancelledError:
-                goal_handle.cancel_goal_async()
-                raise
+    #         try:
+    #             response = await goal_handle.get_result_async()
+    #         except asyncio.CancelledError:
+    #             goal_handle.cancel_goal_async()
+    #             raise
 
-            if (
-                response.status != GoalStatus.STATUS_SUCCEEDED
-                or not response.result.success
-            ):
-                raise ActionCallUnsuccessfulError("UR SetMode action failed")
+    #         if (
+    #             response.status != GoalStatus.STATUS_SUCCEEDED
+    #             or not response.result.success
+    #         ):
+    #             raise ActionCallUnsuccessfulError("UR SetMode action failed")
 
     async def _move_out_of_collision_simulation(
         self, end_goal: PlanningGoalT = "idle", **kwargs
@@ -3381,7 +3434,6 @@ def main(args=None):
                     executor.shutdown()
                 except Exception as e:
                     print(f"Error while shutting down executor: {e}")
-
     except KeyboardInterrupt:
         pass
     finally:

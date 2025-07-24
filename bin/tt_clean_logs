@@ -38,10 +38,10 @@ fi
 # Ask for confirmation before deletion
 if [ "$skip_confirmation" = "false" ]; then
     read -p "Do you want to proceed with deleting all logs in $ROS_LOG_DIR? (y/n): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        print_status "Operation cancelled"
-        exit 0
-    fi
+    case "$confirm" in
+        [yY][eE][sS]|[yY]) ;;
+        *) echo "Aborted."; exit 1 ;;
+    esac
 fi
 
 # Remove all bag files in the bags directory

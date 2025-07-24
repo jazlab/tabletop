@@ -19,7 +19,7 @@ ompl_aps_rrtc:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnect
-    planning_time: 3.0
+    planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -28,7 +28,7 @@ ompl_aps_rrt_star:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTstar
-    planning_time: 3.0
+    planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -53,8 +53,8 @@ ompl_rrt_star:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: ompl
-    planner_id: CustomRRTstar
-    planning_time: 3.0
+    planner_id: RRTstar
+    planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -62,7 +62,7 @@ ompl_persistent_lazy_prm_star:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: ompl
-    planner_id: PersistentLazyPRMstar
+    planner_id: SemiPersistentLazyPRMstar
     planning_time: 3.0
     max_velocity_scaling_factor: 1.0
 

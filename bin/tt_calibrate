@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
+set -e
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <calibration_filename.yaml>"
+    exit 1
+fi
+
+calib_file="$1"
+config_dir="$TABLETOP_DIR/ros/tabletop_description/config"
+target_file="$config_dir/$calib_file"
+
+if [[ -f "$target_file" ]]; then
+    echo "File '$target_file' already exists."
+    read -p "Overwrite? [y/N]: " confirm
+    case "$confirm" in
+        [yY][eE][sS]|[yY]) ;;
+        *) echo "Aborted."; exit 1 ;;
+    esac
+fi
+
+
+ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=$ROBOT_IP target_filename:=$target_file

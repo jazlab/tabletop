@@ -3,6 +3,8 @@ from rclpy.action.server import ActionServer, ServerGoalHandle
 from rclpy.executors import SingleThreadedExecutor
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
+from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
 
 from tabletop_server.nodes.base import BaseNode
@@ -88,6 +90,18 @@ class MockDashboard(BaseNode):
             ),
         )
 
+        self.get_safety_mode_srv = self.create_service(
+            GetSafetyMode,
+            "/dashboard_client/get_safety_mode",
+            self.get_safety_mode_callback,
+        )
+
+        self.get_robot_mode_srv = self.create_service(
+            GetRobotMode,
+            "/dashboard_client/get_robot_mode",
+            self.get_robot_mode_callback,
+        )
+
         self.set_mode_server = ActionServer(
             self,
             SetMode,
@@ -110,16 +124,7 @@ class MockDashboard(BaseNode):
         response: Trigger.Response,
         service_name: str,
     ):
-        """
-        Generic callback for Trigger services.
-
-        Args:
-            request: The Trigger request (empty)
-            response: The Trigger response to populate
-
-        Returns:
-            The populated Trigger response
-        """
+        """Generic callback for Trigger services."""
         self.log(f"Received {service_name} trigger request")
         response.success = True
         response.message = f"Successfully processed {service_name}"
@@ -131,19 +136,30 @@ class MockDashboard(BaseNode):
         response: DashboardLoad.Response,
         service_name: str,
     ):
-        """
-        Callback for Load service.
-
-        Args:
-            request: The Load request with filename
-            response: The Load response to populate
-
-        Returns:
-            The populated Load response
-        """
+        """Callback for Load service."""
         self.log(f"Received {service_name} load request: {request.filename}")
         response.success = True
         response.answer = f"Loading {request.filename}"
+        return response
+
+    def get_safety_mode_callback(
+        self, request: GetSafetyMode.Request, response: GetSafetyMode.Response
+    ):
+        """Callback for GetSafetyMode service."""
+        self.log("Received GetSafetyMode request")
+        response.safety_mode.mode = SafetyMode.NORMAL
+        response.answer = "Safety mode is NORMAL"
+        response.success = True
+        return response
+
+    def get_robot_mode_callback(
+        self, request: GetRobotMode.Request, response: GetRobotMode.Response
+    ):
+        """Callback for GetRobotMode service."""
+        self.log("Received GetRobotMode request")
+        response.robot_mode.mode = RobotMode.RUNNING
+        response.answer = "Robot mode is RUNNING"
+        response.success = True
         return response
 
 

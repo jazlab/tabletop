@@ -1,9 +1,24 @@
-[submodule "ros/uros/micro-ROS-Agent"]
-	path = ros/uros/micro-ROS-Agent
+[submodule "submodules/micro-ROS-Agent"]
+	path = submodules/micro-ROS-Agent
 	url = https://github.com/micro-ROS/micro-ROS-Agent.git
 	branch = jazzy
-
-[submodule "ros/uros/micro_ros_msgs"]
-	path = ros/uros/micro_ros_msgs
+[submodule "submodules/micro_ros_msgs"]
+	path = submodules/micro_ros_msgs
 	url = https://github.com/micro-ROS/micro_ros_msgs.git
 	branch = jazzy
+[submodule "submodules/moveit2"]
+	path = submodules/moveit2
+	url = https://github.com/valmikikothare/moveit2.git
+	branch = jazzy
+[submodule "submodules/mocap4ros2_optitrack"]
+	path = submodules/mocap4ros2_optitrack
+	url = https://github.com/MOCAP4ROS2-Project/mocap4ros2_optitrack.git
+	branch = rolling
+[submodule "submodules/mocap4r2_msgs"]
+	path = submodules/mocap4r2_msgs
+	url = https://github.com/MOCAP4ROS2-Project/mocap4r2_msgs.git
+	branch = rolling
+[submodule "submodules/mocap4r2"]
+	path = submodules/mocap4r2
+	url = https://github.com/MOCAP4ROS2-Project/mocap4r2.git
+	branch = rolling

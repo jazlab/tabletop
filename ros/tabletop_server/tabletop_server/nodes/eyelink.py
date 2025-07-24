@@ -4,6 +4,7 @@ import threading
 import traceback
 from collections import deque
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 import numpy as np
@@ -19,20 +20,13 @@ from rclpy.action.server import (
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
+from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_utils.eyelink import edf_to_csv
 
 from tabletop_server.nodes.base import BaseNode
-
-TRACEBACK = False
-NO_EYE = -1
-LEFT_EYE = 0
-RIGHT_EYE = 1
-BINOCULAR = 2
-
-TABLETOP_DIR = os.environ.get("TABLETOP_DIR", "/root/ws/src/tabletop")
 
 EyeData = (
     tuple[
@@ -42,6 +36,13 @@ EyeData = (
     ]
     | None
 )
+
+
+class EyeAvailable(Enum):
+    NO_EYE = -1
+    LEFT_EYE = 0
+    RIGHT_EYE = 1
+    BINOCULAR = 2
 
 
 class Eyelink(BaseNode):
@@ -57,7 +58,9 @@ class Eyelink(BaseNode):
         "link_event_filter": "null",
         "file_event_data": "null",
         "link_event_data": "null",
-        "results_dir": "/root/ws/src/tabletop/results/eyelink",
+        "results_dir": os.path.join(
+            os.environ["TABLETOP_DIR"], "results/eyelink"
+        ),
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "log_samples": False,
         "log_smooth_pursuit": True,
@@ -292,11 +295,17 @@ class Eyelink(BaseNode):
 
     def left_eye_available(self) -> bool:
         """Check if the left eye is available."""
-        return self.eye_available() in [LEFT_EYE, BINOCULAR]
+        return self.eye_available() in [
+            EyeAvailable.LEFT_EYE,
+            EyeAvailable.BINOCULAR,
+        ]
 
     def right_eye_available(self) -> bool:
         """Check if the right eye is available."""
-        return self.eye_available() in [RIGHT_EYE, BINOCULAR]
+        return self.eye_available() in [
+            EyeAvailable.RIGHT_EYE,
+            EyeAvailable.BINOCULAR,
+        ]
 
     ###########################################################################
     # Sample retrieval
@@ -333,16 +342,16 @@ class Eyelink(BaseNode):
         right_sample: SampleData | None = sample.getRightEye()
 
         eye_used = self.eye_available()
-        if eye_used == LEFT_EYE:
+        if eye_used == EyeAvailable.LEFT_EYE:
             assert left_sample is not None
             assert right_sample is None
-        elif eye_used == RIGHT_EYE:
+        elif eye_used == EyeAvailable.RIGHT_EYE:
             assert left_sample is None
             assert right_sample is not None
-        elif eye_used == BINOCULAR:
+        elif eye_used == EyeAvailable.BINOCULAR:
             assert left_sample is not None
             assert right_sample is not None
-        elif eye_used == NO_EYE:
+        elif eye_used == EyeAvailable.NO_EYE:
             assert left_sample is None
             assert right_sample is None
             self.log("No eye available", severity="WARN")
@@ -428,14 +437,14 @@ class Eyelink(BaseNode):
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
                 self.ros_sleep(1e-5)
+        except NotInitializedException:
+            pass
         except Exception as e:
             self.log(
-                f"Error in sample retrieval loop: type={type(e)}, value={e}",
+                f"Error in sample retrieval loop: {type(e).__name__}: {e}",
                 severity="ERROR",
             )
-            if TRACEBACK:
-                traceback_str = traceback.format_exc()
-                self.log(f"Traceback: {traceback_str}", severity="ERROR")
+            self.log(f"Traceback: {traceback.format_exc()}", severity="ERROR")
             raise e
 
     # def get_last_samples(self) -> list[Sample]:
@@ -807,10 +816,6 @@ class Eyelink(BaseNode):
         super().destroy_node()
         self.destroyed = True
 
-    def __del__(self):
-        if not self.destroyed:
-            self.destroy_node()
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -830,13 +835,12 @@ def main(args=None):
             # eyelink.tpe.submit(executor.spin).result()
             executor.spin()
         finally:
+            print("Shutting down eyelink")
             eyelink.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
     except KeyboardInterrupt:
-        print("Keyboard interrupt")
-    except SystemExit:
-        print("System exit")
+        pass
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
