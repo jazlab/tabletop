@@ -1,0 +1,5 @@
+all: true
+topics:
+  - /teensy/sensor
+actions:
+  - /flic/response_time

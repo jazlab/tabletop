@@ -36,7 +36,8 @@ RUN curl -fsSL -o /tmp/get-platformio.py \
     && mkdir -p $HOME/.local/bin \
     && ln -s $HOME/.platformio/penv/bin/platformio $HOME/.local/bin/platformio \
     && ln -s $HOME/.platformio/penv/bin/pio $HOME/.local/bin/pio \
-    && ln -s $HOME/.platformio/penv/bin/piodebuggdb $HOME/.local/bin/piodebuggdb
+    && ln -s $HOME/.platformio/penv/bin/piodebuggdb $HOME/.local/bin/piodebuggdb \
+    && rm /tmp/get-platformio.py
 
 # Install pip packages
 COPY ./requirements.txt /tmp/requirements.txt

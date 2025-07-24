@@ -1,0 +1,6 @@
+output_bags:
+  - uri: sqlite3
+    storage_id: sqlite3
+    all_topics: true
+    all_services: true
+    all_actions: true

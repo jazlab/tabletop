@@ -12,9 +12,7 @@ services:
     hostname: devcontainer
     environment:
       - DISPLAY=$DISPLAY
-    command: bash -c
-      "git config --global --add safe.directory $TABLETOP_DIR
-      && sleep infinity"
+    command: sleep infinity
 
 networks:
   tabletop_net:

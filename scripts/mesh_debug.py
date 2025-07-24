@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import os
+
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,
@@ -17,7 +19,10 @@ def main_mesh():
     parser.add_argument(
         "--filename",
         type=str,
-        default="/root/ws/src/tabletop/ros/tabletop_description/meshes/rig_mesh5.stl",
+        default=os.path.join(
+            os.environ["TABLETOP_DIR"],
+            "ros/tabletop_description/meshes/rig_mesh5.stl",
+        ),
     )
     args = parser.parse_args()
 
@@ -37,7 +42,10 @@ def main_mesh():
 
 def main_scene():
     scene = load_geometry(
-        "/root/ws/src/tabletop/ros/tabletop_description/meshes/static/rig.dae",
+        os.path.join(
+            os.environ["TABLETOP_DIR"],
+            "ros/tabletop_description/meshes/static/rig.dae",
+        ),
         scale=1.0,
     )
     # visualize_geometry(scene)

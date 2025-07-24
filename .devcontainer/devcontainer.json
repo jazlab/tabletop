@@ -3,7 +3,7 @@
     "dockerComposeFile": "compose.devcontainer.yaml",
     "service": "devcontainer",
     "workspaceFolder": "/root/ws/src/tabletop",
-    "postStartCommand": [
+    "postCreateCommand": [
         "bash",
         "-c",
         "tt_build --remove-moveit-apt"

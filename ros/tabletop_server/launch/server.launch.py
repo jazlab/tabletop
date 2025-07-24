@@ -1,3 +1,7 @@
+import os
+
+import yaml
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -114,13 +118,8 @@ def declare_arguments():
             description="Record rosbag?",
         ),
         DeclareLaunchArgument(
-            "rosbag_args",
-            default_value="--all",
-            description="'ros2 bag' command line args",
-        ),
-        DeclareLaunchArgument(
             "rosbag_dir",
-            default_value="/root/ws/src/tabletop/ros/bags",
+            default_value=os.environ["TABLETOP_BAG_DIR"],
             description="Base directory to save rosbags",
         ),
         # ROS Warehouse
@@ -234,7 +233,6 @@ def generate_launch_description():
 
     # Bag
     rosbag_record = LaunchConfiguration("rosbag_record")
-    rosbag_args = LaunchConfiguration("rosbag_args")
     rosbag_dir = LaunchConfiguration("rosbag_dir")
 
     # ROS Warehouse
@@ -444,8 +442,30 @@ def generate_launch_description():
     )
 
     # Bag
+    bag_config_file = os.path.join(
+        get_package_share_directory("tabletop_server"),
+        "config",
+        "rosbag.yaml",
+    )
+    with open(bag_config_file, "r") as f:
+        bag_config = yaml.safe_load(f)
+    args = []
+    if bag_config["all"]:
+        args.append("--all")
+    else:
+        if "topics" in bag_config:
+            args.extend(["--topics", *bag_config["topics"]])
+        if "services" in bag_config:
+            args.extend(["--services", *bag_config["services"]])
+        if "actions" in bag_config:
+            args.extend(["--actions", *bag_config["actions"]])
     bag = ExecuteProcess(
-        cmd=["ros2", "bag", "record", rosbag_args],
+        cmd=[
+            "ros2",
+            "bag",
+            "record",
+            *args,
+        ],
         cwd=rosbag_dir,
         output=bag_output,
         condition=IfCondition(rosbag_record),
