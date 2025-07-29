@@ -13,6 +13,7 @@ from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 from tabletop_utils.common import yaml_dump_string
 from tabletop_utils.ros import (
+    ROSSleepError,
     ServiceCallTimeoutError,
     SrvType,
     SrvTypeRequest,
@@ -206,7 +207,7 @@ class BaseNode(Node):
     def ros_sleep(self, seconds: float):
         """Sleep for the given number of seconds."""
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
-            raise RuntimeError("ROS2 clock did not sleep correctly")
+            raise ROSSleepError("ROS2 clock did not sleep correctly")
 
     def create_client_helper(
         self,

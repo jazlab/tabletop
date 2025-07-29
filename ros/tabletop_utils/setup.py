@@ -23,6 +23,7 @@ setup(
     entry_points={
         "console_scripts": [
             "flic_client = tabletop_utils.flic_client:main",
+            "rosbag_to_csv = tabletop_utils.rosbag:main",
         ],
     },
 )

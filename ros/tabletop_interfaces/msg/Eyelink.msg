@@ -1,7 +1,9 @@
 builtin_interfaces/Time timestamp
+uint32 eyelink_time
 float32 left_x
 float32 left_y
-float32 left_diameter
+float32 left_pupil
 float32 right_x
 float32 right_y
-float32 right_diameter
+float32 right_pupil
+uint16 input

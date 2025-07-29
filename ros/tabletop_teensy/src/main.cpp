@@ -14,6 +14,7 @@
 #include <tabletop_interfaces/srv/set_smartglass.h>
 
 #include "core_pins.h"
+#include "rmw/qos_profiles.h"
 
 #if !defined(MICRO_ROS_TRANSPORT_ARDUINO_SERIAL)
 #  error This code only supports serial transport.
@@ -57,16 +58,14 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 // Execution parameters
 #define AGENT_RECONNECT_PERIOD_MS 100
 #define AGENT_RECONNECT_TIMEOUT_MS 50
-#define EXECUTOR_SPIN_TIMEOUT_MS 20
-#define AGENT_CHECK_CONNECTED_PERIOD_MS 5000
-#define AGENT_CHECK_CONNECTED_TIMEOUT_MS 10
-#define SENSOR_PERIOD_MS 10
+#define EXECUTOR_SPIN_TIMEOUT_MS 50
+#define AGENT_PING_PERIOD_MS 5000
+#define AGENT_PING_TIMEOUT_MS 10
+#define AGENT_PING_MAX_RETRIES 10
+#define SENSOR_PERIOD_MS 20
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
 #define SYNC_PULSE_DELAY_RANGE_MS 200
 #define SYNC_PULSE_DURATION_MS 100
-
-// Agent reconnection parameters
-#define AGENT_RECONNECT_MAX_RETRIES 10
 
 // Global variables
 rcl_publisher_t sensor_publisher;
@@ -98,7 +97,7 @@ tabletop_interfaces__srv__SetReward_Request set_reward_request;
 tabletop_interfaces__srv__SetReward_Response set_reward_response;
 
 // State tracking
-static uint8_t agent_reconnect_retries;
+static uint8_t agent_ping_retries;
 
 static enum states {
   WAITING_AGENT,
@@ -186,6 +185,71 @@ bool smartglass_revealed;
     time_msg.nanosec = now_ns % (1000LL * 1000LL * 1000LL); \
   }
 
+// Support init with custom clock
+rcl_ret_t rclc_support_init_with_clock(rclc_support_t* support, int argc,
+                                       char const* const* argv,
+                                       rcl_clock_type_t clock_type,
+                                       rcl_allocator_t* allocator) {
+  // Check for null pointers
+  RCL_CHECK_FOR_NULL_WITH_MSG(support, "support is a null pointer",
+                              return RCL_RET_INVALID_ARGUMENT);
+  RCL_CHECK_FOR_NULL_WITH_MSG(allocator, "allocator is a null pointer",
+                              return RCL_RET_INVALID_ARGUMENT);
+
+  rcl_ret_t rc = RCL_RET_OK;
+
+  // Initialize init options
+  rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
+  rc = rcl_init_options_init(&init_options, (*allocator));
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_ERROR(rclc_support_init, rcl_init_options_init);
+    return rc;
+  }
+
+  // Initialize context
+  support->context = rcl_get_zero_initialized_context();
+  rc = rcl_init(argc, argv, &init_options, &support->context);
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_ERROR(rclc_init, rcl_init);
+    return rc;
+  }
+  support->allocator = allocator;
+
+  // Initialize clock
+  rc = rcl_clock_init(clock_type, &support->clock, support->allocator);
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_ERROR(rclc_init, rcl_clock_init);
+  }
+
+  // Finalize init options
+  if (rcl_init_options_fini(&init_options) != RCL_RET_OK) {
+    PRINT_RCLC_ERROR(rclc_support_init, rcl_init_options_fini);
+  }
+  return rc;
+}
+
+rcl_ret_t rclc_support_fini(rclc_support_t* support) {
+  RCL_CHECK_FOR_NULL_WITH_MSG(support, "support is a null pointer",
+                              return RCL_RET_INVALID_ARGUMENT);
+  rcl_ret_t result = RCL_RET_OK;
+  rcl_ret_t rc;
+  rc = rcl_clock_fini(&support->clock);
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_WARN(rclc_support_fini, rcl_clock_fini);
+    result = RCL_RET_ERROR;
+  }
+  rc = rcl_shutdown(&support->context);
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_WARN(rclc_support_fini, rcl_shutdown);
+    result = RCL_RET_ERROR;
+  }
+  rc = rcl_context_fini(&support->context);
+  if (rc != RCL_RET_OK) {
+    PRINT_RCLC_WARN(rclc_support_fini, rcl_context_fini);
+    result = RCL_RET_ERROR;
+  }
+  return result;
+}
 // Error handle loop
 void error_loop() {
   while (1) {
@@ -395,14 +459,15 @@ void reset_pins() {
 
 bool create_entities() {
   allocator = rcl_get_default_allocator();
-  RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+  RCCHECK(rclc_support_init_with_clock(&support, 0, NULL, RCL_STEADY_TIME,
+                                       &allocator));
   RCCHECK(rclc_node_init_default(&node, "teensy", "", &support));
 
   // Publishers
-  RCCHECK(rclc_publisher_init_best_effort(
+  RCCHECK(rclc_publisher_init(
       &sensor_publisher, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, msg, TeensySensor),
-      SENSOR_TOPIC));
+      SENSOR_TOPIC, &rmw_qos_profile_sensor_data));
   RCCHECK(rclc_publisher_init_default(
       &log_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
       LOG_TOPIC));
@@ -515,7 +580,7 @@ void setup() {
 
   // Initialize state variables
   state = WAITING_AGENT;
-  agent_reconnect_retries = 0;
+  agent_ping_retries = 0;
   sync_pulse_state = false;
   reward_active = false;
   smartglass_revealed = false;
@@ -563,17 +628,17 @@ void loop() {
     if (state == WAITING_AGENT) {
       destroy_entities();
     } else {
-      agent_reconnect_retries = 0;
+      agent_ping_retries = 0;
     }
     break;
   case AGENT_CONNECTED:
     static bool success = true;
     EXECUTE_EVERY_N_MS(
-        AGENT_CHECK_CONNECTED_PERIOD_MS,
-        success = (RMW_RET_OK ==
-                   rmw_uros_ping_agent(AGENT_CHECK_CONNECTED_TIMEOUT_MS, 1)););
-    agent_reconnect_retries = success ? 0 : agent_reconnect_retries + 1;
-    if (agent_reconnect_retries < AGENT_RECONNECT_MAX_RETRIES) {
+        AGENT_PING_PERIOD_MS,
+        success =
+            (RMW_RET_OK == rmw_uros_ping_agent(AGENT_PING_TIMEOUT_MS, 1)););
+    agent_ping_retries = success ? 0 : agent_ping_retries + 1;
+    if (agent_ping_retries < AGENT_PING_MAX_RETRIES) {
       rclc_executor_spin_some(&executor,
                               RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS));
     } else {

@@ -143,6 +143,10 @@ class TrajectoryErrorCodes(Enum):
 # Exception definitions
 
 
+class ROSSleepError(Exception):
+    """Error while sleeping in a ROS node."""
+
+
 class ServiceCallTimeoutError(Exception):
     """Service call timed out."""
 

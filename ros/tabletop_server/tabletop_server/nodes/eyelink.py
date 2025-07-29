@@ -1,14 +1,14 @@
 import concurrent.futures
 import os
 import threading
-import traceback
 from collections import deque
+from copy import copy
 from datetime import datetime
 from enum import Enum
-from typing import Any
 
 import numpy as np
 import rclpy
+import rosbag2_py
 from pylink import EyeLink as EyeLinkTracker
 from pylink.constants import MISSING_DATA
 from pylink.tracker import Sample, SampleData
@@ -22,20 +22,16 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
+from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
+from rclpy.serialization import serialize_message
+from rclpy.time import Time
 from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
+from tabletop_interfaces.msg import Eyelink as EyelinkMsg
 from tabletop_utils.eyelink import edf_to_csv
+from tabletop_utils.ros import ROSSleepError
 
 from tabletop_server.nodes.base import BaseNode
-
-EyeData = (
-    tuple[
-        int,
-        tuple[float, float, float] | None,
-        tuple[float, float, float] | None,
-    ]
-    | None
-)
 
 
 class EyeAvailable(Enum):
@@ -49,7 +45,7 @@ class Eyelink(BaseNode):
     default_params = BaseNode.default_params | {
         "tracker_address": "192.168.13.30",
         "do_tracker_setup": True,
-        "wait_for_data_timeout": 1.0,  # seconds
+        "wait_for_data_timeout": 0.2,  # seconds
         "sample_rate": 1000,  # Hz
         "max_window": 0.5,  # seconds
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
@@ -82,12 +78,12 @@ class Eyelink(BaseNode):
         )
         # pylink.endRealTimeMode()
 
-        self._init_ros()
-        self._init_sample_retrieval()
+        self.init_ros()
+        self.init_sample_retrieval()
 
         self.destroyed = False
 
-    def _init_ros(self):
+    def init_ros(self):
         """Setup the ROS node.
 
         This function will setup the ROS node. It will create a timer to log
@@ -98,17 +94,19 @@ class Eyelink(BaseNode):
         #     self.log_callback,
         #     callback_group=MutuallyExclusiveCallbackGroup(),
         # )
-        self.eyelink_smooth_pursuit_server = ActionServer(
-            self,
-            EyelinkSmoothPursuit,
-            "/eyelink/smooth_pursuit",
-            self.smooth_pursuit_callback,
-            cancel_callback=self.smooth_pursuit_cancel_callback,
-            goal_callback=self.smooth_pursuit_goal_callback,
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-        self.goal_callback_lock = threading.Lock()
-        self.goal_ongoing = False
+
+        # Publishers
+        qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
+        qos.durability = QoSDurabilityPolicy.VOLATILE
+        qos.depth = 10
+        # self.eyelink_sample_publisher = self.create_publisher(
+        #     EyelinkMsg,
+        #     "/eyelink/sample",
+        #     qos_profile=qos,
+        #     callback_group=MutuallyExclusiveCallbackGroup(),
+        # )
+
+        # Services
 
         self.eyelink_start_recording_service = self.create_service(
             Trigger,
@@ -131,7 +129,21 @@ class Eyelink(BaseNode):
             self.close_data_file_callback,
         )
 
-    def _init_sample_retrieval(self):
+        # Action servers
+
+        self.eyelink_smooth_pursuit_server = ActionServer(
+            self,
+            EyelinkSmoothPursuit,
+            "/eyelink/smooth_pursuit",
+            self.smooth_pursuit_callback,
+            cancel_callback=self.smooth_pursuit_cancel_callback,
+            goal_callback=self.smooth_pursuit_goal_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.goal_callback_lock = threading.Lock()
+        self.goal_ongoing = False
+
+    def init_sample_retrieval(self):
         """Setup the sample retrieval.
 
         This function will setup the sample queue and thread pool, as well as
@@ -139,16 +151,31 @@ class Eyelink(BaseNode):
         """
         sample_rate = self.get_parameter_wrapper("sample_rate")
         self._max_window = self.get_parameter_wrapper("max_window")
-        self.eye_data_queue: deque[EyeData] = deque(
+        self.message_queue: deque[EyelinkMsg] = deque(
             maxlen=int(sample_rate * self._max_window)
         )
-        self.eye_data_queue_lock = threading.Lock()
+        self.message_queue_lock = threading.Lock()
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.stop_sample_retrieval_event = threading.Event()
         self.stop_sample_retrieval_event.set()
         self.sample_retrieval_future = concurrent.futures.Future()
         self.sample_retrieval_future.set_result(None)
         self.recording = False
+        self.bag_writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py.StorageOptions(
+            uri=os.path.join(os.environ["CURRENT_BAG_DIR"], "eyelink"),
+            storage_id="mcap",
+        )
+        converter_options = rosbag2_py.ConverterOptions("", "")
+        self.bag_writer.open(storage_options, converter_options)
+        self.bag_writer.create_topic(
+            rosbag2_py.TopicMetadata(
+                id=0,
+                name="/eyelink/sample",
+                type="tabletop_interfaces/msg/Eyelink",
+                serialization_format="cdr",
+            )
+        )
 
     ###########################################################################
     # Tracker utilities
@@ -208,8 +235,8 @@ class Eyelink(BaseNode):
         assert self.stop_sample_retrieval_event.is_set()
         assert self.sample_retrieval_future.done(), "Sample retrieval already running, may be in the process of stopping"
 
-        with self.eye_data_queue_lock:
-            self.eye_data_queue.clear()
+        with self.message_queue_lock:
+            self.message_queue.clear()
 
         self.stop_sample_retrieval_event.clear()
         # self.sample_retrieval_future = self.tpe.submit(
@@ -222,6 +249,21 @@ class Eyelink(BaseNode):
             self.sample_retrieval_loop,
             stop_event=self.stop_sample_retrieval_event,
         )
+        self.sample_retrieval_future.add_done_callback(
+            lambda _: self.executor.wake()  # type: ignore
+        )
+
+    def stop_sample_retrieval(self):
+        """Stop the sample retrieval loop."""
+        self.log("Stopping sample retrieval")
+        self.stop_sample_retrieval_event.set()
+        try:
+            self.sample_retrieval_future.result()
+        except Exception as e:
+            self.log(
+                f"Error stopping sample retrieval: {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
 
     def start_recording(self):
         """Start the tracker recording and sample retrieval."""
@@ -235,12 +277,15 @@ class Eyelink(BaseNode):
         self.tracker.startRecording(1, 0, 1, 0)
         # pylink.endRealTimeMode()
         self.tracker.sendMessage("SYNCTIME")
-        self.recording = True
+        self.ros_sleep(2.0)
+        eye_available = self.eye_available()
+        if eye_available != EyeAvailable.BINOCULAR:
+            self.stop_sample_retrieval()
+            raise RuntimeError(
+                f"Only binocular mode is supported, got {eye_available}"
+            )
 
-    def stop_sample_retrieval(self):
-        """Stop the sample retrieval loop."""
-        self.log("Stopping sample retrieval")
-        self.stop_sample_retrieval_event.set()
+        self.recording = True
 
     def stop_recording(self):
         """Stop the recording."""
@@ -282,7 +327,7 @@ class Eyelink(BaseNode):
         csv_file_name = edf_to_csv(path, keep_asc=True)
         self.log(f"Converted EDF to CSV: {csv_file_name}")
 
-    def eye_available(self) -> int:
+    def eye_available(self) -> EyeAvailable:
         """Get the eye available from the tracker.
 
         This function will return one of the following values:
@@ -291,7 +336,7 @@ class Eyelink(BaseNode):
         - BINOCULAR: Both eyes are available.
         - NO_EYE: No eye is available.
         """
-        return self.tracker.eyeAvailable()
+        return EyeAvailable(self.tracker.eyeAvailable())
 
     def left_eye_available(self) -> bool:
         """Check if the left eye is available."""
@@ -311,16 +356,7 @@ class Eyelink(BaseNode):
     # Sample retrieval
     ###########################################################################
 
-    def get_eye_data(
-        self, sample: Sample
-    ) -> (
-        tuple[
-            int,
-            tuple[float, float, float] | None,
-            tuple[float, float, float] | None,
-        ]
-        | None
-    ):
+    def sample_to_msg(self, sample: Sample, timestamp: Time) -> EyelinkMsg:
         """Get the valid eye data from the sample.
 
         This function will return the timestamp and the eye data for the left
@@ -330,59 +366,48 @@ class Eyelink(BaseNode):
             sample: The sample to get the eye data from.
 
         Returns:
-            A tuple containing the timestamp and the eye data for the left
-            and right eyes, if available and valid. If only one eye is
-            available/valid, the other eye will be None. If no eye data is
+            The eye data message, if available and valid. If only one eye is
+            available/valid, its data will be set to MISSING_DATA. If no eye data is
             available/valid, the function will return None.
         """
         # self.log("Getting valid eye data", severity="DEBUG")
 
-        timestamp: int = sample.getTime()
         left_sample: SampleData | None = sample.getLeftEye()
         right_sample: SampleData | None = sample.getRightEye()
 
-        eye_used = self.eye_available()
-        if eye_used == EyeAvailable.LEFT_EYE:
-            assert left_sample is not None
-            assert right_sample is None
-        elif eye_used == EyeAvailable.RIGHT_EYE:
-            assert left_sample is None
-            assert right_sample is not None
-        elif eye_used == EyeAvailable.BINOCULAR:
-            assert left_sample is not None
-            assert right_sample is not None
-        elif eye_used == EyeAvailable.NO_EYE:
-            assert left_sample is None
-            assert right_sample is None
-            self.log("No eye available", severity="WARN")
-            return None
-        else:
-            assert False, f"Unknown eye available value: {eye_used}"
+        assert left_sample is not None
+        assert right_sample is not None
 
-        if left_sample is None:
-            left_data = None
-        else:
-            left_x, left_y = left_sample.getRawPupil()
-            left_diameter = left_sample.getPupilSize()
-            if MISSING_DATA in (left_x, left_y, left_diameter):
-                left_data = None
-            else:
-                left_data = (left_x, left_y, left_diameter)
+        # eye_used = self.eye_available()
+        # if eye_used == EyeAvailable.LEFT_EYE:
+        #     assert left_sample is not None
+        #     assert right_sample is None
+        # elif eye_used == EyeAvailable.RIGHT_EYE:
+        #     assert left_sample is None
+        #     assert right_sample is not None
+        # elif eye_used == EyeAvailable.BINOCULAR:
+        #     assert left_sample is not None
+        #     assert right_sample is not None
+        # elif eye_used == EyeAvailable.NO_EYE:
+        #     assert left_sample is None
+        #     assert right_sample is None
+        #     self.log("No eye available", severity="WARN")
+        #     return None
+        # else:
+        #     assert False, f"Unknown eye available value: {eye_used}"
 
-        if right_sample is None:
-            right_data = None
-        else:
-            right_x, right_y = right_sample.getRawPupil()
-            right_diameter = right_sample.getPupilSize()
-            if MISSING_DATA in (right_x, right_y, right_diameter):
-                right_data = None
-            else:
-                right_data = (right_x, right_y, right_diameter)
+        msg = EyelinkMsg()
+        msg.timestamp = timestamp.to_msg()
+        msg.eyelink_time = int(sample.getTime())
+        msg.input = sample.getInput()
 
-        if left_data is None and right_data is None:
-            return None
+        msg.left_x, msg.left_y = left_sample.getRawPupil()
+        msg.left_pupil = left_sample.getPupilSize()
 
-        return timestamp, left_data, right_data
+        msg.right_x, msg.right_y = right_sample.getRawPupil()
+        msg.right_pupil = right_sample.getPupilSize()
+
+        return msg
 
     def sample_retrieval_loop(self, stop_event: threading.Event):
         """Get samples from the tracker.
@@ -401,12 +426,10 @@ class Eyelink(BaseNode):
             wait_for_data_timeout_ms = int(
                 self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
             )
-            # i = 0
             # start_time = self.ros_time()
             while not stop_event.is_set():
                 if not self.tracker.isConnected():
-                    self.log("Tracker is not connected", severity="WARN")
-                    self.ros_sleep(1.0)
+                    self.ros_sleep(1e-3)
                     continue
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
@@ -417,45 +440,33 @@ class Eyelink(BaseNode):
                     )
                     continue
 
-                test_sample: Sample | None = self.tracker.getSample()
-                if test_sample is not None:
-                    sample: Any | None = self.tracker.getFloatData()
-                    assert sample is not None and isinstance(sample, Sample)
-                    eye_data = self.get_eye_data(sample)
-                    with self.eye_data_queue_lock:
-                        self.eye_data_queue.append(eye_data)
-
-                # i += 1
-                # if i % 100 == 0:
-                #     self.log(
-                #         f"Sample retrieval loop time: {(self.ros_time() - start_time) / 100:.5f} s",
-                #         severity="DEBUG",
-                #     )
-                #     start_time = self.ros_time()
-                #     i = 0
+                sample: Sample | None = self.tracker.getNewestSample()
+                if sample is not None and isinstance(sample, Sample):
+                    timestamp = self.get_clock().now()
+                    self.tracker.resetData()
+                    msg = self.sample_to_msg(sample, timestamp)
+                    with self.message_queue_lock:
+                        self.message_queue.append(msg)
+                    self.bag_writer.write(
+                        "/eyelink/sample",
+                        serialize_message(msg),  # type: ignore
+                        timestamp.nanoseconds,
+                    )
 
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
                 self.ros_sleep(1e-5)
-        except NotInitializedException:
+        except (NotInitializedException, ROSSleepError):
             pass
-        except Exception as e:
-            self.log(
-                f"Error in sample retrieval loop: {type(e).__name__}: {e}",
-                severity="ERROR",
-            )
-            self.log(f"Traceback: {traceback.format_exc()}", severity="ERROR")
-            raise e
 
-    # def get_last_samples(self) -> list[Sample]:
-    def get_last_eye_data(self) -> list[EyeData]:
+    def get_last_messages(self) -> list[EyelinkMsg]:
         """Get the latest samples from the eyelink tracker.
 
         This function will return a copy of the contents of the sample queue
         as a list.
         """
-        with self.eye_data_queue_lock:
-            return list(self.eye_data_queue)
+        with self.message_queue_lock:
+            return list(self.message_queue)
 
     ###########################################################################
     # Smooth pursuit
@@ -480,66 +491,49 @@ class Eyelink(BaseNode):
         """
         self.log("Checking for smooth pursuit", severity="DEBUG")
 
-        eye_data = self.get_last_eye_data()
+        messages = self.get_last_messages()
 
         num_samples = int(window * self.get_parameter_wrapper("sample_rate"))
-        assert num_samples > 0 and num_samples <= len(eye_data)
+        assert num_samples > 0 and num_samples <= len(messages)
 
-        eye_data = eye_data[-num_samples:]
+        messages = messages[-num_samples:]
 
         # Track duration of smooth pursuit extraction, for logging purposes
         start_time = self.ros_time()
 
         # Extract eye data from samples
-        timestamps = []
-        left_positions = []
-        right_positions = []
-        for eye_datapoint in eye_data:
-            if eye_datapoint is None:
-                continue
-            timestamp, left_data, right_data = eye_datapoint
-
-            timestamps.append(timestamp)
-            if self.left_eye_available():
-                assert left_data is not None
-                left_positions.append(left_data[:2])
-            else:
-                left_positions.append((MISSING_DATA, MISSING_DATA))
-            if self.right_eye_available():
-                assert right_data is not None
-                right_positions.append(right_data[:2])
-            else:
-                right_positions.append((MISSING_DATA, MISSING_DATA))
-
-        timestamps = np.array(timestamps) / 1000.0  # Convert to seconds
-        left_positions = np.array(left_positions)
-        right_positions = np.array(right_positions)
-
-        # Check if the number of samples is the same for all arrays
-        assert (
-            timestamps.shape[0]
-            == left_positions.shape[0]
-            == right_positions.shape[0]
+        eyelink_times = (
+            np.array([message.eyelink_time for message in messages]) / 1000.0
+        )  # Convert to seconds
+        left_positions = np.array(
+            [[message.left_x, message.left_y] for message in messages]
         )
+        right_positions = np.array(
+            [[message.right_x, message.right_y] for message in messages]
+        )
+
+        # Remove rows with missing data from the arrays
+        valid_mask = (left_positions != MISSING_DATA).all(axis=1) and (
+            right_positions != MISSING_DATA
+        ).all(axis=1)
+        eyelink_times = eyelink_times[valid_mask]
+        left_positions = left_positions[valid_mask]
+        right_positions = right_positions[valid_mask]
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
-        if timestamps.shape[0] < min_samples:
+        if eyelink_times.shape[0] < min_samples:
             raise RuntimeError("Not enough valid samples")
-
-        assert not np.any(left_positions == MISSING_DATA) or not np.any(
-            right_positions == MISSING_DATA
-        ), "Missing data should not be present in both eyes"
 
         # TODO: Add smoothing and/or filtering to the positional data so as
         # to false negatives (e.g. if a spike of noise occurs for a single
         # sample, it is likely not a saccade/break in smooth pursuit and we
         # should ignore it).
         left_speed = np.linalg.norm(
-            np.gradient(left_positions, timestamps, axis=0), axis=1
+            np.gradient(left_positions, eyelink_times, axis=0), axis=1
         )
         right_speed = np.linalg.norm(
-            np.gradient(right_positions, timestamps, axis=0), axis=1
+            np.gradient(right_positions, eyelink_times, axis=0), axis=1
         )
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of
@@ -804,7 +798,12 @@ class Eyelink(BaseNode):
         except Exception as e:
             self.log(f"Error closing data file: {e}", severity="ERROR")
 
-        self.log("Shutting down thread pool")
+        try:
+            self.bag_writer.close()
+        except Exception as e:
+            self.log(f"Error closing bag writer: {e}", severity="ERROR")
+
+        # self.log("Shutting down thread pool")
         # try:
         #     self.tpe.shutdown()
         # except Exception as e:
@@ -814,14 +813,13 @@ class Eyelink(BaseNode):
         self.tracker.close()
 
         super().destroy_node()
-        self.destroyed = True
 
 
 def main(args=None):
     rclpy.init(args=args)
     try:
         executor: MultiThreadedExecutor | SingleThreadedExecutor = (
-            MultiThreadedExecutor(num_threads=2)
+            MultiThreadedExecutor(num_threads=8)
         )
         eyelink = Eyelink()
         executor.add_node(eyelink)

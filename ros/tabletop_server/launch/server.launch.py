@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -81,7 +82,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "use_mock_teensy",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Use mock TeensyBoard",
         ),
@@ -113,14 +114,9 @@ def declare_arguments():
         # Bag
         DeclareLaunchArgument(
             "rosbag_record",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Record rosbag?",
-        ),
-        DeclareLaunchArgument(
-            "rosbag_dir",
-            default_value=os.environ["TABLETOP_BAG_DIR"],
-            description="Base directory to save rosbags",
         ),
         # ROS Warehouse
         DeclareLaunchArgument(
@@ -136,15 +132,21 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "teensy_log_level",
+            default_value="INFO",
+            description="Teensy log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "flic_log_level",
             default_value="INFO",
             description="Flic log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
-            "teensy_log_level",
+            "eyelink_log_level",
             default_value="INFO",
-            description="Teensy log level",
+            description="Eyelink log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
@@ -191,6 +193,12 @@ def declare_arguments():
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
+            "eyelink_output",
+            default_value="both",
+            description="Eyelink output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
             "rviz_output",
             default_value="own_log",
             description="RViz output",
@@ -198,7 +206,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "bag_output",
-            default_value="own_log",
+            default_value="both",
             description="Bag output",
             choices=["log", "both", "screen", "own_log"],
         ),
@@ -233,15 +241,15 @@ def generate_launch_description():
 
     # Bag
     rosbag_record = LaunchConfiguration("rosbag_record")
-    rosbag_dir = LaunchConfiguration("rosbag_dir")
 
     # ROS Warehouse
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
 
     # Logging
     default_log_level = LaunchConfiguration("default_log_level")
-    flic_log_level = LaunchConfiguration("flic_log_level")
     teensy_log_level = LaunchConfiguration("teensy_log_level")
+    flic_log_level = LaunchConfiguration("flic_log_level")
+    eyelink_log_level = LaunchConfiguration("eyelink_log_level")
     rviz_log_level = LaunchConfiguration("rviz_log_level")
 
     # Outputs
@@ -250,6 +258,7 @@ def generate_launch_description():
     micro_ros_output = LaunchConfiguration("micro_ros_output")
     mock_teensy_output = LaunchConfiguration("mock_teensy_output")
     flic_output = LaunchConfiguration("flic_output")
+    eyelink_output = LaunchConfiguration("eyelink_output")
     rviz_output = LaunchConfiguration("rviz_output")
     bag_output = LaunchConfiguration("bag_output")
     ###########################################################################
@@ -260,13 +269,13 @@ def generate_launch_description():
     # Conditional substitutions
     robot_ip = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "real"),
-        "192.168.13.20",
-        "192.168.12.20",
+        os.environ["ROBOT_IP"],
+        os.environ["SIM_ROBOT_IP"],
     )
     reverse_ip = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "real"),
-        "192.168.13.10",
-        "192.168.12.10",
+        os.environ["REVERSE_IP"],
+        os.environ["SIM_REVERSE_IP"],
     )
     use_mock_robot = IfElseSubstitution(
         EqualsSubstitution(robot_mode, "mock"), "true", "false"
@@ -295,6 +304,16 @@ def generate_launch_description():
             },
         ),
         condition=IfCondition(EqualsSubstitution(default_log_level, "DEBUG")),
+    )
+
+    # Set current bag directory
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    bag_dir = os.path.join(os.environ["TABLETOP_BAG_DIR"], time_str)
+    os.makedirs(bag_dir, exist_ok=True)
+
+    set_current_bag_dir = SetEnvironmentVariable(
+        name="CURRENT_BAG_DIR",
+        value=bag_dir,
     )
 
     # UR Robot Driver (use group action to isolate the launch file)
@@ -404,6 +423,15 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
+    # Eyelink
+    eyelink = Node(
+        name="eyelink",
+        package="tabletop_server",
+        executable="eyelink",
+        output=eyelink_output,
+        ros_arguments=["--log-level", eyelink_log_level],
+    )
+
     # RViz MoveIt Config
     moveit_config = (
         MoveItConfigsBuilder(
@@ -442,43 +470,45 @@ def generate_launch_description():
     )
 
     # Bag
-    bag_config_file = os.path.join(
+    interfaces_config_file = os.path.join(
         get_package_share_directory("tabletop_server"),
         "config",
-        "rosbag.yaml",
+        "rosbag_interfaces.yaml",
     )
-    with open(bag_config_file, "r") as f:
-        bag_config = yaml.safe_load(f)
+    with open(interfaces_config_file, "r") as f:
+        interfaces_config = yaml.safe_load(f)
     args = []
-    if bag_config["all"]:
+    if interfaces_config["all"]:
         args.append("--all")
     else:
-        if "topics" in bag_config:
-            args.extend(["--topics", *bag_config["topics"]])
-        if "services" in bag_config:
-            args.extend(["--services", *bag_config["services"]])
-        if "actions" in bag_config:
-            args.extend(["--actions", *bag_config["actions"]])
+        if "topics" in interfaces_config:
+            args.extend(["--topics", *interfaces_config["topics"]])
+        if "services" in interfaces_config:
+            args.extend(["--services", *interfaces_config["services"]])
+
     bag = ExecuteProcess(
+        name="rosbag",
         cmd=[
             "ros2",
             "bag",
             "record",
             *args,
         ],
-        cwd=rosbag_dir,
+        cwd=bag_dir,
         output=bag_output,
         condition=IfCondition(rosbag_record),
     )
 
     launch_actions = [
         set_ros_log_dir,
+        set_current_bag_dir,
         print_substitutions_action,
         ur_robot_driver,
         mock_dashboard,
         micro_ros_agent,
         mock_teensy,
         flic,
+        eyelink,
         rviz_node,
         bag,
     ]

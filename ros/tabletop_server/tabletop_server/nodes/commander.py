@@ -64,7 +64,10 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
-from tabletop_interfaces.action import FlicResponseTime
+from tabletop_interfaces.action import (
+    EyelinkSmoothPursuit,
+    FlicResponseTime,
+)
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     SetArmLock,
@@ -289,7 +292,8 @@ class Commander(BaseNode):
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._last_teensy_sensor = TeensySensor()
-        self._safe_to_execute_count = 0
+        self._last_teensy_sensor_time = self.ros_time()
+        self._last_unsafe_to_execute_time = self.ros_time()
         self._safe_to_execute = False
         self._teensy_sensor_lock = threading.Lock()
 
@@ -321,6 +325,11 @@ class Commander(BaseNode):
             self,
             FlicResponseTime,
             "/flic/response_time",
+        )
+        self.eyelink_smooth_pursuit_client = ActionClient(
+            self,
+            EyelinkSmoothPursuit,
+            "/eyelink/smooth_pursuit",
         )
 
         # Wait for ROS services and action servers
@@ -766,36 +775,53 @@ class Commander(BaseNode):
     @property
     def safe_to_execute(self) -> bool:
         """Get the is safe to execute state."""
+        max_sensor_delay = self.get_parameter_wrapper(
+            "teensy.safe_to_execute.max_sensor_delay"
+        )
+
         with self._teensy_sensor_lock:
+            current_time = self.ros_time()
+            if current_time - self._last_teensy_sensor_time > max_sensor_delay:
+                self.log(
+                    f"Have not received teensy sensor message in {current_time - self._last_teensy_sensor_time} > {max_sensor_delay}, not safe to execute",
+                    severity="WARN",
+                )
+                return False
             return self._safe_to_execute
 
     # Subscribers
 
+    def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
+        """Check if the robot is safe to execute."""
+        return (
+            msg.is_left_arm_locked
+            and msg.is_right_arm_locked
+            and not msg.is_safety_laser_broken
+        )
+
     def teensy_sensor_callback(self, msg: TeensySensor):
         """Callback for the teensy sensor."""
-        safe_to_execute_required_count = self.get_parameter_wrapper(
-            "teensy.safe_to_execute_required_count"
+        required_time = self.get_parameter_wrapper(
+            "teensy.safe_to_execute.required_time"
         )
+
         with self._teensy_sensor_lock:
+            current_time = self.ros_time()
             self._last_teensy_sensor = msg
-
-            if (
-                msg.is_left_arm_locked
-                and msg.is_right_arm_locked
-                and not msg.is_safety_laser_broken
-            ):
-                self._safe_to_execute_count += 1
+            self._last_teensy_sensor_time = current_time
+            if self._msg_safe_to_execute(msg):
+                self._safe_to_execute = (
+                    current_time - self._last_unsafe_to_execute_time
+                    > required_time
+                )
             else:
-                self._safe_to_execute_count = 0
-
-            self._safe_to_execute = (
-                self._safe_to_execute_count > safe_to_execute_required_count
-            )
+                self._safe_to_execute = False
+                self._last_unsafe_to_execute_time = current_time
 
         # If it is not safe to execute and the robot is executing, stop execution
         if not self._safe_to_execute and self.execution_lock.locked():
             self.log(
-                "Arms not locked or safety laser broken, stopping execution",
+                "Not safe to execute, stopping execution",
                 severity="WARN",
             )
             self.trajectory_execution_manager.stop_execution()
@@ -936,6 +962,30 @@ class Commander(BaseNode):
                     raise
         except TimeoutError:
             return None
+
+        if response.status != GoalStatus.STATUS_SUCCEEDED:
+            raise RuntimeError("Flic goal failed")
+
+        response_time = Duration.from_msg(response.result.response_time)
+        return response_time.nanoseconds / 1e9
+
+    @asyncio_task_decorator
+    async def eyelink_smooth_pursuit(self):
+        """Get eyelink smooth pursuit state."""
+        goal_handle = cast(
+            ClientGoalHandle,
+            await self.eyelink_smooth_pursuit_client.send_goal_async(
+                EyelinkSmoothPursuit.Goal()
+            ),
+        )
+        if not goal_handle.accepted:
+            raise RuntimeError("Flic goal not accepted")
+
+        try:
+            response = await goal_handle.get_result_async()
+        except asyncio.CancelledError:
+            goal_handle.cancel_goal_async()
+            raise
 
         if response.status != GoalStatus.STATUS_SUCCEEDED:
             raise RuntimeError("Flic goal failed")
@@ -2546,7 +2596,6 @@ class Commander(BaseNode):
         if execution_status:
             return
         elif not self.safe_to_execute:
-            assert execution_status.status == "PREEMPTED"
             raise NotSafeToExecuteError(execution_status)
         elif not self.all_close_robot_states(
             initial_state, self.current_state
