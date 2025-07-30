@@ -21,4 +21,4 @@ export PATH=$bin_dir:$PATH
 alias tt_server="ros2 launch tabletop_server server.launch.py"
 alias tt_commander="ros2 launch tabletop_server commander.launch.py"
 alias tt_tasks="ros2 launch tabletop_tasks tasks.launch.py"
-alias tt_flic="ros2 run tabletop_server flic"
+alias tree="tree -I 'build|install|logs|results'"

@@ -57,6 +57,10 @@ class Eyelink(BaseNode):
         "results_dir": os.path.join(
             os.environ["TABLETOP_DIR"], "results/eyelink"
         ),
+        "bag_dir": os.path.join(
+            os.environ["TABLETOP_BAG_DIR"],
+            datetime.now().strftime("eyelink_%Y-%m-%d_%H-%M-%S"),
+        ),
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "log_samples": False,
         "log_smooth_pursuit": True,
@@ -163,8 +167,7 @@ class Eyelink(BaseNode):
         self.recording = False
         self.bag_writer = rosbag2_py.SequentialWriter()
         storage_options = rosbag2_py.StorageOptions(
-            uri=os.path.join(os.environ["CURRENT_BAG_DIR"], "eyelink"),
-            storage_id="mcap",
+            uri=self.get_parameter_wrapper("bag_dir"), storage_id="mcap"
         )
         converter_options = rosbag2_py.ConverterOptions("", "")
         self.bag_writer.open(storage_options, converter_options)
@@ -277,7 +280,6 @@ class Eyelink(BaseNode):
         self.tracker.startRecording(1, 0, 1, 0)
         # pylink.endRealTimeMode()
         self.tracker.sendMessage("SYNCTIME")
-        self.ros_sleep(2.0)
         eye_available = self.eye_available()
         if eye_available != EyeAvailable.BINOCULAR:
             self.stop_sample_retrieval()
@@ -825,12 +827,9 @@ def main(args=None):
         executor.add_node(eyelink)
 
         try:
-            print("Opening data file")
             eyelink.open_data_file()
-            print("Starting recording")
             eyelink.start_recording()
             print("Spinning")
-            # eyelink.tpe.submit(executor.spin).result()
             executor.spin()
         finally:
             print("Shutting down eyelink")

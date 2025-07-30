@@ -55,7 +55,7 @@ exit_on_disconnect() {
     # Check for the trigger word
     if [[ "$line" == *"$pattern"* ]]; then
       echo "---" >&2
-      echo "ABORTING: '$pattern' detected. Terminating process tree for PID $cmd_pid..." >&2
+      echo "DISCONNECTED: '$pattern' detected. Terminating process tree for PID $cmd_pid..." >&2
       # Terminate the process and its children for a clean exit
       pkill -P "$cmd_pid" &>/dev/null
       kill "$cmd_pid" &>/dev/null
@@ -79,8 +79,9 @@ exit_on_disconnect() {
 }
 
 # --wait-for-hci necessary, see musings.md
-/app/flicd \
-    --db-file /app/flic.db \
+app_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+exit_on_disconnect $app_dir/flicd \
+    --db-file $app_dir/flic.db \
     --my-bdaddr $BD_ADDR \
     --server-addr $SERVER_ADDR \
     --server-port $PORT \

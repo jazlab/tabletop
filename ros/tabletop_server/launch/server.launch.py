@@ -292,6 +292,16 @@ def generate_launch_description():
         ]
     )
 
+    # Set current bag directory
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    bag_dir = os.path.join(os.environ["TABLETOP_BAG_DIR"], time_str)
+    os.makedirs(bag_dir, exist_ok=True)
+
+    set_current_bag_dir = SetEnvironmentVariable(
+        name="CURRENT_BAG_DIR",
+        value=bag_dir,
+    )
+
     # Print substitutions
     print_substitutions_action = OpaqueFunction(
         function=lambda context: print_substitutions(
@@ -304,16 +314,6 @@ def generate_launch_description():
             },
         ),
         condition=IfCondition(EqualsSubstitution(default_log_level, "DEBUG")),
-    )
-
-    # Set current bag directory
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    bag_dir = os.path.join(os.environ["TABLETOP_BAG_DIR"], time_str)
-    os.makedirs(bag_dir, exist_ok=True)
-
-    set_current_bag_dir = SetEnvironmentVariable(
-        name="CURRENT_BAG_DIR",
-        value=bag_dir,
     )
 
     # UR Robot Driver (use group action to isolate the launch file)
@@ -429,6 +429,9 @@ def generate_launch_description():
         package="tabletop_server",
         executable="eyelink",
         output=eyelink_output,
+        parameters=[
+            {"use_sim_time": use_sim_time, "bag_dir": bag_dir},
+        ],
         ros_arguments=["--log-level", eyelink_log_level],
     )
 

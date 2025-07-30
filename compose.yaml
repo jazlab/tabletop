@@ -76,6 +76,8 @@ services:
       - 50002:50002
       - 50003:50003
       - 50004:50004
+      - 1510:1510/udp
+      - 1511:1511/udp
     environment:
       - QT_X11_NO_MITSHM=1
       - BUILD_COMMAND=${BUILD_COMMAND:-:}
@@ -108,11 +110,11 @@ services:
       - DISPLAY=$DISPLAY
 
   flic:
-    restart: unless-stopped
     network_mode: host
     privileged: true
     cap_add:
       - NET_ADMIN
+    init: true
     image: ubuntu:latest
     pull_policy: always
     volumes:
@@ -122,14 +124,15 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
-    command: bash -c
-      "/app/flicd
-      --db-file /app/flic.db
-      --my-bdaddr $$BD_ADDR
-      --server-addr $$SERVER_ADDR
-      --server-port $$PORT
-      --hci-dev $$HCI_DEV
-      --wait-for-hci"
+    command: /app/entrypoint.sh
+    # command: bash -c
+    #   "/app/flicd
+    #   --db-file /app/flic.db
+    #   --my-bdaddr $$BD_ADDR
+    #   --server-addr $$SERVER_ADDR
+    #   --server-port $$PORT
+    #   --hci-dev $$HCI_DEV
+    #   --wait-for-hci"
 
 
 

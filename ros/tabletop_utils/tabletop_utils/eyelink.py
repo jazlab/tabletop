@@ -38,7 +38,10 @@ def edf_to_asc(
         output_dir = os.path.dirname(path)
     cmd.append(path)
 
-    subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+
+    if "converted successfully" not in result.stdout.lower():
+        raise RuntimeError(f"Failed to convert EDF to ASC: {result.stdout}")
 
     basename = os.path.splitext(os.path.basename(path))[0]
     return os.path.join(output_dir, f"{basename}.asc")

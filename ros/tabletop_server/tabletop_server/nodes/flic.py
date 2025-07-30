@@ -187,6 +187,8 @@ class Flic(BaseNode):
                 != BluetoothControllerState.Attached
             ):
                 raise RuntimeError("Bluetooth controller not attached")
+            if len(info.bd_addr_of_verified_buttons) == 0:
+                raise RuntimeError("No buttons found")
 
             await self.flic_client.disconnect_all()
 

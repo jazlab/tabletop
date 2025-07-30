@@ -6,7 +6,7 @@
     "postCreateCommand": [
         "bash",
         "-c",
-        "tt_build --remove-moveit-apt"
+        "sudo apt remove -y ros-jazzy-moveit*"
     ],
     "customizations": {
         "vscode": {

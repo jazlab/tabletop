@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/setup.bash
+
+pushd $TABLETOP_DIR
+
+# Reset bluetooth module
+tt_bluetooth_reset
+
+while true; do
+    docker compose up --force-recreate flic
+    # Capture the output of the previous command
+    output=$(docker compose logs flic 2>&1)
+    if [[ "$output" != *"DISCONNECTED"* ]]; then
+        echo "Container stopped, exiting..."
+        docker compose down flic
+        break
+    fi
+    echo "Client disconnected, restarting server..."
+    sleep 1
+done
+popd
