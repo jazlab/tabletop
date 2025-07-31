@@ -18,6 +18,7 @@
 # a connection and receive data via that NatNet connection
 # to decode it using the NatNetClientLibrary.
 
+import argparse
 import sys
 import time
 
@@ -43,15 +44,13 @@ def receive_new_frame(data_dict):
         "isRecording",
         "trackedModelsChanged",
     ]
-    dump_args = False
-    if dump_args is True:
-        out_string = "    "
-        for key in data_dict:
-            out_string += key + "= "
-            if key in data_dict:
-                out_string += data_dict[key] + " "
-            out_string += "/"
-        print(out_string)
+    out_string = "    "
+    for key in data_dict:
+        out_string += key + "= "
+        if key in data_dict:
+            out_string += str(data_dict[key]) + " "
+        out_string += "/"
+    print(out_string)
 
 
 def receive_new_frame_with_data(data_dict):
@@ -70,23 +69,22 @@ def receive_new_frame_with_data(data_dict):
         "offset",
         "mocap_data",
     ]
-    dump_args = True
-    if dump_args is True:
-        out_string = "    "
-        for key in data_dict:
-            out_string += key + "= "
-            if key in data_dict:
-                out_string += str(data_dict[key]) + " "
-            out_string += "/"
-        print(out_string)
+    out_string = "    "
+    for key in data_dict:
+        out_string += key + "= "
+        if key in data_dict:
+            out_string += str(data_dict[key]) + " "
+        out_string += "/"
+    print(out_string)
 
 
 # This is a callback function that gets connected to the NatNet client.
 # It is called once per rigid body per frame.
 def receive_rigid_body_frame(new_id, position, rotation):
-    pass
-    # print("Received frame for rigid body", new_id)
-    # print("Received frame for rigid body", new_id," ",position," ",rotation)
+    print("Received frame for rigid body", new_id)
+    print(
+        "Received frame for rigid body", new_id, " ", position, " ", rotation
+    )
 
 
 def add_lists(totals, totals_tmp):
@@ -247,64 +245,45 @@ def my_parse_args(arg_list, args_dict):
 
 
 if __name__ == "__main__":
-    optionsDict = {}
-    optionsDict["clientAddress"] = "192.168.13.10"
-    optionsDict["serverAddress"] = "192.168.13.40"
-    optionsDict["use_multicast"] = True
-    optionsDict["stream_type"] = "d"
-    stream_type_arg = None
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-s",
+        "--server_address",
+        help="The address of the server to connect to.",
+        default="192.168.13.40",
+    )
+    parser.add_argument(
+        "-c",
+        "--client_address",
+        help="The address of the client to connect to.",
+        default="192.168.13.10",
+    )
+    parser.add_argument("-m", "--use_multicast", action="store_true")
+    parser.add_argument("--multicast_address", default="239.255.42.99")
+    parser.add_argument("--stream_type", default="d")
+    args = parser.parse_args()
 
     # This will create a new NatNet client
-    # optionsDict = my_parse_args(sys.argv, optionsDict)
     streaming_client = NatNetClient()
-    streaming_client.set_client_address(optionsDict["clientAddress"])
-    streaming_client.set_server_address(optionsDict["serverAddress"])
+    streaming_client.set_server_address(args.server_address)
+    streaming_client.set_client_address(args.client_address)
+    streaming_client.set_multicast_address(args.multicast_address)
+    streaming_client.set_use_multicast(args.use_multicast)
 
     # Streaming client configuration.
     # Calls RB handler on emulator for data transmission.
-    streaming_client.new_frame_listener = receive_new_frame
-    # streaming_client.new_frame_with_data_listener = receive_new_frame_with_data  # type ignore # noqa E501
-    streaming_client.rigid_body_listener = receive_rigid_body_frame
+    # streaming_client.new_frame_listener = receive_new_frame
+    # streaming_client.new_frame_with_data_listener = (
+    #     receive_new_frame_with_data  # type ignore # noqa E501
+    # )
+    # streaming_client.rigid_body_listener = receive_rigid_body_frame
 
     # print instructions
     print("NatNet Python Client 4.3\n")
 
-    # Select Multicast or Unicast
-    # cast_choice = input("Select 0 for multicast and 1 for unicast: ")
-    # cast_choice = int(cast_choice)
-    # while cast_choice != 0 and cast_choice != 1:
-    #     cast_choice = input(
-    #         "Invalid option. Select 0 for multicast or 1 for unicast: "
-    #     )  # type: ignore  # noqa F501
-    #     cast_choice = int(cast_choice)
-    # # establishes multicast or unicast
-    # if cast_choice == 0:
-    #     optionsDict["use_multicast"] = True
-    # else:
-    #     optionsDict["use_multicast"] = False
-    streaming_client.set_use_multicast(optionsDict["use_multicast"])
-
-    # allows user to set local address:
-    # client_addr_choice = input("Client Address (127.0.0.1): ")
-    # if client_addr_choice != "":
-    #     streaming_client.set_client_address(client_addr_choice)
-
-    # # allows user to set remote address
-    # server_addr_choice = input("Server Address (127.0.0.1): ")
-    # if server_addr_choice != "":
-    #     streaming_client.set_server_address(server_addr_choice)
-
-    # select datastream preference
-    # stream_choice = None
-    # while stream_choice != "d" and stream_choice != "c":
-    #     stream_choice = input(
-    #         "Select d for datastream and c for command stream: "
-    #     )  # type: ignore  # noqa F501
-    # optionsDict["stream_type"] = stream_choice
-
     # Start up the streaming client now that the callbacks are set up.
     # This will run perpetually, and operate on a separate thread.
-    is_running = streaming_client.run(optionsDict["stream_type"])
+    is_running = streaming_client.run(args.stream_type)
     if not is_running:
         print("ERROR: Could not start streaming client.")
         try:
@@ -314,9 +293,8 @@ if __name__ == "__main__":
         finally:
             print("exiting")
 
-    is_looping = True
     time.sleep(1)
-    if streaming_client.connected() is False:
+    if not streaming_client.connected():
         print(
             "ERROR: Could not connect properly.  Check that Motive streaming is on."
         )  # type: ignore  # noqa F501
@@ -331,123 +309,131 @@ if __name__ == "__main__":
     print("\n")
     print_commands(streaming_client.can_change_bitstream_version())
 
-    while is_looping:
-        inchars = input("Enter command or ('h' for list of commands)\n")
-        if len(inchars) > 0:
-            c1 = inchars[0].lower()
-            if c1 == "h":
-                print_commands(streaming_client.can_change_bitstream_version())
-            elif c1 == "c":
-                print_configuration(streaming_client)
-            elif c1 == "s":
-                request_data_descriptions(streaming_client)
-                time.sleep(1)
-            elif (c1 == "3") or (c1 == "4"):
-                if streaming_client.can_change_bitstream_version():
-                    tmp_major = 4
-                    tmp_minor = 2
-                    if c1 == "3":
-                        tmp_major = 3
-                        tmp_minor = 1
-                    return_code = streaming_client.set_nat_net_version(
-                        tmp_major, tmp_minor
-                    )  # type: ignore  # noqa F501
+    try:
+        while True:
+            inchars = input("Enter command or ('h' for list of commands)\n")
+            if len(inchars) > 0:
+                c1 = inchars[0].lower()
+                if c1 == "h":
+                    print_commands(
+                        streaming_client.can_change_bitstream_version()
+                    )
+                elif c1 == "c":
+                    print_configuration(streaming_client)
+                elif c1 == "s":
+                    request_data_descriptions(streaming_client)
                     time.sleep(1)
-                    if return_code == -1:
-                        print(
-                            "Could not change bitstream version to %d.%d"
-                            % (tmp_major, tmp_minor)
+                elif (c1 == "3") or (c1 == "4"):
+                    if streaming_client.can_change_bitstream_version():
+                        tmp_major = 4
+                        tmp_minor = 2
+                        if c1 == "3":
+                            tmp_major = 3
+                            tmp_minor = 1
+                        return_code = streaming_client.set_nat_net_version(
+                            tmp_major, tmp_minor
                         )  # type: ignore  # noqa F501
+                        time.sleep(1)
+                        if return_code == -1:
+                            print(
+                                "Could not change bitstream version to %d.%d"
+                                % (tmp_major, tmp_minor)
+                            )  # type: ignore  # noqa F501
+                        else:
+                            print(
+                                "Bitstream version at %d.%d"
+                                % (tmp_major, tmp_minor)
+                            )  # type: ignore  # noqa F501
                     else:
+                        print("Can only change bitstream in Unicast Mode")
+
+                elif c1 == "p":
+                    sz_command = "TimelineStop"
+                    return_code = streaming_client.send_command(sz_command)
+                    time.sleep(1)
+                    print(
+                        "Command: %s - return_code: %d"
+                        % (sz_command, return_code)
+                    )  # type: ignore  # noqa F501
+                elif c1 == "r":
+                    sz_command = "TimelinePlay"
+                    return_code = streaming_client.send_command(sz_command)
+                    print(
+                        "Command: %s - return_code: %d"
+                        % (sz_command, return_code)
+                    )  # type: ignore  # noqa F501
+                elif c1 == "o":
+                    tmpCommands = [
+                        "TimelinePlay",
+                        "TimelineStop",
+                        "SetPlaybackStartFrame,0",
+                        "SetPlaybackStopFrame,1000000",
+                        "SetPlaybackLooping,0",
+                        "SetPlaybackCurrentFrame,0",
+                        "TimelineStop",
+                    ]
+                    for sz_command in tmpCommands:
+                        return_code = streaming_client.send_command(sz_command)
                         print(
-                            "Bitstream version at %d.%d"
-                            % (tmp_major, tmp_minor)
+                            "Command: %s - return_code: %d"
+                            % (sz_command, return_code)
                         )  # type: ignore  # noqa F501
-                else:
-                    print("Can only change bitstream in Unicast Mode")
+                    time.sleep(1)
+                elif c1 == "w":
+                    tmp_commands = [
+                        "TimelinePlay",
+                        "TimelineStop",
+                        "SetPlaybackStartFrame,1",
+                        "SetPlaybackStopFrame,1500",
+                        "SetPlaybackLooping,0",
+                        "SetPlaybackCurrentFrame,100",
+                        "TimelineStop",
+                    ]
+                    for sz_command in tmp_commands:
+                        return_code = streaming_client.send_command(sz_command)
+                        print(
+                            "Command: %s - return_code: %d"
+                            % (sz_command, return_code)
+                        )  # type: ignore  # noqa F501
+                    time.sleep(1)
+                elif c1 == "t":
+                    test_classes()
 
-            elif c1 == "p":
-                sz_command = "TimelineStop"
-                return_code = streaming_client.send_command(sz_command)
-                time.sleep(1)
-                print(
-                    "Command: %s - return_code: %d" % (sz_command, return_code)
-                )  # type: ignore  # noqa F501
-            elif c1 == "r":
-                sz_command = "TimelinePlay"
-                return_code = streaming_client.send_command(sz_command)
-                print(
-                    "Command: %s - return_code: %d" % (sz_command, return_code)
-                )  # type: ignore  # noqa F501
-            elif c1 == "o":
-                tmpCommands = [
-                    "TimelinePlay",
-                    "TimelineStop",
-                    "SetPlaybackStartFrame,0",
-                    "SetPlaybackStopFrame,1000000",
-                    "SetPlaybackLooping,0",
-                    "SetPlaybackCurrentFrame,0",
-                    "TimelineStop",
-                ]
-                for sz_command in tmpCommands:
-                    return_code = streaming_client.send_command(sz_command)
-                    print(
-                        "Command: %s - return_code: %d"
-                        % (sz_command, return_code)
-                    )  # type: ignore  # noqa F501
-                time.sleep(1)
-            elif c1 == "w":
-                tmp_commands = [
-                    "TimelinePlay",
-                    "TimelineStop",
-                    "SetPlaybackStartFrame,1",
-                    "SetPlaybackStopFrame,1500",
-                    "SetPlaybackLooping,0",
-                    "SetPlaybackCurrentFrame,100",
-                    "TimelineStop",
-                ]
-                for sz_command in tmp_commands:
-                    return_code = streaming_client.send_command(sz_command)
-                    print(
-                        "Command: %s - return_code: %d"
-                        % (sz_command, return_code)
-                    )  # type: ignore  # noqa F501
-                time.sleep(1)
-            elif c1 == "t":
-                test_classes()
-
-            elif c1 == "j":
-                streaming_client.set_print_level(0)
-                print(
-                    "Showing only received frame numbers and supressing data descriptions"
-                )  # type: ignore  # noqa F501
-            elif c1 == "k":
-                streaming_client.set_print_level(1)
-                print("Showing every received frame")
-
-            elif c1 == "l":
-                print_level = streaming_client.set_print_level(20)
-                print_level_mod = print_level % 100
-                if print_level == 0:
+                elif c1 == "j":
+                    streaming_client.set_print_level(0)
                     print(
                         "Showing only received frame numbers and supressing data descriptions"
                     )  # type: ignore  # noqa F501
-                elif print_level == 1:
-                    print("Showing every frame")
-                elif print_level_mod == 1:
-                    print("Showing every %dst frame" % print_level)
-                elif print_level_mod == 2:
-                    print("Showing every %dnd frame" % print_level)
-                elif print_level == 3:
-                    print("Showing every %drd frame" % print_level)
-                else:
-                    print("Showing every %dth frame" % print_level)
+                elif c1 == "k":
+                    streaming_client.set_print_level(1)
+                    print("Showing every received frame")
 
-            elif c1 == "q":
-                is_looping = False
-                streaming_client.shutdown()
-                break
-            else:
-                print("Error: Command %s not recognized" % c1)
-            print("Ready...\n")
-    print("exiting")
+                elif c1 == "l":
+                    print_level = streaming_client.set_print_level(20)
+                    print_level_mod = print_level % 100
+                    if print_level == 0:
+                        print(
+                            "Showing only received frame numbers and supressing data descriptions"
+                        )  # type: ignore  # noqa F501
+                    elif print_level == 1:
+                        print("Showing every frame")
+                    elif print_level_mod == 1:
+                        print("Showing every %dst frame" % print_level)
+                    elif print_level_mod == 2:
+                        print("Showing every %dnd frame" % print_level)
+                    elif print_level == 3:
+                        print("Showing every %drd frame" % print_level)
+                    else:
+                        print("Showing every %dth frame" % print_level)
+
+                elif c1 == "q":
+                    streaming_client.shutdown()
+                    break
+                else:
+                    print("Error: Command %s not recognized" % c1)
+                print("Ready...\n")
+
+    except KeyboardInterrupt:
+        streaming_client.shutdown()
+        print("Exiting...")
+        sys.exit(0)

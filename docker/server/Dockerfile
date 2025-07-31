@@ -56,5 +56,5 @@ RUN mkdir -p $HOME/.config \
 RUN echo 'export PATH=$HOME/.local/bin:$PATH' >> $HOME/.bashrc
 RUN echo 'source /opt/ros/jazzy/setup.bash' >> $HOME/.bashrc
 RUN echo 'source $HOME/ws/install/setup.bash' >> $HOME/.bashrc
-RUN echo 'source $HOME/ws/src/tabletop/bin/setup.bash' >> $HOME/.bashrc
+RUN echo 'source $HOME/ws/src/tabletop/setup.bash' >> $HOME/.bashrc
 RUN echo 'eval "$(starship init bash)"' >> $HOME/.bashrc

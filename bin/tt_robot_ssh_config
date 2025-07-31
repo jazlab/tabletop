@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/setup.bash
+source $bin_dir/../setup.bash
 source $TABLETOP_DIR/env_files/robot.env
 
 print_status "Generating SSH key"

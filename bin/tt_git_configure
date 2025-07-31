@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/setup.bash
+source $bin_dir/../setup.bash
 
 # Configure git to ignore safe.directory
 pushd $TABLETOP_DIR
