@@ -2,6 +2,7 @@
 **/__pycache__/
 **/.ruff_cache/
 **/.DS_Store
+**/.cache/
 
 # Ignore logs
 **/logs/
@@ -16,6 +17,7 @@
 **/dist/
 **/egg-info/
 **/.pio/
+**/compile_commands.json
 
 # Ignore cursor files
 **/.cursorignore

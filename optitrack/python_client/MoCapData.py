@@ -283,10 +283,10 @@ class LegacyMarkerData:
 
 class RigidBodyMarker:
     def __init__(self):
-        self.pos = [0.0, 0.0, 0.0]
+        self.pos = (0.0, 0.0, 0.0)
         self.id_num = 0
         self.size = 0
-        self.error = 0
+        self.error = 0.0
         self.marker_num = -1
 
     def get_as_string(self, tab_str="  ", level=0):
@@ -620,14 +620,21 @@ class AssetData:
 
 
 class LabeledMarker:
-    def __init__(self, new_id, pos, size=0.0, param=0, residual=0.0):
+    def __init__(
+        self,
+        new_id: int,
+        pos: tuple[float, float, float],
+        size: float | tuple[float, float, float] = 0.0,
+        param: int = 0,
+        residual: float = 0.0,
+    ):
         self.id_num = new_id
         self.pos = pos
         self.size = size
         self.param = param
         self.residual = residual
         self.marker_num = -1
-        if str(type(size)) == "<class 'tuple'>":
+        if isinstance(size, tuple):
             self.size = size[0]
 
     def __decode_marker_id(self):
@@ -878,7 +885,7 @@ class FrameSuffixData:
     def __init__(self):
         self.timecode = -1
         self.timecode_sub = -1
-        self.timestamp = -1
+        self.timestamp = -1.0
         self.stamp_camera_mid_exposure = -1
         self.stamp_data_received = -1
         self.stamp_transmit = -1
@@ -1057,14 +1064,15 @@ def generate_label(label_base="label", label_num=0):
     return out_label
 
 
-def generate_position_srand(pos_num=0, frame_num=0):
+def generate_position_srand(
+    pos_num=0, frame_num=0
+) -> tuple[float, float, float]:
     random.seed(pos_num + (frame_num * 1000))
-    position = [
+    return (
         (random.random() * 100),
         (random.random() * 100),
         (random.random() * 100),
-    ]
-    return position
+    )
 
 
 def generate_marker_data(label_base, label_num, num_points=1):
