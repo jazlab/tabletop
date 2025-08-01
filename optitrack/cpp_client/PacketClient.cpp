@@ -33,7 +33,9 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <termios.h>
 #include <unistd.h>
@@ -43,53 +45,13 @@
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
-#include <map>
 #include <string>
 #include <thread>
 #include <vector>
 
-// Linux version - no pragma warnings needed
-
 // Linux socket constants
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
-#define closesocket close
-
-// Linux equivalents for Windows types
-typedef int SOCKET;
-typedef unsigned int DWORD;
-typedef void* HANDLE;
-typedef unsigned short u_short;
-typedef unsigned long u_long;
-
-// Linux equivalent for WSADATA
-struct WSADATA {
-  unsigned short wVersion;
-  unsigned short wHighVersion;
-  char szDescription[257];
-  char szSystemStatus[129];
-  unsigned short iMaxSockets;
-  unsigned short iMaxUdpDg;
-  char* lpVendorInfo;
-};
-
-// Define TRUE/FALSE if not defined
-#ifndef TRUE
-#  define TRUE 1
-#endif
-#ifndef FALSE
-#  define FALSE 0
-#endif
-
-// Linux helper functions
-int WSAGetLastError() {
-  return errno;
-}
-void WSACleanup() {
-}
-int WSAStartup(int, void*) {
-  return 0;
-}
 
 // Linux console input function
 int _getch() {
@@ -103,28 +65,6 @@ int _getch() {
   tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
   return ch;
 }
-
-// Linux equivalent for GetComputerName
-int GetComputerName(char* buffer, unsigned long* size) {
-  if (gethostname(buffer, *size) == 0) {
-    *size = strlen(buffer);
-    return 1;
-  }
-  return 0;
-}
-
-// Linux equivalent for Sleep
-void Sleep(unsigned int milliseconds) {
-  usleep(milliseconds * 1000);
-}
-
-// Linux equivalents for Windows string functions
-#define strcpy_s(dest, src) strcpy(dest, src)
-#define sprintf_s snprintf
-#define _strnicmp strncasecmp
-
-// Linux equivalent for accessing IP address bytes
-#define GET_IP_BYTE(addr, n) (((unsigned char*) &(addr))[n])
 
 #ifdef VDEBUG
 #  undef VDEBUG
@@ -237,9 +177,8 @@ struct sConnectionOptions {
 std::string GetTabString(std::string tabStr, unsigned int level);
 
 // Communications functions
-bool IPAddress_StringToAddr(char* szNameOrAddress, struct in_addr* Address);
-int GetLocalIPAddresses(unsigned long Addresses[], int nMax);
-int SendCommand(char* szCOmmand);
+bool IPAddress_StringToAddr(char* szNameOrAddress, in_addr_t& addr);
+int SendCommand(const char* szCommand);
 
 // Packet unpacking functions
 char* Unpack(char* pPacketIn, unsigned int level = 0);
@@ -291,36 +230,6 @@ char* UnpackMarkerDescription(char* ptr, char* targetPtr, int major, int minor,
                               unsigned int level);
 
 /**
- * \brief WSA Error codes:
- * https://docs.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2
- */
-std::map<int, std::string> wsaErrors = {
-    {10004, " WSAEINTR: Interrupted function call."},
-    {10009, " WSAEBADF: File handle is not valid."},
-    {10013, " WSAEACCESS: Permission denied."},
-    {10014, " WSAEFAULT: Bad address."},
-    {10022, " WSAEINVAL: Invalid argument."},
-    {10024, " WSAEMFILE: Too many open files."},
-    {10035, " WSAEWOULDBLOCK: Resource temporarily unavailable."},
-    {10036, " WSAEINPROGRESS: Operation now in progress."},
-    {10037, " WSAEALREADY: Operation already in progress."},
-    {10038, " WSAENOTSOCK: Socket operation on nonsocket."},
-    {10039, " WSAEDESTADDRREQ Destination address required."},
-    {10040, " WSAEMSGSIZE: Message too long."},
-    {10041, " WSAEPROTOTYPE: Protocol wrong type for socket."},
-    {10047,
-     " WSAEAFNOSUPPORT: Address family not supported by protocol family."},
-    {10048, " WSAEADDRINUSE: Address already in use."},
-    {10049, " WSAEADDRNOTAVAIL: Cannot assign requested address."},
-    {10050, " WSAENETDOWN: Network is down."},
-    {10051, " WSAEWSAENETUNREACH: Network is unreachable."},
-    {10052, " WSAENETRESET: Network dropped connection on reset."},
-    {10053, " WSAECONNABORTED: Software caused connection abort."},
-    {10054, " WSAECONNRESET: Connection reset by peer."},
-    {10060, " WSAETIMEDOUT: Connection timed out."},
-    {10093, " WSANOTINITIALIZED: Successful WSAStartup not yet performed."}};
-
-/**
  * \brief - Generate a formatting string based on the input tabStr and the
  * level.
  * \return - String to use for formatting.
@@ -366,7 +275,8 @@ bool GetBitstreamVersion() {
 bool SetBitstreamVersion(int major, int minor, int revision) {
   gBitstreamChangePending = true;
   char szRequest[512];
-  sprintf(szRequest, "Bitstream,%1.1d.%1.1d.%1.1d", major, minor, revision);
+  snprintf(szRequest, sizeof(szRequest), "Bitstream,%1.1d.%1.1d.%1.1d", major,
+           minor, revision);
   int result = SendCommand(szRequest);
   if (result != 0) {
     printf("Error setting Bitstream Version");
@@ -378,32 +288,6 @@ bool SetBitstreamVersion(int major, int minor, int revision) {
   GetBitstreamVersion();
 
   return true;
-}
-
-/**
- * \brief - Get Windows Sockets error codes as a string.
- * \param errorValue - input error code
- * \return - returns error as a string.
- */
-std::string GetWSAErrorString(int errorValue) {
-  // Additional values can be found in Winsock2.h or
-  // https://docs.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2
-
-  std::string errorString = std::to_string(errorValue);
-  // loop over entries in map
-  auto mapItr = wsaErrors.begin();
-  for (; mapItr != wsaErrors.end(); ++mapItr) {
-    if (mapItr->first == errorValue) {
-      errorString += mapItr->second;
-      return errorString;
-    }
-  }
-
-  // If it gets here, the code is unknown, so show the reference link.
-  errorString += std::string(" Please see: "
-                             "https://docs.microsoft.com/en-us/windows/win32/"
-                             "winsock/windows-sockets-error-codes-2");
-  return errorString;
 }
 
 /**
@@ -435,153 +319,139 @@ void* CommandListenThread(void* dummy) {
   socklen_t addr_len;
   int nDataBytesReceived;
   sockaddr_in TheirAddress;
-  sPacket* PacketIn = new sPacket();
-  sPacket* PacketOut = new sPacket();
+  static sPacket PacketIn;
+  static sPacket PacketOut;
   addr_len = sizeof(struct sockaddr);
 
-  if (PacketIn && PacketOut) {
-    printf("[PacketClient CLTh] CommandListenThread Started\n");
-    while (true) {
-      // Send a Keep Alive message to Motive (required for Unicast transmission
-      // only)
-      if (!gUseMulticast) {
-        PacketOut->iMessage = NAT_KEEPALIVE;
-        PacketOut->nDataBytes = 0;
-        int iRet =
-            sendto(gCommandSocket, (char*) PacketOut, 4 + PacketOut->nDataBytes,
-                   0, (sockaddr*) &gHostAddr, sizeof(gHostAddr));
-        if (iRet == SOCKET_ERROR) {
-          printf("[PacketClient CLTh] sendto failure   (error: %s)\n",
-                 GetWSAErrorString(WSAGetLastError()).c_str());
-        }
+  printf("[PacketClient CLTh] CommandListenThread Started\n");
+  while (true) {
+    // Send a Keep Alive message to Motive (required for Unicast transmission
+    // only)
+    if (!gUseMulticast) {
+      PacketOut.iMessage = NAT_KEEPALIVE;
+      PacketOut.nDataBytes = 0;
+      int iRet =
+          sendto(gCommandSocket, (char*) &PacketOut, 4 + PacketOut.nDataBytes,
+                 0, (sockaddr*) &gHostAddr, sizeof(gHostAddr));
+      if (iRet == SOCKET_ERROR) {
+        printf("[PacketClient CLTh] sendto failure   (error: %s)\n",
+               strerror(errno));
       }
+    }
 
-      // blocking with timeout
-      nDataBytesReceived =
-          recvfrom(gCommandSocket, (char*) PacketIn, sizeof(sPacket), 0,
-                   (struct sockaddr*) &TheirAddress, &addr_len);
+    // blocking with timeout
+    nDataBytesReceived =
+        recvfrom(gCommandSocket, (char*) &PacketIn, sizeof(sPacket), 0,
+                 (struct sockaddr*) &TheirAddress, &addr_len);
 
-      if ((nDataBytesReceived == 0)) {
-        continue;
-      } else if (nDataBytesReceived == SOCKET_ERROR) {
-        if (WSAGetLastError() != 10060) // Ignore normal timeout failures
-        {
-          printf("[PacketClient CLTh] recvfrom failure (error: %s)\n",
-                 GetWSAErrorString(WSAGetLastError()).c_str());
-        }
-        continue;
-      }
-
-      /*
-      // debug - print message
-      char str[MAX_NAMELENGTH];
-      sprintf(str, "[PacketClient CLTh] Received command from %d.%d.%d.%d:
-      Command=%d, nDataBytes=%d", GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 0),
-      GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 1),
-          GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 2),
-      GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 3), (int)PacketIn->iMessage,
-      (int)PacketIn->nDataBytes); printf("%s\n", str);
-      */
-
-      // handle command
-      switch (PacketIn->iMessage) {
-      case NAT_SERVERINFO: // 1
-        strcpy_s(gServerName, PacketIn->Data.Sender.szName);
-        for (int i = 0; i < 4; i++) {
-          gNatNetVersionServer[i] =
-              (int) PacketIn->Data.Sender.NatNetVersion[i];
-          gServerVersion[i] = (int) PacketIn->Data.Sender.Version[i];
-        }
-        if ((gNatNetVersion[0] == 0) && (gNatNetVersion[1] == 0)) {
-          for (int i = 0; i < 4; i++) {
-            gNatNetVersion[i] = gNatNetVersionServer[i];
-          }
-        }
-
-        if ((gNatNetVersionServer[0] >= 3) &&
-            (!gUseMulticast)) // Requires Motive 3.x or greater and Unicast
-        {
-          gCanChangeBitstream = true;
-        }
-
-        printf("[PacketClient CLTh]  NatNet Server Info\n");
-        printf("[PacketClient CLTh]    Sending Application Name: %s\n",
-               gServerName);
-        printf("[PacketClient CLTh]    %s Version %d %d %d %d\n", gServerName,
-               gServerVersion[0], gServerVersion[1], gServerVersion[2],
-               gServerVersion[3]);
-        printf("[PacketClient CLTh]    NatNet Version %d %d %d %d\n",
-               gNatNetVersion[0], gNatNetVersion[1], gNatNetVersion[2],
-               gNatNetVersion[3]);
-        break;
-      case NAT_RESPONSE: // 3
-        gCommandResponseSize = PacketIn->nDataBytes;
-        if (gCommandResponseSize == 4) {
-          memcpy(&gCommandResponse, &PacketIn->Data.lData[0],
-                 gCommandResponseSize);
-        } else {
-          memcpy(&gCommandResponseString[0], &PacketIn->Data.cData[0],
-                 gCommandResponseSize);
-          printf("[PacketClient CLTh]    Response : %s\n",
-                 gCommandResponseString);
-          gCommandResponse = 0; // ok
-        }
-
-        // handle GetBitstreamVersion command
-        if (_strnicmp((char*) gCommandResponseString, "Bitstream",
-                      strlen("Bitstream")) == 0) {
-          char* value = strchr((char*) gCommandResponseString, ',');
-          if (value) {
-            value++;
-            char* token = strtok(value, ".");
-            int i = 0;
-            while (token != nullptr) {
-              gNatNetVersion[i] = atoi(token);
-              token = strtok(nullptr, ".");
-              i++;
-            }
-            printf(
-                "[PacketClient CLTh]    NatNet Bitstream Version : %d.%d.%d\n",
-                gNatNetVersion[0], gNatNetVersion[1], gNatNetVersion[2]);
-          }
-        }
-        break;
-      case NAT_MODELDEF: // 5
-        Unpack((char*) PacketIn);
-        break;
-      case NAT_FRAMEOFDATA: // 7
-        Unpack((char*) PacketIn);
-        break;
-      case NAT_UNRECOGNIZED_REQUEST: // 100
-        printf("[PacketClient CLTh]    Received iMessage 100 = 'unrecognized "
-               "request'\n");
-        gCommandResponseSize = 0;
-        gCommandResponse = 1; // err
-        break;
-      case NAT_MESSAGESTRING: // 8
+    if (nDataBytesReceived == 0) {
+      continue;
+    } else if (nDataBytesReceived == SOCKET_ERROR) {
+      if (errno != EAGAIN) // Ignore normal timeout failures
       {
-        printf("[PacketClient CLTh]    Received message: %s\n",
-               PacketIn->Data.szData);
-        break;
+        printf("[PacketClient CLTh] recvfrom failure (error: %s)\n",
+               strerror(errno));
       }
-      default:
-        printf("[PacketClient CLTh]    Received unknown command %d\n",
-               PacketIn->iMessage);
+      continue;
+    }
+
+    /*
+    // debug - print message
+    char str[MAX_NAMELENGTH];
+    snprintf(str, sizeof(str), "[PacketClient CLTh] Received command from
+    %d.%d.%d.%d: Command=%d, nDataBytes=%d",
+    GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 0),
+    GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 1),
+        GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 2),
+    GET_IP_BYTE(TheirAddress.sin_addr.s_addr, 3), (int)PacketIn->iMessage,
+    (int)PacketIn->nDataBytes); printf("%s\n", str);
+    */
+
+    // handle command
+    switch (PacketIn.iMessage) {
+    case NAT_SERVERINFO: // 1
+      strlcpy(gServerName, PacketIn.Data.Sender.szName, sizeof(gServerName));
+      for (int i = 0; i < 4; i++) {
+        gNatNetVersionServer[i] = (int) PacketIn.Data.Sender.NatNetVersion[i];
+        gServerVersion[i] = (int) PacketIn.Data.Sender.Version[i];
       }
-    } // end of while
-  } else {
-    printf("[PacketClient CLTh] CommandListenThread Start FAILURE\n");
-    retValue = (void*) 1;
-  }
-  if (PacketIn) {
-    delete PacketIn;
-    PacketIn = nullptr;
-  }
-  if (PacketOut) {
-    delete PacketOut;
-    PacketOut = nullptr;
-  }
-  return retValue;
+      if ((gNatNetVersion[0] == 0) && (gNatNetVersion[1] == 0)) {
+        for (int i = 0; i < 4; i++) {
+          gNatNetVersion[i] = gNatNetVersionServer[i];
+        }
+      }
+
+      if ((gNatNetVersionServer[0] >= 3) &&
+          (!gUseMulticast)) // Requires Motive 3.x or greater and Unicast
+      {
+        gCanChangeBitstream = true;
+      }
+
+      printf("[PacketClient CLTh]  NatNet Server Info\n");
+      printf("[PacketClient CLTh]    Sending Application Name: %s\n",
+             gServerName);
+      printf("[PacketClient CLTh]    %s Version %d %d %d %d\n", gServerName,
+             gServerVersion[0], gServerVersion[1], gServerVersion[2],
+             gServerVersion[3]);
+      printf("[PacketClient CLTh]    NatNet Version %d %d %d %d\n",
+             gNatNetVersion[0], gNatNetVersion[1], gNatNetVersion[2],
+             gNatNetVersion[3]);
+      break;
+    case NAT_RESPONSE: // 3
+      gCommandResponseSize = PacketIn.nDataBytes;
+      if (gCommandResponseSize == 4) {
+        memcpy(&gCommandResponse, &PacketIn.Data.lData[0],
+               gCommandResponseSize);
+      } else {
+        memcpy(&gCommandResponseString[0], &PacketIn.Data.cData[0],
+               gCommandResponseSize);
+        printf("[PacketClient CLTh]    Response : %s\n",
+               gCommandResponseString);
+        gCommandResponse = 0; // ok
+      }
+
+      // handle GetBitstreamVersion command
+      if (strncmp((char*) gCommandResponseString, "Bitstream",
+                  strlen("Bitstream")) == 0) {
+        char* value = strchr((char*) gCommandResponseString, ',');
+        if (value) {
+          value++;
+          char* token = strtok(value, ".");
+          int i = 0;
+          while (token != nullptr) {
+            gNatNetVersion[i] = atoi(token);
+            token = strtok(nullptr, ".");
+            i++;
+          }
+          printf("[PacketClient CLTh]    NatNet Bitstream Version : %d.%d.%d\n",
+                 gNatNetVersion[0], gNatNetVersion[1], gNatNetVersion[2]);
+        }
+      }
+      break;
+    case NAT_MODELDEF: // 5
+      Unpack((char*) &PacketIn);
+      break;
+    case NAT_FRAMEOFDATA: // 7
+      Unpack((char*) &PacketIn);
+      break;
+    case NAT_UNRECOGNIZED_REQUEST: // 100
+      printf("[PacketClient CLTh]    Received iMessage 100 = 'unrecognized "
+             "request'\n");
+      gCommandResponseSize = 0;
+      gCommandResponse = 1; // err
+      break;
+    case NAT_MESSAGESTRING: // 8
+    {
+      printf("[PacketClient CLTh]    Received message: %s\n",
+             PacketIn.Data.szData);
+      break;
+    }
+    default:
+      printf("[PacketClient CLTh]    Received unknown command %d\n",
+             PacketIn.iMessage);
+    }
+  } // end of while
+  return nullptr;
 }
 
 /**
@@ -615,12 +485,10 @@ void* DataListenThread(void* dummy) {
     if (nDataBytesReceived > 0) {
       Unpack(szData);
     } else if (nDataBytesReceived < 0) {
-      int wsaLastError = WSAGetLastError();
       printf("[PacketClient DLTh] gDataSocket failure (error: %d)\n",
              nDataBytesReceived);
-      printf("[PacketClient DLTh] WSAError (error: %s)\n",
-             GetWSAErrorString(wsaLastError).c_str());
-      if (wsaLastError == 10040) {
+      printf("[PacketClient DLTh] Error (error: %s)\n", strerror(errno));
+      if (errno == EMSGSIZE) {
         // peek at truncated data, determine better buffer size
         int messageID = 0;
         int nBytes = 0;
@@ -667,19 +535,19 @@ void* DataListenThread(void* dummy) {
 /**
  * \brief - Create Command Socket
  * \param IP_Address - IP address of Motive/NatNet Server
- * \param uPort - port on Motive/NatNet Server
+ * \param uPort - port on client
  * \param optval - buffer size
  * \param useMulticast - true = use Multicast false = use Unicast.
  * \return - socket file descriptor
  */
-SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
-                           int optval, bool useMulticast) {
+int CreateCommandSocket(in_addr addr, unsigned short uPort, int optval,
+                        bool useMulticast) {
   int retval = SOCKET_ERROR;
   struct sockaddr_in my_addr;
   static unsigned long ivalue = 0x0;
   static unsigned long bFlag = 0x0;
   int nlengthofsztemp = 64;
-  SOCKET sockfd = -1;
+  int sockfd = -1;
   socklen_t optval_size = sizeof(int);
   ivalue = 1;
   int bufSize = optval;
@@ -692,7 +560,7 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
   // Create a datagram socket
   if ((sockfd = socket(AF_INET, SOCK_DGRAM, protocol)) == INVALID_SOCKET) {
     printf("[PacketClient Main] gCommandSocket create failure (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
+           strerror(errno));
     return -1;
   }
 
@@ -700,13 +568,13 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
   memset(&my_addr, 0, sizeof(my_addr));
   my_addr.sin_family = AF_INET;
   my_addr.sin_port = htons(uPort);
-  my_addr.sin_addr.s_addr = IP_Address;
+  my_addr.sin_addr.s_addr = addr.s_addr;
 
   if (bind(sockfd, (struct sockaddr*) &my_addr, sizeof(struct sockaddr)) ==
       SOCKET_ERROR) {
     printf("[PacketClient Main] gCommandSocket bind failure (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    closesocket(sockfd);
+           strerror(errno));
+    close(sockfd);
     return -1;
   }
 
@@ -715,7 +583,7 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
     if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, (void*) &ivalue,
                    sizeof(ivalue)) == SOCKET_ERROR) {
       // error - should show setsockopt error.
-      closesocket(sockfd);
+      close(sockfd);
       return -1;
     }
 
@@ -730,8 +598,8 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
     // error
     printf("[PacketClient Main] gCommandSocket get options  SO_RCVBUF failure "
            "(error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    closesocket(sockfd);
+           strerror(errno));
+    close(sockfd);
     return -1;
   }
   if (optval != OPTVAL_REQUEST_SIZE) {
@@ -750,8 +618,8 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
       // error
       printf("[PacketClient Main] gCommandSocket set options SO_RCVBUF failure "
              "(error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+             strerror(errno));
+      close(sockfd);
       return -1;
     }
   }
@@ -771,8 +639,8 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
     if (retval == -1) {
       printf(
           "[PacketClient Main] gCommandSocket setsockopt failure (error: %s)\n",
-          GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+          strerror(errno));
+      close(sockfd);
       return -1;
     }
 
@@ -786,8 +654,8 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
     if (retval == -1) {
       printf("[PacketClient Main] gCommandSocket user send buffer failure "
              "(error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+             strerror(errno));
+      close(sockfd);
       return -1;
     }
     int confirmValue = 0;
@@ -811,8 +679,8 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
     if (iRet == -1) {
       printf("[PacketClient Main] gCommandSocket Don't fragment request "
              "failure (error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+             strerror(errno));
+      close(sockfd);
       return -1;
     }
     iRet = getsockopt(sockfd, IPPROTO_IP, IP_MTU_DISCOVER, (char*) &optval2,
@@ -832,15 +700,14 @@ SOCKET CreateCommandSocket(unsigned long IP_Address, unsigned short uPort,
  * \param uMulticastPort - Multicast Motive/NatNet server port
  * \return - socket file descriptor
  */
-SOCKET CreateDataSocket(unsigned long socketIPAddress,
-                        unsigned short uUnicastPort, int optval,
-                        bool useMulticast, unsigned long multicastIPAddress,
-                        unsigned short uMulticastPort) {
+int CreateDataSocket(in_addr socketIPAddress, unsigned short uUnicastPort,
+                     int optval, bool useMulticast, in_addr multicastIPAddress,
+                     unsigned short uMulticastPort) {
   int retval = SOCKET_ERROR;
   static unsigned long ivalue = 0x0;
   static unsigned long bFlag = 0x0;
   int nlengthofsztemp = 64;
-  SOCKET sockfd = -1;
+  int sockfd = -1;
   socklen_t optval_size = sizeof(int);
   int value = 1;
   // create the socket
@@ -848,7 +715,7 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
   if (sockfd == SOCKET_ERROR) {
     printf("[PacketClient Main] gDataSocket socket allocation failure (error: "
            "%s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
+           strerror(errno));
     return -1;
   }
   // allow multiple clients on same machine to use address/port
@@ -857,8 +724,8 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
   if (retval == SOCKET_ERROR) {
     printf("[PacketClient Main] gDataSocket SO_REUSEADDR setsockopt failure "
            "(error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    closesocket(sockfd);
+           strerror(errno));
+    close(sockfd);
     return -1;
   }
 
@@ -868,19 +735,19 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
     memset(&MySocketAddress, 0, sizeof(MySocketAddress));
     MySocketAddress.sin_family = AF_INET;
     MySocketAddress.sin_port = htons(uMulticastPort);
-    MySocketAddress.sin_addr.s_addr = socketIPAddress;
+    MySocketAddress.sin_addr.s_addr = socketIPAddress.s_addr;
     if (bind(sockfd, (struct sockaddr*) &MySocketAddress,
              sizeof(struct sockaddr)) == SOCKET_ERROR) {
       printf("[PacketClient Main] gDataSocket bind failed (error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+             strerror(errno));
+      close(sockfd);
       return -1;
     }
 
     // If Motive is transmitting data in Multicast, must join multicast group
     in_addr MyAddress, MultiCastAddress;
-    MyAddress.s_addr = socketIPAddress;
-    MultiCastAddress.s_addr = multicastIPAddress;
+    MyAddress.s_addr = socketIPAddress.s_addr;
+    MultiCastAddress.s_addr = multicastIPAddress.s_addr;
 
     struct ip_mreq Mreq;
     Mreq.imr_multiaddr = MultiCastAddress;
@@ -889,8 +756,7 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
                         sizeof(Mreq));
     if (retval == SOCKET_ERROR) {
       printf("[PacketClient Main] gDataSocket join failed (error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      WSACleanup();
+             strerror(errno));
       return -1;
     }
   }
@@ -901,12 +767,12 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
     memset(&MyAddr, 0, sizeof(MyAddr));
     MyAddr.sin_family = AF_INET;
     MyAddr.sin_port = htons(uUnicastPort);
-    MyAddr.sin_addr.s_addr = socketIPAddress;
+    MyAddr.sin_addr.s_addr = socketIPAddress.s_addr;
 
     if (bind(sockfd, (struct sockaddr*) &MyAddr, sizeof(sockaddr_in)) == -1) {
       printf("[PacketClient Main] gDataSocket bind failed (error: %s)\n",
-             GetWSAErrorString(WSAGetLastError()).c_str());
-      closesocket(sockfd);
+             strerror(errno));
+      close(sockfd);
       return -1;
     }
   }
@@ -915,14 +781,14 @@ SOCKET CreateDataSocket(unsigned long socketIPAddress,
   retval = setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char*) &optval, 4);
   if (retval == SOCKET_ERROR) {
     printf("[PacketClient Main] gDataSocket setsockopt failed (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
+           strerror(errno));
   }
   retval =
       getsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*) &optval, &optval_size);
   if (retval == SOCKET_ERROR) {
     printf(
         "[PacketClient Main] CreateDataSocket getsockopt failed (error: %s)\n",
-        GetWSAErrorString(WSAGetLastError()).c_str());
+        strerror(errno));
   }
   if (optval != OPTVAL_REQUEST_SIZE) {
     printf("[PacketClient Main] gDataSocket ReceiveBuffer size = %d requested "
@@ -1015,52 +881,43 @@ bool MyParseArgs(int argc, char* argv[], sParsedArgs& parsedArgs) {
   // Process arguments
   // server address
   if (argc > 1) {
-    strcpy_s(parsedArgs.szServerIPAddress,
-             argv[1]); // specified on command line
-    retval = IPAddress_StringToAddr(parsedArgs.szServerIPAddress,
-                                    &parsedArgs.serverAddress);
+    strlcpy(parsedArgs.szServerIPAddress, argv[1],
+            sizeof(parsedArgs.szServerIPAddress)); // specified on command line
   }
-  // pull IP address from local IP addy
-  else {
-    // default to loopback
-    retval = IPAddress_StringToAddr(parsedArgs.szServerIPAddress,
-                                    &parsedArgs.serverAddress);
-    // attempt to get address from local environment
-    // GetLocalIPAddresses((unsigned long*)&parsedArgs.serverAddress, 1);
-    // formatted print back to parsedArgs
-    sprintf_s(parsedArgs.szServerIPAddress,
-              sizeof(parsedArgs.szServerIPAddress), "%d.%d.%d.%d",
-              GET_IP_BYTE(parsedArgs.serverAddress.s_addr, 0),
-              GET_IP_BYTE(parsedArgs.serverAddress.s_addr, 1),
-              GET_IP_BYTE(parsedArgs.serverAddress.s_addr, 2),
-              GET_IP_BYTE(parsedArgs.serverAddress.s_addr, 3));
+  if (!IPAddress_StringToAddr(parsedArgs.szServerIPAddress,
+                              parsedArgs.serverAddress.s_addr)) {
+    return false;
   }
 
-  if (retval == false)
-    return retval;
+  // check if the IP address conversion is correct
+  char tmp_addr[MAX_NAMELENGTH];
+  inet_ntop(AF_INET, &parsedArgs.serverAddress.s_addr, tmp_addr,
+            sizeof(tmp_addr));
+  if (strcmp(tmp_addr, parsedArgs.szServerIPAddress) != 0) {
+    printf("Error: Given IP address %s is not the same as the converted IP "
+           "address %s\n",
+           tmp_addr, parsedArgs.szServerIPAddress);
+    return false;
+  }
 
   // client address
   if (argc > 2) {
-    strcpy_s(parsedArgs.szMyIPAddress, argv[2]); // specified on command line
-    retval =
-        IPAddress_StringToAddr(parsedArgs.szMyIPAddress, &parsedArgs.myAddress);
+    strlcpy(parsedArgs.szMyIPAddress, argv[2],
+            sizeof(parsedArgs.szMyIPAddress)); // specified on command line
   }
-  // pull IP address from local IP addy
-  else {
-    // default to loopback
-    retval =
-        IPAddress_StringToAddr(parsedArgs.szMyIPAddress, &parsedArgs.myAddress);
-    // attempt to get IP from environment
-    // GetLocalIPAddresses((unsigned long*)&parsedArgs.myAddress, 1);
-    // print back to szMyIPAddress
-    sprintf_s(parsedArgs.szMyIPAddress, sizeof(parsedArgs.szMyIPAddress),
-              "%d.%d.%d.%d", GET_IP_BYTE(parsedArgs.myAddress.s_addr, 0),
-              GET_IP_BYTE(parsedArgs.myAddress.s_addr, 1),
-              GET_IP_BYTE(parsedArgs.myAddress.s_addr, 2),
-              GET_IP_BYTE(parsedArgs.myAddress.s_addr, 3));
+  if (!IPAddress_StringToAddr(parsedArgs.szMyIPAddress,
+                              parsedArgs.myAddress.s_addr)) {
+    return false;
   }
-  if (retval == false)
-    return retval;
+
+  // check if the IP address conversion is correct
+  inet_ntop(AF_INET, &parsedArgs.myAddress.s_addr, tmp_addr, sizeof(tmp_addr));
+  if (strcmp(tmp_addr, parsedArgs.szMyIPAddress) != 0) {
+    printf("Error: Given IP address %s is not the same as the converted IP "
+           "address %s\n",
+           tmp_addr, parsedArgs.szMyIPAddress);
+    return false;
+  }
 
   // unicast/multicast
   if ((argc > 3) && strlen(argv[3])) {
@@ -1077,13 +934,13 @@ bool MyParseArgs(int argc, char* argv[], sParsedArgs& parsedArgs) {
       break;
     }
   }
-  return retval;
+  return true;
 }
 
 int main(int argc, char* argv[]) {
   int retval = SOCKET_ERROR;
   sParsedArgs parsedArgs = {
-      .szMyIPAddress = "192.168.13.10",
+      .szMyIPAddress = "192.168.12.10",
       .szServerIPAddress = "192.168.13.40",
       .myAddress = {0},
       .serverAddress = {0},
@@ -1091,7 +948,6 @@ int main(int argc, char* argv[]) {
       .useMulticast = false,
   };
 
-  WSADATA wsaData;
   int optval = OPTVAL_REQUEST_SIZE;
   socklen_t optval_size = 4;
 
@@ -1099,45 +955,33 @@ int main(int argc, char* argv[]) {
   std::thread commandListenThread;
   std::thread dataListenThread;
 
-  // Start up winsock (no-op on Linux)
-  if (WSAStartup(0x202, &wsaData) == SOCKET_ERROR) {
-    printf("[PacketClient Main] WSAStartup failed (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    WSACleanup();
-    return 0;
-  }
-
-  if (MyParseArgs(argc, argv, parsedArgs) == false) {
+  if (!MyParseArgs(argc, argv, parsedArgs)) {
     return -1;
   }
   gUseMulticast = parsedArgs.useMulticast;
 
   // multicast address - hard coded to MULTICAST_ADDRESS define above.
-  parsedArgs.multiCastAddress.s_addr = inet_addr(MULTICAST_ADDRESS);
+  inet_pton(AF_INET, MULTICAST_ADDRESS, &parsedArgs.multiCastAddress);
 
   // create "Command" socket
-  int commandPort = 0;
-  gCommandSocket = CreateCommandSocket(parsedArgs.myAddress.s_addr, commandPort,
+  gCommandSocket = CreateCommandSocket(parsedArgs.myAddress, PORT_COMMAND,
                                        optval, gUseMulticast);
   if (gCommandSocket == -1) {
     // error
     printf("[PacketClient Main] gCommandSocket create failure (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    WSACleanup();
+           strerror(errno));
     return -1;
   }
   printf("[PacketClient Main] gCommandSocket started\n");
 
   // create the gDataSocket
-  int dataPort = 0;
-  gDataSocket = CreateDataSocket(parsedArgs.myAddress.s_addr, dataPort, optval,
+  gDataSocket = CreateDataSocket(parsedArgs.myAddress, PORT_DATA, optval,
                                  parsedArgs.useMulticast,
-                                 parsedArgs.multiCastAddress.s_addr, PORT_DATA);
+                                 parsedArgs.multiCastAddress, PORT_DATA);
   if (gDataSocket == -1) {
     printf("[PacketClient Main] gDataSocket create failure (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
-    closesocket(gCommandSocket);
-    WSACleanup();
+           strerror(errno));
+    close(gCommandSocket);
     return -1;
   }
   printf("[PacketClient Main] gDataSocket started\n");
@@ -1192,7 +1036,7 @@ int main(int argc, char* argv[]) {
   }
   if (iRet == SOCKET_ERROR) {
     printf("[PacketClient Main] gCommandSocket sendto error (error: %s)\n",
-           GetWSAErrorString(WSAGetLastError()).c_str());
+           strerror(errno));
     return -1;
   }
 
@@ -1231,7 +1075,7 @@ int main(int argc, char* argv[]) {
       break;
     case 'p': {
       char szCommand[512];
-      sprintf(szCommand, "TimelineStop");
+      snprintf(szCommand, sizeof(szCommand), "TimelineStop");
       printf("Command: %s - ", szCommand);
       int returnCode = SendCommand(szCommand);
       printf(" returnCode: %d\n", returnCode);
@@ -1240,7 +1084,7 @@ int main(int argc, char* argv[]) {
     break;
     case 'r': {
       char szCommand[512];
-      sprintf(szCommand, "TimelinePlay");
+      snprintf(szCommand, sizeof(szCommand), "TimelinePlay");
       int returnCode = SendCommand(szCommand);
       printf("Command: %s -  returnCode: %d\n", szCommand, returnCode);
     }
@@ -1266,7 +1110,7 @@ int main(int argc, char* argv[]) {
                                           "TimelineStop"};
 
       for (const std::string& command : commandVec) {
-        strcpy_s(szCommand, command.c_str());
+        strlcpy(szCommand, command.c_str(), sizeof(szCommand));
         returnCode = SendCommand(szCommand);
         printf("Command: %s -  returnCode: %d\n", szCommand, returnCode);
       }
@@ -1282,7 +1126,7 @@ int main(int argc, char* argv[]) {
                                           "TimelineStop"};
 
       for (const std::string& command : commandVec) {
-        strcpy_s(szCommand, command.c_str());
+        strlcpy(szCommand, command.c_str(), sizeof(szCommand));
         returnCode = SendCommand(szCommand);
         printf("Command: %s -  returnCode: %d\n", szCommand, returnCode);
       }
@@ -1332,20 +1176,27 @@ int main(int argc, char* argv[]) {
  * \param szCommand
  * \return - Command response
  */
-int SendCommand(char* szCommand) {
+int SendCommand(const char* szCommand) {
   // reset global result
   gCommandResponse = -1;
 
   // format command packet
-  sPacket* commandPacket = new sPacket();
-  strcpy(commandPacket->Data.szData, szCommand);
-  commandPacket->iMessage = NAT_REQUEST;
-  commandPacket->nDataBytes = (short) strlen(commandPacket->Data.szData) + 1;
+  static sPacket commandPacket;
+  commandPacket.iMessage = NAT_REQUEST;
+  strlcpy(commandPacket.Data.szData, szCommand,
+          sizeof(commandPacket.Data.szData));
+  size_t nDataBytes = strlen(commandPacket.Data.szData);
+
+  if (nDataBytes == sizeof(commandPacket.Data.szData)) {
+    commandPacket.nDataBytes = (short) nDataBytes;
+  } else {
+    commandPacket.nDataBytes = 0;
+  }
 
   // send command, and wait (a bit) for command response to set global response
   // var in CommandListenThread
-  int iRet = sendto(gCommandSocket, (char*) commandPacket,
-                    4 + commandPacket->nDataBytes, 0, (sockaddr*) &gHostAddr,
+  int iRet = sendto(gCommandSocket, (char*) &commandPacket,
+                    4 + commandPacket.nDataBytes, 0, (sockaddr*) &gHostAddr,
                     sizeof(gHostAddr));
   if (iRet == SOCKET_ERROR) {
     printf("Socket error sending command\n");
@@ -1354,7 +1205,7 @@ int SendCommand(char* szCommand) {
     while (waitTries--) {
       if (gCommandResponse != -1)
         break;
-      Sleep(30);
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
 
     if (gCommandResponse == -1) {
@@ -1376,10 +1227,10 @@ int SendCommand(char* szCommand) {
 /**
  * \brief - Convert IP address string to address
  * \param szNameOrAddress - server name or address
- * \param Address - IP address response
+ * \param addr - IP address response
  * \return success or failure
  */
-bool IPAddress_StringToAddr(char* szNameOrAddress, struct in_addr* Address) {
+bool IPAddress_StringToAddr(char* szNameOrAddress, in_addr_t& addr) {
   int retVal;
   struct sockaddr_in saGNI;
   char hostName[MAX_NAMELENGTH];
@@ -1398,56 +1249,14 @@ bool IPAddress_StringToAddr(char* szNameOrAddress, struct in_addr* Address) {
                             hostName, MAX_NAMELENGTH, servInfo, MAX_NAMELENGTH,
                             NI_NUMERICSERV)) != 0) {
     // Returns error if getnameinfo failed
-    printf("[PacketClient Main] GetHostByAddr failed. Error #: %ld\n",
-           WSAGetLastError());
+    printf("[PacketClient Main] GetHostByAddr failed. Error: %s\n",
+           strerror(errno));
     return false;
   }
 
-  Address->s_addr = saGNI.sin_addr.s_addr;
+  addr = saGNI.sin_addr.s_addr;
 
   return true;
-}
-
-//
-
-/**
- * \brief - get ip addresses on local host
- * \param Addresses - returned local IP address
- * \param nMax - length of Addresses array
- * \return - number of Addresses returned.
- */
-int GetLocalIPAddresses(unsigned long Addresses[], int nMax) {
-  unsigned long NameLength = 128;
-  char szMyName[1024];
-  struct addrinfo aiHints;
-  struct addrinfo* aiList = nullptr;
-  struct sockaddr_in addr;
-  int retVal = 0;
-  char* port = "0";
-
-  if (GetComputerName(szMyName, &NameLength) != TRUE) {
-    printf("[PacketClient Main] get computer name  failed. Error #: %ld\n",
-           WSAGetLastError());
-    return 0;
-  };
-
-  memset(&aiHints, 0, sizeof(aiHints));
-  aiHints.ai_family = AF_INET;
-  aiHints.ai_socktype = SOCK_DGRAM;
-  aiHints.ai_protocol = IPPROTO_UDP;
-
-  // Take ANSI host name and translates it to an address
-  if ((retVal = getaddrinfo(szMyName, port, &aiHints, &aiList)) != 0) {
-    printf("[PacketClient Main] getaddrinfo failed. Error #: %ld\n",
-           WSAGetLastError());
-    return 0;
-  }
-
-  memcpy(&addr, aiList->ai_addr, aiList->ai_addrlen);
-  freeaddrinfo(aiList);
-  Addresses[0] = addr.sin_addr.s_addr;
-
-  return 1;
 }
 
 /**
@@ -1486,14 +1295,14 @@ bool DecodeTimecode(unsigned int inTimecode, unsigned int inTimecodeSubframe,
  * \return
  */
 bool TimecodeStringify(unsigned int inTimecode, unsigned int inTimecodeSubframe,
-                       char* Buffer, int BufferSize) {
+                       char* Buffer, size_t BufferSize) {
   bool bValid;
   int hour, minute, second, frame, subframe;
   bValid = DecodeTimecode(inTimecode, inTimecodeSubframe, &hour, &minute,
                           &second, &frame, &subframe);
 
-  sprintf_s(Buffer, BufferSize, "%2d:%2d:%2d:%2d.%d", hour, minute, second,
-            frame, subframe);
+  snprintf(Buffer, BufferSize, "%2d:%2d:%2d:%2d.%d", hour, minute, second,
+           frame, subframe);
   for (unsigned int i = 0; i < strlen(Buffer); i++)
     if (Buffer[i] == ' ')
       Buffer[i] = '0';
@@ -1669,7 +1478,7 @@ char* UnpackMarkersetDescription(char* ptr, char* targetPtr, int major,
 
   // name
   char szName[MAX_NAMELENGTH];
-  strcpy_s(szName, ptr);
+  strlcpy(szName, ptr, sizeof(szName));
   int nDataBytes = (int) strlen(szName) + 1;
   ptr += nDataBytes;
   MakeAlnum(szName, MAX_NAMELENGTH);
@@ -1683,7 +1492,7 @@ char* UnpackMarkersetDescription(char* ptr, char* targetPtr, int major,
 
   for (int j = 0; j < nMarkers; j++) {
     char szName[MAX_NAMELENGTH];
-    strcpy_s(szName, ptr);
+    strlcpy(szName, ptr, MAX_NAMELENGTH);
     int nDataBytes = (int) strlen(ptr) + 1;
     ptr += nDataBytes;
     MakeAlnum(szName, MAX_NAMELENGTH);
@@ -1716,7 +1525,7 @@ char* UnpackRigidBodyDescription(char* inptr, char* targetPtr, int major,
   if ((major >= 2) || (major == 0)) {
     // RB name
     char szName[MAX_NAMELENGTH];
-    strcpy_s(szName, ptr);
+    strlcpy(szName, ptr, sizeof(szName));
     ptr += strlen(ptr) + 1;
     MakeAlnum(szName, MAX_NAMELENGTH);
     printf("%sRigid Body Name: %s\n", outTabStr.c_str(), szName);
@@ -1815,7 +1624,7 @@ char* UnpackRigidBodyDescription(char* inptr, char* targetPtr, int major,
         // Marker Name
         szMarkerName[0] = 0;
         if ((major >= 4) || (major == 0)) {
-          strcpy_s(szMarkerName, ptr3);
+          strlcpy(szMarkerName, ptr3, sizeof(szMarkerName));
           ptr3 += strlen(ptr3) + 1;
         }
 
@@ -1858,7 +1667,7 @@ char* UnpackSkeletonDescription(char* ptr, char* targetPtr, int major,
 
   char szName[MAX_NAMELENGTH];
   // Name
-  strcpy_s(szName, ptr);
+  strlcpy(szName, ptr, sizeof(szName));
   ptr += strlen(ptr) + 1;
   MakeAlnum(szName, MAX_NAMELENGTH);
   printf("%sName: %s\n", outTabStr.c_str(), szName);
@@ -1916,7 +1725,7 @@ char* UnpackForcePlateDescription(char* ptr, char* targetPtr, int major,
 
     // Serial Number
     char strSerialNo[128];
-    strcpy_s(strSerialNo, ptr);
+    strlcpy(strSerialNo, ptr, sizeof(strSerialNo));
     ptr += strlen(ptr) + 1;
     printf("%sSerial Number : %s\n", outTabStr.c_str(), strSerialNo);
 
@@ -2007,7 +1816,7 @@ char* UnpackForcePlateDescription(char* ptr, char* targetPtr, int major,
 
     for (int chNum = 0; chNum < nChannels; ++chNum) {
       char szName[MAX_NAMELENGTH];
-      strcpy_s(szName, ptr);
+      strlcpy(szName, ptr, sizeof(szName));
       int nDataBytes = (int) strlen(szName) + 1;
       ptr += nDataBytes;
       printf("%sChannel Name %d: %s\n", outTabStr.c_str(), chNum, szName);
@@ -2041,13 +1850,13 @@ char* UnpackDeviceDescription(char* ptr, char* targetPtr, int major, int minor,
 
     // Name
     char strName[128];
-    strcpy_s(strName, ptr);
+    strlcpy(strName, ptr, sizeof(strName));
     ptr += strlen(ptr) + 1;
     printf("%sName               : %s\n", outTabStr.c_str(), strName);
 
     // Serial Number
     char strSerialNo[128];
-    strcpy_s(strSerialNo, ptr);
+    strlcpy(strSerialNo, ptr, sizeof(strSerialNo));
     ptr += strlen(ptr) + 1;
     printf("%sSerial Number      : %s\n", outTabStr.c_str(), strSerialNo);
 
@@ -2075,7 +1884,7 @@ char* UnpackDeviceDescription(char* ptr, char* targetPtr, int major, int minor,
     }
 
     for (int chNum = 0; chNum < nChannels; ++chNum) {
-      strcpy_s(szChannelName, ptr);
+      strlcpy(szChannelName, ptr, sizeof(szChannelName));
       ptr += strlen(ptr) + 1;
       printf("%s  Channel %d Name  : %s\n", outTabStr.c_str(), chNum,
              szChannelName);
@@ -2104,7 +1913,7 @@ char* UnpackCameraDescription(char* ptr, char* targetPtr, int major, int minor,
   std::string outTabStr = GetTabString(kTabStr, level);
   // Name
   char szName[MAX_NAMELENGTH];
-  strcpy_s(szName, ptr);
+  strlcpy(szName, ptr, sizeof(szName));
   ptr += strlen(ptr) + 1;
   MakeAlnum(szName, MAX_NAMELENGTH);
   printf("%sName  : %s\n", outTabStr.c_str(), szName);
@@ -2150,7 +1959,7 @@ char* UnpackMarkerDescription(char* ptr, char* targetPtr, int major, int minor,
   std::string outTabStr = GetTabString(kTabStr, level);
   // Name
   char szName[MAX_NAMELENGTH];
-  strcpy_s(szName, ptr);
+  strlcpy(szName, ptr, sizeof(szName));
   ptr += strlen(ptr) + 1;
   MakeAlnum(szName, MAX_NAMELENGTH);
   printf("%sName : %s\n", outTabStr.c_str(), szName);
@@ -2200,7 +2009,7 @@ char* UnpackAssetDescription(char* ptr, char* targetPtr, int major, int minor,
   std::string outTabStr = GetTabString(kTabStr, level);
   char szName[MAX_NAMELENGTH];
   // Name
-  strcpy_s(szName, ptr);
+  strlcpy(szName, ptr, sizeof(szName));
   ptr += strlen(ptr) + 1;
   MakeAlnum(szName, MAX_NAMELENGTH);
   printf("%sName       : %s\n", outTabStr.c_str(), szName);
@@ -2373,7 +2182,7 @@ char* UnpackMarkersetData(char* ptr, int major, int minor, unsigned int level) {
   for (int i = 0; i < nMarkerSets; i++) {
     // Markerset name
     char szName[MAX_NAMELENGTH];
-    strcpy_s(szName, ptr);
+    strlcpy(szName, ptr, MAX_NAMELENGTH);
     int nDataBytes = (int) strlen(szName) + 1;
     ptr += nDataBytes;
     MakeAlnum(szName, MAX_NAMELENGTH);
