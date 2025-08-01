@@ -68,11 +68,11 @@ if [ "$all" = "true" ]; then
         exit 1
     fi
     package_selection=
-elif [ ${#packages[@]} -gt 0 ]; then
-    package_selection="--packages-above-and-dependencies ${packages[@]}"
 else
-    packages=(tabletop)
-    package_selection="--packages-up-to tabletop"
+    if [ ${#packages[@]} -eq 0 ]; then
+        packages=(tabletop)
+    fi
+    package_selection="--packages-up-to ${packages[@]}"
 fi
 
 # Clean workspace
@@ -107,7 +107,7 @@ print_status "Installing extra Python dependencies using pip"
 pip install --break-system-packages -r $TABLETOP_DIR/requirements.txt
 
 # Set CMake arguments
-cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
+cmake_args=("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" "-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
 if [ "$debug" = "true" ]; then
     cmake_args+=("-DCMAKE_BUILD_TYPE=Debug")
 else
