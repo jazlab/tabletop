@@ -18,6 +18,6 @@
 	path = submodules/mocap4r2
 	url = https://github.com/MOCAP4ROS2-Project/mocap4r2.git
 	branch = rolling
-[submodule "mocap4ros2_optitrack"]
-	path = submodules/mocap4ros2_optitrack
+[submodule "mocap4r2_optitrack"]
+	path = submodules/mocap4r2_optitrack
 	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git

@@ -3,3 +3,5 @@ topics:
   - /teensy/sensor
   - /teensy/log
   - /eyelink/sample
+  - /markers
+  - /rigid_bodies

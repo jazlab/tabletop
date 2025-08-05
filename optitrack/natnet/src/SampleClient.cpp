@@ -107,7 +107,7 @@ map<int, string> g_AssetIDtoAssetName;
 bool gUpdatedDataDescriptions = false;
 bool gNeedUpdatedDataDescriptions = true;
 
-string strDefaultLocal = "192.168.12.10";
+string strDefaultLocal = "0.0.0.0";
 string strDefaultMotive = "192.168.13.40";
 
 // Frame Queue

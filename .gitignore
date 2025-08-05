@@ -49,3 +49,6 @@
 
 # Ignore planning scene files
 /ros/planning_scene/
+
+# Ignore optitrack files
+**Client-output.pts

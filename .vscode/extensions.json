@@ -6,14 +6,13 @@
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
         "redhat.vscode-yaml",
-        "ms-azuretools.vscode-docker",
         "redhat.vscode-xml",
         "bierner.markdown-mermaid",
         "ms-vscode.cpptools-extension-pack",
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
-        "IronGeek.vscode-env",
-        "ms-toolsai.jupyter",
-        "anysphere.cpptools"
+        "anysphere.cpptools",
+        "anysphere.remote-containers",
+        "anysphere.cursorpyright"
     ]
 }
