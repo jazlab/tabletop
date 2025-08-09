@@ -99,8 +99,6 @@ RUN <<EOT
     rm /tmp/get-platformio.py
 EOT
 
-RUN --mount=type=bind,source=,target=/tmp/src <<EOT
-
 # Update .bashrc (must be unindented)
 RUN <<EOT
 set -ex

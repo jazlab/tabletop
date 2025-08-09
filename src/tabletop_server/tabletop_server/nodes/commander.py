@@ -64,6 +64,11 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
+from tf_transformations import identity_matrix
+from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
+from ur_dashboard_msgs.srv import Load as DashboardLoad
+
 from tabletop_interfaces.action import (
     EyelinkSmoothPursuit,
     FlicResponseTime,
@@ -74,6 +79,7 @@ from tabletop_interfaces.srv import (
     SetReward,
     SetSmartglass,
 )
+from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_convex_hull,
@@ -117,12 +123,6 @@ from tabletop_utils.ros import (
 from tabletop_utils.trajectory_cache import (
     FuzzyTrajectoryCache,
 )
-from tf_transformations import identity_matrix
-from ur_dashboard_msgs.msg import RobotMode, SafetyMode
-from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
-from ur_dashboard_msgs.srv import Load as DashboardLoad
-
-from tabletop_server.nodes.base import BaseNode
 
 
 def asyncio_task_decorator[T](

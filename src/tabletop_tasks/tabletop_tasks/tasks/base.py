@@ -5,6 +5,7 @@ from typing import Any
 
 import rclpy.logging
 from rclpy.impl.logging_severity import LoggingSeverity
+
 from tabletop_server.nodes import Commander
 
 logger = rclpy.logging.get_logger("tabletop_task")

@@ -26,12 +26,12 @@ from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from rclpy.serialization import serialize_message
 from rclpy.time import Time
 from std_srvs.srv import Trigger
+
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
+from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.eyelink import edf_to_csv
 from tabletop_utils.ros import ROSSleepError
-
-from tabletop_server.nodes.base import BaseNode
 
 
 class EyeAvailable(Enum):
