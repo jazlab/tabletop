@@ -45,10 +45,10 @@
 /eyelink/docs/
 
 # Ignore trajectory cache
-/ros/trajectory_cache/
+/trajectory_cache/
 
 # Ignore planning scene files
-/ros/planning_scene/
+/planning_scene/
 
 # Ignore optitrack files
 **Client-output.pts

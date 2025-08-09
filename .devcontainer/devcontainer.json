@@ -1,13 +1,13 @@
 {
     "name": "Tabletop Dev Container",
-    "dockerComposeFile": "compose.devcontainer.yaml",
-    "service": "devcontainer",
-    "workspaceFolder": "/root/ws/src/tabletop",
-    "postCreateCommand": [
-        "bash",
-        "-c",
-        "sudo apt remove -y ros-jazzy-moveit*"
+    "dockerComposeFile": "../compose.yaml",
+    "service": "server-dev",
+    "runServices": [
+        "server-dev"
     ],
+    "updateRemoteUserUID": true,
+    "workspaceFolder": "/home/mules/ws/src/tabletop",
+    "shutdownAction": "stopContainer",
     "customizations": {
         "vscode": {
             "extensions": [

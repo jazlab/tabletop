@@ -2,13 +2,17 @@ name: tabletop
 
 services:
   novnc:
+    image: tabletop-novnc
     build:
       context: ./docker/novnc
       pull: true
-    pull_policy: build
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.100
+    hostname: novnc
     restart: on-failure
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]
+      test: [ "CMD", "/app/healthcheck.sh" ]
       interval: 10s
       timeout: 2s
       retries: 3
@@ -16,110 +20,107 @@ services:
       start_interval: 2s
     ports:
       - 8080:8080
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.100
     environment:
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
       - RUN_XTERM=no
       - WINDOW_MANAGER=DWM
 
-  ursim_base:
-    restart: unless-stopped
+  ursim:
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
-    init: true
-    # platform: linux/amd64
-    volumes:
-      - ./ur_robot/urcaps:/urcaps
-      - ./ur_robot/programs:/ursim/programs
-      - ./ur_robot/entrypoint.sh:/entrypoint.sh
-    entrypoint: ["/entrypoint.sh"]
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.20
     hostname: ursim
-    environment:
-      - ROBOT_MODEL=ur5e
-
-  ursim_novnc:
-    extends: ursim_base
+    restart: unless-stopped
     depends_on:
       novnc:
         condition: service_healthy
+    volumes:
+      - ./ur_robot/urcaps:/urcaps
+      - ./ur_robot/programs:/ursim/programs
+      - ./ur_robot/entrypoint.sh:/entrypoint.sh
     environment:
+      - ROBOT_MODEL=ur5e
       - DISPLAY=novnc:0.0
+    init: true
+    entrypoint: [ "/entrypoint.sh" ]
 
-  ursim:
-    extends: ursim_base
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-    environment:
-      - DISPLAY=$DISPLAY
-
-  server_core:
+  server-base-build:
+    image: tabletop-server-base
     build:
-      context: ./docker/server
+      context: .
+      dockerfile: ./docker/server/Dockerfile
+      target: base
       pull: true
-    pull_policy: build
-    image: tabletop-server
-    volumes:
-      - ../..:/root/ws
+      args:
+        - USER=mules
+        - UID=1000 # Enter your user id here
+        - SRC_DIR=../../ # With respect to the Dockerfile
 
-  server_base:
-    extends: server_core
+  server-dev-build:
+    extends: server-base-build
+    image: tabletop-server-dev
+    build:
+      target: dev
+
+  server-base:
+    image: tabletop-server-base
     runtime: nvidia
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
+    volumes:
+      - ../../:/home/mules/ws/
+    working_dir: /home/mules/ws/src/tabletop
     ports:
       - 50001:50001
       - 50002:50002
       - 50003:50003
       - 50004:50004
-      - 1510:1510/udp
-      - 1511:1511/udp
     environment:
       - QT_X11_NO_MITSHM=1
-      - BUILD_COMMAND=${BUILD_COMMAND:-:}
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-sleep infinity}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
-    command: bash -c
-      "$$BUILD_COMMAND
-      && source /opt/ros/jazzy/setup.bash
-      && source /root/ws/install/setup.bash
-      && $$LAUNCH_COMMAND"
+    init: true
+    command: sleep infinity
 
   server:
-    extends: server_base
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
+    extends: server-base
+    # Uncomment the following section if a teensy is connected
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
+    # Uncomment the following section if you plan on connecting a teensy after starting the container
     # device_cgroup_rules:
     #   - c 161:* rmw
+    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
     environment:
       - DISPLAY=$DISPLAY
 
+  server-dev:
+    extends: server-base
+    image: tabletop-server-dev
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - ~/.vimrc:/home/mules/.vimrc:ro
+      - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
+
   optitrack:
-    extends: server_core
+    image: tabletop-server-base
     network_mode: host
-    command: bash -c
-      "source /opt/ros/jazzy/setup.bash
-      && source /root/ws/install/setup.bash
-      && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+    init: true
+    command: bash -c "source /opt/ros/jazzy/setup.bash && source /root/ws/install/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
 
   flic:
+    image: ubuntu:latest
+    pull_policy: always
     network_mode: host
     privileged: true
     cap_add:
       - NET_ADMIN
-    init: true
-    image: ubuntu:latest
-    pull_policy: always
     volumes:
       - ./docker/flic:/app
     environment:
@@ -127,6 +128,7 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
+    init: true
     command: /app/entrypoint.sh
     # command: bash -c
     #   "/app/flicd
