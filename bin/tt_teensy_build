@@ -36,11 +36,11 @@ if [[ $clean = true ]]; then
         fi
     fi
     print_status "Cleaning build directory"
-    sudo rm -rf $TABLETOP_DIR/ros/tabletop_teensy/.pio
+    sudo rm -rf $TABLETOP_DIR/src/tabletop_teensy/.pio
 fi
 
 print_status "Building Teensy code"
-while ! pio run $target_arg --project-dir $TABLETOP_DIR/ros/tabletop_teensy; do
+while ! pio run $target_arg --project-dir $TABLETOP_DIR/src/tabletop_teensy; do
     if [[ -n $target_arg ]]; then
         print_status "Build failed, retrying..."
         sleep 1

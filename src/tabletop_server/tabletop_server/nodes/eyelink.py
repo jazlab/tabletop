@@ -58,7 +58,7 @@ class Eyelink(BaseNode):
             os.environ["TABLETOP_DIR"], "results/eyelink"
         ),
         "bag_dir": os.path.join(
-            os.environ["TABLETOP_BAG_DIR"],
+            os.environ["ROS_BAG_DIR"],
             datetime.now().strftime("eyelink_%Y-%m-%d_%H-%M-%S"),
         ),
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],

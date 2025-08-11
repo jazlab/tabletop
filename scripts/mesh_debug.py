@@ -2,6 +2,8 @@
 
 import os
 
+from tf_transformations import inverse_matrix
+
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,
@@ -9,7 +11,6 @@ from tabletop_utils.mesh import (
     visualize_geometry,
 )
 from tabletop_utils.ros import pose_msg_from_matrix
-from tf_transformations import inverse_matrix
 
 
 def main_mesh():
@@ -21,7 +22,7 @@ def main_mesh():
         type=str,
         default=os.path.join(
             os.environ["TABLETOP_DIR"],
-            "ros/tabletop_description/meshes/rig_mesh5.stl",
+            "src/tabletop_description/meshes/rig_mesh5.stl",
         ),
     )
     args = parser.parse_args()
@@ -44,7 +45,7 @@ def main_scene():
     scene = load_geometry(
         os.path.join(
             os.environ["TABLETOP_DIR"],
-            "ros/tabletop_description/meshes/static/rig.dae",
+            "src/tabletop_description/meshes/static/rig.dae",
         ),
         scale=1.0,
     )

@@ -67,9 +67,9 @@ USER $USER
 
 # Install ros dependencies from workspace (needs to be after user creation
 # because of rosdep)
-ARG SRC_DIR
+ARG ROS_SRC_DIR
 
-RUN --mount=type=bind,source=$SRC_DIR,target=/tmp/src <<EOT
+RUN --mount=type=bind,source=$ROS_SRC_DIR,target=/tmp/src <<EOT
     set -ex
     cd /tmp/src
     sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade -y
@@ -80,8 +80,6 @@ RUN --mount=type=bind,source=$SRC_DIR,target=/tmp/src <<EOT
 EOT
 
 FROM base AS dev
-
-SHELL ["/bin/bash", "-c"]
 
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
@@ -99,14 +97,16 @@ RUN <<EOT
     rm /tmp/get-platformio.py
 EOT
 
+VOLUME /tabletop
+
 # Update .bashrc (must be unindented)
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
 export PATH=~/.local/bin:\$PATH
 source /opt/ros/$ROS_DISTRO/setup.bash
-source ~/ws/install/setup.bash
-source ~/ws/src/tabletop/setup.bash
+source /tabletop/install/setup.bash
+source /tabletop/setup.bash
 eval "\$(starship init bash)"
 EOF
 EOT

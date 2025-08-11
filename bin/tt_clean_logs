@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
-
-set -e
 
 # Parse arguments
 skip_confirmation=false

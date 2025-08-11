@@ -122,7 +122,9 @@ def declare_arguments():
         # ROS Warehouse
         DeclareLaunchArgument(
             "warehouse_sqlite_path",
-            default_value="/root/ws/src/tabletop/ros/warehouse_ros.sqlite",
+            default_value=os.path.join(
+                os.environ["TABLETOP_DIR"], "cache", "warehouse_ros.sqlite"
+            ),
             description="Path where the warehouse database should be stored",
         ),
         # Log levels
@@ -295,7 +297,7 @@ def generate_launch_description():
 
     # Set current bag directory
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    bag_dir = os.path.join(os.environ["TABLETOP_BAG_DIR"], time_str)
+    bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], time_str)
     os.makedirs(bag_dir, exist_ok=True)
 
     set_current_bag_dir = SetEnvironmentVariable(

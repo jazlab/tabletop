@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 source /opt/ros/${ROS_DISTRO}/setup.bash
-
-set -e
 
 print_usage() {
     print_error "Usage: $0 [--debug] [--clean] [--clean-all] [--remove-moveit-apt] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all]"

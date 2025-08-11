@@ -125,7 +125,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-d", "--dir", type=str, default=os.environ["TABLETOP_BAG_DIR"]
+        "-d", "--dir", type=str, default=os.environ["ROS_BAG_DIR"]
     )
     parser.add_argument("--topics", type=str, nargs="*")
     parser.add_argument(

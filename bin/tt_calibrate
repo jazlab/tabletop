@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
-
-set -e
 
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 <calibration_filename.yaml>"
@@ -11,7 +11,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 calib_file="$1"
-config_dir="$TABLETOP_DIR/ros/tabletop_description/config"
+config_dir="$TABLETOP_DIR/src/tabletop_description/config"
 target_file="$config_dir/$calib_file"
 
 if [[ -f "$target_file" ]]; then

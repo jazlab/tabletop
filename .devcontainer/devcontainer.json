@@ -5,9 +5,14 @@
     "runServices": [
         "server-dev"
     ],
-    "updateRemoteUserUID": true,
-    "workspaceFolder": "/home/mules/ws/src/tabletop",
     "shutdownAction": "stopContainer",
+    "workspaceFolder": "/tabletop",
+    "containerUser": "mules",
+    "updateRemoteUserUID": true,
+    "remoteEnv": {
+        "SHELL": "/bin/bash"
+    },
+    "userEnvProbe": "loginInteractiveShell",
     "customizations": {
         "vscode": {
             "extensions": [

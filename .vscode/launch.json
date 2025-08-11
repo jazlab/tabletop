@@ -24,7 +24,7 @@
             "name": "Python Debugger: Launch run_tasks",
             "type": "debugpy",
             "request": "launch",
-            "program": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
+            "program": "${workspaceFolder}/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
             "console": "integratedTerminal",
             "args": [
                 "launch_server:=false",

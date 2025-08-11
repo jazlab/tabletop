@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
-
-set -e
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -21,21 +21,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Get the size of the bags directory
-if [ -d "$TABLETOP_BAG_DIR" ]; then
-    dir_size=$(du -sh "$TABLETOP_BAG_DIR" | cut -f1)
+if [ -d "$ROS_BAG_DIR" ]; then
+    dir_size=$(du -sh "$ROS_BAG_DIR" | cut -f1)
     print_status "Bags directory size: $dir_size"
 
     # Count number of files/directories in bags_dir
-    item_count=$(ls -1 "$TABLETOP_BAG_DIR" | wc -l)
+    item_count=$(ls -1 "$ROS_BAG_DIR" | wc -l)
     print_status "Number of items in bags directory: $item_count"
 else
-    print_status "Bags directory does not exist: $TABLETOP_BAG_DIR"
+    print_status "Bags directory does not exist: $ROS_BAG_DIR"
     exit 1
 fi
 
 # Ask for confirmation before deletion
 if [ "$skip_confirmation" = "false" ]; then
-    read -p "Do you want to proceed with deleting all bag files in $TABLETOP_BAG_DIR? (y/n): " confirm
+    read -p "Do you want to proceed with deleting all bag files in $ROS_BAG_DIR? (y/n): " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         print_status "Operation cancelled"
         exit 0
@@ -43,6 +43,6 @@ if [ "$skip_confirmation" = "false" ]; then
 fi
 
 # Remove all bag files in the bags directory
-print_status "Removing all bag files in $TABLETOP_BAG_DIR"
-rm -rf $TABLETOP_BAG_DIR/*
+print_status "Removing all bag files in $ROS_BAG_DIR"
+rm -rf $ROS_BAG_DIR/*
 print_status "Cleanup complete"

@@ -7,5 +7,5 @@ set -e
 
 pushd $TABLETOP_DIR
 source venv/bin/activate
-python ros/tabletop_server/tabletop_server/flic_client/piano.py "$@"
+python src/tabletop_server/tabletop_server/flic_client/piano.py "$@"
 popd

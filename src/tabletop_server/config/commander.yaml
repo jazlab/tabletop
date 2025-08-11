@@ -64,7 +64,7 @@
       use_cached_trajectories: true
       freeze_cache: false
       kwargs:
-        path: /root/ws/src/tabletop/ros/trajectory_cache/
+        path: cache/trajectory_cache/
         goal_position_tolerance: 0.03 # meters
         goal_orientation_tolerance: 0.05 # radians
         use_euler_tolerance: true
@@ -120,7 +120,7 @@
       wrist_3_link: 0.01
 
     planning_scene:
-      dir: /root/ws/src/tabletop/ros/planning_scene/
+      dir: cache/planning_scene_cache/
       robot_collision_links:
         - base_link_inertia
         - shoulder_link

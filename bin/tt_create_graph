@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 
-_output_file=${1:-graph.md}
+set -e
 
-_nodes_to_ignore=""
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../setup.bash
+
+output_file=${1:-graph.md}
+
+nodes_to_ignore=""
 # /rosbag2_recorder
 # /rviz2
 # /forward_position_controller
@@ -13,15 +18,10 @@ _nodes_to_ignore=""
 # /joint_trajectory_controller
 # /passthrough_trajectory_controller"
 
-_nodes=$(ros2 node list | grep -vE "$_nodes_to_ignore" | tr '\n' ' ')
-echo Nodes: $_nodes
+nodes=$(ros2 node list | grep -vE "$nodes_to_ignore" | tr '\n' ' ')
+echo Nodes: $nodes
 
-chmod 755 /root
-
-su ubuntu -c "source /opt/ros/jazzy/setup.bash; \
-    source /root/ws/install/setup.bash; \
-    source /root/venv/bin/activate; \
-    cd /root/ws/src/tabletop; \
-    ros2_graph $_nodes \
-    -o $_output_file \
-    --styleConfig ros/graph_style.yaml"
+source $TABLETOP_DIR/install/setup.bash
+source $TABLETOP_DIR/venv/bin/activate
+cd $TABLETOP_DIR/src/tabletop
+ros2_graph $nodes -o $output_file --styleConfig ros/graph_style.yaml

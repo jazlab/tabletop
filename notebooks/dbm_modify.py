@@ -1,8 +1,4 @@
 # %%
-# %cd /root/ws/src/tabletop/ros/trajectory_cache/
-# %ls
-
-# %%
 import os
 
 from tabletop_utils import dbm_sqlite3 as dbm

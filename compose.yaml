@@ -2,7 +2,6 @@ name: tabletop
 
 services:
   novnc:
-    image: tabletop-novnc
     build:
       context: ./docker/novnc
       pull: true
@@ -40,41 +39,37 @@ services:
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
-      - ./ur_robot/entrypoint.sh:/entrypoint.sh
+      - ./docker/ursim/entrypoint.sh:/entrypoint.sh
     environment:
       - ROBOT_MODEL=ur5e
       - DISPLAY=novnc:0.0
     init: true
     entrypoint: [ "/entrypoint.sh" ]
 
-  server-base-build:
-    image: tabletop-server-base
+  server-base:
     build:
       context: .
       dockerfile: ./docker/server/Dockerfile
       target: base
       pull: true
       args:
+        - ROS_DISTRO=jazzy
         - USER=mules
         - UID=1000 # Enter your user id here
-        - SRC_DIR=../../ # With respect to the Dockerfile
+        - ROS_SRC_DIR=../../src # With respect to the Dockerfile
+    pull_policy: missing
 
-  server-dev-build:
-    extends: server-base-build
-    image: tabletop-server-dev
-    build:
-      target: dev
-
-  server-base:
-    image: tabletop-server-base
+  server:
+    extends: server-base
     runtime: nvidia
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
     volumes:
-      - ../../:/home/mules/ws/
-    working_dir: /home/mules/ws/src/tabletop
+      - ./:/tabletop
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    working_dir: /tabletop
     ports:
       - 50001:50001
       - 50002:50002
@@ -84,11 +79,7 @@ services:
       - QT_X11_NO_MITSHM=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
-    init: true
-    command: sleep infinity
-
-  server:
-    extends: server-base
+      - DISPLAY=$DISPLAY
     # Uncomment the following section if a teensy is connected
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
@@ -96,23 +87,29 @@ services:
     # device_cgroup_rules:
     #   - c 161:* rmw
     # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    environment:
-      - DISPLAY=$DISPLAY
+    init: true
+    command: sleep infinity
 
   server-dev:
-    extends: server-base
-    image: tabletop-server-dev
-    privileged: true
+    extends: server
+    build:
+      target: dev
+    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
+    # privileged: true
+    # volumes:
+    # - /dev:/dev
     volumes:
-      - /dev:/dev
       - ~/.vimrc:/home/mules/.vimrc:ro
       - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
 
   optitrack:
-    image: tabletop-server-base
+    extends: server-base
     network_mode: host
+    volumes:
+      - ./:/tabletop
+    working_dir: /tabletop
     init: true
-    command: bash -c "source /opt/ros/jazzy/setup.bash && source /root/ws/install/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+    command: bash -c "source /tabletop/install/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
 
   flic:
     image: ubuntu:latest

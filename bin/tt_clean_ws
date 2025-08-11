@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
@@ -28,7 +30,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
 
 if [[ $all = true ]]; then
     print_status "Removing $COLCON_WS/build and $COLCON_WS/install (including moveit)"

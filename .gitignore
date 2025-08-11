@@ -44,11 +44,8 @@
 # Ignore copied eyelink files
 /eyelink/docs/
 
-# Ignore trajectory cache
-/trajectory_cache/
-
-# Ignore planning scene files
-/planning_scene/
+# Ignore cache files
+/cache/
 
 # Ignore optitrack files
 **Client-output.pts

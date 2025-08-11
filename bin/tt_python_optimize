@@ -2,7 +2,7 @@
 
 # Get bin directory and source utils
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/utils.bash
+source $bin_dir/../setup.bash
 
 set -e
 
