@@ -1,6 +1,5 @@
 {
     "cmake.ignoreCMakeListsMissing": true,
-    "cursorpyright.analysis.autoImportCompletions": true,
     "cursorpyright.analysis.typeCheckingMode": "basic",
     "cursorpyright.analysis.useLibraryCodeForTypes": true,
     "git.detectSubmodules": true,
