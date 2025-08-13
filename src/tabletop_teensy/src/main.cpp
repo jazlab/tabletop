@@ -263,7 +263,7 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     // Populate sensor message
-    GET_CURRENT_ROS_TIME(sensor_msg.timestamp);
+    GET_CURRENT_ROS_TIME(sensor_msg.header.stamp);
     sensor_msg.is_safety_laser_broken =
         !digitalRead(SAFETY_LASER_UNBROKEN_STATE_PIN);
     sensor_msg.is_left_arm_locked = digitalRead(LEFT_ARM_LOCKED_STATE_PIN);

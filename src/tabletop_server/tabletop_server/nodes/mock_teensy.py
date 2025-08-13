@@ -444,7 +444,7 @@ class MockTeensy(BaseNode):
     def sensor_timer_callback(self):
         # Populate sensor message
         sensor_msg = TeensySensor()
-        sensor_msg.timestamp = self.get_clock().now().to_msg()
+        sensor_msg.header.stamp = self.get_clock().now().to_msg()
         sensor_msg.is_safety_laser_broken = digital_read(
             SAFETY_LASER_BROKEN_STATE_PIN
         )

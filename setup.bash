@@ -2,7 +2,7 @@
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 export COLCON_WS=$TABLETOP_DIR
 export ROS_LOG_DIR=$TABLETOP_DIR/log
-export ROS_BAG_DIR=$TABLETOP_DIR/results/bags
+export ROS_BAG_DIR=$TABLETOP_DIR/bags
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export SIM_ROBOT_IP=192.168.12.20
 export SIM_REVERSE_IP=192.168.12.10
@@ -18,9 +18,9 @@ alias tree="tree -I 'build|install|logs|results"
 
 # ROS-specific
 if [ -d /opt/ros ]; then
-    alias tt_server="ros2 launch tabletop_server server.launch.py"
-    alias tt_commander="ros2 launch tabletop_server commander.launch.py"
-    alias tt_tasks="ros2 launch tabletop_tasks tasks.launch.py"
+    alias tt-server="ros2 launch tabletop_server server.launch.py"
+    alias tt-commander="ros2 launch tabletop_server commander.launch.py"
+    alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
 fi
 
 # Utility functions

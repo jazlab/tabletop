@@ -77,9 +77,9 @@ fi
 
 # Clean workspace
 if [ "$clean_all" = "true" ]; then
-    tt_clean_ws --all
+    tt-clean-ws --all
 elif [ "$clean" = "true" ]; then
-    tt_clean_ws
+    tt-clean-ws
 fi
 
 # Upgrade apt packages
@@ -104,7 +104,7 @@ rosdep install -r --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y
 
 # # Install Python dependencies
 print_status "Installing extra Python dependencies using pip"
-pip install --break-system-packages -r $TABLETOP_DIR/requirements.txt
+pip install -r $TABLETOP_DIR/requirements.txt
 
 # Set CMake arguments
 cmake_args=("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" "-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
@@ -119,7 +119,7 @@ if [ -n "$workers" ]; then
     export MAKEFLAGS="-j$workers"
     parallel_workers="--parallel-workers $workers"
 fi
-command="colcon build \
+command="python3 -m colcon build \
 --symlink-install \
 --event-handlers console_cohesion+ \
 --cmake-args "${cmake_args[@]}" \

@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,8 +14,10 @@ from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
+from tabletop_utils.rosbag import rosbag_to_dfs
 
-def load_data(eyelink_path, optitrack_path):
+
+def load_data(bag_dir):
     """
     Loads and merges the eye tracker and optical marker data.
 
@@ -25,10 +28,8 @@ def load_data(eyelink_path, optitrack_path):
     Returns:
         tuple: A tuple containing the merged data, input features (X), and target variables (y).
     """
-    eyelink_data = pd.read_csv(eyelink_path)
-    optitrack_data = pd.read_csv(optitrack_path)
-
-    merged_data = pd.merge(eyelink_data, optitrack_data, on="time")
+    dfs = rosbag_to_dfs(bag_dir, topics=["/eyelink/sample", "/markers"])
+    merged_data = pd.concat(dfs.values())
     merged_data = merged_data.dropna()
 
     X = merged_data[["left_x", "left_y", "right_x", "right_y"]].values
@@ -258,24 +259,19 @@ def main():
 
     parser = argparse.ArgumentParser(description="Train gaze estimation model")
     parser.add_argument(
-        "--eyelink-path",
+        "-d",
+        "--session-bag-dir",
         type=str,
-        default="/root/ws/src/tabletop/testing/raw_tracking_data/5_21_24_t1_eyelink.csv",
-        help="Path to eyelink data file",
-    )
-    parser.add_argument(
-        "--optitrack-path",
-        type=str,
-        default="/root/ws/src/tabletop/testing/raw_tracking_data/5_21_24_t1_optitrack.csv",
-        help="Path to optitrack data file",
+        default=os.path.join(
+            os.environ["ROS_BAG_DIR"],
+            "latest",
+        ),
+        help="Path to bag directory",
     )
     args = parser.parse_args()
 
-    eyelink_path = args.eyelink_path
-    optitrack_path = args.optitrack_path
-
-    print(f"Loading data from {eyelink_path} and {optitrack_path}")
-    merged_data, X, y = load_data(eyelink_path, optitrack_path)
+    print(f"Loading data from {args.session_bag_dir}")
+    merged_data, X, y = load_data(args.session_bag_dir)
 
     print("Preprocessing data")
     X_scaler = StandardScaler()

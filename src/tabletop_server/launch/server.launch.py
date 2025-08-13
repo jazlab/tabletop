@@ -295,15 +295,16 @@ def generate_launch_description():
         ]
     )
 
-    # Set current bag directory
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], time_str)
-    os.makedirs(bag_dir, exist_ok=True)
-
-    set_current_bag_dir = SetEnvironmentVariable(
-        name="CURRENT_BAG_DIR",
-        value=bag_dir,
-    )
+    # Create a new bag directory for the session and symlink to it
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    dirname = f"session_{timestamp}"
+    session_bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], dirname)
+    os.makedirs(session_bag_dir, exist_ok=True)
+    try:
+        os.remove(os.path.join(os.environ["ROS_BAG_DIR"], "latest"))
+    except FileNotFoundError:
+        pass
+    os.symlink(dirname, os.path.join(os.environ["ROS_BAG_DIR"], "latest"))
 
     # Print substitutions
     print_substitutions_action = OpaqueFunction(
@@ -433,7 +434,7 @@ def generate_launch_description():
         executable="eyelink",
         output=eyelink_output,
         parameters=[
-            {"use_sim_time": use_sim_time, "bag_dir": bag_dir},
+            {"use_sim_time": use_sim_time, "session_bag_dir": session_bag_dir},
         ],
         ros_arguments=["--log-level", eyelink_log_level],
     )
@@ -492,22 +493,16 @@ def generate_launch_description():
         if "services" in interfaces_config:
             args.extend(["--services", *interfaces_config["services"]])
 
+    server_bag_dir = os.path.join(session_bag_dir, "server")
     bag = ExecuteProcess(
         name="rosbag",
-        cmd=[
-            "ros2",
-            "bag",
-            "record",
-            *args,
-        ],
-        cwd=bag_dir,
+        cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
         output=bag_output,
         condition=IfCondition(rosbag_record),
     )
 
     launch_actions = [
         set_ros_log_dir,
-        set_current_bag_dir,
         print_substitutions_action,
         ur_robot_driver,
         mock_dashboard,

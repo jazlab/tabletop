@@ -3,5 +3,6 @@
     "cursorpyright.analysis.autoImportCompletions": true,
     "cursorpyright.analysis.typeCheckingMode": "basic",
     "cursorpyright.analysis.useLibraryCodeForTypes": true,
-    "git.detectSubmodules": true
+    "git.detectSubmodules": true,
+    "python.terminal.activateEnvironment": false
 }

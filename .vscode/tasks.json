@@ -4,7 +4,7 @@
 		{
 			"type": "shell",
 			"label": "build_debug",
-			"command": "tt_build --debug",
+			"command": "tt-build --debug",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -16,7 +16,7 @@
 		{
 			"type": "shell",
 			"label": "build_release",
-			"command": "tt_build",
+			"command": "tt-build",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],
@@ -38,7 +38,7 @@
 		{
 			"type": "shell",
 			"label": "kill_ros",
-			"command": "tt_kill_ros",
+			"command": "tt-kill_ros",
 			"problemMatcher": [],
 			"group": "none"
 		},

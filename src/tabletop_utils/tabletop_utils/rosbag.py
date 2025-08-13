@@ -16,15 +16,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import glob
 import os
+from collections.abc import Generator, Iterable
+from typing import Any
 
 import pandas as pd
 import rosbag2_py  # noqa
+import tqdm
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
 
-def _gen_msg_values(msg, prefix=""):
+def _gen_msg_values(
+    msg: Any, prefix: str = ""
+) -> Generator[tuple[str, Any], None, None]:
     if isinstance(msg, list):
         for i, val in enumerate(msg):
             yield from _gen_msg_values(val, f"{prefix}[{i}]")
@@ -41,83 +47,129 @@ def _gen_msg_values(msg, prefix=""):
         yield prefix, msg
 
 
-def rosbag_to_csv(bag_dir, topics=None, exclude_topics=None):
+def rosbag_to_dfs(
+    bag_dir: str,
+    topics: Iterable[str] | None = None,
+    exclude_topics: Iterable[str] | None = None,
+    verbose: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """Convert a ROS 2 bag to a pandas DataFrame.
+
+    Args:
+        bag_dir: The path to the bag directory.
+        topics: The topics to include in the DataFrame. If not provided, all topics will be included.
+        exclude_topics: The topics to exclude from the DataFrame.
+
+    Returns:
+        dict[str, pd.DataFrame]: A dictionary of DataFrames, one for each topic.
+    """
+
     reader = rosbag2_py.SequentialReader()
     storage_options = rosbag2_py.StorageOptions(uri=bag_dir, storage_id="mcap")
     converter_options = rosbag2_py.ConverterOptions("", "cdr")
     reader.open(storage_options, converter_options)
 
-    topic_types = reader.get_all_topics_and_types()
+    num_msgs = reader.get_metadata().message_count
 
-    # Create a map for quicker lookup
-    type_map = {
-        topic_types[i].name: topic_types[i].type
-        for i in range(len(topic_types))
+    topic_types = {
+        topic.name: topic.type for topic in reader.get_all_topics_and_types()
     }
-
-    table_map = {}
+    topic_tables = {}
 
     if topics is None:
-        topics = set(type_map.keys())
-    else:
-        topics = set(topics)
+        topics = topic_types.keys()
+    topics = set(topics)
     if exclude_topics is not None:
         topics = topics - set(exclude_topics)
 
-    # start_time = None
-    i = 0
-    while reader.has_next():
+    for _ in tqdm.tqdm(range(num_msgs), disable=not verbose):
         (topic, data, t) = reader.read_next()
 
         # Skip topics that are in the exclude list or not in the include list
         if topic not in topics:
             continue
 
-        msg_type = get_message(type_map[topic])
+        # Get the message type and deserialize the message
+        msg_type = get_message(topic_types[topic])
         msg = deserialize_message(data, msg_type)
 
-        if topic not in table_map:
-            table_map[topic] = {
-                "columns": [
-                    "time",
-                    *[field for field, _ in _gen_msg_values(msg)],
-                ],
-                "msgs": [],
-            }
+        # Get table for topic or create it if it doesn't exist
+        table = topic_tables.setdefault(topic, {"columns": {}, "rows": []})
 
-        # if hasattr(msg, "header"):
-        #     t = msg.header.stamp.sec + 1e-9 * msg.header.stamp.nanosec
-        # else:
-        # if start_time is None:
-        #     start_time = ts
-        row = [t, *[val for _, val in _gen_msg_values(msg)]]
-        if len(row) != len(table_map[topic]["columns"]):
-            print(
-                f"Row length mismatch for topic {topic}: {len(row)} != {len(table_map[topic]['columns'])}"
+        # Update the columns with new values from the message and add the
+        # message to the table
+        row = {"recorded_time": t} | dict(_gen_msg_values(msg))
+        table["columns"].update(row)
+        table["rows"].append(row)
+
+    assert not reader.has_next()
+
+    dfs: dict[str, pd.DataFrame] = {}
+    for topic, table in topic_tables.items():
+        dfs[topic] = pd.DataFrame(
+            table["rows"], columns=table["columns"].keys()
+        )
+
+    return dfs
+
+
+def rosbag_session_to_dfs(
+    session_dir: str,
+    topics: Iterable[str] | None = None,
+    exclude_topics: Iterable[str] | None = None,
+    save: bool = False,
+    verbose: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """Convert a ROS 2 session to a pandas DataFrame.
+
+    Args:
+        session_dir: The path to the session directory.
+        topics: The topics to include in the DataFrame. If not provided, all topics will be included.
+        exclude_topics: The topics to exclude from the DataFrame.
+
+    Returns:
+        dict[str, pd.DataFrame]: A dictionary of DataFrames, one for each topic.
+    """
+
+    # Recursively find all .mcap files in bag_dir
+    mcap_files = glob.glob(os.path.join(session_dir, "*", "*.mcap"))
+
+    if not mcap_files:
+        raise FileNotFoundError(f"No .mcap files found in {session_dir}")
+
+    # For each .mcap file, check if any .csv files exist in the same directory
+    dfs = {}
+    for mcap_file in mcap_files:
+        print(f"Converting {mcap_file}...")
+
+        mcap_dir = os.path.dirname(mcap_file)
+
+        new_dfs = rosbag_to_dfs(
+            bag_dir=mcap_dir,
+            topics=topics,
+            exclude_topics=exclude_topics,
+            verbose=verbose,
+        )
+        collisions = dfs.keys() & new_dfs.keys()
+        if collisions:
+            raise ValueError(
+                f"Topic collision(s) in {session_dir}: {collisions}"
             )
-            print(f"Skipping conversion for topic {topic}")
-            topics.remove(topic)
-            table_map.pop(topic)
-            continue
-        table_map[topic]["msgs"].append(row)
-        # print(
-        #     ",".join(
-        #         [str(ts)] + [str(val) for _, val in _gen_msg_values(msg)]
-        #     ),
-        #     file=file,
-        # )
-        if i % 1000 == 0:
-            print(f"Msg: {i}, Time: {t}")
-        i += 1
 
-    for topic, topic_data in table_map.items():
-        df = pd.DataFrame(topic_data["msgs"], columns=topic_data["columns"])
-        filename = f"{bag_dir}/{topic.lstrip('/').replace('/', '_')}.csv"
-        if os.path.exists(filename):
-            print(f"Overwriting {filename}")
-            os.remove(filename)
-        df.to_csv(filename, index=False)
-        print(f"Saved {filename}")
+        dfs.update(new_dfs)
+
+    if save:
+        for topic, df in dfs.items():
+            filename = os.path.join(
+                session_dir, f"{topic.lstrip('/').replace('/', '_')}.csv"
+            )
+            if os.path.exists(filename):
+                os.remove(filename)
+            df.to_csv(filename, index=False)
+            if verbose:
+                print(f"Saved {filename}")
+
+    return dfs
 
 
 def main():
@@ -125,7 +177,10 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-d", "--dir", type=str, default=os.environ["ROS_BAG_DIR"]
+        "-d",
+        "--session-dir",
+        type=str,
+        help="The path to the session directory.",
     )
     parser.add_argument("--topics", type=str, nargs="*")
     parser.add_argument(
@@ -134,30 +189,46 @@ def main():
         nargs="*",
         default=["/rosout", "/parameter_events"],
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing CSV files.",
+    )
     args = parser.parse_args()
 
-    import glob
+    if args.session_dir is None:
+        session_dirs = glob.glob(os.path.join(os.environ["ROS_BAG_DIR"], "*"))
+        if not session_dirs:
+            raise ValueError(
+                f"No session directories found in ROS_BAG_DIR "
+                f"({os.environ['ROS_BAG_DIR']})"
+            )
+    else:
+        session_dirs = [args.session_dir]
 
-    # Recursively find all .mcap files in bag_dir
-    mcap_files = glob.glob(
-        os.path.join(args.dir, "**", "*.mcap"), recursive=True
+    session_dirs = set(
+        [os.path.realpath(d) for d in session_dirs if os.path.isdir(d)]
     )
 
-    # For each .mcap file, check if any .csv files exist in the same directory
-    for mcap_file in mcap_files:
-        mcap_dir = os.path.dirname(mcap_file)
-        csv_files = glob.glob(os.path.join(mcap_dir, "*.csv"))
-        if not csv_files:
-            print(
-                f"Found .mcap file with no .csv in {mcap_dir}, "
-                "converting to CSV..."
-            )
-            # Call rosbag_to_csv for this directory
-            rosbag_to_csv(
-                bag_dir=mcap_dir,
+    for session_dir in session_dirs:
+        csv_files = glob.glob(os.path.join(session_dir, "*.csv"))
+        if csv_files and not args.overwrite:
+            print(f"{session_dir} already converted, skipping...")
+            continue
+
+        try:
+            rosbag_session_to_dfs(
+                session_dir=session_dir,
                 topics=args.topics,
                 exclude_topics=args.exclude_topics,
+                save=True,
+                verbose=True,
             )
+        except Exception as e:
+            print(f"Error converting {session_dir}: {e}")
+            continue
+
+        print("-" * 80)
 
 
 if __name__ == "__main__":

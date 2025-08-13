@@ -1,4 +1,4 @@
-builtin_interfaces/Time timestamp
+std_msgs/Header header
 uint32 eyelink_time
 float32 left_x
 float32 left_y

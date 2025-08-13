@@ -2,24 +2,26 @@ FROM debian:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Keep downloaded packages to reduce build time
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+
 # Install git, supervisor, VNC, & X11 packages
-RUN apt-get update; \
-    apt-get upgrade -y; \
-    apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt,id=novnc-apt-cache,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,id=novnc-apt-lib,sharing=locked <<EOT
+set -ex
+apt-get update && apt-get upgrade -y
+apt-get install --no-install-recommends -y \
     bash \
     dbus-x11 \
     dwm \
-    fluxbox \
-    i3 \
     net-tools \
     novnc \
     suckless-tools \
     supervisor \
-    xfce4 \
-    xfce4-goodies \
     x11vnc \
-    xterm \
-    xvfb
+    xterm
+EOT
 
 # Setup environment variables
 ENV HOME=/root \

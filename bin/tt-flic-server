@@ -6,7 +6,7 @@ source $bin_dir/../setup.bash
 pushd $TABLETOP_DIR
 
 # Reset bluetooth module
-tt_bluetooth_reset
+tt-bluetooth-reset
 
 while true; do
     docker compose up --force-recreate flic

@@ -1,4 +1,4 @@
-builtin_interfaces/Time timestamp
+std_msgs/Header header
 bool is_safety_laser_broken
 bool is_left_arm_locked
 bool is_right_arm_locked

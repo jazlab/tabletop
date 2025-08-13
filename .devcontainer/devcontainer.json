@@ -9,9 +9,6 @@
     "workspaceFolder": "/tabletop",
     "containerUser": "mules",
     "updateRemoteUserUID": true,
-    "remoteEnv": {
-        "SHELL": "/bin/bash"
-    },
     "userEnvProbe": "loginInteractiveShell",
     "customizations": {
         "vscode": {

@@ -1,0 +1,5 @@
+*
+!src/**/package.xml
+!apt.list
+!requirements.txt
+!requirements-dev.txt

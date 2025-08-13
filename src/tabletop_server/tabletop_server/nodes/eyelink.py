@@ -34,6 +34,14 @@ from tabletop_utils.eyelink import edf_to_csv
 from tabletop_utils.ros import ROSSleepError
 
 
+class DataFileReceiveError(Exception):
+    """Error while receiving the data file."""
+
+
+class DataFileConversionError(Exception):
+    """Error while converting the data file."""
+
+
 class EyeAvailable(Enum):
     NO_EYE = -1
     LEFT_EYE = 0
@@ -54,13 +62,7 @@ class Eyelink(BaseNode):
         "link_event_filter": "null",
         "file_event_data": "null",
         "link_event_data": "null",
-        "results_dir": os.path.join(
-            os.environ["TABLETOP_DIR"], "results/eyelink"
-        ),
-        "bag_dir": os.path.join(
-            os.environ["ROS_BAG_DIR"],
-            datetime.now().strftime("eyelink_%Y-%m-%d_%H-%M-%S"),
-        ),
+        "session_bag_dir": "null",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "log_samples": False,
         "log_smooth_pursuit": True,
@@ -154,9 +156,9 @@ class Eyelink(BaseNode):
         the stop event and sample retrieval loop future.
         """
         sample_rate = self.get_parameter_wrapper("sample_rate")
-        self._max_window = self.get_parameter_wrapper("max_window")
+        self.max_window = self.get_parameter_wrapper("max_window")
         self.message_queue: deque[EyelinkMsg] = deque(
-            maxlen=int(sample_rate * self._max_window)
+            maxlen=int(sample_rate * self.max_window)
         )
         self.message_queue_lock = threading.Lock()
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -165,9 +167,26 @@ class Eyelink(BaseNode):
         self.sample_retrieval_future = concurrent.futures.Future()
         self.sample_retrieval_future.set_result(None)
         self.recording = False
+
+        # Create session bag directory
+        self.session_bag_dir = self.get_parameter_wrapper("session_bag_dir")
+        if self.session_bag_dir is None:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            dirname = f"eyelink_{timestamp}"
+            self.session_bag_dir = os.path.join(
+                os.environ["ROS_BAG_DIR"], dirname
+            )
+            os.makedirs(self.session_bag_dir)
+        elif not os.path.isdir(self.session_bag_dir):
+            raise ValueError(
+                f"Session bag directory {self.session_bag_dir} is not a directory"
+            )
+
+        # Setup bag writer
+        bag_dir = os.path.join(self.session_bag_dir, "eyelink")
         self.bag_writer = rosbag2_py.SequentialWriter()
         storage_options = rosbag2_py.StorageOptions(
-            uri=self.get_parameter_wrapper("bag_dir"), storage_id="mcap"
+            uri=bag_dir, storage_id="mcap"
         )
         converter_options = rosbag2_py.ConverterOptions("", "")
         self.bag_writer.open(storage_options, converter_options)
@@ -314,19 +333,21 @@ class Eyelink(BaseNode):
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
-        results_dir = self.get_parameter_wrapper("results_dir")
-        os.makedirs(results_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        path = os.path.join(results_dir, f"{timestamp}.edf")
+        received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
+        os.makedirs(received_dir, exist_ok=True)
+        edf_path = os.path.join(received_dir, "last.edf")
         try:
-            self.tracker.receiveDataFile("last.edf", path)
-        except RuntimeError as e:
-            raise RuntimeError("Error receiving data file") from e
+            self.tracker.receiveDataFile("last.edf", edf_path)
+        except Exception as e:
+            raise DataFileReceiveError("Error receiving EDF file") from e
 
-        self.log(f"Received EDF data file and saved to {path}")
+        self.log(f"Received EDF data file and saved to {edf_path}")
 
-        csv_file_name = edf_to_csv(path, keep_asc=True)
+        try:
+            csv_file_name = edf_to_csv(edf_path)
+        except Exception as e:
+            raise DataFileConversionError("Error converting EDF to CSV") from e
+
         self.log(f"Converted EDF to CSV: {csv_file_name}")
 
     def eye_available(self) -> EyeAvailable:
@@ -399,7 +420,7 @@ class Eyelink(BaseNode):
         #     assert False, f"Unknown eye available value: {eye_used}"
 
         msg = EyelinkMsg()
-        msg.timestamp = timestamp.to_msg()
+        msg.header.stamp = timestamp.to_msg()
         msg.eyelink_time = int(sample.getTime())
         msg.input = sample.getInput()
 
@@ -653,9 +674,11 @@ class Eyelink(BaseNode):
         """Service to close the data file on the EyeLink PC."""
         try:
             self.close_data_file()
-        except RuntimeError as e:
+        except Exception as e:
             response.success = False
-            response.message = f"Error closing data file: {e}"
+            response.message = (
+                f"Error closing data file: {type(e).__name__}: {e}"
+            )
             self.log(response.message, severity="ERROR")
             return response
 
@@ -708,10 +731,10 @@ class Eyelink(BaseNode):
                 )
                 return GoalResponse.REJECT
             elif Duration.from_msg(goal.window) > Duration(
-                seconds=self.get_parameter_wrapper("max_window")
+                seconds=self.max_window
             ):
                 self.log(
-                    f"Window too long, must be less than {self.get_parameter_wrapper('max_window')} s",
+                    f"Window too long, must be less than {self.max_window} s",
                     severity="WARN",
                 )
                 return GoalResponse.REJECT
@@ -798,12 +821,18 @@ class Eyelink(BaseNode):
         try:
             self.close_data_file()
         except Exception as e:
-            self.log(f"Error closing data file: {e}", severity="ERROR")
+            self.log(
+                f"Error closing data file: {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
 
         try:
             self.bag_writer.close()
         except Exception as e:
-            self.log(f"Error closing bag writer: {e}", severity="ERROR")
+            self.log(
+                f"Error closing bag writer: {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
 
         # self.log("Shutting down thread pool")
         # try:
