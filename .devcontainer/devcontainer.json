@@ -27,7 +27,8 @@
                 "ms-vscode.cmake-tools",
                 "IronGeek.vscode-env",
                 "ms-toolsai.jupyter",
-                "anysphere.cpptools"
+                "anysphere.cpptools",
+                "hashicorp.hcl"
             ]
         }
     }

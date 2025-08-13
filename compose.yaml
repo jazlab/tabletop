@@ -5,7 +5,6 @@ services:
     build:
       context: ./docker/novnc
       pull: true
-      tags: [ "tabletop/novnc:latest" ]
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.100
@@ -49,7 +48,6 @@ services:
 
   server-base:
     build:
-      tags: [ "tabletop/server-base:latest" ]
       context: .
       dockerfile: ./docker/server/Dockerfile
       target: base
@@ -93,13 +91,11 @@ services:
   server-dev:
     extends: server
     build:
-      tags: [ "tabletop/server-dev:latest" ]
       target: dev
     # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    # privileged: true
-    # volumes:
-    # - /dev:/dev
+    privileged: true
     volumes:
+      - /dev:/dev
       - ~/.vimrc:/home/mules/.vimrc:ro
       - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
     environment:

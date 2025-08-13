@@ -72,39 +72,38 @@ class SmoothPursuitTask(BaseTask):
 
             if i == 0:
                 # Plan to start of spiral
-                response = await self.commander.plan(
+                trajectory = await self.commander.plan(
                     goal=waypoint_pose_stamped
                 )
-                if response is None:
+                if trajectory is None:
+                    self.log(
+                        "Initial robot pose close enough to first waypoint, skipping planning",
+                        severity="INFO",
+                    )
                     last_waypoint = self.commander.current_state
                     continue
             else:
                 # Plan segment of spiral
-                response = await self.commander.plan(
+                trajectory = await self.commander.plan(
                     goal=waypoint_pose_stamped,
                     start_state=last_waypoint,
                     planning_pipeline="linear",
                 )
-                if response is None:
+                if trajectory is None:
                     self.log(
                         "Waypoints may be too close, skipping segment",
                         severity="WARN",
                     )
                     continue
                 if i == 1:
-                    spiral_trajectory: RobotTrajectory = response.trajectory
+                    spiral_trajectory = trajectory
                 else:
                     spiral_trajectory.append(
-                        response.trajectory, dt=0.01, start_index=1
+                        trajectory, dt=0.01, start_index=1
                     )
 
-            last_waypoint = response.trajectory[len(response.trajectory) - 1]
+            last_waypoint = trajectory[len(trajectory) - 1]
 
-        self.commander.apply_totg(
-            spiral_trajectory,
-            velocity_scaling_factor=self._velocity_scaling_factor,
-            acceleration_scaling_factor=self._acceleration_scaling_factor,
-        )
         return spiral_trajectory
 
     async def run(self) -> None:

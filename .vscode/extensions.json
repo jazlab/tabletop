@@ -13,6 +13,8 @@
         "ms-vscode.cmake-tools",
         "anysphere.cpptools",
         "anysphere.remote-containers",
-        "anysphere.cursorpyright"
+        "anysphere.cursorpyright",
+        "ms-vscode-remote.vscode-remote-extensionpack",
+        "ms-azuretools.vscode-containers"
     ]
 }

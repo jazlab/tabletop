@@ -1,5 +1,7 @@
 """Base task module."""
 
+import asyncio
+
 from tabletop_server.nodes import Commander
 from tabletop_tasks.tasks.base import BaseTask
 
@@ -13,4 +15,5 @@ class DummyTask(BaseTask):
     async def run(self):
         async with self.commander as com:
             while True:
-                com.ros_sleep(1.0)
+                await com.reward_and_wait(1.0)
+                await asyncio.sleep(1.0)
