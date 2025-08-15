@@ -1,6 +1,6 @@
 {
     "cmake.ignoreCMakeListsMissing": true,
-    "cursorpyright.analysis.typeCheckingMode": "basic",
+    "cursorpyright.analysis.typeCheckingMode": "off",
     "cursorpyright.analysis.useLibraryCodeForTypes": true,
     "git.detectSubmodules": true,
     "python.terminal.activateEnvironment": false

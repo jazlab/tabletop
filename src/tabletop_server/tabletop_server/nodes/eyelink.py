@@ -421,7 +421,7 @@ class Eyelink(BaseNode):
 
         msg = EyelinkMsg()
         msg.header.stamp = timestamp.to_msg()
-        msg.eyelink_time = int(sample.getTime())
+        msg.eyelink_time_ms = int(sample.getTime())
         msg.input = sample.getInput()
 
         msg.left_x, msg.left_y = left_sample.getRawPupil()
@@ -526,7 +526,8 @@ class Eyelink(BaseNode):
 
         # Extract eye data from samples
         eyelink_times = (
-            np.array([message.eyelink_time for message in messages]) / 1000.0
+            np.array([message.eyelink_time_ms for message in messages])
+            / 1000.0
         )  # Convert to seconds
         left_positions = np.array(
             [[message.left_x, message.left_y] for message in messages]

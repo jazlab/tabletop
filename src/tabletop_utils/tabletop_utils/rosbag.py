@@ -98,7 +98,7 @@ def rosbag_to_dfs(
 
         # Update the columns with new values from the message and add the
         # message to the table
-        row = {"recorded_time": t} | dict(_gen_msg_values(msg))
+        row = {"bag_time_ns": t} | dict(_gen_msg_values(msg))
         table["columns"].update(row)
         table["rows"].append(row)
 

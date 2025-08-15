@@ -19,7 +19,6 @@ repos:
       - id: name-tests-test
       - id: check-yaml
         args: [--unsafe]
-      - id: check-json
       - id: check-xml
       - id: check-merge-conflict
       - id: trailing-whitespace

@@ -1,5 +1,5 @@
 std_msgs/Header header
-uint32 eyelink_time
+uint32 eyelink_time_ms
 float32 left_x
 float32 left_y
 float32 left_pupil
