@@ -56,6 +56,9 @@ services:
         - ROS_DISTRO=jazzy
         - USER=mules
         - UID=1000 # Enter your user id here
+    volumes:
+      - ./:/tabletop
+      - /tabletop/.venv
 
   server:
     extends: server-base
@@ -64,8 +67,6 @@ services:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
-    volumes:
-      - ./:/tabletop
       - /tmp/.X11-unix:/tmp/.X11-unix
     working_dir: /tabletop
     ports:
@@ -104,8 +105,7 @@ services:
   optitrack:
     extends: server-base
     network_mode: host
-    volumes:
-      - ./:/tabletop
+
     working_dir: /tabletop
     init: true
     command: bash -c "source /tabletop/install/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"

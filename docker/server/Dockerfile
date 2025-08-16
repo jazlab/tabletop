@@ -35,9 +35,9 @@ apt-get clean && rm -rf /var/lib/apt/lists/*
 EOT
 
 # Install apt packages
-RUN --mount=type=bind,source=apt.list,target=/tmp/apt.list \
-    --mount=type=cache,target=/var/cache/apt,id=server-apt-cache,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,id=server-apt-lib,sharing=locked \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=bind,source=apt.list,target=/tmp/apt.list \
 <<EOT
 set -ex
 apt-get update && apt-get upgrade -y
@@ -45,61 +45,58 @@ apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
 
 # Create user if not root
-ARG USER=root
-ARG UID=0
+ARG USER=mules
+ARG UID=1000
 ARG GID=$UID
 
 RUN <<EOT
 set -ex
-if [[ $USER != root ]] ; then
-    if [[ $UID = 0 || $GID = 0 ]] ; then
-        echo "UID and/or GID are 0 but USER is not root!"
-        exit 1
-    fi
-    if id -u $UID ; then
-        userdel -r $(id -un $UID)
-    fi
-    groupadd --gid $GID $USER
-    useradd --uid $UID --gid $GID -m $USER
-    echo $USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER
-    chmod 0440 /etc/sudoers.d/$USER
-else
-    if [[ $UID != 0 || $GID != 0 ]] ; then
-        echo "UID and/or GID are not 0 but USER is root!"
-        exit 1
-    fi
+if [[ -z $USER || $USER = root ]] ; then
+    echo "USER must be set to a non-root user"
+    exit 1
 fi
+if [[ $UID = 0 || $GID = 0 ]] ; then
+    echo "UID and/or GID cannot be 0"
+    exit 1
+fi
+if id -u $UID ; then
+    echo "User ID $UID already exists, deleting..."
+    userdel -r $(id -un $UID)
+fi
+groupadd --gid $GID $USER
+useradd --uid $UID --gid $GID -m $USER
+echo $USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER
+chmod 0440 /etc/sudoers.d/$USER
 EOT
 
 USER $USER
 
-# Install pip dependencies into a virtual environment
-RUN --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
-    --mount=type=cache,target=/tmp/pip-cache,id=server-pip-cache,uid=$UID,gid=$GID \
-<<EOT
-set -ex
-rm -rf ~/.cache/pip
-mkdir -p ~/.cache
-ln -s /tmp/pip-cache ~/.cache/pip
-python3 -m venv --system-site-packages --symlinks ~/venv
-source ~/venv/bin/activate
-pip install -r /tmp/requirements.txt
-rm ~/.cache/pip
-EOT
-
 # Install ROS dependencies from src directory
-RUN --mount=type=bind,source=src,target=/tmp/src \
-    --mount=type=cache,target=/var/cache/apt,id=server-apt-cache,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,id=server-apt-lib,sharing=locked \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=bind,source=src,target=/tmp/src \
 <<EOT
 set -ex
 cd /tmp/src
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade -y
-source ~/venv/bin/activate
 source /opt/ros/$ROS_DISTRO/setup.bash
 rosdep update
 rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO -y
 EOT
+
+WORKDIR /tabletop
+
+# Install python dependencies using uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
 
 # Development image with additional dependencies and tools
 FROM base AS dev
@@ -128,25 +125,11 @@ ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 rm /tmp/get-platformio.py
 EOT
 
-# Install pip development dependencies into the virtual environment
-RUN --mount=type=bind,source=requirements-dev.txt,target=/tmp/requirements-dev.txt \
-    --mount=type=cache,target=/tmp/pip-cache,id=server-pip-cache,uid=$UID,gid=$GID \
-<<EOT
-set -ex
-rm -rf ~/.cache/pip
-mkdir -p ~/.cache
-ln -s /tmp/pip-cache ~/.cache/pip
-source ~/venv/bin/activate
-pip install -r /tmp/requirements-dev.txt
-rm ~/.cache/pip
-EOT
-
 # Update .bashrc (must be unindented)
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
 export PATH=~/.local/bin:\$PATH
-source ~/venv/bin/activate
 source /opt/ros/$ROS_DISTRO/setup.bash
 source /tabletop/install/setup.bash
 source /tabletop/setup.bash
@@ -155,5 +138,3 @@ eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF
 EOT
-
-VOLUME /tabletop

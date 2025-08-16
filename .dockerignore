@@ -1,0 +1,5 @@
+*
+!src/**/package.xml
+!apt.list
+!uv.lock
+!pyproject.toml

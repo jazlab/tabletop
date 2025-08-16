@@ -7,35 +7,34 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from gaze_estimation import GazeEstimationModelMLP
 from matplotlib.animation import FuncAnimation
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-from tabletop_utils.rosbag import rosbag_to_dfs
+from tabletop_py.eyelink.gaze_estimation import GazeEstimationModelMLP
 
 
-def load_data(bag_dir):
+def load_data(path: str) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Loads and merges the eye tracker and optical marker data.
+    Loads the eye tracker and optical marker data.
 
     Args:
-        eyelink_path (str): Path to the eyelink data file.
-        optitrack_path (str): Path to the optitrack data file.
+        path (str): Path to the calibration data file.
 
     Returns:
-        tuple: A tuple containing the merged data, input features (X), and target variables (y).
+        Tuple of input features (X), target variables (y)
     """
-    dfs = rosbag_to_dfs(bag_dir, topics=["/eyelink/sample", "/markers"])
-    merged_data = pd.concat(dfs.values())
-    merged_data = merged_data.dropna()
+    data = pd.read_csv(path, index_col=False)
 
-    X = merged_data[["left_x", "left_y", "right_x", "right_y"]].values
-    y = merged_data[["X", "Y", "Z"]].values
+    X = data[["left_x", "left_y", "right_x", "right_y"]].values
+    y = data[["marker_x", "marker_y", "marker_z"]].values
 
-    return merged_data, X, y
+    X = torch.tensor(X, dtype=torch.float32)
+    y = torch.tensor(y, dtype=torch.float32)
+
+    return X, y
 
 
 def init_model(device):
@@ -46,18 +45,25 @@ def init_model(device):
 
 
 def train_and_evaluate_model(
-    X_train, y_train, X_test, y_test, device, y_scaler
+    X_train: torch.Tensor,
+    y_train: torch.Tensor,
+    X_test: torch.Tensor,
+    y_test: torch.Tensor,
+    device: torch.device,
+    y_scaler: StandardScaler,
+    model_type: str,
 ):
     """
     Trains and evaluates the eye tracking model using cross-validation.
 
     Args:
-        X_train (numpy.ndarray): Training input features.
-        y_train (numpy.ndarray): Training target variables.
-        X_test (numpy.ndarray): Test input features.
-        y_test (numpy.ndarray): Test target variables.
-        device (torch.device): Device to run the model on (CPU or GPU).
-        y_scaler (sklearn.preprocessing.StandardScaler): Scaler for the target variables.
+        X_train: Training input features.
+        y_train: Training target variables.
+        X_test: Test input features.
+        y_test: Test target variables.
+        device: Device to run the model on (CPU or GPU).
+        y_scaler: Scaler for the target variables.
+        model_type: Type of model to use for gaze estimation.
 
     Returns:
         tuple: A tuple containing the trained model, cross-validation scores, and test set metrics.
@@ -77,9 +83,7 @@ def train_and_evaluate_model(
         print(f"Fold {i}")
 
         # Initialize model, optimizer, and criterion
-        model = GazeEstimationModelMLP().to(device)
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-        criterion = nn.MSELoss()
+        model, optimizer, criterion = init_model(device)
         loader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(
                 torch.tensor(X_train[train_index], dtype=torch.float32),
@@ -268,10 +272,29 @@ def main():
         ),
         help="Path to bag directory",
     )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
+        help="Path to output directory",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["mlp", "geometric"],
+        default="mlp",
+        help="Model to use for gaze estimation",
+    )
     args = parser.parse_args()
 
-    print(f"Loading data from {args.session_bag_dir}")
-    merged_data, X, y = load_data(args.session_bag_dir)
+    path = os.path.join(args.session_bag_dir, "calibration_data.csv")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File {path} does not exist")
+
+    print(f"Loading data from {path}")
+
+    X, y = load_data(path)
 
     print("Preprocessing data")
     X_scaler = StandardScaler()
@@ -280,15 +303,14 @@ def main():
     y_scaled = y_scaler.fit_transform(y)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y_scaled, test_size=0.2, random_state=42
+        X_scaled, y_scaled, test_size=0.2, shuffle=False, random_state=42
     )
 
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Training and evaluating model")
     model, cv_scores, test_scores = train_and_evaluate_model(
-        X_train, y_train, X_test, y_test, device, y_scaler
+        X_train, y_train, X_test, y_test, device, y_scaler, args.model
     )
 
     mse_scores, rmse_scores, r2_scores = cv_scores

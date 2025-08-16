@@ -7,8 +7,8 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
 # Install git, supervisor, VNC, & X11 packages
-RUN --mount=type=cache,target=/var/cache/apt,id=novnc-apt-cache,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,id=novnc-apt-lib,sharing=locked <<EOT
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
 apt-get update && apt-get upgrade -y
 apt-get install --no-install-recommends -y \

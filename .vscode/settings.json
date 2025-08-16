@@ -1,7 +1,8 @@
 {
     "cmake.ignoreCMakeListsMissing": true,
-    "cursorpyright.analysis.typeCheckingMode": "off",
+    "cursorpyright.analysis.typeCheckingMode": "basic",
     "cursorpyright.analysis.useLibraryCodeForTypes": true,
     "git.detectSubmodules": true,
-    "python.terminal.activateEnvironment": false
+    "python.terminal.activateEnvironment": false,
+    "containers.commands.build": "${containerCommand} build --pull -f \"${dockerfile}\" -t ${tag} \"${context}\""
 }
