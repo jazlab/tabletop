@@ -2,9 +2,10 @@ sudo
 python3-pip
 python3-venv
 python-is-python3
-bash-completion
 git
+cmake
 git-lfs
+bash-completion
 curl
 vim
 psmisc
@@ -14,7 +15,5 @@ iproute2
 gdb
 xarclock
 ros-jazzy-ros2controlcli
-ros-jazzy-rmw-fastrtps-cpp
-ros-dev-tools
-python3-colcon-common-extensions
 eyelink-display-software
+ffmpeg

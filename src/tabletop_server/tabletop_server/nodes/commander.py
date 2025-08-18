@@ -64,7 +64,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
-from tf_transformations import identity_matrix
+from trimesh.transformations import identity_matrix
 from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
@@ -1081,7 +1081,7 @@ class Commander(BaseNode):
             object_ids = list(msg.entry_names)
             matrix = np.array([row.enabled for row in msg.entry_values])
 
-        matrix_df = pd.DataFrame(matrix, columns=object_ids, index=object_ids)
+        matrix_df = pd.DataFrame(matrix, columns=object_ids, index=object_ids)  # type: ignore
 
         # Reorder the matrix to put robot collision links first
         robot_collision_links = self.get_parameter_wrapper(

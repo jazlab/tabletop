@@ -103,8 +103,8 @@ print_status "Installing ROS 2 dependencies"
 rosdep install -r --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y
 
 # # Install Python dependencies
-print_status "Installing extra Python dependencies using pip"
-pip install -r $TABLETOP_DIR/requirements.txt
+# print_status "Installing extra Python dependencies using uv"
+# uv sync --locked
 
 # Set CMake arguments
 cmake_args=("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" "-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")

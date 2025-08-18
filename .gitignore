@@ -29,7 +29,7 @@
 **/flic.db
 
 # Ignore venv
-**/venv/
+**/.venv/
 
 # Ignore piano stuff
 **/*.sf2
@@ -49,3 +49,7 @@
 
 # Ignore optitrack files
 **Client-output.pts
+
+# Ignore videos
+**/*.mp4
+**/*.gif

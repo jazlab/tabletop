@@ -60,6 +60,6 @@ if [ -d /opt/ros ]; then
 fi
 
 # Source .venv if it exists
-if [ -d $TABLETOP_DIR/.venv ]; then
-    export PYTHONPATH=$TABLETOP_DIR/.venv/lib/site-packages:$PYTHONPATH
+if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then
+    source $TABLETOP_DIR/.venv/bin/activate
 fi

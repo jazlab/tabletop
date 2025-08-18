@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
 apt-get update && apt-get upgrade -y
-apt-get install --no-install-recommends -y \
+apt-get install -y \
     bash \
     dbus-x11 \
     dwm \
@@ -20,7 +20,8 @@ apt-get install --no-install-recommends -y \
     suckless-tools \
     supervisor \
     x11vnc \
-    xterm
+    xterm \
+    xvfb
 EOT
 
 # Setup environment variables
@@ -30,10 +31,8 @@ ENV HOME=/root \
 # SESSION_MANAGER= \
 # DBUS_SESSION_BUS_ADDRESS=
 
-COPY ./config/i3.config /root/.config/i3/config
 COPY . /app
-RUN chmod +x /app/entrypoint.sh
-RUN chmod +x /app/healthcheck.sh
+RUN chmod +x /app/entrypoint.sh /app/healthcheck.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD []
 EXPOSE 8080

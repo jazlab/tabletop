@@ -19,7 +19,6 @@ setup(
     maintainer_email="valmiki.kothare.vk@gmail.com",
     description="Common utilities for the TableTop project",
     license="MIT",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "flic_client = tabletop_utils.flic_client:main",

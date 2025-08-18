@@ -27,7 +27,7 @@ from rclpy.client import Client
 from shape_msgs.msg import Mesh as MeshMsg
 from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
 from std_msgs.msg import ColorRGBA, Header
-from tf_transformations import (
+from transformations import (
     euler_from_quaternion,
     inverse_matrix,
     quaternion_about_axis,
@@ -495,11 +495,11 @@ def arrays_from_pose_msg(
     return position, orientation
 
 
-def quaternion_msg(x: float, y: float, z: float, w: float) -> Quaternion:
+def quaternion_msg(w: float, x: float, y: float, z: float) -> Quaternion:
     """Convert a quaternion to a geometry_msgs/Quaternion message."""
-    q = np.array([x, y, z, w])
+    q = np.array([w, x, y, z])
     q = q / np.linalg.norm(q)
-    return Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+    return Quaternion(w=q[0], x=q[1], y=q[2], z=q[3])
 
 
 def quaternion_msg_from_euler(
@@ -529,7 +529,7 @@ def quaternion_msg_from_axis_angle(
 def normalize_quaternion_msg(quaternion: Quaternion) -> Quaternion:
     """Convert a quaternion to a normalized geometry_msgs/Quaternion message."""
     return quaternion_msg(
-        quaternion.x, quaternion.y, quaternion.z, quaternion.w
+        quaternion.w, quaternion.x, quaternion.y, quaternion.z
     )
 
 
@@ -539,7 +539,7 @@ def euler_array_from_quaternion_msg(
     """Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians)."""
     rpy = np.array(
         euler_from_quaternion(
-            [quaternion.x, quaternion.y, quaternion.z, quaternion.w], axes=axes
+            [quaternion.w, quaternion.x, quaternion.y, quaternion.z], axes=axes
         )
     )
     # Convert to [-pi, pi] range
@@ -838,7 +838,7 @@ def matrix_from_point_msg(point: Point) -> np.ndarray:
 def matrix_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
     """Convert a geometry_msgs/Quaternion message to a 4x4 transformation matrix."""
     return quaternion_matrix(
-        [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+        [quaternion.w, quaternion.x, quaternion.y, quaternion.z]
     )
 
 

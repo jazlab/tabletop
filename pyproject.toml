@@ -2,26 +2,36 @@
 name = "tabletop-py"
 version = "0.1.0"
 description = "ROS-independent Python utilities for the TableTop project"
-readme = "README.md"
 authors = [{ name = "Valmiki Kothare", email = "valmiki.kothare.vk@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
-    "debugpy>=1.8.16",
-    "matplotlib>=3.10.5",
+  "colcon-common-extensions>=0.3.0",
+  "debugpy>=1.8.16",
+  "lark>=1.2.2",
+  "matplotlib>=3.10.5",
+  "numpy>=2.3.2",
+  "pandas>=2.3.1",
+  "scikit-learn>=1.7.1",
+  "sr-research-pylink>=2.1.1145.post1",
+  "torch>=2.8.0",
+  "tqdm>=4.67.1",
+  "transformations>=2025.8.1",
+  "trimesh[easy]>=4.7.4",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
     "mingus>=0.6.1",
-    "pandas>=2.3.1",
     "pre-commit>=4.3.0",
     "pyglet<2",
     "ros2-graph>=0.0.5",
-    "scikit-learn>=1.7.1",
-    "sr-research-pylink>=2.1.1145.post1",
-    "torch>=2.8.0",
-    "tqdm>=4.67.1",
-    "trimesh[easy]>=4.7.4",
 ]
 
 [project.scripts]
-train-gaze-estimation = "tabletop_py.eyelink.train_gaze_estimation:main"
+gaze-preprocess = "tabletop_py.gaze.preprocess:main"
+gaze-train = "tabletop_py.gaze.train:main"
+gaze-visualize = "tabletop_py.gaze.visualize:main"
 
 [tool.uv.sources]
 torch = [

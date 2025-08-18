@@ -34,7 +34,6 @@ setup(
     maintainer_email="valmiki.kothare.vk@gmail.com",
     description="The server nodes for the TableTop project",
     license="MIT",
-    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "commander = tabletop_server.nodes.commander:main",

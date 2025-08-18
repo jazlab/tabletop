@@ -1,8 +1,4 @@
---extra-index-url https://download.pytorch.org/whl/cu128
 mingus
 pre-commit
 pyglet<2
 ros2-graph
-scikit-learn
-torch
-tqdm

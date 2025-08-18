@@ -59,6 +59,7 @@ services:
     volumes:
       - ./:/tabletop
       - /tabletop/.venv
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
 
   server:
     extends: server-base
@@ -67,7 +68,6 @@ services:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
-      - /tmp/.X11-unix:/tmp/.X11-unix
     working_dir: /tabletop
     ports:
       - 50001:50001

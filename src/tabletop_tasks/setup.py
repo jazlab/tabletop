@@ -30,5 +30,4 @@ setup(
     maintainer_email="valmiki.kothare.vk@gmail.com",
     description="The tasks package for the TableTop project",
     license="MIT",
-    tests_require=["pytest"],
 )
