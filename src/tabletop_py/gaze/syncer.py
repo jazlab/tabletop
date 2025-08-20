@@ -9,7 +9,6 @@ from tkinter import (
     Entry,
     Frame,
     Label,
-    PhotoImage,
     StringVar,
     Tk,
     filedialog,

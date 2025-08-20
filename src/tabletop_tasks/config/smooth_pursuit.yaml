@@ -2,7 +2,7 @@ tasks:
   - class: SmoothPursuitTask
     kwargs:
       center_pose:
-        position: [0.0, -0.5, 0.8]
+        position: [0.9525, 0.5, 0.8]
         rpy: [1.5707, 0.0, 0.0]
       radius: 0.1
       length: 0.3

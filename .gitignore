@@ -5,7 +5,6 @@
 **/.cache/
 
 # Ignore logs
-**/logs/
 **/log/
 **/bags/
 **/*.log
@@ -34,15 +33,6 @@
 # Ignore piano stuff
 **/*.sf2
 **/*.mid
-
-# Ignore results
-**/results/
-
-# Ignore testing files
-**/testing/
-
-# Ignore copied eyelink files
-/eyelink/docs/
 
 # Ignore cache files
 /cache/

@@ -3,7 +3,6 @@ import os
 import threading
 from collections import deque
 from copy import copy
-from datetime import datetime
 from enum import Enum
 
 import numpy as np
@@ -62,8 +61,8 @@ class Eyelink(BaseNode):
         "link_event_filter": "null",
         "file_event_data": "null",
         "link_event_data": "null",
-        "session_bag_dir": "null",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
+        "session_bag_dir": "null",
         "log_samples": False,
         "log_smooth_pursuit": True,
         "log_smooth_pursuit_window": 0.5,  # seconds
@@ -168,21 +167,25 @@ class Eyelink(BaseNode):
         self.sample_retrieval_future.set_result(None)
         self.recording = False
 
-        # Create session bag directory
+    def init_bag_writer(self):
+        """Setup the bag writer.
+
+        This function will setup the bag writer if the session bag directory is
+        set.
+        """
         self.session_bag_dir = self.get_parameter_wrapper("session_bag_dir")
         if self.session_bag_dir is None:
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            dirname = f"eyelink_{timestamp}"
-            self.session_bag_dir = os.path.join(
-                os.environ["ROS_BAG_DIR"], dirname
+            self.log(
+                "No session bag directory provided, skipping bag writer",
+                severity="WARN",
             )
-            os.makedirs(self.session_bag_dir)
-        elif not os.path.isdir(self.session_bag_dir):
+            return
+
+        if not os.path.isdir(self.session_bag_dir):
             raise ValueError(
                 f"Session bag directory {self.session_bag_dir} is not a directory"
             )
 
-        # Setup bag writer
         bag_dir = os.path.join(self.session_bag_dir, "eyelink")
         self.bag_writer = rosbag2_py.SequentialWriter()
         storage_options = rosbag2_py.StorageOptions(
@@ -333,6 +336,13 @@ class Eyelink(BaseNode):
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
+        if self.session_bag_dir is None:
+            self.log(
+                "No session bag directory provided, skipping data file transfer",
+                severity="WARN",
+            )
+            return
+
         received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
         os.makedirs(received_dir, exist_ok=True)
         edf_path = os.path.join(received_dir, "last.edf")
@@ -470,11 +480,12 @@ class Eyelink(BaseNode):
                     msg = self.sample_to_msg(sample, timestamp)
                     with self.message_queue_lock:
                         self.message_queue.append(msg)
-                    self.bag_writer.write(
-                        "/eyelink/sample",
-                        serialize_message(msg),  # type: ignore
-                        timestamp.nanoseconds,
-                    )
+                    if hasattr(self, "bag_writer"):
+                        self.bag_writer.write(
+                            "/eyelink/sample",
+                            serialize_message(msg),  # type: ignore
+                            timestamp.nanoseconds,
+                        )
 
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
@@ -827,13 +838,14 @@ class Eyelink(BaseNode):
                 severity="ERROR",
             )
 
-        try:
-            self.bag_writer.close()
-        except Exception as e:
-            self.log(
-                f"Error closing bag writer: {type(e).__name__}: {e}",
-                severity="ERROR",
-            )
+        if hasattr(self, "bag_writer"):
+            try:
+                self.bag_writer.close()
+            except Exception as e:
+                self.log(
+                    f"Error closing bag writer: {type(e).__name__}: {e}",
+                    severity="ERROR",
+                )
 
         # self.log("Shutting down thread pool")
         # try:

@@ -2,7 +2,8 @@ from typing import Any
 
 import pytest
 import torch
-from gaze_estimation import (
+
+from tabletop_py.gaze.models import (
     GazeEstimationModelGeometric,
     LearnableMaskedCorrectionParameter,
     decompose_tf,

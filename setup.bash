@@ -52,14 +52,30 @@ export PATH=$TABLETOP_DIR/bin:$PATH
 # Aliases
 alias tree="tree -I 'build|install|logs|results"
 
-# ROS-specific
+# ROS-specific aliases
 if [ -d /opt/ros ]; then
     alias tt-server="ros2 launch tabletop_server server.launch.py"
     alias tt-commander="ros2 launch tabletop_server commander.launch.py"
     alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
 fi
 
-# Source .venv if it exists
+# Source virtual environment if it exists
 if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then
     source $TABLETOP_DIR/.venv/bin/activate
+fi
+
+# Source colcon cd and argcomplete if it exists
+if [ -f $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh ]; then
+    source $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh
+fi
+if [ -f $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then
+    source $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+fi
+
+# Source ROS environment
+if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
+    source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
+    if [ -f $COLCON_WS/install/setup.bash ]; then
+        source $COLCON_WS/install/setup.bash
+    fi
 fi

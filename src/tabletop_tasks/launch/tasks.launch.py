@@ -53,7 +53,6 @@ def generate_launch_description():
         if_value="null",
         else_value="tabletop_tasks",
     )
-
     coroutine_name = IfElseSubstitution(
         EqualsSubstitution(task_config, "null"),
         if_value="null",

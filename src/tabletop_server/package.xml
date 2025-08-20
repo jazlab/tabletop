@@ -9,6 +9,7 @@
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>rviz2</exec_depend>
   <exec_depend>ur</exec_depend>
   <exec_depend>ur_dashboard_msgs</exec_depend>
   <exec_depend>moveit</exec_depend>
@@ -22,14 +23,14 @@
   <exec_depend>rosbag2</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>shape_msgs</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-pandas</exec_depend>
   <exec_depend>micro_ros_agent</exec_depend>
   <exec_depend>tabletop_moveit_config</exec_depend>
   <exec_depend>tabletop_interfaces</exec_depend>
   <exec_depend>mocap4r2_optitrack_driver</exec_depend>
   <exec_depend>mocap4r2_msgs</exec_depend>
   <exec_depend>mocap4r2_marker_viz</exec_depend>
+  <exec_depend>mocap4r2_robot_gt</exec_depend>
+  <exec_depend>tabletop_utils</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

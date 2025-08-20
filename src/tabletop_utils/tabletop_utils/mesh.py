@@ -107,7 +107,7 @@ def _simplify_quadratic_decimation_mesh(
     Returns:
         The simplified mesh.
     """
-    import pyfqmr
+    import pyfqmr  # type: ignore
 
     mesh_simplifier = pyfqmr.Simplify()  # type: ignore
     mesh_simplifier.setMesh(mesh.vertices, mesh.faces)

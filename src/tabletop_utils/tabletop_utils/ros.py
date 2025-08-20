@@ -3,7 +3,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, Protocol
+from typing import Any, Literal, Optional, Protocol
 
 import numpy as np
 import trimesh
@@ -499,7 +499,8 @@ def quaternion_msg(w: float, x: float, y: float, z: float) -> Quaternion:
     """Convert a quaternion to a geometry_msgs/Quaternion message."""
     q = np.array([w, x, y, z])
     q = q / np.linalg.norm(q)
-    return Quaternion(w=q[0], x=q[1], y=q[2], z=q[3])
+    w, x, y, z = (float(p) for p in q)
+    return Quaternion(w=w, x=x, y=y, z=z)
 
 
 def quaternion_msg_from_euler(
@@ -565,7 +566,7 @@ def pose_msg(
         elif isinstance(position, Mapping):
             pose.position = Point(**position)  # type: ignore
         elif is_iterable(position):
-            x, y, z = position
+            x, y, z = (float(p) for p in position)
             pose.position = Point(x=x, y=y, z=z)
         else:
             raise ValueError(
@@ -967,11 +968,18 @@ TrimeshPrimitive = (
 )
 
 
-def add_primitive_collision_object_msg_from_geometry(
+def add_primitive_collision_object_msg_from_mesh(
     object_id: str,
     pose_stamped: PoseStamped,
     *,
-    geometry: trimesh.Trimesh | trimesh.Scene,
+    mesh: trimesh.Trimesh | trimesh.Scene,
+    primitive_type: Literal[
+        "bounding_primitive",
+        "bounding_box",
+        "bounding_box_oriented",
+        "bounding_sphere",
+        "bounding_cylinder",
+    ] = "bounding_primitive",
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
@@ -980,14 +988,16 @@ def add_primitive_collision_object_msg_from_geometry(
         object_id, pose_stamped, subframe_names, subframe_poses
     )
 
-    primitives: list[TrimeshPrimitive]
-    if isinstance(geometry, trimesh.Scene):
-        primitives = [x.bounding_primitive for x in geometry.geometry.values()]
+    geometries: Iterable[TrimeshPrimitive]
+    if isinstance(mesh, trimesh.Scene):
+        geometries = mesh.geometry.values()
     else:
-        primitives = [geometry.bounding_primitive]
+        geometries = [mesh.bounding_primitive]
 
-    for primitive in primitives:
+    for geometry in geometries:
+        primitive = geometry.__getattribute__(primitive_type)
         params = primitive.to_dict()
+
         if isinstance(primitive, trimesh.primitives.Box):
             primitive_msg = SolidPrimitive(
                 type=SolidPrimitive.BOX, dimensions=params["extents"]
@@ -1003,6 +1013,7 @@ def add_primitive_collision_object_msg_from_geometry(
             )
         else:
             raise ValueError(f"Invalid primitive type: {type(primitive)}")
+
         collision_object.primitives.append(primitive_msg)  # type: ignore
         pose = pose_msg_from_matrix(np.array(params["transform"]))
         collision_object.primitive_poses.append(pose)  # type: ignore

@@ -106,7 +106,7 @@ from tabletop_utils.ros import (
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
     add_primitive_collision_object_msg,
-    add_primitive_collision_object_msg_from_geometry,
+    add_primitive_collision_object_msg_from_mesh,
     all_close_poses_stamped,
     all_close_robot_states,
     arrays_from_pose_msg,
@@ -352,7 +352,7 @@ class Commander(BaseNode):
         """Initialize the collision detector."""
         with self.planning_scene_read_write() as scene:
             scene.allocate_collision_detector("bullet")
-        time.sleep(0.25)
+        time.sleep(0.5)
 
     def init_planning_scene(self):
         """Setup the planning scene
@@ -1537,7 +1537,16 @@ class Commander(BaseNode):
         *,
         scale: Optional[float] = None,
         correction: Optional[Pose | Mapping[str, Any]] = None,
-        simplification: Optional[str] = None,
+        simplification: Optional[
+            Literal[
+                "convex_hull",
+                "quadratic_decimation",
+                "bounding_primitive",
+                "bounding_box",
+                "bounding_sphere",
+                "bounding_cylinder",
+            ]
+        ] = None,
         pose_stamped: PoseStamped | Mapping[str, Any],
         dynamic: bool,
         additional_subframe_names: Optional[list[str]] = None,
@@ -1573,7 +1582,9 @@ class Commander(BaseNode):
                 geometry = simplify_convex_hull(geometry)
             case "quadratic_decimation":
                 geometry = simplify_quadratic_decimation(geometry)
-            case "bounding_primitive" | None:
+            case _ if simplification is None or simplification.startswith(
+                "bounding_"
+            ):
                 pass
             case _:
                 raise ValueError(
@@ -1612,15 +1623,16 @@ class Commander(BaseNode):
             subframe_poses.extend(additional_subframe_poses)
 
         # Create collision object
-        if simplification == "bounding_primitive":
-            collision_object = (
-                add_primitive_collision_object_msg_from_geometry(
-                    object_id=object_id,
-                    pose_stamped=pose_stamped,
-                    geometry=geometry,
-                    subframe_names=subframe_names,
-                    subframe_poses=subframe_poses,
-                )
+        if simplification is not None and simplification.startswith(
+            "bounding_"
+        ):
+            collision_object = add_primitive_collision_object_msg_from_mesh(
+                object_id=object_id,
+                pose_stamped=pose_stamped,
+                mesh=geometry,
+                primitive_type=simplification,  # type: ignore
+                subframe_names=subframe_names,
+                subframe_poses=subframe_poses,
             )
         else:
             collision_object = add_mesh_collision_object_msg(
@@ -2196,6 +2208,11 @@ class Commander(BaseNode):
 
         planning_component = self.get_planning_component(request.group_name)
 
+        # Set workspace
+        planning_component.set_workspace(
+            min_x=0.0, min_y=0.0, min_z=0.0, max_x=2.0, max_y=2.0, max_z=2.0
+        )
+
         # Set start state
         if not planning_component.set_start_state(
             robot_state=request.start_state
@@ -2223,7 +2240,7 @@ class Commander(BaseNode):
         if request.path_constraints is not None:
             planning_component.set_path_constraints(request.path_constraints)
 
-        # Plan
+        # Create request parameters
         if isinstance(request.planning_pipeline, str):
             request_params = PlanRequestParameters(
                 self.moveit_py, request.planning_pipeline

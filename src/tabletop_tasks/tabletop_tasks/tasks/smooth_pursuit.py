@@ -1,5 +1,6 @@
 """SmoothPursuit task."""
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -109,12 +110,16 @@ class SmoothPursuitTask(BaseTask):
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            spiral_trajectory = await self.generate_trajectories()
-            for i in range(self._num_cycles):
-                self.log(f"Executing cycle {i} of {self._num_cycles}")
-                self.log("Executing pre-trajectory")
-                await self.commander.plan_and_execute(spiral_trajectory[0])
-                self.log("Executing spiral trajectory")
-                await self.commander.execute(
-                    spiral_trajectory, validate_trajectory=False
-                )
+            try:
+                spiral_trajectory = await self.generate_trajectories()
+                for i in range(self._num_cycles):
+                    self.log(f"Executing cycle {i} of {self._num_cycles}")
+                    self.log("Executing pre-trajectory")
+                    await self.commander.plan_and_execute(spiral_trajectory[0])
+                    self.log("Executing spiral trajectory")
+                    await self.commander.execute(
+                        spiral_trajectory, validate_trajectory=False
+                    )
+            except Exception:
+                await asyncio.sleep(10)
+                raise

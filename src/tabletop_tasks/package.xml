@@ -11,28 +11,10 @@
 
   <license>MIT</license>
 
-  <depend>ament_index_python</depend>
-  <depend>rclpy</depend>
-  <depend>ur</depend>
-  <depend>moveit</depend>
-  <depend>moveit_py</depend>
-  <depend>moveit_configs_utils</depend>
-  <depend>moveit_ros_visualization</depend>
-  <depend>ros2controlcli</depend>
-  <depend>std_msgs</depend>
-  <depend>cv_bridge</depend>
-  <depend>sensor_msgs</depend>
-  <depend>rosbag2</depend>
-  <depend>rosbag2_py</depend>
-  <depend>tabletop_server</depend>
-  <depend>tabletop_moveit_config</depend>
-  <depend>tabletop_interfaces</depend>
-
-
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>moveit_py</exec_depend>
+  <exec_depend>tabletop_server</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

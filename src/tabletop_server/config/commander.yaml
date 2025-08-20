@@ -190,7 +190,7 @@
         common_kwargs:
           allowed_collision_ids:
             - eef_sphere
-          simplification: bounding_primitive
+          simplification: bounding_box_oriented
         object_kwargs:
           0,0:
             object_id: small_object_0

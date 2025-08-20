@@ -1,12 +1,16 @@
 """Block-structured cup/drawer trial generator."""
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from tabletop_server.nodes import Commander
-from tabletop_tasks.trial_generators.base import BaseTrialGenerator, TrialSpec
+from tabletop_tasks.trial_generators.base import (
+    BaseTrialGenerator,
+    TrialFeedback,
+    TrialSpec,
+)
 
 
 class RandomChoice(BaseTrialGenerator):
@@ -25,16 +29,23 @@ class RandomChoice(BaseTrialGenerator):
         self,
         commander: Commander,
         object_ids: list[str],
-        occlude_prob: float,
         poses: list[Mapping[str, Any]],
+        arms: list[Literal["left", "right", "both"]],
+        occlude_prob: float,
         num_trials: int,
     ):
         super().__init__(commander)
+
         self._object_ids = object_ids
         self._poses = [
             self.commander.create_pose_stamped(**pose) for pose in poses
         ]
+        self._arms = arms
+
         self._occlude_prob = occlude_prob
+
+        if num_trials < 1:
+            raise ValueError("num_trials must be at least 1")
         self._num_trials = num_trials
         self._trial_counter = 0
 
@@ -44,10 +55,13 @@ class RandomChoice(BaseTrialGenerator):
             raise StopIteration
 
         # Sample object pose
-        object_pose = np.random.choice(self._poses)  # type: ignore
+        object_pose = np.random.choice(self._poses)  # type: ignore[arg-type]
 
         # Sample object id
         object_id = np.random.choice(self._object_ids)
+
+        # Sample arm
+        arm = np.random.choice(self._arms)
 
         # Sample occlude
         occlude = np.random.choice(
@@ -58,6 +72,7 @@ class RandomChoice(BaseTrialGenerator):
         trial_spec = TrialSpec(
             object_id=object_id,
             object_pose=object_pose,
+            arm=arm,
             occlude=occlude,
         )
 
@@ -65,6 +80,6 @@ class RandomChoice(BaseTrialGenerator):
 
         return trial_spec
 
-    def send(self, **unused_kwargs: dict) -> None:
+    def send(self, feedback: TrialFeedback):
         """Send feedback."""
         pass

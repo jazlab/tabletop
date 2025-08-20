@@ -1,4 +1,0 @@
-mingus
-pre-commit
-pyglet<2
-ros2-graph

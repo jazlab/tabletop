@@ -213,65 +213,6 @@ def test(
     return mse_test, rmse_test, r2_test
 
 
-# def plot_3d_animation(y_test, y_pred, mse_test, rmse_test, r2_test):
-#     """
-#     Plots a 3D animation of the actual and predicted values.
-
-#     Args:
-#         y_test (numpy.ndarray): Test target variables.
-#         y_pred (numpy.ndarray): Predicted target variables.
-#         mse_test (float): Test set MSE score.
-#         rmse_test (float): Test set RMSE score.
-#         r2_test (float): Test set R2 score.
-#     """
-#     fig = plt.figure(figsize=(8, 6))
-#     ax = fig.add_subplot(111, projection="3d")
-
-#     actual_scatter = ax.scatter([], [], [], c="blue", label="Actual")
-#     predicted_scatter = ax.scatter([], [], [], c="red", label="Predicted")
-
-#     ax.set_xlim(y_test[:, 0].min(), y_test[:, 0].max())
-#     ax.set_ylim(y_test[:, 1].min(), y_test[:, 1].max())
-#     ax.set_zlim(y_test[:, 2].min(), y_test[:, 2].max())
-#     ax.set_xlabel("X")
-#     ax.set_ylabel("Y")
-#     ax.set_zlabel("Z")
-#     ax.legend()
-
-#     metrics_text = (
-#         f"MSE: {mse_test:.4f}\nRMSE: {rmse_test:.4f}\nR2: {r2_test:.4f}"
-#     )
-#     ax.text2D(
-#         0.98,
-#         0.02,
-#         metrics_text,
-#         transform=ax.transAxes,
-#         fontsize=10,
-#         ha="right",
-#         va="bottom",
-#         bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-#     )
-
-#     def update(frame):
-#         actual_x, actual_y, actual_z = y_test[frame]
-#         predicted_x, predicted_y, predicted_z = y_pred[frame]
-
-#         actual_scatter._offsets3d = ([actual_x], [actual_y], [actual_z])
-#         predicted_scatter._offsets3d = (
-#             [predicted_x],
-#             [predicted_y],
-#             [predicted_z],
-#         )
-
-#         return actual_scatter, predicted_scatter
-
-#     ani = FuncAnimation(
-#         fig, update, frames=len(y_test), interval=100, blit=True
-#     )
-
-#     plt.show()
-
-
 def main(args=None):
     """
     Main function to run the gaze estimation model training and evaluation.
@@ -337,7 +278,11 @@ def main(args=None):
 
     points = np.stack([y_test_unscaled, y_pred]).transpose(1, 0, 2)
 
-    animate_3d_dots(points, freq=1000, save_path="test.mp4")
+    animate_3d_dots(
+        points,
+        freq=1000,
+        save_path=os.path.join(args.session_dir, "predicted_markers.mp4"),
+    )
 
 
 if __name__ == "__main__":

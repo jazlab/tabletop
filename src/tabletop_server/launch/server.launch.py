@@ -3,7 +3,7 @@ from datetime import datetime
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription
+from launch import LaunchContext, LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
@@ -27,6 +27,8 @@ from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 from tabletop_utils.common import print_substitutions
+
+# TODO: Don't shutdown on exit, try to restart the node instead
 
 
 def declare_arguments():
@@ -217,107 +219,72 @@ def declare_arguments():
 
 
 def generate_launch_description():
-    # Common
-    use_sim_time = LaunchConfiguration("use_sim_time")
-    robot_mode = LaunchConfiguration("robot_mode")
-    ur_type = LaunchConfiguration("ur_type")
-
-    # UR Robot Driver
-    controller_spawner_timeout = LaunchConfiguration(
-        "controller_spawner_timeout"
-    )
-    initial_joint_controller = LaunchConfiguration("initial_joint_controller")
-
-    # Teensy
-    micro_ros_transport = LaunchConfiguration("micro_ros_transport")
-    micro_ros_device = LaunchConfiguration("micro_ros_device")
-    micro_ros_baudrate = LaunchConfiguration("micro_ros_baudrate")
-    micro_ros_verbosity = LaunchConfiguration("micro_ros_verbosity")
-    use_mock_teensy = LaunchConfiguration("use_mock_teensy")
-
-    # Flic
-    simulate_flic = LaunchConfiguration("simulate_flic")
-
-    # RViz
-    launch_rviz_server = LaunchConfiguration("launch_rviz_server")
-    rviz_config_file_server = LaunchConfiguration("rviz_config_file_server")
-
-    # Bag
-    rosbag_record = LaunchConfiguration("rosbag_record")
-
-    # ROS Warehouse
-    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
-
-    # Logging
-    default_log_level = LaunchConfiguration("default_log_level")
-    teensy_log_level = LaunchConfiguration("teensy_log_level")
-    flic_log_level = LaunchConfiguration("flic_log_level")
-    eyelink_log_level = LaunchConfiguration("eyelink_log_level")
-    rviz_log_level = LaunchConfiguration("rviz_log_level")
-
-    # Outputs
-    mock_dashboard_output = LaunchConfiguration("mock_dashboard_output")
-    ur_output = LaunchConfiguration("ur_output")
-    micro_ros_output = LaunchConfiguration("micro_ros_output")
-    mock_teensy_output = LaunchConfiguration("mock_teensy_output")
-    flic_output = LaunchConfiguration("flic_output")
-    eyelink_output = LaunchConfiguration("eyelink_output")
-    rviz_output = LaunchConfiguration("rviz_output")
-    bag_output = LaunchConfiguration("bag_output")
-    ###########################################################################
-
-    # Set ROS Log Directory
-    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
-
     # Conditional substitutions
     robot_ip = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "real"),
+        EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
         os.environ["ROBOT_IP"],
         os.environ["SIM_ROBOT_IP"],
     )
     reverse_ip = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "real"),
+        EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
         os.environ["REVERSE_IP"],
         os.environ["SIM_REVERSE_IP"],
     )
     use_mock_robot = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "mock"), "true", "false"
+        EqualsSubstitution(LaunchConfiguration("robot_mode"), "mock"),
+        "true",
+        "false",
     )
     kinematics_params_file = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_description"),
             "config",
             IfElseSubstitution(
-                EqualsSubstitution(robot_mode, "real"),
+                EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
                 "ur5e_calibration.yaml",
                 "ursim_calibration.yaml",
             ),
         ]
     )
 
-    # Create a new bag directory for the session and symlink to it
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    dirname = f"session_{timestamp}"
-    session_bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], dirname)
-    os.makedirs(session_bag_dir, exist_ok=True)
-    try:
-        os.remove(os.path.join(os.environ["ROS_BAG_DIR"], "latest"))
-    except FileNotFoundError:
-        pass
-    os.symlink(dirname, os.path.join(os.environ["ROS_BAG_DIR"], "latest"))
-
     # Print substitutions
     print_substitutions_action = OpaqueFunction(
-        function=lambda context: print_substitutions(
-            context,
+        function=print_substitutions,
+        args=[
             {
                 "robot_ip": robot_ip,
                 "reverse_ip": reverse_ip,
                 "use_mock_robot": use_mock_robot,
                 "kinematics_params_file": kinematics_params_file,
-            },
+            }
+        ],
+        condition=IfCondition(
+            EqualsSubstitution(
+                LaunchConfiguration("default_log_level"), "DEBUG"
+            )
         ),
-        condition=IfCondition(EqualsSubstitution(default_log_level, "DEBUG")),
+    )
+
+    # Set ROS Log Directory
+    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+
+    # Create a new bag directory for the session and symlink to it
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    dirname = f"session_{timestamp}"
+    session_bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], dirname)
+    symlink_path = os.path.join(os.environ["ROS_BAG_DIR"], "latest")
+
+    def _create_session_bag_dir(context: LaunchContext):
+        os.makedirs(session_bag_dir, exist_ok=True)
+        try:
+            os.remove(symlink_path)
+        except FileNotFoundError:
+            pass
+        os.symlink(dirname, symlink_path)
+
+    create_session_bag_dir = OpaqueFunction(
+        function=_create_session_bag_dir,
+        condition=IfCondition(LaunchConfiguration("rosbag_record")),
     )
 
     # UR Robot Driver (use group action to isolate the launch file)
@@ -325,7 +292,7 @@ def generate_launch_description():
         [
             SetEnvironmentVariable(
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value=ur_output,
+                value=LaunchConfiguration("ur_output"),
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -340,12 +307,16 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={
-                    "ur_type": ur_type,
+                    "ur_type": LaunchConfiguration("ur_type"),
                     "robot_ip": robot_ip,
                     "reverse_ip": reverse_ip,
                     "use_mock_hardware": use_mock_robot,
-                    "controller_spawner_timeout": controller_spawner_timeout,
-                    "initial_joint_controller": initial_joint_controller,
+                    "controller_spawner_timeout": LaunchConfiguration(
+                        "controller_spawner_timeout"
+                    ),
+                    "initial_joint_controller": LaunchConfiguration(
+                        "initial_joint_controller"
+                    ),
                     "launch_rviz": "false",
                     "kinematics_params_file": kinematics_params_file,
                     "description_launchfile": PathJoinSubstitution(
@@ -362,7 +333,7 @@ def generate_launch_description():
                             "tabletop.urdf.xacro",
                         ]
                     ),
-                    "use_sim_time": use_sim_time,
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
                 }.items(),
             ),
         ],
@@ -374,9 +345,12 @@ def generate_launch_description():
     mock_dashboard = Node(
         package="tabletop_server",
         executable="mock_dashboard",
-        output=mock_dashboard_output,
-        parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", default_log_level],
+        output=LaunchConfiguration("mock_dashboard_output"),
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        ros_arguments=[
+            "--log-level",
+            LaunchConfiguration("default_log_level"),
+        ],
         condition=IfCondition(use_mock_robot),
         on_exit=[Shutdown()],
     )
@@ -386,19 +360,19 @@ def generate_launch_description():
         package="micro_ros_agent",
         name="micro_ros_agent",
         executable="micro_ros_agent",
-        output=micro_ros_output,
-        parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", teensy_log_level],
+        output=LaunchConfiguration("micro_ros_output"),
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        ros_arguments=["--log-level", LaunchConfiguration("teensy_log_level")],
         arguments=[
-            micro_ros_transport,
+            LaunchConfiguration("micro_ros_transport"),
             "--dev",
-            micro_ros_device,
+            LaunchConfiguration("micro_ros_device"),
             "--baudrate",
-            micro_ros_baudrate,
+            LaunchConfiguration("micro_ros_baudrate"),
             "--verbose",
-            micro_ros_verbosity,
+            LaunchConfiguration("micro_ros_verbosity"),
         ],
-        condition=UnlessCondition(use_mock_teensy),
+        condition=UnlessCondition(LaunchConfiguration("use_mock_teensy")),
         on_exit=[Shutdown()],
     )
 
@@ -407,10 +381,10 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
-        output=mock_teensy_output,
-        parameters=[{"use_sim_time": use_sim_time}],
-        ros_arguments=["--log-level", teensy_log_level],
-        condition=IfCondition(use_mock_teensy),
+        output=LaunchConfiguration("mock_teensy_output"),
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        ros_arguments=["--log-level", LaunchConfiguration("teensy_log_level")],
+        condition=IfCondition(LaunchConfiguration("use_mock_teensy")),
         on_exit=[Shutdown()],
     )
 
@@ -419,11 +393,14 @@ def generate_launch_description():
         name="flic",
         package="tabletop_server",
         executable="flic",
-        output=flic_output,
+        output=LaunchConfiguration("flic_output"),
         parameters=[
-            {"use_sim_time": use_sim_time, "simulate": simulate_flic},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "simulate": LaunchConfiguration("simulate_flic"),
+            },
         ],
-        ros_arguments=["--log-level", flic_log_level],
+        ros_arguments=["--log-level", LaunchConfiguration("flic_log_level")],
         on_exit=[Shutdown()],
     )
 
@@ -432,11 +409,18 @@ def generate_launch_description():
         name="eyelink",
         package="tabletop_server",
         executable="eyelink",
-        output=eyelink_output,
+        output=LaunchConfiguration("eyelink_output"),
         parameters=[
-            {"use_sim_time": use_sim_time, "session_bag_dir": session_bag_dir},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "session_bag_dir": "null",
+            },
         ],
-        ros_arguments=["--log-level", eyelink_log_level],
+        ros_arguments=[
+            "--log-level",
+            LaunchConfiguration("eyelink_log_level"),
+        ],
+        on_exit=[Shutdown()],
     )
 
     # RViz MoveIt Config
@@ -445,7 +429,8 @@ def generate_launch_description():
             robot_name="ur5e", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}
+            file_path="srdf/tabletop.srdf.xacro",
+            mappings={"name": LaunchConfiguration("ur_type")},
         )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",
@@ -454,15 +439,14 @@ def generate_launch_description():
     )
     warehouse_ros_config = {
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
+        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
     }
 
     # RViz
     rviz_node = Node(
         package="rviz2",
-        condition=IfCondition(launch_rviz_server),
         executable="rviz2",
-        output=rviz_output,
+        output=LaunchConfiguration("rviz_output"),
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -470,10 +454,16 @@ def generate_launch_description():
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
             warehouse_ros_config,
-            {"use_sim_time": use_sim_time},
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
-        arguments=["-d", rviz_config_file_server, "-l"],  # -l for ogre log
-        ros_arguments=["--log-level", rviz_log_level],
+        arguments=[
+            "-d",
+            LaunchConfiguration("rviz_config_file_server"),
+            "-l",
+        ],  # -l for ogre log
+        ros_arguments=["--log-level", LaunchConfiguration("rviz_log_level")],
+        condition=IfCondition(LaunchConfiguration("launch_rviz_server")),
+        on_exit=[Shutdown()],
     )
 
     # Bag
@@ -497,13 +487,15 @@ def generate_launch_description():
     bag = ExecuteProcess(
         name="rosbag",
         cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
-        output=bag_output,
-        condition=IfCondition(rosbag_record),
+        output=LaunchConfiguration("bag_output"),
+        condition=IfCondition(LaunchConfiguration("rosbag_record")),
+        on_exit=[Shutdown()],
     )
 
     launch_actions = [
-        set_ros_log_dir,
         print_substitutions_action,
+        set_ros_log_dir,
+        create_session_bag_dir,
         ur_robot_driver,
         mock_dashboard,
         micro_ros_agent,

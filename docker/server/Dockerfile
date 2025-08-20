@@ -129,11 +129,11 @@ EOT
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
+export EDITOR=vim
 export PATH=~/.local/bin:\$PATH
-source /opt/ros/$ROS_DISTRO/setup.bash
-source /tabletop/install/setup.bash
 source /tabletop/setup.bash
-eval "\$(pip completion --bash)"
+eval "\$(uv generate-shell-completion bash)"
+eval "\$(uvx --generate-shell-completion bash)"
 eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF
