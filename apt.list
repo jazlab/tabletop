@@ -17,3 +17,5 @@ xarclock
 ros-jazzy-ros2controlcli
 eyelink-display-software
 ffmpeg
+direnv
+bear

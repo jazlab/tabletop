@@ -15,7 +15,7 @@ from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
 from tabletop_server.nodes.base import BaseNode
-from tabletop_utils.aio_executor import AIOExecutor
+from tabletop_utils.executors import AIOExecutor
 
 monkey_logger = rclpy.logging.get_logger("wiggins")
 

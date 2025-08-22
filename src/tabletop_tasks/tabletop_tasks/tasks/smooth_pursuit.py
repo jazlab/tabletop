@@ -1,6 +1,5 @@
 """SmoothPursuit task."""
 
-import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -10,22 +9,23 @@ from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 
 from tabletop_server.nodes import Commander
 from tabletop_tasks.tasks.base import BaseTask
+from tabletop_utils.ros import robot_trajectory_copy
 
 
 class SmoothPursuitTask(BaseTask):
     def __init__(
         self,
         commander: Commander,
+        *,
         center_pose: Mapping[str, Any],
         radius: float,
         length: float,
         num_revolutions: int,
-        num_segments: int = 100,
-        velocity_scaling_factor: float = 0.5,
-        acceleration_scaling_factor: float = 0.5,
-        reward_period: float = 1.0,
-        reward_duration: float = 0.1,
-        num_cycles: int = 1,
+        num_segments: int,
+        num_cycles: int,
+        reward_period: float,
+        reward_duration: float,
+        execute_request_params: Mapping[str, Any],
     ):
         super().__init__(commander)
         self._center_pose = self.commander.create_pose_stamped(**center_pose)
@@ -35,11 +35,10 @@ class SmoothPursuitTask(BaseTask):
         self._num_segments = num_segments
         self._reward_period = reward_period
         self._reward_duration = reward_duration
-        self._velocity_scaling_factor = velocity_scaling_factor
-        self._acceleration_scaling_factor = acceleration_scaling_factor
+        self._execute_request_params = execute_request_params
         self._num_cycles = num_cycles
 
-    async def generate_trajectories(self) -> RobotTrajectory:
+    async def generate_trajectory(self) -> RobotTrajectory:
         """Generate spiral trajectory
 
         Returns:
@@ -49,7 +48,7 @@ class SmoothPursuitTask(BaseTask):
         self.log(f"Generating {self._num_revolutions} revolutions")
 
         last_waypoint: RobotState | None = None
-        for i in range(self._num_segments):
+        for i in range(self._num_segments + 1):
             self.log(f"Generating segment {i} of {self._num_segments}")
             # Calculate x and z coordinates of spiral (circular motion)
             theta_xz = (
@@ -105,21 +104,33 @@ class SmoothPursuitTask(BaseTask):
 
             last_waypoint = trajectory[len(trajectory) - 1]
 
-        return spiral_trajectory
+        request, unused_kwargs = self.commander.create_execute_request(
+            spiral_trajectory, **self._execute_request_params
+        )
+        if unused_kwargs:
+            raise ValueError(
+                f"Smooth pursuit execute request has unused kwargs: {unused_kwargs}"
+            )
+        spiral_trajectory = self.commander.preprocess_trajectory(request)
+
+        full_trajectory = robot_trajectory_copy(spiral_trajectory)
+        for i in range(self._num_cycles):
+            full_trajectory.append(spiral_trajectory, dt=0.01, start_index=1)
+
+        return full_trajectory
 
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            try:
-                spiral_trajectory = await self.generate_trajectories()
-                for i in range(self._num_cycles):
-                    self.log(f"Executing cycle {i} of {self._num_cycles}")
-                    self.log("Executing pre-trajectory")
-                    await self.commander.plan_and_execute(spiral_trajectory[0])
-                    self.log("Executing spiral trajectory")
-                    await self.commander.execute(
-                        spiral_trajectory, validate_trajectory=False
-                    )
-            except Exception:
-                await asyncio.sleep(10)
-                raise
+            trajectory = await self.generate_trajectory()
+
+            self.log("Moving to start of spiral")
+            await self.commander.plan_and_execute(trajectory[0])
+
+            self.log(
+                f"Executing spiral trajectory for {trajectory.duration} seconds"
+            )
+
+            await self.commander.execute(
+                trajectory, preprocess_trajectory=False
+            )

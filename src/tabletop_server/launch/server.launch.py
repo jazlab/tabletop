@@ -413,7 +413,11 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
-                "session_bag_dir": "null",
+                "session_bag_dir": IfElseSubstitution(
+                    LaunchConfiguration("rosbag_record"),
+                    session_bag_dir,
+                    "null",
+                ),
             },
         ],
         ros_arguments=[

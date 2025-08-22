@@ -7,6 +7,7 @@ import importlib
 import json
 import os
 import pickle
+import signal
 import threading
 import time
 import traceback
@@ -60,7 +61,6 @@ from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
-from rclpy.executors import SingleThreadedExecutor
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
@@ -80,6 +80,7 @@ from tabletop_interfaces.srv import (
     SetSmartglass,
 )
 from tabletop_server.nodes.base import BaseNode
+from tabletop_utils.executors import TestExecutor
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_convex_hull,
@@ -969,29 +970,47 @@ class Commander(BaseNode):
         response_time = Duration.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9
 
+    async def eyelink_smooth_pursuit_feedback_callback(
+        self, feedback: EyelinkSmoothPursuit.Feedback
+    ):
+        """Callback for the eyelink smooth pursuit feedback."""
+        if feedback.smooth_pursuit_started:
+            self.log("Smooth pursuit started", severity="INFO")
+        else:
+            self.log("Smooth pursuit ended", severity="INFO")
+
     @asyncio_task_decorator
-    async def eyelink_smooth_pursuit(self):
+    async def eyelink_smooth_pursuit(
+        self,
+        window: float,
+        threshold: int,
+        min_samples: int,
+        check_interval: float,
+    ):
         """Get eyelink smooth pursuit state."""
+
         goal_handle = cast(
             ClientGoalHandle,
             await self.eyelink_smooth_pursuit_client.send_goal_async(
-                EyelinkSmoothPursuit.Goal()
+                EyelinkSmoothPursuit.Goal(),
+                feedback_callback=self.eyelink_smooth_pursuit_feedback_callback,
             ),
         )
         if not goal_handle.accepted:
-            raise RuntimeError("Flic goal not accepted")
+            raise RuntimeError("goal not accepted")
+
+        acceptable_statuses = set(
+            (GoalStatus.STATUS_ACCEPTED, GoalStatus.STATUS_EXECUTING)
+        )
+        assert goal_handle.status in acceptable_statuses
 
         try:
-            response = await goal_handle.get_result_async()
+            await goal_handle.get_result_async()
         except asyncio.CancelledError:
             goal_handle.cancel_goal_async()
             raise
 
-        if response.status != GoalStatus.STATUS_SUCCEEDED:
-            raise RuntimeError("Flic goal failed")
-
-        response_time = Duration.from_msg(response.result.response_time)
-        return response_time.nanoseconds / 1e9
+        assert False, "Smooth pursuit action should never return"
 
     ###########################################################################
     ########## Planning scene #################################################
@@ -2529,10 +2548,49 @@ class Commander(BaseNode):
             ):
                 raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
 
+    def preprocess_trajectory(
+        self, request: ExecuteRequest
+    ) -> RobotTrajectory:
+        """Preprocess the trajectory using the given request.
+
+        Args:
+            request: The request to preprocess the trajectory with.
+
+        Returns:
+            The preprocessed trajectory.
+        """
+        # Apply time parameterization and smoothing to the trajectory
+        trajectory = request.trajectory
+        if request.apply_totg:
+            trajectory = self._apply_totg(
+                trajectory,
+                velocity_scaling_factor=request.velocity_scaling_factor,
+                acceleration_scaling_factor=request.acceleration_scaling_factor,
+                path_tolerance=request.path_tolerance,
+                resample_dt=request.resample_dt,
+                min_angle_change=request.min_angle_change,
+            )
+
+        if request.apply_smoothing:
+            trajectory = self._apply_smoothing(
+                trajectory,
+                velocity_scaling_factor=request.velocity_scaling_factor,
+                acceleration_scaling_factor=request.acceleration_scaling_factor,
+                mitigate_overshoot=request.mitigate_overshoot,
+                overshoot_threshold=request.overshoot_threshold,
+            )
+
+        # Validate the trajectory
+        if request.validate_trajectory:
+            self._validate_trajectory(trajectory)
+
+        return trajectory
+
     def _execute_impl(
         self,
         *args: Any,
         request: Optional[ExecuteRequest] = None,
+        preprocess_trajectory: bool = True,
         **kwargs: Any,
     ):
         """Execute the given robot trajectory.
@@ -2567,30 +2625,10 @@ class Commander(BaseNode):
                 "cannot be provided if request is provided"
             )
 
-        # Apply time parameterization and smoothing to the trajectory
-        trajectory = request.trajectory
-        if request.apply_totg:
-            trajectory = self._apply_totg(
-                trajectory,
-                velocity_scaling_factor=request.velocity_scaling_factor,
-                acceleration_scaling_factor=request.acceleration_scaling_factor,
-                path_tolerance=request.path_tolerance,
-                resample_dt=request.resample_dt,
-                min_angle_change=request.min_angle_change,
-            )
-
-        if request.apply_smoothing:
-            trajectory = self._apply_smoothing(
-                trajectory,
-                velocity_scaling_factor=request.velocity_scaling_factor,
-                acceleration_scaling_factor=request.acceleration_scaling_factor,
-                mitigate_overshoot=request.mitigate_overshoot,
-                overshoot_threshold=request.overshoot_threshold,
-            )
-
-        # Validate the trajectory
-        if request.validate_trajectory:
-            self._validate_trajectory(trajectory)
+        if preprocess_trajectory:
+            trajectory = self.preprocess_trajectory(request)
+        else:
+            trajectory = request.trajectory
 
         # Check if the robot is safe to execute
         if not self.safe_to_execute:
@@ -2607,6 +2645,7 @@ class Commander(BaseNode):
             execution_status = (
                 self.trajectory_execution_manager.execute_and_wait()
             )
+        print("Execution status:", execution_status)
 
         # Return the trajectory if the execution was successful, otherwise raise
         # an error based on the execution status and safe to execute flag
@@ -2630,7 +2669,10 @@ class Commander(BaseNode):
         try:
             return await asyncio.to_thread(self._execute_impl, *args, **kwargs)
         finally:
-            self.trajectory_execution_manager.stop_execution()
+            print("Stopping execution")
+            if self.execution_lock.locked():
+                self.trajectory_execution_manager.stop_execution()
+            print("Execution stopped")
 
     def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
         """Cache the given trajectory.
@@ -3344,6 +3386,10 @@ class Commander(BaseNode):
     ########## Asyncio schedule ###############################################
     ###########################################################################
 
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        """Set the event loop for the commander."""
+        self._loop = loop
+
     def schedule(self, *coros: Coroutine) -> asyncio.Task | list[asyncio.Task]:
         """Schedule coroutines to run.
 
@@ -3365,6 +3411,9 @@ class Commander(BaseNode):
     def destroy_node(self):
         if hasattr(self, "trajectory_cache"):
             self.trajectory_cache.close()
+            del self.trajectory_cache
+        # if hasattr(self, "trajectory_execution_manager"):
+        #     self.trajectory_execution_manager.stop_execution()
         if hasattr(self, "moveit_py"):
             self.moveit_py.shutdown()
         super().destroy_node()
@@ -3411,7 +3460,11 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
 
 
 async def asyncio_runner(
-    coro: Coroutine, spin_future: concurrent.futures.Future, max_workers: int
+    coro_fn: Callable[[Commander, Optional[str]], Coroutine],
+    commander: Commander,
+    config: str | None,
+    spin_future: concurrent.futures.Future,
+    max_workers: int,
 ):
     """Run a coroutine in an asyncio event loop.
 
@@ -3422,84 +3475,104 @@ async def asyncio_runner(
     Args:
         coro: The coroutine to run.
     """
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as tpe:
-        loop = asyncio.get_event_loop()
-        loop.set_default_executor(tpe)
-        spin_task = asyncio.wrap_future(spin_future)
-        coro_task = asyncio.create_task(coro)
-        done, _ = await asyncio.wait(
-            [spin_task, coro_task], return_when=asyncio.FIRST_COMPLETED
+    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
+        print("SIGINT is default")
+    else:
+        print(
+            f"SIGINT is not default: {signal.getsignal(signal.SIGINT)} "
+            f"({type(signal.getsignal(signal.SIGINT))})"
         )
-        for task in done:
-            task.result()
+    tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(tpe)
+    commander.set_loop(loop)
+
+    task = asyncio.create_task(coro_fn(commander, config))
+    spin_future.add_done_callback(
+        lambda _: loop.call_soon_threadsafe(task.cancel)
+        if loop.is_running()
+        else None
+    )
+
+    try:
+        await task
+    finally:
+        try:
+            print("Shutting down commander")
+            commander.destroy_node()
+        except Exception as e:
+            print(f"Error while shutting down commander: {e}")
 
 
 def main(args=None):
     rclpy.init(args=args)
-
-    # Parse non-ROS arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--coroutine-module", type=str, default=None)
-    parser.add_argument("--coroutine-name", type=str, default=None)
-    parser.add_argument("--coroutine-config", type=str, default=None)
-    parser.add_argument("--max-workers", type=int, default=4)
-    parser.add_argument("--debug", action="store_true", default=False)
-
-    non_ros_args = rclpy.utilities.remove_ros_args(args)
-    args, _ = parser.parse_known_args(non_ros_args)
-
-    if args.coroutine_module is not None or args.coroutine_name is not None:
-        if args.coroutine_name is None or args.coroutine_module is None:
-            raise ValueError(
-                "Both coroutine_module and coroutine_name must be provided "
-                "when one is provided"
-            )
-        print(
-            f"Loading coroutine {args.coroutine_name} "
-            f"from module {args.coroutine_module} "
-        )
-        coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-            importlib.import_module(args.coroutine_module), args.coroutine_name
-        )
-    else:
-        print("No coroutine module or name provided, running in debug mode")
-        coro_fn = debug_commander
-        args.coroutine_config = None
-        args.debug = True
-
-    if args.coroutine_config is not None:
-        print(f"Config file: {args.coroutine_config}")
-
-    if args.debug:
-        print("Debug mode enabled")
-        debugpy.listen(1300)
-        print("Waiting for debugger to attach")
-        debugpy.wait_for_client()
-        print("Debugger attached")
-
     try:
+        # Parse non-ROS arguments
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--coroutine-module", type=str, default=None)
+        parser.add_argument("--coroutine-name", type=str, default=None)
+        parser.add_argument("--coroutine-config", type=str, default=None)
+        parser.add_argument("--max-workers", type=int, default=4)
+        parser.add_argument("--debug", action="store_true", default=False)
+
+        non_ros_args = rclpy.utilities.remove_ros_args(args)
+        args, _ = parser.parse_known_args(non_ros_args)
+
+        if (
+            args.coroutine_module is not None
+            or args.coroutine_name is not None
+        ):
+            if args.coroutine_name is None or args.coroutine_module is None:
+                raise ValueError(
+                    "Both coroutine_module and coroutine_name must be provided "
+                    "when one is provided"
+                )
+            print(
+                f"Loading coroutine {args.coroutine_name} "
+                f"from module {args.coroutine_module} "
+            )
+            coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
+                importlib.import_module(args.coroutine_module),
+                args.coroutine_name,
+            )
+        else:
+            print(
+                "No coroutine module or name provided, running in debug mode"
+            )
+            coro_fn = debug_commander
+            args.coroutine_config = None
+            args.debug = True
+
+        if args.coroutine_config is not None:
+            print(f"Config file: {args.coroutine_config}")
+
+        if args.debug:
+            print("Debug mode enabled")
+            debugpy.listen(1300)
+            print("Waiting for debugger to attach")
+            debugpy.wait_for_client()
+            print("Debugger attached")
+
         commander = Commander()
-        executor = SingleThreadedExecutor()
+        executor = TestExecutor()
         executor.add_node(commander)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
+            spin_future = tpe.submit(executor.spin)
             try:
-                spin_future = tpe.submit(executor.spin)
-                coro = coro_fn(commander, args.coroutine_config)
                 asyncio.run(
-                    asyncio_runner(coro, spin_future, args.max_workers)
+                    asyncio_runner(
+                        coro_fn,
+                        commander,
+                        args.coroutine_config,
+                        spin_future,
+                        args.max_workers,
+                    )
                 )
             finally:
-                try:
-                    print("Shutting down commander")
-                    commander.destroy_node()
-                except Exception as e:
-                    print(f"Error while shutting down commander: {e}")
-                try:
-                    print("Shutting down executor")
-                    executor.shutdown()
-                except Exception as e:
-                    print(f"Error while shutting down executor: {e}")
+                print("Shutting down executor")
+                executor.shutdown()
+                spin_future.result()
     except KeyboardInterrupt:
         pass
     finally:

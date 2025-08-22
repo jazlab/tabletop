@@ -14,6 +14,10 @@ while [[ $# -gt 0 ]]; do
             unset target_arg
             shift
             ;;
+        --compile)
+            target_arg="--target compiledb"
+            shift
+            ;;
         -y)
             yes=true
             shift

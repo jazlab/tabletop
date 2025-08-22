@@ -80,7 +80,7 @@
         velocity_scaling_factor: 1.0
         acceleration_scaling_factor: 1.0
         path_tolerance: 0.001
-        resample_dt: 0.005
+        resample_dt: 0.05
         min_angle_change: 0.001
         mitigate_overshoot: false
         overshoot_threshold: 0.002

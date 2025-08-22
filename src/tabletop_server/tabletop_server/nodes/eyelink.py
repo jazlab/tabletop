@@ -84,6 +84,7 @@ class Eyelink(BaseNode):
         # pylink.endRealTimeMode()
 
         self.init_ros()
+        self.init_bag_writer()
         self.init_sample_retrieval()
 
         self.destroyed = False
@@ -490,8 +491,12 @@ class Eyelink(BaseNode):
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
                 self.ros_sleep(1e-5)
-        except (NotInitializedException, ROSSleepError):
-            pass
+        except (NotInitializedException, ROSSleepError) as e:
+            self.log(
+                f"Stopping sample retrieval loop, likely fine: {e}",
+                severity="WARN",
+            )
+            assert not rclpy.ok(), "ROS2 is still running"  # type: ignore
 
     def get_last_messages(self) -> list[EyelinkMsg]:
         """Get the latest samples from the eyelink tracker.
@@ -508,7 +513,7 @@ class Eyelink(BaseNode):
 
     def get_smooth_pursuit(
         self, window: float, threshold: int, min_samples: int
-    ) -> bool:
+    ) -> bool | None:
         """Check if the subject is smoothly pursuing.
 
         This function will check if the subject is smoothly pursuing by
@@ -528,7 +533,13 @@ class Eyelink(BaseNode):
         messages = self.get_last_messages()
 
         num_samples = int(window * self.get_parameter_wrapper("sample_rate"))
-        assert num_samples > 0 and num_samples <= len(messages)
+
+        if len(messages) == 0:
+            self.log(
+                "No samples in queue, skipping smooth pursuit check",
+                severity="WARN",
+            )
+            return None
 
         messages = messages[-num_samples:]
 
@@ -771,13 +782,15 @@ class Eyelink(BaseNode):
         """Flic response time action callback."""
         try:
             self.log("Starting smooth pursuit")
+            request: EyelinkSmoothPursuit.Goal = goal_handle.request
 
             # Get the smooth pursuit parameters from the goal
-            window = (
-                Duration.from_msg(goal_handle.request.window).nanoseconds / 1e9
+            window = Duration.from_msg(request.window).nanoseconds / 1e9
+            threshold = request.threshold
+            min_samples = request.min_samples
+            check_interval = (
+                Duration.from_msg(request.check_interval).nanoseconds / 1e9
             )
-            threshold = goal_handle.request.threshold
-            min_samples = goal_handle.request.min_samples
             last_time = self.get_clock().now()
 
             # Get the initial smooth pursuit status

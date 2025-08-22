@@ -10,6 +10,7 @@
     "containerUser": "mules",
     "updateRemoteUserUID": true,
     "userEnvProbe": "loginInteractiveShell",
+    "postCreateCommand": "cd /tabletop && direnv allow",
     "customizations": {
         "vscode": {
             "extensions": [

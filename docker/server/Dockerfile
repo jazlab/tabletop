@@ -134,6 +134,7 @@ export PATH=~/.local/bin:\$PATH
 source /tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
+eval "\$(direnv hook bash)"
 eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF

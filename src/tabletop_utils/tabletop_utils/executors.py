@@ -68,11 +68,13 @@ class AIOExecutor(Executor):
             **kwargs: Keyword arguments to pass to the superclass constructor.
         """
         super().__init__(*args, **kwargs)
-        self._aio_futures: list[asyncio.Future] = []
+        if not multi_threaded and max_workers > 1:
+            raise ValueError(
+                "max_workers must be 1 if multi_threaded is False"
+            )
         self._multi_threaded = multi_threaded
-        if not multi_threaded:
-            max_workers = 1
         self._tpe = ThreadPoolExecutor(max_workers=max_workers)
+        self._aio_futures: list[asyncio.Future] = []
         self._spin_interval = spin_interval
 
     def _waitables_ready(self, wait_set: Any) -> bool:
@@ -507,3 +509,10 @@ class AIOExecutor(Executor):
         del self._aio_futures
 
         return success
+
+
+class TestExecutor(SingleThreadedExecutor):
+    def spin(self):
+        print("Spinning")
+        super().spin()
+        print("Spinning done")

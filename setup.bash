@@ -33,6 +33,16 @@ print_warning() {
     echo -e "\033[1;33m$@\033[0m"
 }
 
+# Aliases
+alias tree="tree -I 'build|install|logs|results"
+
+# ROS-specific aliases
+if [ -d /opt/ros ]; then
+    alias tt-server="ros2 launch tabletop_server server.launch.py"
+    alias tt-commander="ros2 launch tabletop_server commander.launch.py"
+    alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
+fi
+
 # Set environment variables
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 export COLCON_WS=$TABLETOP_DIR
@@ -46,22 +56,18 @@ export REVERSE_IP=192.168.13.10
 export PYTHONUNBUFFERED=1
 export COMPOSE_BAKE=true
 
-# Update PATH
-export PATH=$TABLETOP_DIR/bin:$PATH
-
-# Aliases
-alias tree="tree -I 'build|install|logs|results"
-
-# ROS-specific aliases
-if [ -d /opt/ros ]; then
-    alias tt-server="ros2 launch tabletop_server server.launch.py"
-    alias tt-commander="ros2 launch tabletop_server commander.launch.py"
-    alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
-fi
-
-# Source virtual environment if it exists
-if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then
-    source $TABLETOP_DIR/.venv/bin/activate
+# Source ROS environment
+if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
+    # Python virtual environment must be sourced before ROS environment (I think)
+    if [[ -f $TABLETOP_DIR/.venv/bin/activate  ]]; then
+        source $TABLETOP_DIR/.venv/bin/activate
+    fi
+    # Source ROS environment
+    source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
+    # Source colcon workspace
+    if [ -f $COLCON_WS/install/setup.bash ]; then
+        source $COLCON_WS/install/setup.bash
+    fi
 fi
 
 # Source colcon cd and argcomplete if it exists
@@ -72,10 +78,5 @@ if [ -f $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bas
     source $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash
 fi
 
-# Source ROS environment
-if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
-    source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
-    if [ -f $COLCON_WS/install/setup.bash ]; then
-        source $COLCON_WS/install/setup.bash
-    fi
-fi
+# Add tabletop bin directory to PATH
+export PATH=$TABLETOP_DIR/bin:$PATH

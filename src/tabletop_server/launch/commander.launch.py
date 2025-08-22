@@ -149,42 +149,14 @@ def declare_arguments():
 
 
 def generate_launch_description():
-    # Common
-    use_sim_time = LaunchConfiguration("use_sim_time")
-    ur_type = LaunchConfiguration("ur_type")
-
-    # Commander
-    robot_mode = LaunchConfiguration("robot_mode")
-    commander_config = LaunchConfiguration("commander_config")
-    coroutine_module = LaunchConfiguration("coroutine_module")
-    coroutine_name = LaunchConfiguration("coroutine_name")
-    coroutine_config = LaunchConfiguration("coroutine_config")
-    new_cache = LaunchConfiguration("new_cache")
-    use_cache = LaunchConfiguration("use_cache")
-    optimize_python = LaunchConfiguration("optimize_python")
-    initial_object = LaunchConfiguration("initial_object")
-
-    # ROS Warehouse
-    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
-
-    # Logging
-    commander_log_level = LaunchConfiguration("commander_log_level")
-    moveit_log_level = LaunchConfiguration("moveit_log_level")
-    rcl_log_level = LaunchConfiguration("rcl_log_level")
-
-    # Commander output
-    commander_output = LaunchConfiguration("commander_output")
-
-    # Debugger
-    debug_commander = LaunchConfiguration("debug_commander")
-    ################################################
-
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # Conditional substitutions
     simulate_commander = IfElseSubstitution(
-        EqualsSubstitution(robot_mode, "mock"), "true", "false"
+        EqualsSubstitution(LaunchConfiguration("robot_mode"), "mock"),
+        "true",
+        "false",
     )
 
     commander_overrides_path = "/tmp/commander_overrides.yaml"
@@ -202,21 +174,23 @@ def generate_launch_description():
             commander_overrides["execution.acceleration_scaling_factor"] = 0.5
 
         # Clear cache
-        new_cache_value = new_cache.perform(context)
+        new_cache_value = LaunchConfiguration("new_cache").perform(context)
         if new_cache_value != "null":
             commander_overrides["trajectory_cache.kwargs.new_cache"] = (
                 new_cache_value == "true"
             )
 
         # Use cache
-        use_cache_value = use_cache.perform(context)
+        use_cache_value = LaunchConfiguration("use_cache").perform(context)
         if use_cache_value != "null":
             commander_overrides["trajectory_cache.use_cached_trajectories"] = (
                 use_cache_value == "true"
             )
 
         # Initial attached object
-        initial_object_value = initial_object.perform(context)
+        initial_object_value = LaunchConfiguration("initial_object").perform(
+            context
+        )
         if initial_object_value != "null":
             idx = initial_object_value.split(",")
             if len(idx) == 1:
@@ -249,7 +223,8 @@ def generate_launch_description():
             robot_name="ur", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            file_path="srdf/tabletop.srdf.xacro", mappings={"name": ur_type}
+            file_path="srdf/tabletop.srdf.xacro",
+            mappings={"name": LaunchConfiguration("ur_type")},
         )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",
@@ -260,28 +235,28 @@ def generate_launch_description():
     # ROS Warehouse Config
     warehouse_ros_config = {
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
+        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
     }
 
     # Python Optimize
     optimize_python_action = SetEnvironmentVariable(
         name="PYTHONOPTIMIZE",
         value="1",
-        condition=IfCondition(optimize_python),
+        condition=IfCondition(LaunchConfiguration("optimize_python")),
     )
 
     logger_levels = [
-        moveit_log_level,
-        ["commander:=", commander_log_level],
-        ["trajectory_cache:=", commander_log_level],
-        ["tabletop_task:=", commander_log_level],
-        ["trial_generator:=", commander_log_level],
-        ["rcl:=", rcl_log_level],
-        ["rcl_action:=", rcl_log_level],
-        ["rclcpp:=", rcl_log_level],
-        ["rclcpp_action:=", rcl_log_level],
-        ["pluginlib.ClassLoader:=", rcl_log_level],
-        ["rmw_fastrtps_cpp:=", rcl_log_level],
+        LaunchConfiguration("moveit_log_level"),
+        ["commander:=", LaunchConfiguration("commander_log_level")],
+        ["trajectory_cache:=", LaunchConfiguration("commander_log_level")],
+        ["tabletop_task:=", LaunchConfiguration("commander_log_level")],
+        ["trial_generator:=", LaunchConfiguration("commander_log_level")],
+        ["rcl:=", LaunchConfiguration("rcl_log_level")],
+        ["rcl_action:=", LaunchConfiguration("rcl_log_level")],
+        ["rclcpp:=", LaunchConfiguration("rcl_log_level")],
+        ["rclcpp_action:=", LaunchConfiguration("rcl_log_level")],
+        ["pluginlib.ClassLoader:=", LaunchConfiguration("rcl_log_level")],
+        ["rmw_fastrtps_cpp:=", LaunchConfiguration("rcl_log_level")],
         # ["trac_ik_kinematics_plugin:=", rcl_log_level],
     ]
     logger_levels_args = []
@@ -295,40 +270,50 @@ def generate_launch_description():
         parameters=[
             moveit_config.to_dict(),
             warehouse_ros_config,
-            ParameterFile(commander_config, allow_substs=True),
+            ParameterFile(
+                LaunchConfiguration("commander_config"), allow_substs=True
+            ),
             ParameterFile(commander_overrides_path, allow_substs=True),
             {
                 "publish_robot_description_semantic": True,
-                "use_sim_time": use_sim_time,
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
             },
         ],
         ros_arguments=[*logger_levels_args],
         arguments=[
             IfElseSubstitution(
-                NotEqualsSubstitution(coroutine_module, "null"),
+                NotEqualsSubstitution(
+                    LaunchConfiguration("coroutine_module"), "null"
+                ),
                 if_value="--coroutine-module",
                 else_value="",
             ),
-            coroutine_module,
+            LaunchConfiguration("coroutine_module"),
             IfElseSubstitution(
-                NotEqualsSubstitution(coroutine_name, "null"),
+                NotEqualsSubstitution(
+                    LaunchConfiguration("coroutine_name"), "null"
+                ),
                 if_value="--coroutine-name",
                 else_value="",
             ),
-            coroutine_name,
+            LaunchConfiguration("coroutine_name"),
             IfElseSubstitution(
-                NotEqualsSubstitution(coroutine_config, "null"),
+                NotEqualsSubstitution(
+                    LaunchConfiguration("coroutine_config"), "null"
+                ),
                 if_value="--coroutine-config",
                 else_value="",
             ),
-            coroutine_config,
+            LaunchConfiguration("coroutine_config"),
             IfElseSubstitution(
-                EqualsSubstitution(debug_commander, "true"),
+                EqualsSubstitution(
+                    LaunchConfiguration("debug_commander"), "true"
+                ),
                 if_value="--debug",
                 else_value="",
             ),
         ],
-        output=commander_output,
+        output=LaunchConfiguration("commander_output"),
         on_exit=[Shutdown()],
     )
 

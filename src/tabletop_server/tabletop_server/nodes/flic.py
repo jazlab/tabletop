@@ -15,7 +15,7 @@ from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 from tabletop_server.nodes.base import BaseNode
 from tabletop_server.nodes.commander import argparse
-from tabletop_utils.aio_executor import AIOExecutor
+from tabletop_utils.executors import AIOExecutor
 from tabletop_utils.flic_client import (
     BluetoothControllerState,
     ClickType,

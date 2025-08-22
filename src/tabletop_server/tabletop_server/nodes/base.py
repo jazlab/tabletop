@@ -49,7 +49,7 @@ class BaseNode(Node):
         super().__init__(*args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        self.log_parameters(severity="DEBUG")
+        # self.log_parameters(severity="DEBUG")
 
     def log(
         self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs

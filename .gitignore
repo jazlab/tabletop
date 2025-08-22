@@ -5,8 +5,7 @@
 **/.cache/
 
 # Ignore logs
-**/log/
-**/bags/
+/log/
 **/*.log
 **/nohup.out
 
@@ -25,10 +24,10 @@
 **/meshes/test/
 
 # Ignore flic files
-**/flic.db
+/docker/flic/flic.db
 
 # Ignore venv
-**/.venv/
+/.venv/
 
 # Ignore piano stuff
 **/*.sf2
@@ -38,8 +37,14 @@
 /cache/
 
 # Ignore optitrack files
-**Client-output.pts
+**/Client-output.pts
 
 # Ignore videos
 **/*.mp4
 **/*.gif
+
+# Ignore bags
+/bags/
+
+# Ignore saved models
+/saved_weights/

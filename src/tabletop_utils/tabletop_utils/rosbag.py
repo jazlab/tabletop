@@ -117,7 +117,7 @@ def rosbag_session_to_dfs(
     session_dir: str,
     topics: Iterable[str] | None = None,
     exclude_topics: Iterable[str] | None = None,
-    save: bool = False,
+    save: bool = True,
     verbose: bool = False,
 ) -> dict[str, pd.DataFrame]:
     """Convert a ROS 2 session to a pandas DataFrame.

@@ -1,38 +1,23 @@
+import logging
 import os
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 pd.options.mode.copy_on_write = True
 
 EYELINK_MISSING = -32768
 
 
-def load_data(
-    eyelink_csv_path: str, markers_csv_path: str
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Loads the eye tracker and optical marker data from the session directory.
-
-    Args:
-        eyelink_csv_path (str): Path to the eye tracker data file.
-        markers_csv_path (str): Path to the optical marker data file.
-
-    Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the eye tracker and optical marker data.
-    """
-    eyelink_df = pd.read_csv(eyelink_csv_path)
-    markers_df = pd.read_csv(markers_csv_path)
-
-    return eyelink_df, markers_df
-
-
 def verify_timestamps(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
-    eyelink_freq: float = 1000,
-    markers_freq: float = 120,
+    eyelink_freq: float,
+    markers_freq: float,
     freq_rtol: float = 1e-3,
     max_marker_time_correction: float = 0.005,
 ):
@@ -84,7 +69,10 @@ def verify_timestamps(
 
 
 def format_timestamps(
-    eyelink_df: pd.DataFrame, markers_df: pd.DataFrame
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+    eyelink_freq: float,
+    markers_freq: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Formats the timestamps to seconds and checks for monotonicity.
@@ -117,9 +105,65 @@ def format_timestamps(
 
     eyelink_df["eyelink_time"] = eyelink_df["eyelink_time_ms"] / 1e3
 
-    verify_timestamps(eyelink_df, markers_df)
+    verify_timestamps(eyelink_df, markers_df, eyelink_freq, markers_freq)
 
     return eyelink_df, markers_df
+
+
+def get_smooth_pursuit(
+    df: pd.DataFrame,
+    freq: float,
+    window: float,
+    threshold: int,
+) -> bool | None:
+    """Check if the subject is smoothly pursuing.
+
+    This function will check if the subject is smoothly pursuing by
+    checking if the speed of the left and right eyes is below a threshold
+    (the eye can only move smoothly if it is following a smoothly moving
+    object, so we check if the speed remains below a threshold).
+
+    Args:
+        df: The dataframe containing the eye tracker and optical marker data.
+        freq: The frequency of the eye tracker and optical marker data.
+        window: The window size in seconds.
+        threshold: The threshold for the speed of the eyes.
+
+    Returns:
+        True if the subject is smoothly pursuing, False otherwise.
+    """
+    logger.info("Checking for smooth pursuit")
+
+    time = df["time"]
+    left_positions = df[["left_x", "left_y"]]
+    right_positions = df[["right_x", "right_y"]]
+
+    # TODO: Add smoothing and/or filtering to the positional data so as
+    # to false negatives (e.g. if a spike of noise occurs for a single
+    # sample, it is likely not a saccade/break in smooth pursuit and we
+    # should ignore it).
+    left_speed = np.linalg.norm(
+        np.gradient(left_positions, time, axis=0), axis=1
+    )
+    right_speed = np.linalg.norm(
+        np.gradient(right_positions, time, axis=0), axis=1
+    )
+
+    kernel_size = int(window * freq)
+    left_speed = np.convolve(
+        left_speed, np.ones(kernel_size) / kernel_size, mode="same"
+    )
+    right_speed = np.convolve(
+        right_speed, np.ones(kernel_size) / kernel_size, mode="same"
+    )
+
+    # Ensure that smooth pursuit is occuring by checking if the speeds of
+    # the left and right eyes are below a threshold
+    is_smoothly_pursuing = np.all(
+        np.stack([left_speed, right_speed], axis=1) < threshold
+    ).item()
+
+    return is_smoothly_pursuing
 
 
 def clean_data(
@@ -229,7 +273,7 @@ def merge_eyelink_markers(
     matched = df["time_markers"].notna().sum()
     unique = (df["time_markers"].dropna() * 1000).astype(int).unique()
 
-    print(
+    logger.info(
         f"Matched {matched.sum()} ({unique.shape[0]} unique) out of {markers_df.shape[0]} marker data points"
     )
 
@@ -249,7 +293,7 @@ def merge_eyelink_markers(
         new_matched.sum() == new_unique.shape[0]
     ), f"Expected all {new_matched.sum()} matched marker data points to be unique, got {new_unique.shape[0]} unique"
 
-    print(
+    logger.info(
         f"After removing duplicates, {new_matched.sum()} out of previous {matched.sum()} marker data points remain"
     )
 
@@ -262,13 +306,13 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy(deep=True)
 
-    print(
+    logger.info(
         f"Marker time gaps before merging | "
         f"min: {df['time_diff_markers'].min():.4f}, "
         f"max: {df['time_diff_markers'].max():.4f}"
     )
     gaps = df["time"][df["time_markers"].notna()].diff()  # type: ignore
-    print(
+    logger.info(
         f"Marker time gaps after merging | "
         f"min: {gaps.min():.4f}, "
         f"max: {gaps.max():.4f}"
@@ -284,7 +328,7 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
         | (df["time"] > asof["time"] + df["time_diff_markers"].bfill())
     ]
     drop_times = to_drop.unique()  # type: ignore
-    print(
+    logger.info(
         f"Found {to_drop.shape[0]} rows (forming {len(drop_times)} contiguous gaps) where "
         f"the time since the last marker datapoint is greater than the maximum expected gap: "
         f"{df['time_diff_markers'].max():.4f}"
@@ -293,7 +337,7 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
     df = cast(pd.DataFrame, df[~asof["time"].isin(drop_times)])  # type: ignore
 
     num_dropped = asof.shape[0] - df.shape[0]
-    print(f"Dropped {num_dropped} out of {df.shape[0]} rows")
+    logger.info(f"Dropped {num_dropped} out of {df.shape[0]} rows")
 
     df.set_index("time", inplace=True)
     markers_cols = ["marker_x", "marker_y", "marker_z"]
@@ -315,29 +359,43 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def preprocess_data(session_dir: str, save: bool = False) -> pd.DataFrame:
+def preprocess_data(
+    session_dir: os.PathLike,
+    config: Mapping[str, Any],
+) -> pd.DataFrame:
     """
     Preprocesses the data by cleaning and merging the eye tracker and optical marker data.
     """
-    eyelink_df, markers_df = load_data(
-        os.path.join(session_dir, "eyelink_sample.csv"),
-        os.path.join(session_dir, "markers.csv"),
+    eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
+    markers_path = os.path.join(session_dir, "markers.csv")
+
+    eyelink_df = pd.read_csv(eyelink_path, index_col=False)
+    markers_df = pd.read_csv(markers_path, index_col=False)
+
+    eyelink_freq = config["preprocess"]["eyelink_freq"]
+    markers_freq = config["preprocess"]["markers_freq"]
+
+    eyelink_df, markers_df = format_timestamps(
+        eyelink_df, markers_df, eyelink_freq, markers_freq
     )
-    eyelink_df, markers_df = format_timestamps(eyelink_df, markers_df)
     eyelink_df, markers_df = clean_data(eyelink_df, markers_df, marker_idx=0)
     df = merge_eyelink_markers(eyelink_df, markers_df)
     df = interpolate_markers(df)
 
-    if save:
-        df.to_csv(
-            os.path.join(session_dir, "calibration_data.csv"), index=False
-        )
+    path = os.path.join(session_dir, config["preprocess"]["filename"])
+    df.to_csv(path, index=False)
 
     return df
 
 
 def main(args=None):
     import argparse
+
+    import yaml
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s - %(message)s"
+    )
 
     parser = argparse.ArgumentParser(
         description="Clean the eye tracker and optical marker data."
@@ -349,9 +407,21 @@ def main(args=None):
         default=os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
         help="The path to the session directory.",
     )
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default=os.path.join(
+            os.environ["TABLETOP_DIR"], "config", "gaze_calibration.yaml"
+        ),
+        help="Path to the training config file",
+    )
     args = parser.parse_args(args)
 
-    preprocess_data(args.session_dir, save=True)
+    with open(args.config, "r") as f:
+        config = cast(Mapping[str, Any], yaml.safe_load(f))
+
+    preprocess_data(args.session_dir, config)
 
 
 if __name__ == "__main__":
