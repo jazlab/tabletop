@@ -64,7 +64,7 @@
       use_cached_trajectories: true
       freeze_cache: false
       kwargs:
-        path: cache/trajectories
+        path: $TABLETOP_DIR/cache/trajectories
         goal_position_tolerance: 0.03 # meters
         goal_orientation_tolerance: 0.05 # radians
         use_euler_tolerance: true
@@ -119,8 +119,14 @@
       wrist_2_link: 0.03
       wrist_3_link: 0.01
 
+    manually_attached_object_kwargs:
+      allowed_collision_ids:
+        - eef_sphere
+      simplification: bounding_box_oriented
+      color: [1.0, 1.0, 1.0, 1.0]
+
     planning_scene:
-      dir: cache/planning_scene
+      dir: $TABLETOP_DIR/cache/planning_scene
       robot_collision_links:
         - base_link_inertia
         - shoulder_link

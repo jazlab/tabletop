@@ -13,8 +13,8 @@ import rclpy.logging
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
-from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from tabletop_utils import dbm_sqlite3
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import (
@@ -299,7 +299,9 @@ class FuzzyTrajectoryCache(Shelf):
                 provided filename or the symlinked cache file) is used.
         """
         # Initialize the path
-        path = os.path.abspath(os.path.expanduser(path))
+        path = os.path.expandvars(os.path.expanduser(path))
+        if not os.path.isabs(path):
+            raise ValueError(f"Trajectory cache path must be absolute: {path}")
         if not os.path.exists(path):
             new_cache = True
             _, ext = os.path.splitext(path)

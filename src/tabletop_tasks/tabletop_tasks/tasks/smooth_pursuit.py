@@ -25,6 +25,7 @@ class SmoothPursuitTask(BaseTask):
         num_cycles: int,
         reward_period: float,
         reward_duration: float,
+        object_id: str,
         execute_request_params: Mapping[str, Any],
     ):
         super().__init__(commander)
@@ -33,10 +34,12 @@ class SmoothPursuitTask(BaseTask):
         self._length = length
         self._num_revolutions = num_revolutions
         self._num_segments = num_segments
+        self._num_cycles = num_cycles
         self._reward_period = reward_period
         self._reward_duration = reward_duration
         self._execute_request_params = execute_request_params
-        self._num_cycles = num_cycles
+
+        self.commander.add_manually_attached_collision_object(object_id)
 
     async def generate_trajectory(self) -> RobotTrajectory:
         """Generate spiral trajectory
@@ -95,6 +98,7 @@ class SmoothPursuitTask(BaseTask):
                         severity="WARN",
                     )
                     continue
+
                 if i == 1:
                     spiral_trajectory = trajectory
                 else:
@@ -115,7 +119,7 @@ class SmoothPursuitTask(BaseTask):
 
         full_trajectory = robot_trajectory_copy(spiral_trajectory)
         for i in range(self._num_cycles):
-            full_trajectory.append(spiral_trajectory, dt=0.01, start_index=1)
+            full_trajectory.append(spiral_trajectory, dt=0.0001, start_index=1)
 
         return full_trajectory
 

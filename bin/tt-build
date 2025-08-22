@@ -6,7 +6,7 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
 print_usage() {
-    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [--remove-moveit-apt] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all] [--only-rosdep]"
+    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all] [--only-rosdep]"
 }
 
 pushd $COLCON_WS
@@ -15,7 +15,6 @@ pushd $COLCON_WS
 debug=false
 clean=false
 clean_all=false
-remove_moveit_apt=false
 workers=
 packages=()
 all=false
@@ -34,9 +33,6 @@ while [[ $# -gt 0 ]]; do
         -w|--workers)
             workers=$2
             shift
-            ;;
-        --remove-moveit-apt)
-            remove_moveit_apt=true
             ;;
         -p|--packages)
             if [[ $# -le 1  || $2 == -* ]]; then
@@ -92,32 +88,29 @@ sudo apt upgrade -y
 sudo apt dist-upgrade -y
 rosdep update -q
 
+# Install Python dependencies
+print_status "Installing Python dependencies using uv"
+uv sync --locked
+
+# Remove any existing MoveIt2 debian packages
+print_status "Removing any existing MoveIt2 debian packages"
+sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
+
 # Source ROS environment again after rosdep update
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
-# Install ROS 2 dependencies
-print_status "Installing ROS 2 dependencies"
-dependency_types="-t buildtool_export -t build -t build_export -t exec -t buildtool"
+# Install ROS 2 build dependencies
+print_status "Installing ROS 2 build dependencies"
+dependency_types="-t buildtool_export -t build -t build_export -t buildtool"
 rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
-
-# Remove any existing MoveIt2 debian packages
-remove_moveit_apt=true
-if [ "$remove_moveit_apt" = "true" ]; then
-    print_status "Removing any existing MoveIt2 debian packages"
-    sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
-fi
 
 if [ "$only_rosdep" = "true" ]; then
     print_status "Successfully installed ROS 2 dependencies, skipping build and exiting"
     exit 0
 fi
 
-# Install Python dependencies
-print_status "Installing Python dependencies using uv"
-uv sync --locked
-
 # Set CMake arguments
-cmake_args=("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" "-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
+cmake_args=("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" "-DBUILD_TESTING=OFF" "-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF" "--no-warn-unused-cli")
 if [ "$debug" = "true" ]; then
     cmake_args+=("-DCMAKE_BUILD_TYPE=Debug")
 else
@@ -138,6 +131,13 @@ $package_selection
 "
 print_status "Building ROS 2 packages with command: $command"
 $command
+
+source install/setup.bash
+
+# Install ROS 2 runtime dependencies
+print_status "Installing ROS 2 runtime dependencies"
+dependency_types="-t exec"
+rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
 
 print_status "Successfully built ROS 2 packages!"
 

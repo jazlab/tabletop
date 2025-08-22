@@ -81,7 +81,9 @@ cd /tmp/src
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade -y
 source /opt/ros/$ROS_DISTRO/setup.bash
 rosdep update
-rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO -y
+echo $DEPENDENCY_TYPES
+DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t exec -t buildtool"
+rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
 WORKDIR /tabletop
@@ -138,4 +140,5 @@ eval "\$(direnv hook bash)"
 eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF
+mkdir -p ~/.config
 EOT

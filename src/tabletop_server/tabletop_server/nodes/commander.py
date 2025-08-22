@@ -6,7 +6,6 @@ import hashlib
 import importlib
 import json
 import os
-import pickle
 import signal
 import threading
 import time
@@ -47,16 +46,6 @@ from moveit.planning import (
     PlanRequestParameters,
     TrajectoryExecutionManager,
 )
-from moveit_msgs.msg import AllowedCollisionMatrix as AllowedCollisionMatrixMsg
-from moveit_msgs.msg import (
-    AttachedCollisionObject,
-    CollisionObject,
-    LinkPadding,
-    ObjectColor,
-)
-from moveit_msgs.msg import (
-    PlanningScene as PlanningSceneMsg,
-)
 from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
@@ -69,6 +58,16 @@ from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
 
+from moveit_msgs.msg import AllowedCollisionMatrix as AllowedCollisionMatrixMsg
+from moveit_msgs.msg import (
+    AttachedCollisionObject,
+    CollisionObject,
+    LinkPadding,
+    ObjectColor,
+)
+from moveit_msgs.msg import (
+    PlanningScene as PlanningSceneMsg,
+)
 from tabletop_interfaces.action import (
     EyelinkSmoothPursuit,
     FlicResponseTime,
@@ -365,18 +364,20 @@ class Commander(BaseNode):
 
         self.remove_all_collision_objects()
 
-        self.collision_object_init_kwargs: dict[str, dict[str, Any]] = {}
-
         config: dict[str, Any] = self.get_parameter_wrapper("planning_scene")
 
-        scene_path = os.path.join(config["dir"], "scene.txt")
-        collision_matrix_path = os.path.join(
-            config["dir"], "collision_matrix.csv"
-        )
-        config_path = os.path.join(config["dir"], "config.yaml")
-        rig_hash_path = os.path.join(config["dir"], "rig_hash.txt")
-        object_init_kwargs_path = os.path.join(
-            config["dir"], "object_init_kwargs.pkl"
+        cache_dir = os.path.expandvars(os.path.expanduser(config["dir"]))
+        if not os.path.isabs(cache_dir):
+            raise ValueError(
+                f"Planning scene cache directory must be absolute: {cache_dir}"
+            )
+
+        scene_path = os.path.join(cache_dir, "scene.txt")
+        collision_matrix_path = os.path.join(cache_dir, "collision_matrix.csv")
+        config_path = os.path.join(cache_dir, "config.yaml")
+        rig_hash_path = os.path.join(cache_dir, "rig_hash.txt")
+        grid_object_poses_path = os.path.join(
+            cache_dir, "grid_object_poses.yaml"
         )
 
         if config["use_saved_scene"]:
@@ -386,8 +387,8 @@ class Commander(BaseNode):
                     scene_path,
                     collision_matrix_path,
                     config_path,
-                    object_init_kwargs_path,
                     rig_hash_path,
+                    grid_object_poses_path,
                 ]
             ):
                 with open(config_path, "r") as f:
@@ -397,7 +398,7 @@ class Commander(BaseNode):
                 if saved_config == config and saved_rig_hash == self.rig_hash:
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
-                    self.load_object_init_kwargs(object_init_kwargs_path)
+                    self.load_grid_object_poses(grid_object_poses_path)
                     return
                 else:
                     self.log(
@@ -417,31 +418,27 @@ class Commander(BaseNode):
         # Add plane collision objects
         if "planes" in config:
             for object_id, kwargs in config["planes"].items():
-                self.add_plane_collision_object(
-                    object_id=object_id, dynamic=False, **kwargs
-                )
+                self.add_plane_collision_object(object_id=object_id, **kwargs)
 
         # Add primitive collision objects
         if "primitives" in config:
             for object_id, kwargs in config["primitives"].items():
                 self.add_primitive_collision_object(
-                    object_id=object_id, dynamic=False, **kwargs
+                    object_id=object_id, **kwargs
                 )
 
         # Add dynamic object meshes
-        self.add_dynamic_mesh_collision_objects(**config["object_meshes"])
+        self.add_grid_mesh_collision_objects(**config["object_meshes"])
 
         # Add rig mesh collision objects
         for object_id, kwargs in config["rig_meshes"].items():
-            self.add_mesh_collision_object(
-                object_id=object_id, dynamic=False, **kwargs
-            )
+            self.add_mesh_collision_object(object_id=object_id, **kwargs)
 
         # Save planning scene to file
-        os.makedirs(config["dir"], exist_ok=True)
+        os.makedirs(cache_dir, exist_ok=True)
         self.save_planning_scene(scene_path)
         self.save_collision_matrix(collision_matrix_path)
-        self.save_object_init_kwargs(object_init_kwargs_path)
+        self.save_grid_object_poses(grid_object_poses_path)
         with open(rig_hash_path, "w") as f:
             f.write(self.rig_hash)
         with open(config_path, "w") as f:
@@ -519,9 +516,6 @@ class Commander(BaseNode):
             ),
             **trajectory_cache_config,
         )
-
-        # Whether the robot has been reset
-        self.initial_reset = False
 
         # Execution lock
         self.execution_lock = threading.Lock()
@@ -695,15 +689,6 @@ class Commander(BaseNode):
                     severity=severity,
                 )
                 self.log("=" * 80, severity=severity)
-
-        self.log("Collision object init kwargs:", severity=severity)
-        for object_id, kwargs in self.collision_object_init_kwargs.items():
-            self.log(
-                f"Collision object id: {object_id}",
-                severity=severity,
-            )
-            self.log(f"kwargs: {kwargs}", severity=severity)
-            self.log("=" * 80, severity=severity)
 
     ###########################################################################
     ########## UR Dashboard Interface #########################################
@@ -1193,18 +1178,6 @@ class Commander(BaseNode):
             scene.load_geometry_from_file(path)
             scene.current_state.update()
 
-    def save_object_init_kwargs(self, path: str):
-        """Save the object init kwargs to a file."""
-        self.log(f"Saving object init kwargs to {path}")
-        with open(path, "wb") as f:
-            pickle.dump(self.collision_object_init_kwargs, f)
-
-    def load_object_init_kwargs(self, path: str):
-        """Load the object init kwargs from a file."""
-        self.log(f"Loading object init kwargs from {path}")
-        with open(path, "rb") as f:
-            self.collision_object_init_kwargs = pickle.load(f)
-
     def save_collision_matrix(self, path: str):
         """Save the collision matrix to a file."""
         self.log(f"Saving collision matrix to {path}")
@@ -1230,6 +1203,43 @@ class Commander(BaseNode):
 
         self.allow_collision(*zip(*true_pairs))
         self.disallow_collision(*zip(*false_pairs))
+
+    def save_grid_object_poses(self, path: str):
+        """Save the grid object poses to a file."""
+        self.log(f"Saving grid object poses to {path}")
+        grid_object_poses = {}
+        for object_id, pose_stamped in self.grid_object_poses.items():
+            grid_object_poses[object_id] = {
+                "frame_id": pose_stamped.header.frame_id,
+                "position": [
+                    pose_stamped.pose.position.x,
+                    pose_stamped.pose.position.y,
+                    pose_stamped.pose.position.z,
+                ],
+                "orientation": [
+                    pose_stamped.pose.orientation.w,
+                    pose_stamped.pose.orientation.x,
+                    pose_stamped.pose.orientation.y,
+                    pose_stamped.pose.orientation.z,
+                ],
+            }
+        with open(path, "w") as f:
+            yaml.dump(grid_object_poses, f)
+
+    def load_grid_object_poses(self, path: str):
+        """Load the grid object poses from a file."""
+        self.log(f"Loading grid object poses from {path}")
+        with open(path, "r") as f:
+            grid_object_poses = yaml.safe_load(f)
+
+        self.grid_object_poses = {}
+        for object_id, kwargs in grid_object_poses.items():
+            pose_stamped = pose_stamped_msg(
+                frame_id=kwargs["frame_id"],
+                position=kwargs["position"],
+                orientation=kwargs["orientation"],
+            )
+            self.grid_object_poses[object_id] = pose_stamped
 
     # Collisions
 
@@ -1408,10 +1418,6 @@ class Commander(BaseNode):
         self,
         collision_object: CollisionObject,
         *,
-        dynamic: bool = False,
-        pose_stamped: Optional[PoseStamped] = None,
-        subframe_names: Optional[list[str]] = None,
-        subframe_poses: Optional[list[Pose]] = None,
         color: Optional[
             ObjectColor | str | Iterable[float] | Mapping[str, float]
         ] = None,
@@ -1423,8 +1429,6 @@ class Commander(BaseNode):
 
         Args:
             collision_object: The collision object to process.
-            dynamic: Whether the collision object is dynamic.
-            pose_stamped: The pose of the collision object (only used if dynamic).
             color: The color of the collision object.
             allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
         """
@@ -1432,12 +1436,6 @@ class Commander(BaseNode):
             f"Processing collision object: {collision_object.id}",
             severity="DEBUG",
         )
-
-        # Check that pose stamped is provided for dynamic collision objects
-        if dynamic and pose_stamped is None:
-            raise ValueError(
-                "Pose stamped is required for dynamic collision objects"
-            )
 
         # Process color
         if color is not None:
@@ -1458,29 +1456,12 @@ class Commander(BaseNode):
         if allowed_collision_ids is not None:
             self.allow_collision(collision_object.id, allowed_collision_ids)
 
-        # Save collision object kwargs if requested
-        if collision_object.id in self.collision_object_init_kwargs:
-            raise ValueError(
-                f"Collision object {collision_object.id} already has init kwargs"
-            )
-        self.collision_object_init_kwargs[collision_object.id] = deepcopy(
-            {
-                "dynamic": dynamic,
-                "pose_stamped": pose_stamped,
-                "subframe_names": subframe_names,
-                "subframe_poses": subframe_poses,
-                "color": color,
-                "allowed_collision_ids": allowed_collision_ids,
-            }
-        )
-
     def add_plane_collision_object(
         self,
         object_id: str,
         *,
         coef: list[float],
         pose_stamped: PoseStamped | Mapping[str, Any],
-        dynamic: bool,
         allowed_collision_ids: Optional[list[str]] = None,
     ):
         """Add a plane collision object to the planning scene.
@@ -1488,7 +1469,6 @@ class Commander(BaseNode):
         Args:
             object_id: The id for the collision object.
             coef: The coefficients of the plane.
-            dynamic: Whether the collision object is dynamic.
             header_frame_id: The frame id of the header. If not specified, the
                 planning frame will be used.
         """
@@ -1502,8 +1482,6 @@ class Commander(BaseNode):
 
         self.process_init_collision_object(
             collision_object=collision_object,
-            dynamic=dynamic,
-            pose_stamped=pose_stamped,
             allowed_collision_ids=allowed_collision_ids,
         )
 
@@ -1514,7 +1492,6 @@ class Commander(BaseNode):
         type: str,
         dimensions: list[float],
         pose_stamped: PoseStamped | Mapping[str, Any],
-        dynamic: bool,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
         allowed_collision_ids: Optional[list[str]] = None,
     ):
@@ -1525,7 +1502,7 @@ class Commander(BaseNode):
             type: The type of the primitive.
             dimensions: The dimensions of the primitive.
             pose_stamped: The stamped pose of the collision object.
-            dynamic: Whether the collision object is dynamic.
+            grid_idx: The index of the collision object in the grid.
             color: The color of the collision object.
             allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
         """
@@ -1543,8 +1520,6 @@ class Commander(BaseNode):
 
         self.process_init_collision_object(
             collision_object=collision_object,
-            dynamic=dynamic,
-            pose_stamped=pose_stamped,
             color=color,
             allowed_collision_ids=allowed_collision_ids,
         )
@@ -1567,7 +1542,6 @@ class Commander(BaseNode):
             ]
         ] = None,
         pose_stamped: PoseStamped | Mapping[str, Any],
-        dynamic: bool,
         additional_subframe_names: Optional[list[str]] = None,
         additional_subframe_poses: Optional[list[Pose]] = None,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
@@ -1582,7 +1556,6 @@ class Commander(BaseNode):
             scale: The scale of the mesh.
             correction: The correction to apply to the mesh.
             simplification: The simplification method to use.
-            dynamic: Whether the collision object is dynamic.
             additional_subframe_names: The names of the additional subframes.
             additional_subframe_poses: The poses of the additional subframes.
             color: The color of the collision object.
@@ -1664,15 +1637,11 @@ class Commander(BaseNode):
 
         self.process_init_collision_object(
             collision_object=collision_object,
-            dynamic=dynamic,
-            pose_stamped=pose_stamped,
-            subframe_names=subframe_names,
-            subframe_poses=subframe_poses,
             color=color,
             allowed_collision_ids=allowed_collision_ids,
         )
 
-    def add_dynamic_mesh_collision_objects(
+    def add_grid_mesh_collision_objects(
         self,
         *,
         path: str,
@@ -1680,7 +1649,7 @@ class Commander(BaseNode):
         common_kwargs: dict[str, Any],
         object_kwargs: dict[str, dict[str, Any]],
     ):
-        """Add dynamic (object) meshes as collision objects to the planning scene.
+        """Add grid object meshes as collision objects to the planning scene.
 
         Loads meshes from a directory and adds them in a grid
         pattern based on the their index and the origin and delta.
@@ -1715,6 +1684,8 @@ class Commander(BaseNode):
         for mesh_path in paths:
             object_id = os.path.splitext(os.path.basename(mesh_path))[0]
             object_id_to_path[object_id] = mesh_path
+
+        self.grid_object_poses: dict[str, PoseStamped] = {}
 
         for idx, overrides in object_kwargs.items():
             # Skip if object already exists in the planning scene
@@ -1768,9 +1739,10 @@ class Commander(BaseNode):
                 object_id=object_id,
                 path=mesh_path,
                 pose_stamped=pose_stamped,
-                dynamic=True,
                 **kwargs,
             )
+
+            self.grid_object_poses[object_id] = pose_stamped
 
     def attach_collision_object(
         self,
@@ -1843,6 +1815,33 @@ class Commander(BaseNode):
         collision_object.operation = CollisionObject.MOVE
 
         self.planning_scene_monitor.process_collision_object(collision_object)
+
+    def add_manually_attached_collision_object(self, object_id: str):
+        """Add a manually attached collision object to the planning scene."""
+        self.log(f"Adding manually attached collision object: {object_id}")
+        mesh_dir = self.get_parameter_wrapper(
+            "planning_scene.object_meshes.path"
+        )
+        mesh_paths = glob.glob(os.path.join(mesh_dir, f"{object_id}.*"))
+        if not mesh_paths:
+            raise FileNotFoundError(
+                f"Mesh file for {object_id} not found in {mesh_dir}"
+            )
+        elif len(mesh_paths) > 1:
+            raise ValueError(
+                f"Multiple mesh files found for {object_id}: {mesh_paths}"
+            )
+        mesh_path = mesh_paths[0]
+
+        self.add_mesh_collision_object(
+            object_id=object_id,
+            path=mesh_path,
+            pose_stamped=self.eef_pose_stamped(),
+            **self.get_parameter_wrapper("manually_attached_object_kwargs"),
+        )
+        self.attach_collision_object(
+            object_id, self.default_pose_link, touch_links=self.touch_links
+        )
 
     ###########################################################################
     ########## Poses and states ###############################################
@@ -1959,9 +1958,7 @@ class Commander(BaseNode):
 
     def object_init_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the initial pose of an object from the parameters."""
-        return deepcopy(
-            self.collision_object_init_kwargs[object_id]["pose_stamped"]
-        )
+        return self.grid_object_poses[object_id]
 
     def _object_init_pose_stamped_with_offset(
         self, object_id: str, offset: list[float]
@@ -3103,6 +3100,10 @@ class Commander(BaseNode):
             ExecutionError: If the execution fails
         """
         object_id = self.get_exactly_one_attached_object_id()
+        if object_id not in self.grid_object_poses:
+            raise RuntimeError(
+                f"Object {object_id} is not in the grid, cannot return it"
+            )
         self.log(f"Returning object {object_id}")
 
         to_cache_kwargs: list[dict[str, Any]] = []
@@ -3135,9 +3136,7 @@ class Commander(BaseNode):
     ########## Reset rig #####################################################
     ###########################################################################
 
-    async def reset_dashboard(
-        self, timeout: Optional[float] = None, init: bool = False
-    ):
+    async def reset_dashboard(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
         config = self.get_parameter_wrapper("dashboard")
@@ -3230,7 +3229,7 @@ class Commander(BaseNode):
     #             raise ActionCallUnsuccessfulError("UR SetMode action failed")
 
     async def _move_out_of_collision_simulation(
-        self, end_goal: PlanningGoalT = "idle", **kwargs
+        self, end_goal: Optional[PlanningGoalT] = None, **kwargs
     ):
         """Move the robot out of collision with the scene asynchronously.
 
@@ -3238,7 +3237,7 @@ class Commander(BaseNode):
         manually (via the teach pendant) move the robot away from the collision
         objects.
 
-        Using this function will reset any attached dynamic collision objects
+        Using this function will reset any attached collision objects
         to their initial poses and move the robot to the target pose, ignoring
         collisions.
 
@@ -3251,10 +3250,12 @@ class Commander(BaseNode):
             raise RuntimeError("This function is only available in simulation")
 
         self.remove_all_collision_objects()
+        if end_goal is None:
+            end_goal = "idle"
         await self.plan_and_execute(end_goal, **kwargs)
         self.init_planning_scene()
 
-    async def reset_rig(self, end_goal: PlanningGoalT = "idle"):
+    async def reset_rig(self, end_goal: Optional[PlanningGoalT] = None):
         """Move the robot out of collision if necessary and return any attached
         objects to their original positions.
         """
@@ -3270,12 +3271,15 @@ class Commander(BaseNode):
         else:
             try:
                 if len(self.attached_collision_object_ids) > 0:
-                    self._pre_return_cache_kwargs = await self._object_phase(
-                        self.get_exactly_one_attached_object_id(),
-                        ObjectPhase.PRE_RETURN,
-                    )
-                    await self.return_object()
-                else:
+                    object_id = self.get_exactly_one_attached_object_id()
+                    if object_id in self.grid_object_poses:
+                        self._pre_return_cache_kwargs = (
+                            await self._object_phase(
+                                object_id, ObjectPhase.PRE_RETURN
+                            )
+                        )
+                        await self.return_object()
+                if end_goal is not None:
                     await self.plan_and_execute(end_goal)
             except (PlanningError, ExecutionError) as e:
                 if self.simulate:
@@ -3292,7 +3296,9 @@ class Commander(BaseNode):
                     raise
 
     async def reset_commander(
-        self, timeout: Optional[float] = None, init: bool = False
+        self,
+        timeout: Optional[float] = None,
+        end_goal: Optional[PlanningGoalT] = None,
     ):
         """Reset the dashboard and the robot until successful or timeout.
 
@@ -3311,8 +3317,8 @@ class Commander(BaseNode):
                             severity="WARN",
                         )
                         await self._arm_lock_and_wait()
-                    await self.reset_dashboard(timeout, init=init)
-                    await self.reset_rig()
+                    await self.reset_dashboard(timeout)
+                    await self.reset_rig(end_goal)
                     break
                 except (
                     ServiceCallUnsuccessfulError,
@@ -3346,9 +3352,7 @@ class Commander(BaseNode):
         """Enter the context manager."""
         self.log("Entering commander context manager", severity="DEBUG")
         self.trajectory_cache.__enter__()
-        if not self.initial_reset:
-            await self.reset_commander(init=True)
-            self.initial_reset = True
+        await self.reset_commander()
         return self
 
     async def __aexit__(
@@ -3376,7 +3380,7 @@ class Commander(BaseNode):
                             severity="WARN",
                         )
                         await asyncio.sleep(5)
-                    await self.reset_commander()
+                    await self.reset_commander(end_goal="idle")
                     return True
             return False
         finally:

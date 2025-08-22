@@ -467,8 +467,9 @@ def generate_launch_description():
         arguments=[
             "-d",
             LaunchConfiguration("rviz_config_file_server"),
-            # "-l",
+            "-l",
         ],  # -l for ogre log
+        cwd=LaunchLogDir(),
         ros_arguments=["--log-level", LaunchConfiguration("rviz_log_level")],
         condition=IfCondition(LaunchConfiguration("launch_rviz_server")),
         on_exit=[Shutdown()],
