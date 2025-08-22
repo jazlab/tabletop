@@ -14,7 +14,6 @@ net-tools
 iproute2
 gdb
 xarclock
-ros-jazzy-ros2controlcli
 eyelink-display-software
 ffmpeg
 direnv

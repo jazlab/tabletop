@@ -20,6 +20,8 @@ from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
+from tabletop_utils.common import yaml_dump_string
+
 
 def save_yaml(file_path, data, sort_keys=False):
     with open(file_path, "w") as file:
@@ -211,6 +213,12 @@ def generate_launch_description():
         commander_overrides_scoped = {
             "/commander": {"ros__parameters": commander_overrides}
         }
+
+        if (
+            LaunchConfiguration("commander_log_level").perform(context)
+            == "DEBUG"
+        ):
+            print(yaml_dump_string(commander_overrides_scoped, width=80))
         save_yaml(commander_overrides_path, commander_overrides_scoped)
 
     commander_overrides_action = OpaqueFunction(

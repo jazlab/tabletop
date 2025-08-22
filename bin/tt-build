@@ -6,7 +6,7 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
 print_usage() {
-    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [--remove-moveit-apt] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all]"
+    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [--remove-moveit-apt] [-w|--workers <num_workers>] [-p|--packages <package_name>...] [--all] [--only-rosdep]"
 }
 
 pushd $COLCON_WS
@@ -19,6 +19,7 @@ remove_moveit_apt=false
 workers=
 packages=()
 all=false
+only_rosdep=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --debug)
@@ -51,6 +52,9 @@ while [[ $# -gt 0 ]]; do
         -a|--all)
             all=true
             ;;
+        --only-rosdep)
+            only_rosdep=true
+            ;;
         *)
             print_error "Unknown argument $1"
             print_usage
@@ -76,33 +80,37 @@ fi
 
 # Clean workspace
 if [ "$clean_all" = "true" ]; then
-    tt-clean-ws --all
+    tt-clean-ws --all --log
 elif [ "$clean" = "true" ]; then
     tt-clean-ws
 fi
-
-# Source ROS environment
-source /opt/ros/${ROS_DISTRO}/setup.bash
 
 # Upgrade apt packages
 print_status "Upgrading apt packages"
 sudo apt update
 sudo apt upgrade -y
 sudo apt dist-upgrade -y
-rosdep update
+rosdep update -q
 
 # Source ROS environment again after rosdep update
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
+# Install ROS 2 dependencies
+print_status "Installing ROS 2 dependencies"
+dependency_types="-t buildtool_export -t build -t build_export -t exec -t buildtool"
+rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
+
 # Remove any existing MoveIt2 debian packages
+remove_moveit_apt=true
 if [ "$remove_moveit_apt" = "true" ]; then
     print_status "Removing any existing MoveIt2 debian packages"
     sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
 fi
 
-# Install ROS 2 dependencies
-print_status "Installing ROS 2 dependencies"
-rosdep install -r --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y
+if [ "$only_rosdep" = "true" ]; then
+    print_status "Successfully installed ROS 2 dependencies, skipping build and exiting"
+    exit 0
+fi
 
 # Install Python dependencies
 print_status "Installing Python dependencies using uv"

@@ -153,16 +153,10 @@ def animate_3d_dots(
         plot = ax.scatter([], [], [])  # type: ignore
         plot.set_label(key)
         plots[key] = plot
-        min_x = min(min_x, value[:, 0].min())
-        min_y = min(min_y, value[:, 1].min())
-        min_z = min(min_z, value[:, 2].min())
-        max_x = max(max_x, value[:, 0].max())
-        max_y = max(max_y, value[:, 1].max())
-        max_z = max(max_z, value[:, 2].max())
 
-    ax.set_xlim(min_x, max_x)
-    ax.set_ylim(min_y, max_y)
-    ax.set_zlim(min_z, max_z)
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_zlim(0.0, 1.0)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
@@ -171,9 +165,9 @@ def animate_3d_dots(
     def init():
         for key, plot in plots.items():
             plot._offsets3d = (
+                data[key][0, 2].reshape(1),
                 data[key][0, 0].reshape(1),
                 data[key][0, 1].reshape(1),
-                data[key][0, 2].reshape(1),
             )  # type: ignore
             # plot.set_cmap("tab10")
             # plot.set_array(colors)
@@ -183,9 +177,9 @@ def animate_3d_dots(
         idx = int(i * interval * freq)
         for key, plot in plots.items():
             plot._offsets3d = (
+                data[key][idx, 2].reshape(1),
                 data[key][idx, 0].reshape(1),
                 data[key][idx, 1].reshape(1),
-                data[key][idx, 2].reshape(1),
             )  # type: ignore
             # plot.set_cmap("tab10")
             # plot.set_array(colors)

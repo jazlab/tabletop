@@ -23,6 +23,7 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node, SetROSLogDir
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -413,10 +414,13 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
-                "session_bag_dir": IfElseSubstitution(
-                    LaunchConfiguration("rosbag_record"),
-                    session_bag_dir,
-                    "null",
+                "session_bag_dir": ParameterValue(
+                    IfElseSubstitution(
+                        LaunchConfiguration("rosbag_record"),
+                        session_bag_dir,
+                        "null",
+                    ),
+                    value_type=str,
                 ),
             },
         ],
@@ -463,7 +467,7 @@ def generate_launch_description():
         arguments=[
             "-d",
             LaunchConfiguration("rviz_config_file_server"),
-            "-l",
+            # "-l",
         ],  # -l for ogre log
         ros_arguments=["--log-level", LaunchConfiguration("rviz_log_level")],
         condition=IfCondition(LaunchConfiguration("launch_rviz_server")),

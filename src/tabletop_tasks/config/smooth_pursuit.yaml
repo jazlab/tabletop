@@ -14,7 +14,7 @@ tasks:
       execute_request_params:
         validate_trajectory: false
         apply_totg: true
-        apply_smoothing: false
+        apply_smoothing: true
         velocity_scaling_factor: 0.5
         acceleration_scaling_factor: 0.5
         path_tolerance: 0.01

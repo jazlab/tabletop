@@ -9,7 +9,11 @@
 [submodule "moveit2"]
 	path = src/moveit2
 	url = https://github.com/valmikikothare/moveit2.git
-	branch = jazzy
+	branch = main
+[submodule "moveit_msgs"]
+	path = src/moveit_msgs
+	url = https://github.com/moveit/moveit_msgs
+	branch = ros2
 [submodule "mocap4r2_msgs"]
 	path = src/mocap4r2_msgs
 	url = https://github.com/valmikikothare/mocap4r2_msgs.git
@@ -17,7 +21,8 @@
 [submodule "mocap4r2"]
 	path = src/mocap4r2
 	url = https://github.com/MOCAP4ROS2-Project/mocap4r2.git
-	branch = rolling
+	branch = mules
 [submodule "mocap4r2_optitrack"]
 	path = src/mocap4r2_optitrack
 	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
+	branch = rolling

@@ -19,7 +19,7 @@ def verify_timestamps(
     eyelink_freq: float,
     markers_freq: float,
     freq_rtol: float = 1e-3,
-    max_marker_time_correction: float = 0.005,
+    max_marker_time_correction: float = 0.01,
 ):
     """
     Verifies the integrity of the timestamps.
@@ -27,6 +27,10 @@ def verify_timestamps(
     Args:
         eyelink_df (pd.DataFrame): The eye tracker data.
         markers_df (pd.DataFrame): The optical marker data.
+        eyelink_freq (float): The frequency of the eye tracker data.
+        markers_freq (float): The frequency of the optical marker data.
+        freq_rtol (float): The relative tolerance for the frequency.
+        max_marker_time_correction (float): The maximum allowed time correction for the optical marker data.
     """
     eyelink_times = eyelink_df[["bag_time", "time", "eyelink_time"]]
     markers_times = markers_df[["bag_time", "time", "original_time"]]

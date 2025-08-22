@@ -62,9 +62,9 @@ class SmoothPursuitTask(BaseTask):
             )
             # Calculate y coordinate of spiral (forward-backward motion)
             theta_y = (2 * np.pi * i) / self._num_segments
-            y = self._center_pose.pose.position.y + (
+            y = self._center_pose.pose.position.y - (
                 self._length / 2
-            ) * np.sin(theta_y)
+            ) * np.cos(theta_y)
             waypoint_pose_stamped = self.commander.create_pose_stamped(
                 position=[x, y, z],
                 orientation=self._center_pose.pose.orientation,

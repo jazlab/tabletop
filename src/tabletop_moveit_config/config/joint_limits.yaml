@@ -14,29 +14,29 @@ joint_limits:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
   shoulder_lift_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
   elbow_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
   wrist_1_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
   wrist_2_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
   wrist_3_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
-    max_jerk: 1000.0
+    max_jerk: 500.0
