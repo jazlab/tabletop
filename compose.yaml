@@ -61,6 +61,7 @@ services:
       - /tabletop/.venv
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
 
+
   server:
     extends: server-base
     runtime: nvidia
@@ -97,10 +98,13 @@ services:
     privileged: true
     volumes:
       - /dev:/dev
-      - ~/.vimrc:/home/mules/.vimrc:ro
-      - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
+      - ~/.vimrc:/home/mules/.vimrc
+      - ~/.config/starship.toml:/home/mules/.config/starship.toml
+      - ~/.config/pulse/cookie:/home/mules/.config/pulse/cookie
+      - $XDG_RUNTIME_DIR/pulse/native:/tmp/pulseaudio.socket
     environment:
       - SHELL=/bin/bash
+      - PULSE_SERVER=/tmp/pulseaudio.socket
 
   optitrack:
     extends: server-base

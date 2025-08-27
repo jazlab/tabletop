@@ -288,7 +288,6 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
 
     RCASSERT(rcl_publish(&sensor_publisher, &sensor_msg, NULL),
              "Failed to publish sensor message");
-    DEBUG("Sensor message published");
   }
 }
 
@@ -369,27 +368,68 @@ void set_reward_callback(const void* req, void* res) {
   bool timer_is_canceled;
   RCASSERT(rcl_timer_is_canceled(&reward_timer, &timer_is_canceled),
            "Failed to check if reward timer is canceled");
-  if (!timer_is_canceled) {
-    ASSERT(reward_active == true,
-           "Reward timer is not canceled but reward is not active");
-    response->success = false;
-    STRING_SET(&response->message, "Error: Reward already active!");
-    LOG("%s", response->message.data);
-    return;
+  ASSERT(reward_active != timer_is_canceled,
+         "Reward timer state and reward_active state are inconsistent");
+
+  if (request->activate) {
+    // Activate reward for the duration specified in the request
+
+    if (request->duration.sec == 0 && request->duration.nanosec == 0) {
+      // If the reward is being activated, the duration should be provided
+      response->success = false;
+      STRING_SET(&response->message,
+                 "Reward duration should be provided when activating");
+      LOG("%s", response->message.data);
+      return;
+    }
+    digitalWrite(REWARD_CONTROL_PIN, HIGH);
+    reward_active = true;
+
+    int64_t duration_ns = ROS_TIME_TO_NS(request->duration);
+    int64_t old_period_ns;
+    RCASSERT(
+        rcl_timer_exchange_period(&reward_timer, duration_ns, &old_period_ns),
+        "Failed to exchange reward timer period");
+    RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
+
+    double duration_s = duration_ns / 1e9;
+    STRING_SET(&response->message, "Reward %s for %.3f s",
+               timer_is_canceled ? "started" : "extended", duration_s);
+  } else {
+    // Cancel the reward timer if it is not canceled and stop the reward
+
+    if (request->duration.sec != 0 || request->duration.nanosec != 0) {
+      // If the reward is being deactivated, the duration should be 0
+      response->success = false;
+      STRING_SET(&response->message,
+                 "Reward duration should not be provided when deactivating");
+      LOG("%s", response->message.data);
+      return;
+    }
+
+    if (!timer_is_canceled) {
+      digitalWrite(REWARD_CONTROL_PIN, LOW);
+      reward_active = false;
+
+      int64_t time_until_ns;
+      int64_t old_period_ns;
+      RCASSERT(rcl_timer_get_period(&reward_timer, &old_period_ns),
+               "Failed to get reward timer period");
+      RCASSERT(
+          rcl_timer_get_time_until_next_call(&reward_timer, &time_until_ns),
+          "Failed to get time until next call");
+      RCASSERT(rcl_timer_cancel(&reward_timer),
+               "Failed to cancel reward timer");
+
+      double time_since_s = (old_period_ns - time_until_ns) / 1e9;
+      STRING_SET(&response->message, "Reward stopped after %.3f s",
+                 time_since_s);
+    } else {
+      STRING_SET(&response->message, "Reward already stopped");
+    }
   }
 
-  digitalWrite(REWARD_CONTROL_PIN, HIGH);
-  reward_active = true;
-
-  int64_t duration_ns = ROS_TIME_TO_NS(request->duration);
-  int64_t old_period;
-  RCASSERT(rcl_timer_exchange_period(&reward_timer, duration_ns, &old_period),
-           "Failed to exchange reward timer period");
-  RCASSERT(rcl_timer_reset(&reward_timer), "Failed to reset reward timer");
-
   response->success = true;
-  double duration_s = duration_ns / 1e9;
-  STRING_SET(&response->message, "Reward started for %.2f s", duration_s);
   LOG("%s", response->message.data);
 }
 

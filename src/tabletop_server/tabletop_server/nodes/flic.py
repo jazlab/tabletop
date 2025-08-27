@@ -115,9 +115,13 @@ class Flic(BaseNode):
                 )
             else:
                 # Connect to the button
+                auto_disconnect_time = self.get_parameter_wrapper(
+                    "auto_disconnect_time"
+                )
                 async with asyncio.timeout(1):
                     cc = await self.flic_client.connect(
-                        goal_handle.request.bd_addr
+                        goal_handle.request.bd_addr,
+                        auto_disconnect_time=auto_disconnect_time,
                     )
                 button_task = asyncio.create_task(
                     cc.wait_for_button_event(ClickType.ButtonDown)
@@ -165,9 +169,6 @@ class Flic(BaseNode):
         else:
             self.log("Initializing flic client")
             max_connections = self.get_parameter_wrapper("max_connections")
-            auto_disconnect_time = self.get_parameter_wrapper(
-                "auto_disconnect_time"
-            )
             host = self.get_parameter_wrapper("server_ip")
             port = self.get_parameter_wrapper("server_port")
             loop = asyncio.get_event_loop()
@@ -175,7 +176,6 @@ class Flic(BaseNode):
                 lambda: FlicClient(
                     loop=loop,
                     max_connection_channels=max_connections,
-                    default_auto_disconnect_time=auto_disconnect_time,
                     time_fn=lambda: self.get_clock().now(),
                 ),
                 host,

@@ -38,6 +38,12 @@ def main(args=None):
         help="Path to the training config file",
     )
     parser.add_argument(
+        "--start-time",
+        type=float,
+        default=0.0,
+        help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
         "-r",
         "--reprocess",
         action="store_true",
@@ -91,7 +97,7 @@ def main(args=None):
 
     if args.reprocess or not already_preprocessed:
         print("Preprocessing data...")
-        preprocess_data(args.session_dir, config)
+        preprocess_data(args.session_dir, config, start_time=args.start_time)
 
     # Train and evaluate
     train_and_evaluate(args.session_dir, config)

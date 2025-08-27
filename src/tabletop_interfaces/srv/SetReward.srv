@@ -1,4 +1,5 @@
 builtin_interfaces/Duration duration
+bool activate
 ---
 bool success
 string message

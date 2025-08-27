@@ -209,17 +209,9 @@ class ButtonConnectionChannel:
     def latency_mode(self) -> LatencyMode:
         return self._latency_mode
 
-    @latency_mode.setter
-    def latency_mode(self, latency_mode: LatencyMode):
-        self._latency_mode = latency_mode
-
     @property
     def auto_disconnect_time(self) -> int:
         return self._auto_disconnect_time
-
-    @auto_disconnect_time.setter
-    def auto_disconnect_time(self, auto_disconnect_time: int):
-        self._auto_disconnect_time = auto_disconnect_time
 
     @property
     def created(self) -> bool:
@@ -637,18 +629,12 @@ class FlicClient(asyncio.Protocol):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        default_latency_mode: LatencyMode = LatencyMode.LowLatency,
-        default_auto_disconnect_time: int = 511,
-        default_log_click_types: Iterable[ClickType] = (ClickType.ButtonDown,),
-        default_ignore_queued: bool = False,
+        ignore_queued: bool = False,
         max_connection_channels: int = MAX_CONCURRENT_CONNECTIONS,
         time_fn: Callable[[], Any] = time.time,
     ):
         self._loop = loop
-        self.default_latency_mode = default_latency_mode
-        self.default_auto_disconnect_time = default_auto_disconnect_time
-        self.default_log_click_types = default_log_click_types
-        self.default_ignore_queued = default_ignore_queued
+        self.ignore_queued = ignore_queued
         if max_connection_channels > self.MAX_CONCURRENT_CONNECTIONS:
             raise ValueError(
                 f"max_connection_channels must be less than {self.MAX_CONCURRENT_CONNECTIONS}"
@@ -678,14 +664,6 @@ class FlicClient(asyncio.Protocol):
         self._button_events = {
             click_type: asyncio.Event() for click_type in ClickType
         }
-
-        logger.debug(
-            f"FlicClient initialized with "
-            f"default_latency_mode: {default_latency_mode}, "
-            f"default_auto_disconnect_time: {default_auto_disconnect_time}, "
-            f"default_log_click_types: {default_log_click_types}, "
-            f"max_connection_channels: {max_connection_channels}"
-        )
 
     @property
     def num_connection_channels(self) -> int:
@@ -1145,7 +1123,7 @@ class FlicClient(asyncio.Protocol):
         ):
             self._buttons_ordered[channel.conn_id] = channel
 
-        if self.default_ignore_queued and was_queued:
+        if self.ignore_queued and was_queued:
             return
 
         self._last_time_button_event[click_type] = event_time
@@ -1291,20 +1269,31 @@ class FlicClient(asyncio.Protocol):
         if latency_mode is None and auto_disconnect_time is None:
             raise ValueError("No parameters to update")
 
-        if latency_mode is not None:
-            channel.latency_mode = latency_mode
+        changed = False
+        if latency_mode is not None and channel._latency_mode != latency_mode:
+            channel._latency_mode = latency_mode
+            changed = True
 
-        if auto_disconnect_time is not None:
-            channel.auto_disconnect_time = auto_disconnect_time
+        if (
+            auto_disconnect_time is not None
+            and channel._auto_disconnect_time != auto_disconnect_time
+        ):
+            channel._auto_disconnect_time = auto_disconnect_time
+            changed = True
 
-        self._send_command(
-            "CmdChangeModeParameters",
-            {
-                "conn_id": channel.conn_id,
-                "latency_mode": channel.latency_mode,
-                "auto_disconnect_time": channel.auto_disconnect_time,
-            },
-        )
+        if changed:
+            self._send_command(
+                "CmdChangeModeParameters",
+                {
+                    "conn_id": channel.conn_id,
+                    "latency_mode": channel.latency_mode,
+                    "auto_disconnect_time": channel.auto_disconnect_time,
+                },
+            )
+        else:
+            logger.warning(
+                "Connection channel parameters are already up to date"
+            )
 
     def add_battery_status_listener(self, listener: BatteryStatusListener):
         """Adds a battery status listener for a specific Flic button."""
@@ -1400,30 +1389,10 @@ class FlicClient(asyncio.Protocol):
         return scan_wizard.bd_addr
 
     async def connect(
-        self,
-        bd_addr: str,
-        latency_mode: Optional[LatencyMode] = None,
-        auto_disconnect_time: Optional[int] = None,
-        ignore_queued: Optional[bool] = None,
-        log_click_types: Optional[Iterable[ClickType]] = None,
+        self, bd_addr: str, **connection_channel_kwargs: Any
     ) -> ButtonConnectionChannel:
         """Connect to a button."""
-        if latency_mode is None:
-            latency_mode = self.default_latency_mode
-        if auto_disconnect_time is None:
-            auto_disconnect_time = self.default_auto_disconnect_time
-        if ignore_queued is None:
-            ignore_queued = self.default_ignore_queued
-        if log_click_types is None:
-            log_click_types = self.default_log_click_types
-
-        cc = ButtonConnectionChannel(
-            bd_addr,
-            latency_mode,
-            auto_disconnect_time,
-            ignore_queued,
-            log_click_types,
-        )
+        cc = ButtonConnectionChannel(bd_addr, **connection_channel_kwargs)
 
         if cc.conn_id in self._connection_channels:
             logger.debug(f"Connection channel {cc.conn_id} already exists")
@@ -1581,7 +1550,7 @@ async def main_async(
         lambda: FlicClient(
             loop=loop,
             max_connection_channels=max_connections,
-            default_ignore_queued=ignore_queued,
+            ignore_queued=ignore_queued,
         ),
         host,
         port,

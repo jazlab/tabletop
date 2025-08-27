@@ -1,7 +1,10 @@
 preprocess:
-  filename: preprocessed_data.csv
+  filename: preprocessed.csv
   eyelink_freq: 1000
   markers_freq: 120
+  eyelink_filter_window: 0.005
+  markers_filter_window: null
+  max_marker_gap: 0.05
 data:
   test_size: 0.2
   val_folds: 5
@@ -28,3 +31,16 @@ train:
 weights_path: saved_weights/model.pt
 predictions:
   filename: predictions.csv
+visualize:
+  eyelink_range:
+    min_x: -30000
+    max_x: 30000
+    min_y: -30000
+    max_y: 30000
+  markers_range:
+    min_x: 0.0
+    max_x: 1.0
+    min_y: -0.5
+    max_y: 0.5
+    min_z: 0.0
+    max_z: 1.0

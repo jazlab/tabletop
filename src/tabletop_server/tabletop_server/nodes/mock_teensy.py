@@ -302,9 +302,10 @@ class MockTeensy(BaseNode):
         self.log("MockTeensy initialized")
 
     def log(self, message: str, severity: str = "INFO"):
-        super().log(message, severity)
-        if hasattr(self, "log_pub"):
-            self.log_pub.publish(String(data=f"{severity}: {message}"))
+        logged = super().log(message, severity)
+        if logged and hasattr(self, "log_pub"):
+            self.log_pub.publish(String(data=str(message)))
+        return logged
 
     def sync_pulse_end_timer_callback(self):
         assert self.sync_pulse_control_pin_state
@@ -416,27 +417,54 @@ class MockTeensy(BaseNode):
     def set_reward_callback(
         self, request: SetReward.Request, response: SetReward.Response
     ):
-        if not self.reward_timer.is_canceled():
-            assert (
-                self.reward_active
-            ), "Reward is not active while reward timer is running"
-            response.message = "Error: Reward already active!"
-            response.success = False
-            self.log(response.message, severity="WARN")
-            return response
+        timer_is_canceled = self.reward_timer.is_canceled()
+        assert (
+            self.reward_active != timer_is_canceled
+        ), "Reward timer state and reward_active state are inconsistent"
 
-        digital_write(REWARD_CONTROL_PIN, HIGH)
-        self.reward_active = True
+        if request.activate:
+            # Activate reward for the duration specified in the request
+            if request.duration.sec == 0 and request.duration.nanosec == 0:
+                response.success = False
+                response.message = (
+                    "Reward duration should be provided when activating"
+                )
+                self.log(response.message, severity="WARN")
+                return response
 
-        duration = Duration.from_msg(request.duration)
-        self.reward_timer.timer_period_ns = duration.nanoseconds
-        self.reward_timer.reset()
+            digital_write(REWARD_CONTROL_PIN, HIGH)
+            self.reward_active = True
 
-        # Set the response message
+            duration_ns = Duration.from_msg(request.duration).nanoseconds
+            self.reward_timer.timer_period_ns = duration_ns
+            self.reward_timer.reset()
+
+            duration_s = duration_ns / 1e9
+            response.message = f"Reward {'started' if timer_is_canceled else 'extended'} for {duration_s:.2f} s"
+        else:
+            # If the reward is being deactivated, the duration should be 0
+            if request.duration.sec != 0 or request.duration.nanosec != 0:
+                response.success = False
+                response.message = (
+                    "Reward duration should not be provided when deactivating"
+                )
+                self.log(response.message, severity="WARN")
+                return response
+
+            if not timer_is_canceled:
+                digital_write(REWARD_CONTROL_PIN, LOW)
+                self.reward_active = False
+
+                old_period_ns = self.reward_timer.timer_period_ns
+                time_until_ns = self.reward_timer.time_until_next_call()
+                self.reward_timer.cancel()
+
+                time_since_s = (old_period_ns - time_until_ns) / 1e9
+                response.message = f"Reward stopped after {time_since_s:.2f} s"
+            else:
+                response.message = "Reward already stopped"
+
         response.success = True
-        response.message = (
-            f"Reward started for {duration.nanoseconds / 1e9:.2f} s"
-        )
         self.log(response.message)
 
         return response

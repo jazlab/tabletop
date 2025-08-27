@@ -25,14 +25,16 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 bd_addr_ordered = [
-    "80:e4:da:7c:a6:0b",
-    "80:e4:da:7e:2a:eb",
-    "80:e4:da:7e:2b:31",
-    "80:e4:da:7e:5c:af",
-    "80:e4:da:7e:64:8c",
-    "80:e4:da:7e:64:96",
-    "80:e4:da:7e:64:a0",
-    "80:e4:da:7e:5c:8e",
+    "90:88:a9:50:5f:b6",
+    "90:88:a9:50:5f:92",
+    "90:88:a9:50:63:08",
+    "90:88:a9:50:61:4e",
+    "90:88:a9:50:60:9f",
+    "90:88:a9:50:65:ff",
+    "90:88:a9:50:60:09",
+    "90:88:a9:50:7c:7a",
+    "90:88:a9:50:7c:b1",
+    "90:88:a9:50:65:fb",
 ]
 
 
@@ -85,7 +87,10 @@ async def run(
     fluidsynth_process = subprocess.Popen(["fluidsynth", "-a", driver, "-i"])
 
     try:
-        await client.connect_existing_buttons()
+        for bd_addr in bd_addr_ordered:
+            cc = PianoButtonConnectionChannel(
+                bd_addr, note=bd_addr_to_note[bd_addr]
+            )
         print(
             f"Waiting for {len(bd_addr_to_note) - client.num_buttons} buttons"
         )
@@ -116,7 +121,7 @@ def main():
     parser.add_argument("--key", type=str, default="C")
     parser.add_argument("--octave", type=int, default=4)
     parser.add_argument("--scale", type=str, default="HarmonicMinor")
-    parser.add_argument("--driver", type=str, default="pulseaudio")
+    parser.add_argument("--driver", type=str, default="alsa")
     args = parser.parse_args()
 
     soundfont_path = os.path.join(dir_path, args.soundfont)
@@ -135,17 +140,28 @@ def main():
 
 
 def test_note():
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    fluidsynth.init(os.path.join(dir_path, "lyzen.sf2"), driver="pulseaudio")
-    time.sleep(1)
-    note = Note("C", 4, velocity=127)
-    fluidsynth.play_Note(note)
-    time.sleep(1)
+    soundfont_path = os.path.join(
+        os.environ["TABLETOP_DIR"], "soundfonts", "moog.sf2"
+    )
+    if not os.path.exists(soundfont_path):
+        raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
+    # fluidsynth_process = subprocess.Popen(
+    #     ["fluidsynth", "-a", "pulseaudio", "-i"]
+    # )
+    try:
+        fluidsynth.init(soundfont_path, driver="pulseaudio")
+        fluidsynth.set_instrument(0, 62, bank=0)
+        note = Note("C", 4, velocity=127, channel=0)
+        fluidsynth.play_Note(note)
+        time.sleep(1)
+    finally:
+        pass
+        # fluidsynth_process.terminate()
 
 
 if __name__ == "__main__":
-    # test_note()
-    main()
+    test_note()
+    # main()
 
 
 # sudo apt install fluidsynth

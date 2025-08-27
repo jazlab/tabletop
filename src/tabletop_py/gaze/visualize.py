@@ -1,19 +1,48 @@
+import logging
 import os
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from tabletop_py.gaze.preprocess import format_columns, reindex_steady_time
+
+logger = logging.getLogger(__name__)
+
 
 def plot_eyelink_markers(
-    eyelink_df: pd.DataFrame,
-    markers_df: pd.DataFrame,
-    title: str,
+    df: pd.DataFrame,
+    *,
+    freq: float,
+    markers_df: Optional[pd.DataFrame] = None,
+    markers_freq: Optional[float] = None,
+    title: str = "Eyelink and Marker Data",
     save_path: str | None = None,
 ):
+    """
+    Plot the eyelink and markers data.
+
+    Args:
+        df: The dataframe containing the eyelink data (and optionally markers data).
+        markers_df: Optional dataframe containing the markers data if not provided in df.
+        title: The title of the plot.
+        save_path: The path to save the plot.
+    """
+    eyelink_df = reindex_steady_time(df, freq, on="time")
+    # eyelink_df = df
+    if markers_df is not None:
+        if markers_freq is None:
+            raise ValueError(
+                "markers_freq must be provided if markers_df is provided"
+            )
+        markers_df = reindex_steady_time(markers_df, markers_freq, on="time")
+        # markers_df = markers_df
+    else:
+        markers_df = eyelink_df
+
     fig, ax = plt.subplots(7, 1, sharex=True, figsize=(10, 15))
     fig.suptitle(title)
     i = 0
@@ -35,7 +64,12 @@ def plot_eyelink_markers(
 
 def animate_2d_dots(
     data: Mapping[str, np.ndarray],
+    *,
     freq: float,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
     fr: int = 10,
     save_path: str | None = None,
 ):
@@ -47,6 +81,10 @@ def animate_2d_dots(
             key is a dot name and the value is an array of size (T, 2) for each
             time step.
         freq: The frequency of the data.
+        min_x: The minimum x value.
+        max_x: The maximum x value.
+        min_y: The minimum y value.
+        max_y: The maximum y value.
         fr: The frame rate.
         save_path: The path to save the animation.
     """
@@ -57,12 +95,7 @@ def animate_2d_dots(
     ax = fig.add_subplot()
 
     plots = {}
-    colors = np.linspace(0, 1, len(data))
-    min_x = np.inf
-    min_y = np.inf
-    max_x = -np.inf
-    max_y = -np.inf
-    for i, (key, value) in enumerate(data.items()):
+    for key, value in data.items():
         if value.shape != (num_samples, 2):
             raise ValueError(
                 f"Dot {key} has {value.shape} samples, but expected {(num_samples, 2)}"
@@ -70,27 +103,22 @@ def animate_2d_dots(
         plot = ax.scatter([], [])
         plot.set_label(key)
         plots[key] = plot
-        min_x = min(min_x, value[:, 0].min())
-        min_y = min(min_y, value[:, 1].min())
-        max_x = max(max_x, value[:, 0].max())
-        max_y = max(max_y, value[:, 1].max())
 
     ax.set_xlim(min_x, max_x)
     ax.set_ylim(min_y, max_y)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.legend()
 
     def init():
         for key, plot in plots.items():
             plot.set_offsets(data[key][0])
-            # plot.set_cmap("tab10")
-            # plot.set_array(colors[i])
         return tuple(plots.values())
 
     def animate(i):
         idx = int(i * interval * freq)
         for key, plot in plots.items():
             plot.set_offsets(data[key][idx])
-            # plot.set_cmap("tab10")
-            # plot.set_array(colors[i])
         return tuple(plots.values())
 
     anim = animation.FuncAnimation(
@@ -117,7 +145,14 @@ def animate_2d_dots(
 
 def animate_3d_dots(
     data: Mapping[str, np.ndarray],
+    *,
     freq: float,
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+    min_z: float,
+    max_z: float,
     fr: int = 10,
     save_path: str | None = None,
 ):
@@ -138,14 +173,7 @@ def animate_3d_dots(
     ax = fig.add_subplot(projection="3d")
 
     plots = {}
-    colors = np.linspace(0, 1, len(data))
-    min_x = np.inf
-    min_y = np.inf
-    min_z = np.inf
-    max_x = -np.inf
-    max_y = -np.inf
-    max_z = -np.inf
-    for i, (key, value) in enumerate(data.items()):
+    for key, value in data.items():
         if value.shape[0] != num_samples:
             raise ValueError(
                 f"Dot {key} has {value.shape[0]} samples, but expected {num_samples}"
@@ -154,9 +182,9 @@ def animate_3d_dots(
         plot.set_label(key)
         plots[key] = plot
 
-    ax.set_xlim(0.0, 1.0)
-    ax.set_ylim(-0.5, 0.5)
-    ax.set_zlim(0.0, 1.0)
+    ax.set_xlim(min_x, max_x)
+    ax.set_ylim(min_y, max_y)
+    ax.set_zlim(min_z, max_z)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
@@ -169,8 +197,6 @@ def animate_3d_dots(
                 data[key][0, 0].reshape(1),
                 data[key][0, 1].reshape(1),
             )  # type: ignore
-            # plot.set_cmap("tab10")
-            # plot.set_array(colors)
         return tuple(plots.values())
 
     def animate(i):
@@ -181,8 +207,6 @@ def animate_3d_dots(
                 data[key][idx, 0].reshape(1),
                 data[key][idx, 1].reshape(1),
             )  # type: ignore
-            # plot.set_cmap("tab10")
-            # plot.set_array(colors)
         return tuple(plots.values())
 
     anim = animation.FuncAnimation(
@@ -216,35 +240,55 @@ def visualize_calibration(
             f"Session directory not found at {session_dir}"
         )
 
+    # Raw data
+    logger.info("Visualizing raw data")
+    eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
+    markers_path = os.path.join(session_dir, "markers.csv")
+    eyelink_df = pd.read_csv(eyelink_path, index_col=False)
+    markers_df = pd.read_csv(markers_path, index_col=False)
+
+    eyelink_freq = config["preprocess"]["eyelink_freq"]
+    markers_freq = config["preprocess"]["markers_freq"]
+
+    eyelink_df, markers_df = format_columns(
+        eyelink_df, markers_df, eyelink_freq, markers_freq, marker_idx=0
+    )
+
+    plot_eyelink_markers(
+        eyelink_df,
+        freq=eyelink_freq,
+        markers_df=markers_df,
+        markers_freq=markers_freq,
+        title="Raw data",
+        save_path=os.path.join(session_dir, "raw.png"),
+    )
+
     # Preprocessed data
+    logger.info("Visualizing preprocessed data")
     preprocessed_path = os.path.join(
         session_dir, config["preprocess"]["filename"]
     )
     preprocessed_df = pd.read_csv(preprocessed_path)
-    eyelink_df = cast(
-        pd.DataFrame,
-        preprocessed_df[["time", "left_x", "left_y", "right_x", "right_y"]],
-    )
-    markers_df = cast(
-        pd.DataFrame,
-        preprocessed_df[["time", "marker_x", "marker_y", "marker_z"]],
-    )
     plot_eyelink_markers(
-        eyelink_df,
-        markers_df,
+        preprocessed_df,
+        freq=eyelink_freq,
         title="Preprocessed data",
-        save_path=os.path.join(session_dir, "calibration.png"),
+        save_path=os.path.join(session_dir, "preprocessed.png"),
     )
 
+    # Eyelink data
+    logger.info("Animating eyelink data")
     left_eye = cast(np.ndarray, eyelink_df[["left_x", "left_y"]].values)
     right_eye = cast(np.ndarray, eyelink_df[["right_x", "right_y"]].values)
-    # animate_2d_dots(
-    #     {"Left eye": left_eye, "Right eye": right_eye},
-    #     1000,
-    #     save_path=os.path.join(session_dir, "eyelink.mp4"),
-    # )
+    animate_2d_dots(
+        {"Left eye": left_eye, "Right eye": right_eye},
+        freq=eyelink_freq,
+        **config["visualize"]["eyelink_range"],
+        save_path=os.path.join(session_dir, "eyelink.mp4"),
+    )
 
     # Predicted data
+    logger.info("Animating predicted marker data")
     results_path = os.path.join(session_dir, config["predictions"]["filename"])
     results_df = pd.read_csv(results_path)
     targets = cast(
@@ -254,7 +298,8 @@ def visualize_calibration(
 
     animate_3d_dots(
         {"Target": targets, "Prediction": preds},
-        config["preprocess"]["eyelink_freq"],
+        freq=eyelink_freq,
+        **config["visualize"]["markers_range"],
         save_path=os.path.join(session_dir, "predictions.mp4"),
     )
 
@@ -282,6 +327,10 @@ def main(args=None):
         ),
     )
     args = parser.parse_args(args)
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s - %(message)s"
+    )
 
     with open(args.config, "r") as f:
         config = cast(Mapping[str, Any], yaml.safe_load(f))

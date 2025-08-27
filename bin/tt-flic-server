@@ -18,6 +18,6 @@ while true; do
         break
     fi
     echo "Client disconnected, restarting server..."
-    sleep 1
+    sleep 2
 done
 popd

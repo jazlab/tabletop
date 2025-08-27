@@ -1,16 +1,64 @@
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 import pandas as pd
+from scipy import stats
+from scipy.signal import savgol_filter
 
 logger = logging.getLogger(__name__)
 
 pd.options.mode.copy_on_write = True
 
 EYELINK_MISSING = -32768
+
+
+def reindex_and_interpolate(
+    df: pd.DataFrame,
+    new_idx: np.ndarray | pd.Series,
+    on: str,
+    direction: str = "backward",
+    tolerance: Optional[float] = None,
+) -> pd.DataFrame:
+    """
+    Merges two dataframes on a common column with a tolerance.
+    """
+    new_df = pd.DataFrame({on: new_idx})
+    new_df = pd.merge_asof(
+        new_df,
+        df,
+        on=on,
+        direction=direction,
+        tolerance=tolerance,  # type: ignore
+    )
+    data_cols = [col for col in df.columns if col != on]
+    isna = new_df[data_cols].isna().any(axis=1)
+
+    for col in df.columns:
+        if col == on:
+            continue
+        data = np.interp(new_df[on], df[on], df[col])
+        data[isna] = np.nan  # type: ignore
+        new_df[col] = data
+
+    return new_df
+
+
+def reindex_steady_time(
+    df: pd.DataFrame,
+    freq: float,
+    on: str,
+    direction: str = "backward",
+) -> pd.DataFrame:
+    """
+    Interpolates the data with NaNs.
+    """
+    steady_idx = np.arange(df[on].min(), df[on].max(), 1 / freq)
+    return reindex_and_interpolate(
+        df, steady_idx, on=on, direction=direction, tolerance=1 / freq
+    )
 
 
 def verify_timestamps(
@@ -72,11 +120,12 @@ def verify_timestamps(
         )
 
 
-def format_timestamps(
+def format_columns(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
     eyelink_freq: float,
     markers_freq: float,
+    marker_idx: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Formats the timestamps to seconds and checks for monotonicity.
@@ -90,6 +139,18 @@ def format_timestamps(
     """
     eyelink_df = eyelink_df.copy(deep=True)
     markers_df = markers_df.copy(deep=True)
+
+    if f"markers[{marker_idx}].id_type" not in markers_df.columns:
+        raise ValueError(
+            f"Marker {marker_idx} not found in markers_df. Columns: {markers_df.columns}"
+        )
+    markers_df[["marker_x", "marker_y", "marker_z"]] = markers_df[
+        [
+            f"markers[{marker_idx}].translation.x",
+            f"markers[{marker_idx}].translation.y",
+            f"markers[{marker_idx}].translation.z",
+        ]
+    ]
 
     eyelink_df["bag_time"] = eyelink_df.bag_time_ns / 1e9
     markers_df["bag_time"] = markers_df.bag_time_ns / 1e9
@@ -110,91 +171,6 @@ def format_timestamps(
     eyelink_df["eyelink_time"] = eyelink_df["eyelink_time_ms"] / 1e3
 
     verify_timestamps(eyelink_df, markers_df, eyelink_freq, markers_freq)
-
-    return eyelink_df, markers_df
-
-
-def get_smooth_pursuit(
-    df: pd.DataFrame,
-    freq: float,
-    window: float,
-    threshold: int,
-) -> bool | None:
-    """Check if the subject is smoothly pursuing.
-
-    This function will check if the subject is smoothly pursuing by
-    checking if the speed of the left and right eyes is below a threshold
-    (the eye can only move smoothly if it is following a smoothly moving
-    object, so we check if the speed remains below a threshold).
-
-    Args:
-        df: The dataframe containing the eye tracker and optical marker data.
-        freq: The frequency of the eye tracker and optical marker data.
-        window: The window size in seconds.
-        threshold: The threshold for the speed of the eyes.
-
-    Returns:
-        True if the subject is smoothly pursuing, False otherwise.
-    """
-    logger.info("Checking for smooth pursuit")
-
-    time = df["time"]
-    left_positions = df[["left_x", "left_y"]]
-    right_positions = df[["right_x", "right_y"]]
-
-    # TODO: Add smoothing and/or filtering to the positional data so as
-    # to false negatives (e.g. if a spike of noise occurs for a single
-    # sample, it is likely not a saccade/break in smooth pursuit and we
-    # should ignore it).
-    left_speed = np.linalg.norm(
-        np.gradient(left_positions, time, axis=0), axis=1
-    )
-    right_speed = np.linalg.norm(
-        np.gradient(right_positions, time, axis=0), axis=1
-    )
-
-    kernel_size = int(window * freq)
-    left_speed = np.convolve(
-        left_speed, np.ones(kernel_size) / kernel_size, mode="same"
-    )
-    right_speed = np.convolve(
-        right_speed, np.ones(kernel_size) / kernel_size, mode="same"
-    )
-
-    # Ensure that smooth pursuit is occuring by checking if the speeds of
-    # the left and right eyes are below a threshold
-    is_smoothly_pursuing = np.all(
-        np.stack([left_speed, right_speed], axis=1) < threshold
-    ).item()
-
-    return is_smoothly_pursuing
-
-
-def clean_data(
-    eyelink_df: pd.DataFrame, markers_df: pd.DataFrame, marker_idx: int = 0
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Cleans the data by selecting the relevant columns and dropping invalid rows.
-
-    Args:
-        eyelink_df (pd.DataFrame): The eye tracker data.
-        markers_df (pd.DataFrame): The optical marker data.
-    """
-
-    eyelink_df = eyelink_df.copy(deep=True)
-    markers_df = markers_df.copy(deep=True)
-
-    if f"markers[{marker_idx}].id_type" not in markers_df.columns:
-        raise ValueError(
-            f"Marker {marker_idx} not found in markers_df. Columns: {markers_df.columns}"
-        )
-    markers_df[["marker_x", "marker_y", "marker_z"]] = markers_df[
-        [
-            f"markers[{marker_idx}].translation.x",
-            f"markers[{marker_idx}].translation.y",
-            f"markers[{marker_idx}].translation.z",
-        ]
-    ]
 
     eyelink_df = cast(
         pd.DataFrame,
@@ -223,12 +199,97 @@ def clean_data(
         ],
     )
 
+    return eyelink_df, markers_df
+
+
+def get_smooth_pursuit(
+    df: pd.DataFrame,
+    freq: float,
+    window: float,
+    threshold: int,
+) -> bool | None:
+    """Check if the subject is smoothly pursuing.
+
+    This function will check if the subject is smoothly pursuing by
+    checking if the speed of the left and right eyes is below a threshold
+    (the eye can only move smoothly if it is following a smoothly moving
+    object, so we check if the speed remains below a threshold).
+
+    Args:
+        df: The dataframe containing the eye tracker and optical marker data.
+        freq: The frequency of the eye tracker and optical marker data.
+        window: The window size in seconds.
+        threshold: The threshold for the speed of the eyes.
+
+    Returns:
+        True if the subject is smoothly pursuing, False otherwise.
+    """
+    logger.info("Checking for smooth pursuit")
+
+    tmp_df = df.copy(deep=True)
+
+    time = tmp_df["time"]
+    left_positions = tmp_df[["left_x", "left_y"]]
+    right_positions = tmp_df[["right_x", "right_y"]]
+
+    # TODO: Add smoothing and/or filtering to the positional data so as
+    # to false negatives (e.g. if a spike of noise occurs for a single
+    # sample, it is likely not a saccade/break in smooth pursuit and we
+    # should ignore it).
+    left_speed = np.linalg.norm(
+        np.gradient(left_positions, time, axis=0), axis=1
+    )
+    right_speed = np.linalg.norm(
+        np.gradient(right_positions, time, axis=0), axis=1
+    )
+
+    tmp_df["timestamp"] = pd.to_datetime(time, unit="s")
+    rolling = tmp_df.rolling(
+        window=pd.Timedelta(window * 1e9, unit="ns"),  # type: ignore
+        min_periods=1,
+    )
+    left_speed = rolling["left_x"].diff() / rolling["timestamp"].diff()
+    right_speed = rolling["right_x"].diff() / rolling["timestamp"].diff()
+    left_speed = left_speed.fillna(0)
+    right_speed = right_speed.fillna(0)
+
+    # Ensure that smooth pursuit is occuring by checking if the speeds of
+    # the left and right eyes are below a threshold
+    is_smoothly_pursuing = np.all(
+        np.stack([left_speed, right_speed], axis=1) < threshold
+    ).item()
+
+    return is_smoothly_pursuing
+
+
+def clean_data(
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+    start_time: float = 0.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Cleans the data by selecting the relevant columns and dropping invalid rows.
+
+    Args:
+        eyelink_df (pd.DataFrame): The eye tracker data.
+        markers_df (pd.DataFrame): The optical marker data.
+    """
+
+    eyelink_df = eyelink_df.copy(deep=True)
+    markers_df = markers_df.copy(deep=True)
+
     min_time = min(eyelink_df["time"].min(), markers_df["time"].min())
     eyelink_df["time"] = eyelink_df["time"] - min_time
     markers_df["time"] = markers_df["time"] - min_time
 
-    eyelink_df["time_diff"] = eyelink_df["time"].diff()
-    markers_df["time_diff"] = markers_df["time"].diff()
+    eyelink_df = cast(
+        pd.DataFrame,
+        eyelink_df[eyelink_df["time"] >= start_time],
+    )
+    markers_df = cast(
+        pd.DataFrame,
+        markers_df[markers_df["time"] >= start_time],
+    )
 
     for col in [
         "left_x",
@@ -254,68 +315,60 @@ def clean_data(
         ]
     )
     markers_df = markers_df.dropna(subset=["marker_x", "marker_y", "marker_z"])
-    markers_df["time_markers"] = markers_df["time"]
+
+    zscores = stats.zscore(
+        eyelink_df[["left_x", "left_y", "right_x", "right_y"]]
+    )
+    eyelink_df = eyelink_df[(np.abs(zscores) < 3.0).all(axis=1)]  # type: ignore
+    # zscores = stats.zscore(markers_df[["marker_x", "marker_y", "marker_z"]])
+    # markers_df = markers_df[(np.abs(zscores) < 3.0).all(axis=1)]  # type: ignore
 
     return eyelink_df, markers_df
 
 
 def merge_eyelink_markers(
-    eyelink_df: pd.DataFrame, markers_df: pd.DataFrame
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+    eyelink_freq: float,
 ) -> pd.DataFrame:
     """
     Merges the eyelink and marker data on closest time.
     """
-    df = pd.merge_asof(
-        eyelink_df,
+    df = reindex_steady_time(eyelink_df, eyelink_freq, on="time")
+    df = df.dropna()
+    markers_df = reindex_and_interpolate(
         markers_df,
+        df["time"],  # type: ignore
         on="time",
-        direction="backward",
-        tolerance=eyelink_df["time_diff"].max(),  # type: ignore
-        suffixes=("_eyelink", "_markers"),
+        tolerance=1 / eyelink_freq,
     )
-    assert df.shape[0] == eyelink_df.shape[0]
-    matched = df["time_markers"].notna().sum()
-    unique = (df["time_markers"].dropna() * 1000).astype(int).unique()
+    num_rows = df.shape[0]
 
-    logger.info(
-        f"Matched {matched.sum()} ({unique.shape[0]} unique) out of {markers_df.shape[0]} marker data points"
-    )
+    df = pd.merge(df, markers_df, on="time", suffixes=("_eyelink", "_marker"))
 
+    assert (
+        df.shape[0] == num_rows
+    ), f"Expected {num_rows} rows after merging, got {df.shape[0]}"
     marker_cols = [col for col in df.columns if "marker" in col]
-    merged_markers = df[marker_cols]
-    diff = merged_markers["time_markers"].diff()  # type: ignore
-    merged_markers[diff.notna() & (diff < 1e-6)] = np.nan
-
-    df[marker_cols] = merged_markers
-
-    new_matched = df["time_markers"].notna()
-    new_unique = (df["time_markers"].dropna() * 1000).astype(int).unique()
-    assert (
-        unique.shape[0] == new_unique.shape[0]
-    ), f"Expected {unique.shape[0]} unique marker data points after removing duplicates, got {new_unique.shape[0]}"
-    assert (
-        new_matched.sum() == new_unique.shape[0]
-    ), f"Expected all {new_matched.sum()} matched marker data points to be unique, got {new_unique.shape[0]} unique"
+    matched = df[marker_cols].notna().all(axis=1).sum()  # type: ignore
 
     logger.info(
-        f"After removing duplicates, {new_matched.sum()} out of previous {matched.sum()} marker data points remain"
+        f"Matched {matched} out of {markers_df.shape[0]} marker data points"
     )
 
     return df
 
 
-def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
+def interpolate_markers(
+    df: pd.DataFrame, max_marker_gap: float
+) -> pd.DataFrame:
     """
     Interpolates the marker data onto the eyelink time points.
     """
     df = df.copy(deep=True)
 
-    logger.info(
-        f"Marker time gaps before merging | "
-        f"min: {df['time_diff_markers'].min():.4f}, "
-        f"max: {df['time_diff_markers'].max():.4f}"
-    )
-    gaps = df["time"][df["time_markers"].notna()].diff()  # type: ignore
+    marker_cols = [col for col in df.columns if "marker" in col]
+    gaps = df["time"][df[marker_cols].notna().all(axis=1)].diff()  # type: ignore
     logger.info(
         f"Marker time gaps after merging | "
         f"min: {gaps.min():.4f}, "
@@ -325,17 +378,15 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
     # Remove rows where the gap between marker datapoints is too large to be interpolated accurately
     asof = cast(
         pd.DataFrame,
-        df.asof(df.index, subset=["marker_x", "marker_y", "marker_z"]),
+        df.asof(df.index, subset=marker_cols),
     )
     to_drop = asof["time"][
-        asof["time"].isna()
-        | (df["time"] > asof["time"] + df["time_diff_markers"].bfill())
+        asof["time"].isna() | (df["time"] > (asof["time"] + max_marker_gap))
     ]
     drop_times = to_drop.unique()  # type: ignore
     logger.info(
         f"Found {to_drop.shape[0]} rows (forming {len(drop_times)} contiguous gaps) where "
-        f"the time since the last marker datapoint is greater than the maximum expected gap: "
-        f"{df['time_diff_markers'].max():.4f}"
+        f"the time since the last marker datapoint is greater than the maximum expected gap: {max_marker_gap:.4f}"
     )
 
     df = cast(pd.DataFrame, df[~asof["time"].isin(drop_times)])  # type: ignore
@@ -344,9 +395,8 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
     logger.info(f"Dropped {num_dropped} out of {df.shape[0]} rows")
 
     df.set_index("time", inplace=True)
-    markers_cols = ["marker_x", "marker_y", "marker_z"]
-    df[markers_cols] = df[markers_cols].interpolate(method="slinear")
-    df = df.dropna(subset=markers_cols)
+    df[marker_cols] = df[marker_cols].interpolate(method="slinear")
+    df = df.dropna(subset=marker_cols)
     df.reset_index(inplace=True)
 
     df = df.drop(
@@ -354,19 +404,55 @@ def interpolate_markers(df: pd.DataFrame) -> pd.DataFrame:
             "left_pupil",
             "right_pupil",
             "input",
-            "time_diff_eyelink",
-            "time_diff_markers",
-            "time_markers",
         ]
     )
 
     return df
 
 
+def smooth_data(
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+    eyelink_freq: float,
+    markers_freq: float,
+    eyelink_window: float | None,
+    markers_window: float | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Smooths the data by applying a rolling window to the data.
+    """
+    eyelink_df = eyelink_df.copy(deep=True)
+    markers_df = markers_df.copy(deep=True)
+
+    if eyelink_window is not None:
+        eyelink_df = reindex_steady_time(eyelink_df, eyelink_freq, on="time")
+        window_length = int(eyelink_window * eyelink_freq)
+        for col in ["left_x", "left_y", "right_x", "right_y"]:
+            spline = savgol_filter(
+                eyelink_df[col],
+                window_length=window_length,
+                polyorder=3,
+            )
+            eyelink_df[col] = spline
+
+    if markers_window is not None:
+        markers_df = reindex_steady_time(markers_df, markers_freq, on="time")
+        window_length = int(markers_window * markers_freq)
+        for col in ["marker_x", "marker_y", "marker_z"]:
+            markers_df[col] = savgol_filter(
+                markers_df[col],
+                window_length=window_length,
+                polyorder=3,
+            )
+
+    return eyelink_df, markers_df
+
+
 def preprocess_data(
     session_dir: os.PathLike,
     config: Mapping[str, Any],
-) -> pd.DataFrame:
+    start_time: float = 0.0,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Preprocesses the data by cleaning and merging the eye tracker and optical marker data.
     """
@@ -379,17 +465,33 @@ def preprocess_data(
     eyelink_freq = config["preprocess"]["eyelink_freq"]
     markers_freq = config["preprocess"]["markers_freq"]
 
-    eyelink_df, markers_df = format_timestamps(
-        eyelink_df, markers_df, eyelink_freq, markers_freq
+    logger.info("Formatting columns")
+    raw_eyelink_df, raw_markers_df = format_columns(
+        eyelink_df, markers_df, eyelink_freq, markers_freq, marker_idx=0
     )
-    eyelink_df, markers_df = clean_data(eyelink_df, markers_df, marker_idx=0)
-    df = merge_eyelink_markers(eyelink_df, markers_df)
-    df = interpolate_markers(df)
+    logger.info("Cleaning data")
+    eyelink_df, markers_df = clean_data(
+        raw_eyelink_df, raw_markers_df, start_time
+    )
+    # logger.info("Smoothing data")
+    # eyelink_df, markers_df = smooth_data(
+    #     eyelink_df,
+    #     markers_df,
+    #     eyelink_freq,
+    #     markers_freq,
+    #     eyelink_window=config["preprocess"]["eyelink_filter_window"],
+    #     markers_window=config["preprocess"]["markers_filter_window"],
+    # )
+    logger.info("Merging eyelink and markers")
+    df = merge_eyelink_markers(eyelink_df, markers_df, eyelink_freq)
+    logger.info("Interpolating markers")
+    df = interpolate_markers(df, config["preprocess"]["max_marker_gap"])
 
     path = os.path.join(session_dir, config["preprocess"]["filename"])
     df.to_csv(path, index=False)
+    logger.info(f"Saved data to {path}")
 
-    return df
+    return df, raw_eyelink_df, raw_markers_df
 
 
 def main(args=None):
@@ -420,12 +522,48 @@ def main(args=None):
         ),
         help="Path to the training config file",
     )
+    parser.add_argument(
+        "--start-time",
+        type=float,
+        default=0.0,
+        help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Visualize the data.",
+    )
     args = parser.parse_args(args)
 
     with open(args.config, "r") as f:
         config = cast(Mapping[str, Any], yaml.safe_load(f))
 
-    preprocess_data(args.session_dir, config)
+    df, raw_eyelink_df, raw_markers_df = preprocess_data(
+        args.session_dir, config, start_time=args.start_time
+    )
+
+    if args.visualize:
+        from tabletop_py.gaze.visualize import plot_eyelink_markers
+
+        logger.info("Visualizing data")
+        eyelink_freq = config["preprocess"]["eyelink_freq"]
+        markers_freq = config["preprocess"]["markers_freq"]
+
+        plot_eyelink_markers(
+            raw_eyelink_df,
+            freq=eyelink_freq,
+            markers_df=raw_markers_df,
+            markers_freq=markers_freq,
+            title="Raw data",
+            save_path=os.path.join(args.session_dir, "raw.png"),
+        )
+
+        plot_eyelink_markers(
+            df,
+            freq=eyelink_freq,
+            title="Preprocessed data",
+            save_path=os.path.join(args.session_dir, "preprocessed.png"),
+        )
 
 
 if __name__ == "__main__":
