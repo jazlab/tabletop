@@ -15,6 +15,7 @@
 
 #include "core_pins.h"
 #include "rmw/qos_profiles.h"
+#include "rmw_microros/time_sync.h"
 
 #if !defined(MICRO_ROS_TRANSPORT_ARDUINO_SERIAL)
 #  error This code only supports serial transport.
@@ -59,9 +60,11 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_RECONNECT_PERIOD_MS 100
 #define AGENT_RECONNECT_TIMEOUT_MS 50
 #define EXECUTOR_SPIN_TIMEOUT_MS 50
-#define AGENT_PING_PERIOD_MS 5000
+#define AGENT_PING_PERIOD_MS 1000
 #define AGENT_PING_TIMEOUT_MS 10
-#define AGENT_PING_MAX_RETRIES 10
+#define AGENT_PING_MAX_RETRIES 3
+#define EPOCH_SYNC_PERIOD_MS 983
+#define EPOCH_SYNC_TIMEOUT_MS 10
 #define SENSOR_PERIOD_MS 20
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
 #define SYNC_PULSE_DELAY_RANGE_MS 200
@@ -75,6 +78,8 @@ rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
 
+rcl_timer_t agent_ping_timer;
+rcl_timer_t epoch_sync_timer;
 rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
 rcl_timer_t sync_pulse_end_timer;
@@ -97,21 +102,17 @@ tabletop_interfaces__srv__SetReward_Request set_reward_request;
 tabletop_interfaces__srv__SetReward_Response set_reward_response;
 
 // State tracking
-static uint8_t agent_ping_retries;
+uint8_t agent_ping_retries;
 
-static enum states {
+enum agent_states {
   WAITING_AGENT,
   AGENT_AVAILABLE,
   AGENT_CONNECTED,
   AGENT_DISCONNECTED,
-  CLIENT_ERROR
-} state;
+} agent_state = WAITING_AGENT;
 
-bool sync_pulse_state;
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
-bool reward_active;
-bool smartglass_revealed;
 
 // Macro definitions
 #define RCCHECK(fn)                                      \
@@ -139,18 +140,19 @@ bool smartglass_revealed;
     STRING_SET(&log_msg.data, fmt, ##__VA_ARGS__);            \
     RCSOFTCHECK(rcl_publish(&log_publisher, &log_msg, NULL)); \
   }
-#define RCASSERT(fn, fmt, ...)          \
-  {                                     \
-    rcl_ret_t temp_rc = fn;             \
-    if ((temp_rc != RCL_RET_OK)) {      \
-      LOG("RC Assertion failed!");      \
-      LOG("Error number: %d", temp_rc); \
-      LOG(fmt, ##__VA_ARGS__);          \
-    }                                   \
+#define RCASSERT(fn, fmt, ...)                      \
+  {                                                 \
+    rcl_ret_t temp_rc = fn;                         \
+    if ((temp_rc != RCL_RET_OK)) {                  \
+      LOG("RC Assertion failed!");                  \
+      LOG("Error: %s", rcl_get_error_string().str); \
+      LOG(fmt, ##__VA_ARGS__);                      \
+    }                                               \
   }
 #define ASSERT(fn, fmt, ...)    \
   {                             \
-    if (!(fn)) {                \
+    bool temp_success = fn;     \
+    if (!temp_success) {        \
       LOG("Assertion failed!"); \
       LOG(fmt, ##__VA_ARGS__);  \
     }                           \
@@ -166,6 +168,9 @@ bool smartglass_revealed;
       init = uxr_millis();          \
     }                               \
   }
+#define reward_active() (digitalRead(REWARD_CONTROL_PIN) == HIGH)
+#define smartglass_revealed() (digitalRead(SMARTGLASS_CONTROL_PIN) == HIGH)
+#define sync_pulse_state() (digitalRead(SYNC_PULSE_CONTROL_PIN) == HIGH)
 
 // DEBUG: Log a message to the ROS2 log topic
 #ifdef DEBUG_LOGGING
@@ -228,33 +233,36 @@ rcl_ret_t rclc_support_init_with_clock(rclc_support_t* support, int argc,
   return rc;
 }
 
-rcl_ret_t rclc_support_fini(rclc_support_t* support) {
-  RCL_CHECK_FOR_NULL_WITH_MSG(support, "support is a null pointer",
-                              return RCL_RET_INVALID_ARGUMENT);
-  rcl_ret_t result = RCL_RET_OK;
-  rcl_ret_t rc;
-  rc = rcl_clock_fini(&support->clock);
-  if (rc != RCL_RET_OK) {
-    PRINT_RCLC_WARN(rclc_support_fini, rcl_clock_fini);
-    result = RCL_RET_ERROR;
-  }
-  rc = rcl_shutdown(&support->context);
-  if (rc != RCL_RET_OK) {
-    PRINT_RCLC_WARN(rclc_support_fini, rcl_shutdown);
-    result = RCL_RET_ERROR;
-  }
-  rc = rcl_context_fini(&support->context);
-  if (rc != RCL_RET_OK) {
-    PRINT_RCLC_WARN(rclc_support_fini, rcl_context_fini);
-    result = RCL_RET_ERROR;
-  }
-  return result;
-}
 // Error handle loop
 void error_loop() {
   while (1) {
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
     delay(100);
+  }
+}
+
+// Timer callback for pinging the agent
+void agent_ping_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL) {
+    if (RMW_RET_OK == rmw_uros_ping_agent(AGENT_PING_TIMEOUT_MS, 1)) {
+      agent_ping_retries = 0;
+    } else {
+      LOG("Agent ping failed");
+      agent_ping_retries++;
+    }
+  } else {
+    agent_ping_retries = AGENT_PING_MAX_RETRIES;
+  }
+}
+
+// Timer callback for syncing the epoch
+void epoch_sync_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL) {
+    RCASSERT(rmw_uros_sync_session(EPOCH_SYNC_TIMEOUT_MS),
+             "Failed to sync session");
+    ASSERT(rmw_uros_epoch_synchronized(), "Epoch sync failed");
   }
 }
 
@@ -268,8 +276,8 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
         !digitalRead(SAFETY_LASER_UNBROKEN_STATE_PIN);
     sensor_msg.is_left_arm_locked = digitalRead(LEFT_ARM_LOCKED_STATE_PIN);
     sensor_msg.is_right_arm_locked = digitalRead(RIGHT_ARM_LOCKED_STATE_PIN);
-    sensor_msg.is_reward_active = reward_active;
-    sensor_msg.is_smartglass_revealed = smartglass_revealed;
+    sensor_msg.is_reward_active = reward_active();
+    sensor_msg.is_smartglass_revealed = smartglass_revealed();
 
     // Update tactile glove states
     for (size_t i = 0; i < 5; i++) {
@@ -282,7 +290,7 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
     }
 
     // Update sync pulse states
-    sensor_msg.sync_pulse_state = sync_pulse_state;
+    sensor_msg.sync_pulse_state = sync_pulse_state();
     sensor_msg.sync_pulse_last_time_on = sync_pulse_last_time_on;
     sensor_msg.sync_pulse_last_time_off = sync_pulse_last_time_off;
 
@@ -296,7 +304,6 @@ void sync_pulse_end_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
-    sync_pulse_state = false;
     GET_CURRENT_ROS_TIME(sync_pulse_last_time_off);
 
     RCASSERT(rcl_timer_cancel(timer), "Failed to cancel sync pulse end timer");
@@ -313,7 +320,6 @@ void sync_pulse_start_timer_callback(rcl_timer_t* timer,
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     digitalWrite(SYNC_PULSE_CONTROL_PIN, HIGH);
-    sync_pulse_state = true;
     GET_CURRENT_ROS_TIME(sync_pulse_last_time_on);
 
     RCASSERT(rcl_timer_cancel(timer),
@@ -330,10 +336,8 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer,
                                     int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
-    ASSERT(sync_pulse_state == false, "Sync pulse state is true");
-
-    digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
-    sync_pulse_state = false;
+    ASSERT(digitalRead(SYNC_PULSE_CONTROL_PIN) == LOW,
+           "Sync pulse is should be off when the base timer is called");
 
     int64_t delay_ms = random(SYNC_PULSE_DELAY_RANGE_MS);
     int64_t old_period;
@@ -352,7 +356,6 @@ void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     digitalWrite(REWARD_CONTROL_PIN, LOW);
-    reward_active = false;
     RCASSERT(rcl_timer_cancel(timer), "Failed to cancel reward timer");
     LOG("Reward finished");
   }
@@ -368,7 +371,7 @@ void set_reward_callback(const void* req, void* res) {
   bool timer_is_canceled;
   RCASSERT(rcl_timer_is_canceled(&reward_timer, &timer_is_canceled),
            "Failed to check if reward timer is canceled");
-  ASSERT(reward_active != timer_is_canceled,
+  ASSERT(reward_active() != timer_is_canceled,
          "Reward timer state and reward_active state are inconsistent");
 
   if (request->activate) {
@@ -382,8 +385,9 @@ void set_reward_callback(const void* req, void* res) {
       LOG("%s", response->message.data);
       return;
     }
+
+    // Activate the reward
     digitalWrite(REWARD_CONTROL_PIN, HIGH);
-    reward_active = true;
 
     int64_t duration_ns = ROS_TIME_TO_NS(request->duration);
     int64_t old_period_ns;
@@ -407,10 +411,11 @@ void set_reward_callback(const void* req, void* res) {
       return;
     }
 
-    if (!timer_is_canceled) {
-      digitalWrite(REWARD_CONTROL_PIN, LOW);
-      reward_active = false;
+    // Deactivate the reward
+    digitalWrite(REWARD_CONTROL_PIN, LOW);
 
+    // Cancel the reward timer if it is not canceled
+    if (!timer_is_canceled) {
       int64_t time_until_ns;
       int64_t old_period_ns;
       RCASSERT(rcl_timer_get_period(&reward_timer, &old_period_ns),
@@ -481,7 +486,6 @@ void set_smartglass_callback(const void* req, void* res) {
       static_cast<tabletop_interfaces__srv__SetSmartglass_Response*>(res);
 
   digitalWrite(SMARTGLASS_CONTROL_PIN, request->reveal ? HIGH : LOW);
-  smartglass_revealed = request->reveal;
 
   response->success = true;
   STRING_SET(&response->message, "Smartglass %s",
@@ -489,15 +493,25 @@ void set_smartglass_callback(const void* req, void* res) {
   LOG("%s", response->message.data);
 }
 
-void reset_pins() {
+void reset_state() {
   digitalWrite(LEFT_ARM_LOCK_CONTROL_PIN, HIGH);
   digitalWrite(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH);
   digitalWrite(SMARTGLASS_CONTROL_PIN, HIGH);
   digitalWrite(REWARD_CONTROL_PIN, LOW);
   digitalWrite(SYNC_PULSE_CONTROL_PIN, LOW);
+
+  agent_ping_retries = 0;
+  sync_pulse_last_time_on.sec = 0;
+  sync_pulse_last_time_on.nanosec = 0;
+  sync_pulse_last_time_off.sec = 0;
+  sync_pulse_last_time_off.nanosec = 0;
 }
 
-bool create_entities() {
+bool init_client() {
+  // Reset output pins
+  reset_state();
+
+  // Initialize allocator
   allocator = rcl_get_default_allocator();
   RCCHECK(rclc_support_init_with_clock(&support, 0, NULL, RCL_STEADY_TIME,
                                        &allocator));
@@ -529,6 +543,12 @@ bool create_entities() {
   LOG("Services initialized");
 
   // Timers
+  RCCHECK(rclc_timer_init_default2(&agent_ping_timer, &support,
+                                   RCL_MS_TO_NS(AGENT_PING_PERIOD_MS),
+                                   agent_ping_timer_callback, true));
+  RCCHECK(rclc_timer_init_default2(&epoch_sync_timer, &support,
+                                   RCL_MS_TO_NS(EPOCH_SYNC_PERIOD_MS),
+                                   epoch_sync_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&sync_pulse_base_timer, &support,
                                    RCL_MS_TO_NS(SYNC_PULSE_BASE_PERIOD_MS),
                                    sync_pulse_base_timer_callback, true));
@@ -546,7 +566,9 @@ bool create_entities() {
   LOG("Timers initialized");
 
   // Executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 8, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator));
+  RCCHECK(rclc_executor_add_timer(&executor, &agent_ping_timer));
+  RCCHECK(rclc_executor_add_timer(&executor, &epoch_sync_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
@@ -564,20 +586,30 @@ bool create_entities() {
   LOG("Executor initialized");
 
   RCCHECK(rmw_uros_sync_session(1000));
+
   LOG("Session synced");
+
+  agent_ping_retries = 0;
 
   delay(1000);
 
   return true;
 }
 
-void destroy_entities() {
+void deinit_client() {
+  // Reset output pins
+  reset_state();
+
+  // Destroy session
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
   RCSOFTCHECK(
       rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0));
 
+  // Destroy entities
   RCSOFTCHECK(rcl_publisher_fini(&sensor_publisher, &node));
   RCSOFTCHECK(rcl_publisher_fini(&log_publisher, &node));
+  RCSOFTCHECK(rcl_timer_fini(&agent_ping_timer));
+  RCSOFTCHECK(rcl_timer_fini(&epoch_sync_timer));
   RCSOFTCHECK(rcl_timer_fini(&sync_pulse_base_timer));
   RCSOFTCHECK(rcl_timer_fini(&sync_pulse_start_timer));
   RCSOFTCHECK(rcl_timer_fini(&sync_pulse_end_timer));
@@ -590,7 +622,7 @@ void destroy_entities() {
   RCSOFTCHECK(rcl_node_fini(&node));
   RCSOFTCHECK(rclc_support_fini(&support));
 
-  printf("Entities destroyed\n");
+  printf("Client deinitialized\n");
 }
 
 void setup() {
@@ -604,7 +636,6 @@ void setup() {
   pinMode(SMARTGLASS_CONTROL_PIN, OUTPUT);
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
-  reset_pins();
 
   // Initialize input pins
   pinMode(LEFT_ARM_LOCKED_STATE_PIN, INPUT_PULLUP);
@@ -616,18 +647,12 @@ void setup() {
   for (size_t i = 0; i < 5; i++) {
     pinMode(RIGHT_GLOVE_STATE_PINS[i], INPUT);
   }
+
   printf("Pins initialized\n");
 
-  // Initialize state variables
-  state = WAITING_AGENT;
-  agent_ping_retries = 0;
-  sync_pulse_state = false;
-  reward_active = false;
-  smartglass_revealed = false;
-  sync_pulse_last_time_on.sec = 0;
-  sync_pulse_last_time_on.nanosec = 0;
-  sync_pulse_last_time_off.sec = 0;
-  sync_pulse_last_time_off.nanosec = 0;
+  // Reset state
+  reset_state();
+  printf("State reset\n");
 
   // create message memories
   bool success = micro_ros_utilities_create_message_memory(
@@ -653,50 +678,38 @@ void setup() {
 }
 
 void loop() {
-  switch (state) {
+  switch (agent_state) {
   case WAITING_AGENT:
     EXECUTE_EVERY_N_MS(
         AGENT_RECONNECT_PERIOD_MS,
-        state =
+        agent_state =
             (RMW_RET_OK == rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1))
                 ? AGENT_AVAILABLE
                 : WAITING_AGENT;);
     break;
   case AGENT_AVAILABLE:
-    reset_pins();
-    state = create_entities() ? AGENT_CONNECTED : WAITING_AGENT;
-    if (state == WAITING_AGENT) {
-      destroy_entities();
+    agent_state = init_client() ? AGENT_CONNECTED : WAITING_AGENT;
+    if (agent_state == WAITING_AGENT) {
+      deinit_client();
     } else {
       agent_ping_retries = 0;
     }
     break;
   case AGENT_CONNECTED:
-    static bool success = true;
-    EXECUTE_EVERY_N_MS(
-        AGENT_PING_PERIOD_MS,
-        success =
-            (RMW_RET_OK == rmw_uros_ping_agent(AGENT_PING_TIMEOUT_MS, 1)););
-    agent_ping_retries = success ? 0 : agent_ping_retries + 1;
     if (agent_ping_retries < AGENT_PING_MAX_RETRIES) {
       rclc_executor_spin_some(&executor,
                               RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS));
     } else {
-      state = AGENT_DISCONNECTED;
+      agent_state = AGENT_DISCONNECTED;
     }
     break;
   case AGENT_DISCONNECTED:
-    reset_pins();
-    destroy_entities();
-    state = WAITING_AGENT;
-    break;
-  default:
-    printf("Unknown state\n");
-    error_loop();
+    deinit_client();
+    agent_state = WAITING_AGENT;
     break;
   }
 
-  if (state == AGENT_CONNECTED) {
+  if (agent_state == AGENT_CONNECTED) {
     digitalWrite(LED_BUILTIN, HIGH);
   } else {
     digitalWrite(LED_BUILTIN, LOW);

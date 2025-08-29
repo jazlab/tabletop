@@ -456,15 +456,16 @@ class Eyelink(BaseNode):
             from another thread.
         """
         self.log("Starting sample retrieval loop")
+        wait_for_data_timeout_ms = int(
+            self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
+        )
+        period = 1 / self.get_parameter_wrapper("sample_rate")
         try:
-            wait_for_data_timeout_ms = int(
-                self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
-            )
+            while not stop_event.is_set() and not self.tracker.isConnected():
+                self.ros_sleep(period)
+
             # start_time = self.ros_time()
             while not stop_event.is_set():
-                if not self.tracker.isConnected():
-                    self.ros_sleep(1e-3)
-                    continue
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
                 except RuntimeError as e:
@@ -776,6 +777,8 @@ class Eyelink(BaseNode):
                 )
                 return CancelResponse.REJECT
 
+    # Ideas: Continuously publish smooth pursuit state?
+    #   I like this idea
     def smooth_pursuit_callback(
         self, goal_handle: ServerGoalHandle
     ) -> EyelinkSmoothPursuit.Result:
@@ -793,38 +796,18 @@ class Eyelink(BaseNode):
             )
             last_time = self.get_clock().now()
 
-            # Get the initial smooth pursuit status
-            last_feedback = EyelinkSmoothPursuit.Feedback()
-            last_feedback.smooth_pursuit_started = self.get_smooth_pursuit(
-                window, threshold, min_samples
-            )
-            last_feedback.duration = Duration(seconds=0).to_msg()
-            goal_handle.publish_feedback(last_feedback)
-
             # Loop until the goal is cancelled
             while not goal_handle.is_cancel_requested:
-                self.ros_sleep(0.1)
+                start_time = self.ros_time()
                 smooth_pursuit = self.get_smooth_pursuit(
                     window, threshold, min_samples
                 )
-                if smooth_pursuit != last_feedback.smooth_pursuit_started:
-                    cur_time = self.get_clock().now()
-                    feedback = EyelinkSmoothPursuit.Feedback()
-                    feedback.smooth_pursuit_started = smooth_pursuit
-                    duration = cur_time - last_time
-                    feedback.duration = duration.to_msg()
-                    goal_handle.publish_feedback(feedback)
-
-                    if smooth_pursuit:
-                        self.log(
-                            f"Smooth pursuit started after {duration.nanoseconds / 1e9:.2f} s"
-                        )
-                    else:
-                        self.log(
-                            f"Smooth pursuit ended after {duration.nanoseconds / 1e9:.2f} s"
-                        )
-                    last_time = cur_time
-                    last_feedback = feedback
+                goal_handle.publish_feedback(
+                    EyelinkSmoothPursuit.Feedback(
+                        is_smoothly_pursuing=smooth_pursuit
+                    )
+                )
+                self.ros_sleep(check_interval - (self.ros_time() - start_time))
 
             goal_handle.canceled()
             return EyelinkSmoothPursuit.Result()

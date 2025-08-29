@@ -29,7 +29,8 @@
                 "IronGeek.vscode-env",
                 "ms-toolsai.jupyter",
                 "anysphere.cpptools",
-                "hashicorp.hcl"
+                "hashicorp.hcl",
+                "google.geminicodeassist"
             ]
         }
     }

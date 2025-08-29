@@ -9,11 +9,28 @@
       play_retries: 3
       play_retry_delay: 1.0
 
+    sound:
+      soundfont_path: $TABLETOP_DIR/soundfonts/moog.sf2
+      instrument: 62
+      default_note:
+        name: C
+        octave: 6
+        velocity: 127
+        channel: 0
+      default_duration: 0.5
+
     teensy:
       safe_to_execute:
         required_time: 2.0
         max_sensor_delay: 0.1
       spin_period: 0.05
+
+    smooth_pursuit:
+      window: 0.05
+      check_interval: 0.1
+      threshold: 150
+      min_samples: 10
+      max_reward_duration: 30.0 # sent to teensy to guarantee that reward eventually turns off
 
     flic:
       bd_addrs:

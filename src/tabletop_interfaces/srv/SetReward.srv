@@ -1,5 +1,5 @@
-builtin_interfaces/Duration duration
 bool activate
+builtin_interfaces/Duration duration
 ---
 bool success
 string message

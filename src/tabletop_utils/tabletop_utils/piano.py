@@ -9,18 +9,11 @@ import mingus.core.scales as scales
 import mingus.midi.fluidsynth as fluidsynth
 from mingus.containers import Note
 
-try:
-    from tabletop_utils.flic_client import (
-        ButtonConnectionChannel,
-        ClickType,
-        FlicClient,
-    )
-except ImportError:
-    from flic_client import (
-        ButtonConnectionChannel,
-        ClickType,
-        FlicClient,
-    )
+from tabletop_utils.flic_client import (
+    ButtonConnectionChannel,
+    ClickType,
+    FlicClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +143,7 @@ def test_note():
     # )
     try:
         fluidsynth.init(soundfont_path, driver="pulseaudio")
-        fluidsynth.set_instrument(0, 62, bank=0)
+        fluidsynth.set_instrument(0, 62)
         note = Note("C", 4, velocity=127, channel=0)
         fluidsynth.play_Note(note)
         time.sleep(1)

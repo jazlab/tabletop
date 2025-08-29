@@ -1,3 +1,5 @@
+import os
+
 import yaml
 from launch import LaunchDescription
 from launch.actions import (
@@ -113,7 +115,9 @@ def declare_arguments():
         # ROS Warehouse
         DeclareLaunchArgument(
             "warehouse_sqlite_path",
-            default_value="/root/ws/src/tabletop/ros/warehouse_ros.sqlite",
+            default_value=os.path.join(
+                os.environ["TABLETOP_DIR"], "cache", "warehouse_ros.sqlite"
+            ),
             description="Path where the warehouse database should be stored",
         ),
         # Log levels

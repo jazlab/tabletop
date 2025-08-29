@@ -30,7 +30,6 @@
 /.venv/
 
 # Ignore piano stuff
-**/*.sf2
 **/*.mid
 
 # Ignore cache files

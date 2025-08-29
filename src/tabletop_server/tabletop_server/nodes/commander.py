@@ -29,6 +29,8 @@ import rclpy.utilities
 import yaml
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
+from mingus.containers import Note
+from mingus.midi import fluidsynth
 from moveit.core.collision_detection import (  # type: ignore
     AllowedCollisionMatrix,  # type: ignore
     CollisionRequest,
@@ -235,6 +237,11 @@ class Commander(BaseNode):
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
         "planning_scene.rig_meshes",
+        "smooth_pursuit.window",
+        "smooth_pursuit.threshold",
+        "smooth_pursuit.min_samples",
+        "smooth_pursuit.check_interval",
+        "smooth_pursuit.max_reward_duration",
     }
 
     ###########################################################################
@@ -250,9 +257,9 @@ class Commander(BaseNode):
             "commander", automatically_declare_parameters_from_overrides=True
         )
 
-        self.init_ros()
-
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
+
+        self.init_sound()
 
         self.init_collision_detector()
 
@@ -264,7 +271,32 @@ class Commander(BaseNode):
 
         self.init_additional_attributes()
 
+        self.init_ros()
+
         self.log("Commander initialized")
+
+    def init_sound(self):
+        """Initialize sound."""
+        config: dict[str, Any] = self.get_parameter_wrapper("sound")
+        soundfont_path = os.path.expandvars(config["soundfont_path"])
+        if not os.path.exists(soundfont_path):
+            raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
+
+        fluidsynth.init(soundfont_path, driver="pulseaudio")
+
+        self._default_note = Note(**config["default_note"])
+        if (
+            not isinstance(config["default_duration"], (int, float))
+            or config["default_duration"] <= 0
+        ):
+            raise ValueError(
+                f"Default duration must be a positive number, got {config['default_duration']}"
+            )
+        self._default_duration = float(config["default_duration"])
+
+        fluidsynth.set_instrument(
+            channel=self._default_note.channel, midi_instr=config["instrument"]
+        )
 
     def init_ros(self):
         """Create services for the commander.
@@ -869,7 +901,9 @@ class Commander(BaseNode):
         """Lock arms and wait for safety laser to be unbroken"""
         return await self._arm_lock_and_wait(timeout)
 
-    async def _set_reward(self, duration: float) -> SetReward.Response:
+    async def set_reward(
+        self, activate: bool, duration: float
+    ) -> SetReward.Response:
         """Set the reward state."""
         self.log(f"Delivering reward for {duration} s")
         if duration < 0:
@@ -877,7 +911,9 @@ class Commander(BaseNode):
 
         duration_msg = Duration(seconds=duration).to_msg()
         response = await self.service_call_async(
-            srv_request=SetReward.Request(duration=duration_msg),
+            srv_request=SetReward.Request(
+                activate=activate, duration=duration_msg
+            ),
             srv_client=self.set_reward_client,
         )
         return cast(SetReward.Response, response)
@@ -885,7 +921,7 @@ class Commander(BaseNode):
     @asyncio_task_decorator
     async def reward_and_wait(self, duration: float):
         """Start reward and wait for it to be active."""
-        await self._set_reward(duration)
+        await self.set_reward(activate=True, duration=duration)
 
         spin_period = self.get_parameter_wrapper("teensy.spin_period")
 
@@ -955,30 +991,30 @@ class Commander(BaseNode):
         response_time = Duration.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9
 
-    async def eyelink_smooth_pursuit_feedback_callback(
+    async def _smooth_pursuit_feedback_callback(
         self, feedback: EyelinkSmoothPursuit.Feedback
     ):
         """Callback for the eyelink smooth pursuit feedback."""
-        if feedback.smooth_pursuit_started:
+        if feedback.is_smoothly_pursuing:
             self.log("Smooth pursuit started", severity="INFO")
         else:
             self.log("Smooth pursuit ended", severity="INFO")
 
     @asyncio_task_decorator
-    async def eyelink_smooth_pursuit(
-        self,
-        window: float,
-        threshold: int,
-        min_samples: int,
-        check_interval: float,
-    ):
-        """Get eyelink smooth pursuit state."""
-
+    async def smooth_pursuit_and_reward(self):
+        """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
+        config = self.get_parameter_wrapper("smooth_pursuit")
+        goal = EyelinkSmoothPursuit.Goal(
+            window=Duration(seconds=config["window"]).to_msg(),
+            threshold=config["threshold"],
+            min_samples=config["min_samples"],
+            check_interval=Duration(seconds=config["check_interval"]).to_msg(),
+        )
         goal_handle = cast(
             ClientGoalHandle,
             await self.eyelink_smooth_pursuit_client.send_goal_async(
-                EyelinkSmoothPursuit.Goal(),
-                feedback_callback=self.eyelink_smooth_pursuit_feedback_callback,
+                goal,
+                feedback_callback=self._smooth_pursuit_feedback_callback,
             ),
         )
         if not goal_handle.accepted:
@@ -996,6 +1032,36 @@ class Commander(BaseNode):
             raise
 
         assert False, "Smooth pursuit action should never return"
+
+    ###########################################################################
+    ########## Sound ##########################################################
+    ###########################################################################
+
+    @asyncio_task_decorator
+    async def play_sound(
+        self,
+        note: Optional[Note | Mapping[str, Any]] = None,
+        duration: Optional[float] = None,
+    ):
+        """Play a sound for a given duration.
+
+        Args:
+            note: Note to play. If None, the default note is used.
+            instrument: Midi instrument to play, e.g. 62. If None, the default instrument is used.
+            duration: Duration of the sound in seconds. If None, the default duration is used.
+        """
+        if note is None:
+            note = self._default_note
+        elif not isinstance(note, Note):
+            note = Note(**note)
+        note.channel = self._default_note.channel
+
+        if duration is None:
+            duration = self._default_duration
+
+        fluidsynth.play_Note(note)
+        await asyncio.sleep(duration)
+        fluidsynth.stop_Note(note)
 
     ###########################################################################
     ########## Planning scene #################################################

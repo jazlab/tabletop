@@ -2,16 +2,12 @@
 
 import asyncio
 import enum
-import importlib
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Optional
 
 from tabletop_server.nodes import Commander
-from tabletop_tasks.tasks.base import BaseTask
-from tabletop_tasks.trial_generators.base import (
-    BaseTrialGenerator,
-    TrialFeedback,
-)
+from tabletop_tasks.tasks import BaseTask
+from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialFeedback
 
 
 class ForagingState(enum.Enum):
@@ -43,22 +39,14 @@ class ForagingTask(BaseTask):
         reveal_duration: float,
         response_timeout: float,
         fixation_timeout: float,
+        play_sound: bool,
+        sound_kwargs: Optional[Mapping[str, Any]] = None,
     ):
-        super().__init__(commander)
-
-        # Create trial_generator if necessary
-        if isinstance(trial_generator, Mapping):
-            trial_generator_tmp: BaseTrialGenerator = getattr(
-                importlib.import_module("tabletop_tasks.trial_generators"),
-                trial_generator["class"],
-            )(commander, **trial_generator["kwargs"])
-        else:
-            trial_generator_tmp = trial_generator
+        super().__init__(commander, trial_generator)
 
         # Whether to generate a new trial spec
         self._next_trial = True
 
-        self._trial_generator = trial_generator_tmp
         self._fixation_duration = fixation_duration
         self._stimulus_duration = stimulus_duration
         self._delay_duration = delay_duration
@@ -66,6 +54,8 @@ class ForagingTask(BaseTask):
         self._fixation_timeout = fixation_timeout
         self._reward_duration = reward_duration
         self._reveal_duration = reveal_duration
+        self._play_sound = play_sound
+        self._sound_kwargs = sound_kwargs if sound_kwargs is not None else {}
 
     ############################################################
     # Phases
@@ -127,9 +117,16 @@ class ForagingTask(BaseTask):
             self._response_timeout
         ):
             # Response received
+            sound_task = None
+            if self._play_sound:
+                sound_task = self.commander.play_sound(**self._sound_kwargs)
             self._trial_feedback.reaction_time = reaction_time
             self.log(f"Reaction time: {self._trial_feedback.reaction_time}")
-            await self.commander.reward_and_wait(self._reward_duration)
+            reward_task = self.commander.reward_and_wait(self._reward_duration)
+            if self._play_sound:
+                assert sound_task is not None
+                await sound_task
+            await reward_task
             return True
         else:
             # Response not received

@@ -1,13 +1,6 @@
 tasks:
   - class: ForagingTask
     kwargs:
-      fixation_timeout: 0.5
-      fixation_duration: 0.5
-      stimulus_duration: 0.5
-      delay_duration: 0.5
-      response_timeout: 5.0
-      reward_duration: 0.1
-      reveal_duration: 0.5
       trial_generator:
         class: OrderedChoice
         kwargs:
@@ -39,3 +32,13 @@ tasks:
           occlude:
             - false
           num_trials: 100000
+      fixation_timeout: 0.5
+      fixation_duration: 0.5
+      stimulus_duration: 0.5
+      delay_duration: 0.5
+      response_timeout: 5.0
+      reward_duration: 2.0
+      reveal_duration: 0.5
+      play_sound: true
+      sound_kwargs:
+        duration: 0.5

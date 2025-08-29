@@ -9,6 +9,4 @@ uint32 min_samples
 ---
 ---
 # Whether smooth pursuit started or ended
-bool smooth_pursuit_started
-# The duration of smooth pursuit
-builtin_interfaces/Duration duration
+bool is_smoothly_pursuing
