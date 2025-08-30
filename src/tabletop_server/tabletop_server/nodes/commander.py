@@ -6,7 +6,6 @@ import hashlib
 import importlib
 import json
 import os
-import signal
 import threading
 import time
 import traceback
@@ -237,10 +236,6 @@ class Commander(BaseNode):
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
         "planning_scene.rig_meshes",
-        "smooth_pursuit.window",
-        "smooth_pursuit.threshold",
-        "smooth_pursuit.min_samples",
-        "smooth_pursuit.check_interval",
         "smooth_pursuit.max_reward_duration",
     }
 
@@ -256,6 +251,7 @@ class Commander(BaseNode):
         super().__init__(
             "commander", automatically_declare_parameters_from_overrides=True
         )
+        self.init_ros()
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
@@ -270,8 +266,6 @@ class Commander(BaseNode):
         self.init_link_padding()
 
         self.init_additional_attributes()
-
-        self.init_ros()
 
         self.log("Commander initialized")
 
@@ -902,19 +896,20 @@ class Commander(BaseNode):
         return await self._arm_lock_and_wait(timeout)
 
     async def set_reward(
-        self, activate: bool, duration: float
+        self, activate: bool, duration: Optional[int | float] = None
     ) -> SetReward.Response:
         """Set the reward state."""
-        self.log(f"Delivering reward for {duration} s")
-        if duration < 0:
-            raise ValueError("Duration must be greater than 0!")
+        self.log(
+            f"{'Starting' if activate else 'Stopping'} reward{' for ' if duration is not None else ''} {duration} s"
+        )
+        request = SetReward.Request(activate=activate)
+        if duration is not None:
+            if duration < 0:
+                raise ValueError("Duration must be greater than 0!")
+            request.duration = Duration(seconds=duration).to_msg()
 
-        duration_msg = Duration(seconds=duration).to_msg()
         response = await self.service_call_async(
-            srv_request=SetReward.Request(
-                activate=activate, duration=duration_msg
-            ),
-            srv_client=self.set_reward_client,
+            srv_request=request, srv_client=self.set_reward_client
         )
         return cast(SetReward.Response, response)
 
@@ -991,47 +986,81 @@ class Commander(BaseNode):
         response_time = Duration.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9
 
-    async def _smooth_pursuit_feedback_callback(
-        self, feedback: EyelinkSmoothPursuit.Feedback
+    def _smooth_pursuit_producer(
+        self,
+        feedback: EyelinkSmoothPursuit.Feedback,
+        queue: asyncio.Queue[bool],
     ):
         """Callback for the eyelink smooth pursuit feedback."""
         if feedback.is_smoothly_pursuing:
             self.log("Smooth pursuit started", severity="INFO")
+            self._loop.call_soon_threadsafe(queue.put_nowait, True)
         else:
             self.log("Smooth pursuit ended", severity="INFO")
+            self._loop.call_soon_threadsafe(queue.put_nowait, False)
+
+    async def _smooth_pursuit_consumer(self, queue: asyncio.Queue[bool]):
+        """Consumer for the eyelink smooth pursuit queue."""
+        duration = self.get_parameter_wrapper(
+            "smooth_pursuit.max_reward_duration"
+        )
+        last_time = self.ros_time()
+        last_smooth_pursuit = False
+        try:
+            while True:
+                smooth_pursuit = await queue.get()
+                if smooth_pursuit:
+                    new_time = self.ros_time()
+                    if (
+                        not last_smooth_pursuit
+                        or new_time - last_time > duration - 0.1
+                    ):
+                        # TODO: Change magic number
+                        await self.set_reward(
+                            activate=smooth_pursuit, duration=duration
+                        )
+                        last_time = new_time
+                else:
+                    await self.set_reward(activate=False)
+
+                if smooth_pursuit and not last_smooth_pursuit:
+                    fluidsynth.play_Note(self._default_note)
+                elif not smooth_pursuit and last_smooth_pursuit:
+                    fluidsynth.stop_Note(self._default_note)
+                last_smooth_pursuit = smooth_pursuit
+        finally:
+            try:
+                fluidsynth.stop_Note(self._default_note)
+            except Exception as e:
+                self.log(f"Error stopping note: {e}", severity="WARN")
+            await self.set_reward(activate=False)
 
     @asyncio_task_decorator
     async def smooth_pursuit_and_reward(self):
         """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
-        config = self.get_parameter_wrapper("smooth_pursuit")
-        goal = EyelinkSmoothPursuit.Goal(
-            window=Duration(seconds=config["window"]).to_msg(),
-            threshold=config["threshold"],
-            min_samples=config["min_samples"],
-            check_interval=Duration(seconds=config["check_interval"]).to_msg(),
-        )
+        queue: asyncio.Queue[bool] = asyncio.Queue()
         goal_handle = cast(
             ClientGoalHandle,
             await self.eyelink_smooth_pursuit_client.send_goal_async(
-                goal,
-                feedback_callback=self._smooth_pursuit_feedback_callback,
+                EyelinkSmoothPursuit.Goal(),
+                feedback_callback=lambda feedback: self._smooth_pursuit_producer(
+                    feedback, queue
+                ),
             ),
         )
         if not goal_handle.accepted:
             raise RuntimeError("goal not accepted")
 
-        acceptable_statuses = set(
-            (GoalStatus.STATUS_ACCEPTED, GoalStatus.STATUS_EXECUTING)
-        )
-        assert goal_handle.status in acceptable_statuses
-
         try:
-            await goal_handle.get_result_async()
-        except asyncio.CancelledError:
-            goal_handle.cancel_goal_async()
-            raise
+            result_future = goal_handle.get_result_async()
 
-        assert False, "Smooth pursuit action should never return"
+            consumer_task = asyncio.create_task(
+                self._smooth_pursuit_consumer(queue)
+            )
+            result_future.add_done_callback(lambda _: consumer_task.cancel())
+            await consumer_task
+        finally:
+            goal_handle.cancel_goal_async()
 
     ###########################################################################
     ########## Sound ##########################################################
@@ -3545,13 +3574,6 @@ async def asyncio_runner(
     Args:
         coro: The coroutine to run.
     """
-    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
-        print("SIGINT is default")
-    else:
-        print(
-            f"SIGINT is not default: {signal.getsignal(signal.SIGINT)} "
-            f"({type(signal.getsignal(signal.SIGINT))})"
-        )
     tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
     loop = asyncio.get_event_loop()
     loop.set_default_executor(tpe)

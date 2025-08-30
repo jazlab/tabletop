@@ -60,11 +60,9 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_RECONNECT_PERIOD_MS 100
 #define AGENT_RECONNECT_TIMEOUT_MS 20
 #define EXECUTOR_SPIN_TIMEOUT_MS 50
-#define AGENT_PING_PERIOD_MS 200
-#define AGENT_PING_TIMEOUT_MS 3
-#define AGENT_PING_MAX_RETRIES 5
-#define EPOCH_SYNC_PERIOD_MS 983
-#define EPOCH_SYNC_TIMEOUT_MS 10
+#define AGENT_SYNC_PERIOD_MS 200
+#define AGENT_SYNC_TIMEOUT_MS 3
+#define AGENT_SYNC_MAX_RETRIES 5
 #define SENSOR_PERIOD_MS 20
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
 #define SYNC_PULSE_DELAY_RANGE_MS 200
@@ -78,8 +76,6 @@ rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
 
-// rcl_timer_t agent_ping_timer;
-// rcl_timer_t epoch_sync_timer;
 rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
 rcl_timer_t sync_pulse_end_timer;
@@ -102,7 +98,7 @@ tabletop_interfaces__srv__SetReward_Request set_reward_request;
 tabletop_interfaces__srv__SetReward_Response set_reward_response;
 
 // State tracking
-uint8_t agent_ping_retries;
+uint8_t agent_sync_retries;
 
 enum agent_states {
   WAITING_AGENT,
@@ -266,31 +262,6 @@ rcl_ret_t rclc_support_init_with_clock(rclc_support_t* support, int argc,
     PRINT_RCLC_ERROR(rclc_support_init, rcl_init_options_fini);
   }
   return rc;
-}
-
-// Timer callback for pinging the agent
-void agent_ping_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
-  RCLC_UNUSED(last_call_time);
-  if (timer != NULL) {
-    if (RMW_RET_OK == rmw_uros_ping_agent(AGENT_PING_TIMEOUT_MS, 1)) {
-      agent_ping_retries = 0;
-    } else {
-      LOG("Agent ping failed");
-      agent_ping_retries++;
-    }
-  } else {
-    agent_ping_retries = AGENT_PING_MAX_RETRIES;
-  }
-}
-
-// Timer callback for syncing the epoch
-void epoch_sync_timer_callback(rcl_timer_t* timer, int64_t last_call_time) {
-  RCLC_UNUSED(last_call_time);
-  if (timer != NULL) {
-    RCASSERT(rmw_uros_sync_session(EPOCH_SYNC_TIMEOUT_MS),
-             "Failed to sync session");
-    ASSERT(rmw_uros_epoch_synchronized(), "Epoch sync failed");
-  }
 }
 
 // Timer callback for publishing the sensor message
@@ -526,7 +497,7 @@ void reset_state() {
   set_reward(false);
   set_sync_pulse(false);
 
-  agent_ping_retries = 0;
+  agent_sync_retries = 0;
   sync_pulse_last_time_on.sec = 0;
   sync_pulse_last_time_on.nanosec = 0;
   sync_pulse_last_time_off.sec = 0;
@@ -574,12 +545,6 @@ bool init_client() {
   LOG("Services initialized");
 
   // Timers
-  // RCCHECK(rclc_timer_init_default2(&agent_ping_timer, &support,
-  //                                  RCL_MS_TO_NS(AGENT_PING_PERIOD_MS),
-  //                                  agent_ping_timer_callback, true));
-  // RCCHECK(rclc_timer_init_default2(&epoch_sync_timer, &support,
-  //                                  RCL_MS_TO_NS(EPOCH_SYNC_PERIOD_MS),
-  //                                  epoch_sync_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&sync_pulse_base_timer, &support,
                                    RCL_MS_TO_NS(SYNC_PULSE_BASE_PERIOD_MS),
                                    sync_pulse_base_timer_callback, true));
@@ -598,8 +563,6 @@ bool init_client() {
 
   // Executor
   RCCHECK(rclc_executor_init(&executor, &support.context, 8, &allocator));
-  // // RCCHECK(rclc_executor_add_timer(&executor, &agent_ping_timer));
-  // RCCHECK(rclc_executor_add_timer(&executor, &epoch_sync_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
@@ -634,8 +597,6 @@ bool deinit_client() {
   // Destroy entities
   RCCHECK(rcl_publisher_fini(&sensor_publisher, &node));
   RCCHECK(rcl_publisher_fini(&log_publisher, &node));
-  // RCCHECK(rcl_timer_fini(&agent_ping_timer));
-  // RCCHECK(rcl_timer_fini(&epoch_sync_timer));
   RCCHECK(rcl_timer_fini(&sync_pulse_base_timer));
   RCCHECK(rcl_timer_fini(&sync_pulse_start_timer));
   RCCHECK(rcl_timer_fini(&sync_pulse_end_timer));
@@ -730,12 +691,12 @@ void loop() {
     EXECUTE_EVERY_N_MS(100,
                        digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
     EXECUTE_EVERY_N_MS(
-        AGENT_PING_PERIOD_MS,
-        agent_ping_retries =
-            (RMW_RET_OK == rmw_uros_sync_session(AGENT_PING_TIMEOUT_MS))
+        AGENT_SYNC_PERIOD_MS,
+        agent_sync_retries =
+            (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS))
                 ? 0
-                : agent_ping_retries + 1;);
-    if (agent_ping_retries < AGENT_PING_MAX_RETRIES) {
+                : agent_sync_retries + 1;);
+    if (agent_sync_retries < AGENT_SYNC_MAX_RETRIES) {
       if (RCL_RET_OK !=
           rclc_executor_spin_some(&executor,
                                   RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))) {
@@ -758,7 +719,3 @@ void loop() {
     break;
   }
 }
-
-// TODO:
-// - Add a timer to check if the agent is connected
-// - Add a timer to check if the agent is connected

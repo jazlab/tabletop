@@ -126,15 +126,17 @@ class SmoothPursuitTask(BaseTask):
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            trajectory = await self.generate_trajectory()
+            await self.commander.smooth_pursuit_and_reward()
 
-            self.log("Moving to start of spiral")
-            await self.commander.plan_and_execute(trajectory[0])
+            # trajectory = await self.generate_trajectory()
 
-            self.log(
-                f"Executing spiral trajectory for {trajectory.duration} seconds"
-            )
+            # self.log("Moving to start of spiral")
+            # await self.commander.plan_and_execute(trajectory[0])
 
-            await self.commander.execute(
-                trajectory, preprocess_trajectory=False
-            )
+            # self.log(
+            #     f"Executing spiral trajectory for {trajectory.duration} seconds"
+            # )
+
+            # await self.commander.execute(
+            #     trajectory, preprocess_trajectory=False
+            # )

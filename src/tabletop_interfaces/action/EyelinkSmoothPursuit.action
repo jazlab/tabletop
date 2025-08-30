@@ -1,11 +1,3 @@
-# The window of time to consider for smooth pursuit
-builtin_interfaces/Duration window
-# The interval at which to check for smooth pursuit
-builtin_interfaces/Duration check_interval
-# The threshold for the speed of the eyes
-uint32 threshold
-# The minimum number of samples to consider for smooth pursuit
-uint32 min_samples
 ---
 ---
 # Whether smooth pursuit started or ended

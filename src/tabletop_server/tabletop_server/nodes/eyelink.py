@@ -18,7 +18,6 @@ from rclpy.action.server import (
     ServerGoalHandle,
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.duration import Duration
 from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
@@ -54,7 +53,6 @@ class Eyelink(BaseNode):
         "do_tracker_setup": True,
         "wait_for_data_timeout": 0.2,  # seconds
         "sample_rate": 1000,  # Hz
-        "max_window": 0.5,  # seconds
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_event_filter": "null",
@@ -63,12 +61,9 @@ class Eyelink(BaseNode):
         "link_event_data": "null",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "session_bag_dir": "null",
-        "log_samples": False,
-        "log_smooth_pursuit": True,
-        "log_smooth_pursuit_window": 0.5,  # seconds
-        "log_smooth_pursuit_threshold": 4e4,  # pixels/s
-        "log_smooth_pursuit_min_samples": 75,
-        "log_period": 0.1,  # seconds
+        "smooth_pursuit.window": 0.1,  # seconds
+        "smooth_pursuit.threshold": 4e4,  # pixels/s
+        "smooth_pursuit.min_samples": 75,
     }
 
     ###########################################################################
@@ -156,9 +151,11 @@ class Eyelink(BaseNode):
         the stop event and sample retrieval loop future.
         """
         sample_rate = self.get_parameter_wrapper("sample_rate")
-        self.max_window = self.get_parameter_wrapper("max_window")
+        self.smooth_pursuit_window = self.get_parameter_wrapper(
+            "smooth_pursuit.window"
+        )
         self.message_queue: deque[EyelinkMsg] = deque(
-            maxlen=int(sample_rate * self.max_window)
+            maxlen=int(sample_rate * self.smooth_pursuit_window)
         )
         self.message_queue_lock = threading.Lock()
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -512,9 +509,7 @@ class Eyelink(BaseNode):
     # Smooth pursuit
     ###########################################################################
 
-    def get_smooth_pursuit(
-        self, window: float, threshold: int, min_samples: int
-    ) -> bool | None:
+    def get_smooth_pursuit(self) -> bool:
         """Check if the subject is smoothly pursuing.
 
         This function will check if the subject is smoothly pursuing by
@@ -533,54 +528,57 @@ class Eyelink(BaseNode):
 
         messages = self.get_last_messages()
 
-        num_samples = int(window * self.get_parameter_wrapper("sample_rate"))
+        threshold = self.get_parameter_wrapper("smooth_pursuit.threshold")
+        min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
 
         if len(messages) == 0:
             self.log(
                 "No samples in queue, skipping smooth pursuit check",
                 severity="WARN",
             )
-            return None
-
-        messages = messages[-num_samples:]
+            return False
 
         # Track duration of smooth pursuit extraction, for logging purposes
         start_time = self.ros_time()
 
         # Extract eye data from samples
-        eyelink_times = (
+        time = (
             np.array([message.eyelink_time_ms for message in messages])
             / 1000.0
         )  # Convert to seconds
-        left_positions = np.array(
+        left_pos = np.array(
             [[message.left_x, message.left_y] for message in messages]
         )
-        right_positions = np.array(
+        right_pos = np.array(
             [[message.right_x, message.right_y] for message in messages]
         )
 
         # Remove rows with missing data from the arrays
-        valid_mask = (left_positions != MISSING_DATA).all(axis=1) and (
-            right_positions != MISSING_DATA
+        valid_mask = (left_pos != MISSING_DATA).all(axis=1) & (
+            right_pos != MISSING_DATA
         ).all(axis=1)
-        eyelink_times = eyelink_times[valid_mask]
-        left_positions = left_positions[valid_mask]
-        right_positions = right_positions[valid_mask]
+        time = time[valid_mask]
+        left_pos = left_pos[valid_mask]
+        right_pos = right_pos[valid_mask]
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
-        if eyelink_times.shape[0] < min_samples:
-            raise RuntimeError("Not enough valid samples")
+        if time.shape[0] < min_samples:
+            self.log(
+                f"Not enough valid samples (min: {min_samples}, got: {time.shape[0]})",
+                severity="WARN",
+            )
+            return False
 
         # TODO: Add smoothing and/or filtering to the positional data so as
         # to false negatives (e.g. if a spike of noise occurs for a single
         # sample, it is likely not a saccade/break in smooth pursuit and we
         # should ignore it).
         left_speed = np.linalg.norm(
-            np.gradient(left_positions, eyelink_times, axis=0), axis=1
+            np.gradient(left_pos, time, axis=0), axis=1
         )
         right_speed = np.linalg.norm(
-            np.gradient(right_positions, eyelink_times, axis=0), axis=1
+            np.gradient(right_pos, time, axis=0), axis=1
         )
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of
@@ -594,87 +592,12 @@ class Eyelink(BaseNode):
         self.log(
             f"Time taken: {self.ros_time() - start_time}", severity="DEBUG"
         )
-        if self.left_eye_available():
-            left_speed_rounded = left_speed.round(2)
-            # self.log(
-            #     f"Left speed: {left_speed_rounded.tolist()}",
-            #     severity="DEBUG",
-            # )
-            self.log(
-                f"Left speed min: {left_speed_rounded.min()}, max: {left_speed_rounded.max()}, mean: {left_speed_rounded.mean()}",
-                severity="DEBUG",
-            )
-        if self.right_eye_available():
-            right_speed_rounded = right_speed.round(2)
-            # self.log(
-            #     f"Right speed: {right_speed_rounded.tolist()}",
-            #     severity="DEBUG",
-            # )
-            self.log(
-                f"Right speed min: {right_speed_rounded.min()}, max: {right_speed_rounded.max()}, mean: {right_speed_rounded.mean()}",
-                severity="DEBUG",
-            )
 
         return is_smoothly_pursuing
 
     ###########################################################################
     # ROS callbacks
     ###########################################################################
-
-    # def log_callback(self):
-    #     """Periodically log the smooth pursuit status and the newest valid sample."""
-    #     self.log("Logging", severity="DEBUG")
-    #     try:
-    #         self.i += 1
-    #         if self.i % 10 == 0:
-    #             self.log(
-    #                 f"Log interval: {(self.ros_time() - self.log_start_time):.5f} s",
-    #                 severity="INFO",
-    #             )
-    #             self.log_start_time = self.ros_time()
-    #             self.i = 0
-    #     except AttributeError:
-    #         self.i = 0
-    #         self.log_start_time = self.ros_time()
-
-    #     if self.get_parameter_wrapper("log_smooth_pursuit"):
-    #         try:
-    #             is_smoothly_pursuing = self.get_smooth_pursuit(
-    #                 self.get_parameter_wrapper("log_smooth_pursuit_window"),
-    #                 self.get_parameter_wrapper("log_smooth_pursuit_threshold"),
-    #                 self.get_parameter_wrapper(
-    #                     "log_smooth_pursuit_min_samples"
-    #                 ),
-    #             )
-    #             self.log(f"Is smoothly pursuing: {is_smoothly_pursuing}")
-    #         except RuntimeError as e:
-    #             self.log(
-    #                 f"Error getting smooth pursuit: {e}", severity="ERROR"
-    #             )
-
-    #     if self.get_parameter_wrapper("log_samples"):
-    #         eye_data = self.get_last_eye_data()
-    #         if len(eye_data) == 0:
-    #             self.log(
-    #                 "No samples in queue during periodic log", severity="WARN"
-    #             )
-    #             return
-    #         for eye_datapoint in reversed(eye_data):
-    #             if eye_datapoint is None:
-    #                 continue
-    #             timestamp, left_data, right_data = eye_datapoint
-
-    #             self.log(f"Timestamp: {timestamp}")
-    #             if left_data is not None:
-    #                 self.log(
-    #                     f"Left eye x: {left_data[0]}, y: {left_data[1]}, diameter: {left_data[2]}"
-    #                 )
-    #             if right_data is not None:
-    #                 self.log(
-    #                     f"Right eye x: {right_data[0]}, y: {right_data[1]}, diameter: {right_data[2]}"
-    #                 )
-    #             return
-    #         self.log("Found no adequate samples", severity="WARN")
 
     def open_data_file_callback(
         self, request: Trigger.Request, response: Trigger.Response
@@ -754,14 +677,6 @@ class Eyelink(BaseNode):
                     severity="WARN",
                 )
                 return GoalResponse.REJECT
-            elif Duration.from_msg(goal.window) > Duration(
-                seconds=self.max_window
-            ):
-                self.log(
-                    f"Window too long, must be less than {self.max_window} s",
-                    severity="WARN",
-                )
-                return GoalResponse.REJECT
             else:
                 self.goal_ongoing = True
                 return GoalResponse.ACCEPT
@@ -785,32 +700,38 @@ class Eyelink(BaseNode):
         """Flic response time action callback."""
         try:
             self.log("Starting smooth pursuit")
-            request: EyelinkSmoothPursuit.Goal = goal_handle.request
-
-            # Get the smooth pursuit parameters from the goal
-            window = Duration.from_msg(request.window).nanoseconds / 1e9
-            threshold = request.threshold
-            min_samples = request.min_samples
-            check_interval = (
-                Duration.from_msg(request.check_interval).nanoseconds / 1e9
-            )
-            last_time = self.get_clock().now()
+            window = self.get_parameter_wrapper("smooth_pursuit.window")
 
             # Loop until the goal is cancelled
+            last_smooth_pursuit = False
             while not goal_handle.is_cancel_requested:
                 start_time = self.ros_time()
-                smooth_pursuit = self.get_smooth_pursuit(
-                    window, threshold, min_samples
-                )
+                smooth_pursuit = self.get_smooth_pursuit()
+
+                # Publish feedback
                 goal_handle.publish_feedback(
                     EyelinkSmoothPursuit.Feedback(
                         is_smoothly_pursuing=smooth_pursuit
                     )
                 )
-                self.ros_sleep(check_interval - (self.ros_time() - start_time))
+
+                # Log smooth pursuit start/end
+                if smooth_pursuit != last_smooth_pursuit:
+                    self.log(
+                        f"Smooth pursuit {'started' if smooth_pursuit else 'ended'}",
+                        severity="INFO",
+                    )
+                    last_smooth_pursuit = smooth_pursuit
+
+                self.ros_sleep(window - (self.ros_time() - start_time))
 
             goal_handle.canceled()
             return EyelinkSmoothPursuit.Result()
+        except Exception as e:
+            self.log(
+                f"Error in smooth pursuit callback: {e}", severity="ERROR"
+            )
+            raise
         finally:
             with self.goal_callback_lock:
                 self.goal_ongoing = False

@@ -28,7 +28,7 @@ class BaseTask(ABC):
     def __init__(
         self,
         commander: Commander,
-        trial_generator: BaseTrialGenerator | Mapping[str, Any],
+        trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
     ):
         """Initialize base task.
 
@@ -45,7 +45,7 @@ class BaseTask(ABC):
                 trial_generator["class"],
             )(commander, **trial_generator["kwargs"])
             assert isinstance(self._trial_generator, BaseTrialGenerator)
-        else:
+        elif trial_generator is not None:
             self._trial_generator = trial_generator
 
     @property
