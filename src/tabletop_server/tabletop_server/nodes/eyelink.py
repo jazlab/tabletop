@@ -18,7 +18,6 @@ from rclpy.action.server import (
     ServerGoalHandle,
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from rclpy.serialization import serialize_message
@@ -489,12 +488,9 @@ class Eyelink(BaseNode):
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # for avoiding delayed execution in other threads)
                 self.ros_sleep(1e-5)
-        except (NotInitializedException, ROSSleepError) as e:
-            self.log(
-                f"Stopping sample retrieval loop, likely fine: {e}",
-                severity="WARN",
-            )
-            assert not rclpy.ok(), "ROS2 is still running"  # type: ignore
+        except ROSSleepError as e:
+            if rclpy.ok():  # type: ignore
+                raise RuntimeError("ROS2 is still running") from e
 
     def get_last_messages(self) -> list[EyelinkMsg]:
         """Get the latest samples from the eyelink tracker.
@@ -693,7 +689,7 @@ class Eyelink(BaseNode):
                 return CancelResponse.REJECT
 
     # Ideas: Continuously publish smooth pursuit state?
-    #   I like this idea
+    #   I (don't) like this idea
     def smooth_pursuit_callback(
         self, goal_handle: ServerGoalHandle
     ) -> EyelinkSmoothPursuit.Result:
@@ -701,21 +697,18 @@ class Eyelink(BaseNode):
         try:
             self.log("Starting smooth pursuit")
             window = self.get_parameter_wrapper("smooth_pursuit.window")
-
-            # Loop until the goal is cancelled
             last_smooth_pursuit = False
+
             while not goal_handle.is_cancel_requested:
                 start_time = self.ros_time()
                 smooth_pursuit = self.get_smooth_pursuit()
 
-                # Publish feedback
                 goal_handle.publish_feedback(
                     EyelinkSmoothPursuit.Feedback(
                         is_smoothly_pursuing=smooth_pursuit
                     )
                 )
 
-                # Log smooth pursuit start/end
                 if smooth_pursuit != last_smooth_pursuit:
                     self.log(
                         f"Smooth pursuit {'started' if smooth_pursuit else 'ended'}",
@@ -726,6 +719,9 @@ class Eyelink(BaseNode):
                 self.ros_sleep(window - (self.ros_time() - start_time))
 
             goal_handle.canceled()
+            return EyelinkSmoothPursuit.Result()
+        except ROSSleepError:
+            self.log("ROS2 clock did not sleep correctly", severity="WARN")
             return EyelinkSmoothPursuit.Result()
         except Exception as e:
             self.log(

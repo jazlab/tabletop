@@ -670,8 +670,7 @@ void setup() {
 void loop() {
   switch (agent_state) {
   case WAITING_AGENT:
-    EXECUTE_EVERY_N_MS(300,
-                       digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
+    digitalWrite(LED_BUILTIN, HIGH);
     EXECUTE_EVERY_N_MS(
         AGENT_RECONNECT_PERIOD_MS,
         agent_state =
@@ -680,12 +679,8 @@ void loop() {
                 : WAITING_AGENT;);
     break;
   case AGENT_AVAILABLE:
-    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(LED_BUILTIN, LOW);
     agent_state = init_client() ? AGENT_CONNECTED : AGENT_DISCONNECTED;
-    for (size_t i = 0; i < 50; i++) {
-      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-      delay(20);
-    }
     break;
   case AGENT_CONNECTED:
     EXECUTE_EVERY_N_MS(100,
@@ -700,10 +695,6 @@ void loop() {
       if (RCL_RET_OK !=
           rclc_executor_spin_some(&executor,
                                   RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))) {
-        for (size_t i = 0; i < 20; i++) {
-          digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-          delay(20);
-        }
         agent_state = AGENT_DISCONNECTED;
       }
     } else {

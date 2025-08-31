@@ -251,11 +251,11 @@ class Commander(BaseNode):
         super().__init__(
             "commander", automatically_declare_parameters_from_overrides=True
         )
+        self.init_sound()
+
         self.init_ros()
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
-
-        self.init_sound()
 
         self.init_collision_detector()
 
@@ -895,45 +895,6 @@ class Commander(BaseNode):
         """Lock arms and wait for safety laser to be unbroken"""
         return await self._arm_lock_and_wait(timeout)
 
-    async def set_reward(
-        self, activate: bool, duration: Optional[int | float] = None
-    ) -> SetReward.Response:
-        """Set the reward state."""
-        self.log(
-            f"{'Starting' if activate else 'Stopping'} reward{' for ' if duration is not None else ''} {duration} s"
-        )
-        request = SetReward.Request(activate=activate)
-        if duration is not None:
-            if duration < 0:
-                raise ValueError("Duration must be greater than 0!")
-            request.duration = Duration(seconds=duration).to_msg()
-
-        response = await self.service_call_async(
-            srv_request=request, srv_client=self.set_reward_client
-        )
-        return cast(SetReward.Response, response)
-
-    @asyncio_task_decorator
-    async def reward_and_wait(self, duration: float):
-        """Start reward and wait for it to be active."""
-        await self.set_reward(activate=True, duration=duration)
-
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-
-        await asyncio.sleep(spin_period)
-        assert (
-            self.last_teensy_sensor.is_reward_active
-        ), "Reward not active after 1 spin period"
-
-        timeout = duration + spin_period
-        try:
-            async with asyncio.timeout(timeout):
-                while self.last_teensy_sensor.is_reward_active:
-                    await asyncio.sleep(spin_period)
-                return True
-        except TimeoutError:
-            assert False, "Reward still active after duration"
-
     async def _set_smartglass(self, reveal: bool) -> SetSmartglass.Response:
         """Set the smartglass state."""
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
@@ -986,12 +947,53 @@ class Commander(BaseNode):
         response_time = Duration.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9
 
+    async def set_reward(
+        self, activate: bool, duration: Optional[int | float] = None
+    ) -> SetReward.Response:
+        """Set the reward state."""
+        self.log(
+            f"{'Starting' if activate else 'Stopping'} reward{' for ' if duration is not None else ''} {duration} s"
+        )
+        request = SetReward.Request(activate=activate)
+        if duration is not None:
+            if duration < 0:
+                raise ValueError("Duration must be greater than 0!")
+            request.duration = Duration(seconds=duration).to_msg()
+
+        response = await self.service_call_async(
+            srv_request=request, srv_client=self.set_reward_client
+        )
+        return cast(SetReward.Response, response)
+
+    @asyncio_task_decorator
+    async def reward_and_wait(self, duration: float):
+        """Start reward and wait for it to be active."""
+        await self.set_reward(activate=True, duration=duration)
+
+        spin_period = self.get_parameter_wrapper("teensy.spin_period")
+
+        await asyncio.sleep(spin_period)
+        assert (
+            self.last_teensy_sensor.is_reward_active
+        ), "Reward not active after 1 spin period"
+
+        timeout = duration + spin_period
+        try:
+            async with asyncio.timeout(timeout):
+                while self.last_teensy_sensor.is_reward_active:
+                    await asyncio.sleep(spin_period)
+                return True
+        except TimeoutError:
+            assert False, "Reward still active after duration"
+
     def _smooth_pursuit_producer(
         self,
-        feedback: EyelinkSmoothPursuit.Feedback,
+        feedback_msg: EyelinkSmoothPursuit.Impl.FeedbackMessage,
         queue: asyncio.Queue[bool],
     ):
         """Callback for the eyelink smooth pursuit feedback."""
+        feedback = feedback_msg.feedback
+
         if feedback.is_smoothly_pursuing:
             self.log("Smooth pursuit started", severity="INFO")
             self._loop.call_soon_threadsafe(queue.put_nowait, True)
@@ -1004,36 +1006,33 @@ class Commander(BaseNode):
         duration = self.get_parameter_wrapper(
             "smooth_pursuit.max_reward_duration"
         )
+        refresh_tolerance = self.get_parameter_wrapper(
+            "smooth_pursuit.reward_refresh_tolerance_duration"
+        )
         last_time = self.ros_time()
         last_smooth_pursuit = False
         try:
             while True:
                 smooth_pursuit = await queue.get()
-                if smooth_pursuit:
+                if smooth_pursuit and not last_smooth_pursuit:
+                    fluidsynth.play_Note(self._default_note)
                     new_time = self.ros_time()
-                    if (
-                        not last_smooth_pursuit
-                        or new_time - last_time > duration - 0.1
-                    ):
-                        # TODO: Change magic number
+                    if new_time - last_time > duration - refresh_tolerance:
                         await self.set_reward(
                             activate=smooth_pursuit, duration=duration
                         )
                         last_time = new_time
-                else:
-                    await self.set_reward(activate=False)
-
-                if smooth_pursuit and not last_smooth_pursuit:
-                    fluidsynth.play_Note(self._default_note)
                 elif not smooth_pursuit and last_smooth_pursuit:
                     fluidsynth.stop_Note(self._default_note)
+                    await self.set_reward(activate=False)
+
                 last_smooth_pursuit = smooth_pursuit
         finally:
+            fluidsynth.stop_Note(self._default_note)
             try:
-                fluidsynth.stop_Note(self._default_note)
+                await self.set_reward(activate=False)
             except Exception as e:
-                self.log(f"Error stopping note: {e}", severity="WARN")
-            await self.set_reward(activate=False)
+                self.log(f"Error stopping reward: {e}", severity="WARN")
 
     @asyncio_task_decorator
     async def smooth_pursuit_and_reward(self):
@@ -1467,17 +1466,18 @@ class Commander(BaseNode):
                     success, allowed_collision_type
                 )
                 if allowed == allow:
-                    self.log(
-                        f"Collision between {x} and {y} is already "
-                        f"{'allowed' if allow else 'disallowed'}",
-                        severity="DEBUG",
-                    )
+                    # self.log(
+                    #     f"Collision between {x} and {y} is already "
+                    #     f"{'allowed' if allow else 'disallowed'}",
+                    #     severity="DEBUG",
+                    # )
+                    pass
                 else:
-                    self.log(
-                        f"{'Allowing' if allow else 'Disallowing'} "
-                        f"collision between {x} and {y}",
-                        severity="DEBUG",
-                    )
+                    # self.log(
+                    #     f"{'Allowing' if allow else 'Disallowing'} "
+                    #     f"collision between {x} and {y}",
+                    #     severity="DEBUG",
+                    # )
                     matrix.set_entry(x, y, allow)
                     modified.append((x, y))
 

@@ -30,8 +30,11 @@
       check_interval: 0.1
       threshold: 150
       min_samples: 10
-      max_reward_duration: 30.0 # sent to teensy to guarantee that reward eventually turns off
-
+      # sent to teensy to guarantee that reward eventually turns off
+      max_reward_duration: 5.0
+      # if Wiggins is smoothly pursuing, we wait until this amount of time is
+      # left on the reward before sending another reward
+      reward_refresh_tolerance_duration: 0.1
     flic:
       bd_addrs:
         small_object_0: 90:88:a9:50:5f:b6
@@ -213,7 +216,7 @@
         common_kwargs:
           allowed_collision_ids:
             - eef_sphere
-          simplification: bounding_box_oriented
+          simplification: bounding_primitive
         object_kwargs:
           0,0:
             object_id: small_object_0

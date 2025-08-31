@@ -26,11 +26,6 @@ sudo usermod -aG docker $USER
 sudo chown "$USER":"$USER" /home/"$USER"/.docker -R
 sudo chmod g+rwx "$HOME/.docker" -R
 
-# Configure Docker to start on boot with systemd
-print_status "Configuring Docker to start on boot..."
-sudo systemctl enable docker.service
-sudo systemctl enable containerd.service
-
 # Configure logging driver with log rotation
 print_status "Configuring Docker logging driver with log rotation..."
 docker_daemon_config="/etc/docker/daemon.json"
@@ -54,6 +49,11 @@ if ! sudo cat "$docker_daemon_config" | jq -e '.log-driver' >/dev/null 2>&1; the
     # Restart Docker to apply changes
     sudo systemctl restart docker
 fi
+
+# Configure Docker to start on boot with systemd
+print_status "Configuring Docker to start on boot..."
+sudo systemctl enable docker.service
+sudo systemctl enable containerd.service
 
 echo "Docker installation and setup complete!"
 echo "Log out and log back in (or run 'newgrp docker') for the docker group changes to take effect."
