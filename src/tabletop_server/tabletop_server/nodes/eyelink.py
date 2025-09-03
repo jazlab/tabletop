@@ -2,12 +2,15 @@ import concurrent.futures
 import os
 import threading
 from collections import deque
-from copy import copy
 from enum import Enum
 
 import numpy as np
+import pandas as pd
 import rclpy
 import rosbag2_py
+import torch
+import yaml
+from geometry_msgs.msg import Point
 from pylink import EyeLink as EyeLinkTracker
 from pylink.constants import MISSING_DATA
 from pylink.tracker import Sample, SampleData
@@ -19,13 +22,16 @@ from rclpy.action.server import (
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from rclpy.serialization import serialize_message
 from rclpy.time import Time
+from scipy.signal import savgol_filter
 from std_srvs.srv import Trigger
 
+from mocap4r2_msgs.msg import Marker, Markers
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
+from tabletop_py.gaze.preprocess import reindex_steady_time
+from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.eyelink import edf_to_csv
 from tabletop_utils.ros import ROSSleepError
@@ -61,8 +67,11 @@ class Eyelink(BaseNode):
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "session_bag_dir": "null",
         "smooth_pursuit.window": 0.1,  # seconds
-        "smooth_pursuit.threshold": 4e4,  # pixels/s
+        "smooth_pursuit.max_speed": 15000,  # scaled_units/s
+        "smooth_pursuit.min_speed": 3000,  # scaled_units/s
         "smooth_pursuit.min_samples": 75,
+        "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_calibration.yaml",
+        "gaze_estimation_frequency": 10,  # Hz
     }
 
     ###########################################################################
@@ -77,71 +86,11 @@ class Eyelink(BaseNode):
         )
         # pylink.endRealTimeMode()
 
-        self.init_ros()
         self.init_bag_writer()
         self.init_sample_retrieval()
-
+        self.init_gaze_estimation()
+        self.init_ros()
         self.destroyed = False
-
-    def init_ros(self):
-        """Setup the ROS node.
-
-        This function will setup the ROS node. It will create a timer to log
-        the eyelink status and a series of services to control the tracker.
-        """
-        # self.log_timer = self.create_timer(
-        #     self.get_parameter_wrapper("log_period"),
-        #     self.log_callback,
-        #     callback_group=MutuallyExclusiveCallbackGroup(),
-        # )
-
-        # Publishers
-        qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
-        qos.durability = QoSDurabilityPolicy.VOLATILE
-        qos.depth = 10
-        # self.eyelink_sample_publisher = self.create_publisher(
-        #     EyelinkMsg,
-        #     "/eyelink/sample",
-        #     qos_profile=qos,
-        #     callback_group=MutuallyExclusiveCallbackGroup(),
-        # )
-
-        # Services
-
-        self.eyelink_start_recording_service = self.create_service(
-            Trigger,
-            "/eyelink/start_recording",
-            self.start_recording_callback,
-        )
-        self.eyelink_stop_recording_service = self.create_service(
-            Trigger,
-            "/eyelink/stop_recording",
-            self.stop_recording_callback,
-        )
-        self.eyelink_open_data_file_service = self.create_service(
-            Trigger,
-            "/eyelink/open_data_file",
-            self.open_data_file_callback,
-        )
-        self.eyelink_close_data_file_service = self.create_service(
-            Trigger,
-            "/eyelink/close_data_file",
-            self.close_data_file_callback,
-        )
-
-        # Action servers
-
-        self.eyelink_smooth_pursuit_server = ActionServer(
-            self,
-            EyelinkSmoothPursuit,
-            "/eyelink/smooth_pursuit",
-            self.smooth_pursuit_callback,
-            cancel_callback=self.smooth_pursuit_cancel_callback,
-            goal_callback=self.smooth_pursuit_goal_callback,
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-        self.goal_callback_lock = threading.Lock()
-        self.goal_ongoing = False
 
     def init_sample_retrieval(self):
         """Setup the sample retrieval.
@@ -198,6 +147,75 @@ class Eyelink(BaseNode):
                 serialization_format="cdr",
             )
         )
+
+    def init_gaze_estimation(self):
+        """Setup the gaze estimation model."""
+        path = os.path.expandvars(
+            self.get_parameter_wrapper("gaze_estimation_config")
+        )
+        if path is not None:
+            with open(path, "r") as f:
+                config = yaml.safe_load(f)
+            self.gaze_estimation_model = init_model(**config["model"])
+            self.gaze_estimation_model.eval()
+
+    def init_ros(self):
+        """Setup the ROS node.
+
+        This function will setup the ROS node. It will create a timer to log
+        the eyelink status and a series of services to control the tracker.
+        """
+        # Services
+
+        self.eyelink_start_recording_service = self.create_service(
+            Trigger,
+            "/eyelink/start_recording",
+            self.start_recording_callback,
+        )
+        self.eyelink_stop_recording_service = self.create_service(
+            Trigger,
+            "/eyelink/stop_recording",
+            self.stop_recording_callback,
+        )
+        self.eyelink_open_data_file_service = self.create_service(
+            Trigger,
+            "/eyelink/open_data_file",
+            self.open_data_file_callback,
+        )
+        self.eyelink_close_data_file_service = self.create_service(
+            Trigger,
+            "/eyelink/close_data_file",
+            self.close_data_file_callback,
+        )
+
+        # Action servers
+
+        self.eyelink_smooth_pursuit_server = ActionServer(
+            self,
+            EyelinkSmoothPursuit,
+            "/eyelink/smooth_pursuit",
+            self.smooth_pursuit_callback,
+            cancel_callback=self.smooth_pursuit_cancel_callback,
+            goal_callback=self.smooth_pursuit_goal_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.goal_callback_lock = threading.Lock()
+        self.goal_ongoing = False
+
+        # Publishers
+
+        if hasattr(self, "gaze_estimation_model"):
+            self.gaze_estimation_publisher = self.create_publisher(
+                Markers,
+                "/predicted_markers",
+                qos_profile=1000,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
+            self.gaze_estimation_timer = self.create_timer(
+                1 / self.get_parameter_wrapper("gaze_estimation_frequency"),
+                self.gaze_estimation_callback,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
 
     ###########################################################################
     # Tracker utilities
@@ -405,8 +423,10 @@ class Eyelink(BaseNode):
         left_sample: SampleData | None = sample.getLeftEye()
         right_sample: SampleData | None = sample.getRightEye()
 
-        assert left_sample is not None
-        assert right_sample is not None
+        if left_sample is None:
+            raise RuntimeError("Left eye sample is None")
+        if right_sample is None:
+            raise RuntimeError("Right eye sample is None")
 
         # eye_used = self.eye_available()
         # if eye_used == EyeAvailable.LEFT_EYE:
@@ -522,15 +542,17 @@ class Eyelink(BaseNode):
         """
         self.log("Checking for smooth pursuit", severity="DEBUG")
 
-        messages = self.get_last_messages()
+        msgs = self.get_last_messages()
 
-        threshold = self.get_parameter_wrapper("smooth_pursuit.threshold")
+        max_speed = self.get_parameter_wrapper("smooth_pursuit.max_speed")
+        min_speed = self.get_parameter_wrapper("smooth_pursuit.min_speed")
         min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
+        freq = self.get_parameter_wrapper("sample_rate")
 
-        if len(messages) == 0:
+        if len(msgs) == 0:
             self.log(
                 "No samples in queue, skipping smooth pursuit check",
-                severity="WARN",
+                severity="DEBUG",
             )
             return False
 
@@ -539,30 +561,47 @@ class Eyelink(BaseNode):
 
         # Extract eye data from samples
         time = (
-            np.array([message.eyelink_time_ms for message in messages])
-            / 1000.0
+            np.array([msg.eyelink_time_ms for msg in msgs]) / 1000.0
         )  # Convert to seconds
-        left_pos = np.array(
-            [[message.left_x, message.left_y] for message in messages]
+        pos = np.array(
+            [
+                [msg.left_x, msg.left_y, msg.right_x, msg.right_y]
+                for msg in msgs
+            ]
         )
-        right_pos = np.array(
-            [[message.right_x, message.right_y] for message in messages]
+
+        df = pd.DataFrame(
+            {
+                "time": time,
+                "left_x": pos[:, 0],
+                "left_y": pos[:, 1],
+                "right_x": pos[:, 2],
+                "right_y": pos[:, 3],
+            }
         )
 
         # Remove rows with missing data from the arrays
-        valid_mask = (left_pos != MISSING_DATA).all(axis=1) & (
-            right_pos != MISSING_DATA
-        ).all(axis=1)
-        time = time[valid_mask]
-        left_pos = left_pos[valid_mask]
-        right_pos = right_pos[valid_mask]
+        df = df.replace(MISSING_DATA, np.nan)
+        df = df.dropna()
+
+        # Interpolate the data to the sample rate and apply a savgol smoothing filter
+        df = reindex_steady_time(df, freq=freq, on="time", tolerance=2 / freq)
+        for col in ["left_x", "left_y", "right_x", "right_y"]:
+            df[col] = savgol_filter(df[col], window_length=10, polyorder=3)
+
+        # valid_mask = (left_pos != MISSING_DATA).all(axis=1) & (
+        #     right_pos != MISSING_DATA
+        # ).all(axis=1)
+        # time = time[valid_mask]
+        # left_pos = left_pos[valid_mask]
+        # right_pos = right_pos[valid_mask]
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
-        if time.shape[0] < min_samples:
+        if df.shape[0] < min_samples:
             self.log(
-                f"Not enough valid samples (min: {min_samples}, got: {time.shape[0]})",
-                severity="WARN",
+                f"Not enough valid samples (min: {min_samples}, got: {df.shape[0]})",
+                severity="DEBUG",
             )
             return False
 
@@ -571,17 +610,23 @@ class Eyelink(BaseNode):
         # sample, it is likely not a saccade/break in smooth pursuit and we
         # should ignore it).
         left_speed = np.linalg.norm(
-            np.gradient(left_pos, time, axis=0), axis=1
+            np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
         )
         right_speed = np.linalg.norm(
-            np.gradient(right_pos, time, axis=0), axis=1
+            np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
         )
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of
         # the left and right eyes are below a threshold
-        is_smoothly_pursuing = np.all(
-            np.stack([left_speed, right_speed], axis=1) < threshold
-        ).item()
+        speed = np.stack([left_speed, right_speed], axis=1)
+        self.log(
+            f"Min speed: {speed.min()}, Max speed: {speed.max()}",
+            severity="DEBUG",
+        )
+        is_smoothly_pursuing = (
+            np.all(speed < max_speed).item()
+            and np.all(speed > min_speed).item()
+        )
 
         # Log the smooth pursuit status and statistics about the eye speed data
         # if self.get_logger().get_effective_level() <= logging.DEBUG:
@@ -731,6 +776,49 @@ class Eyelink(BaseNode):
         finally:
             with self.goal_callback_lock:
                 self.goal_ongoing = False
+
+    def gaze_estimation_callback(self):
+        """Callback to publish gaze estimation markers."""
+        msgs = self.get_last_messages()
+
+        x = None
+        for msg in msgs:
+            if (
+                msg.left_x != MISSING_DATA
+                and msg.left_y != MISSING_DATA
+                and msg.right_x != MISSING_DATA
+                and msg.right_y != MISSING_DATA
+            ):
+                x = torch.tensor(
+                    [msg.left_x, msg.left_y, msg.right_x, msg.right_y],
+                    dtype=torch.float32,
+                ).unsqueeze(0)
+                break
+        else:
+            self.log(
+                "No valid messages in queue, skipping gaze estimation",
+                severity="DEBUG",
+            )
+            return
+
+        with torch.no_grad():
+            y = (
+                self.gaze_estimation_model(x)
+                .detach()
+                .squeeze()
+                .numpy()
+                .tolist()
+            )
+            self.log(f"Gaze estimation: {y}", severity="DEBUG")
+
+        markers = Markers()
+        markers.header.stamp = self.get_clock().now().to_msg()
+        markers.header.frame_id = "optitrack"
+
+        markers.markers.append(  # type: ignore
+            Marker(translation=Point(x=y[0], y=y[1], z=y[2]))
+        )
+        self.gaze_estimation_publisher.publish(markers)
 
     ###########################################################################
     # Node lifecycle

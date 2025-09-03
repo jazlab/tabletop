@@ -995,10 +995,8 @@ class Commander(BaseNode):
         feedback = feedback_msg.feedback
 
         if feedback.is_smoothly_pursuing:
-            self.log("Smooth pursuit started", severity="INFO")
             self._loop.call_soon_threadsafe(queue.put_nowait, True)
         else:
-            self.log("Smooth pursuit ended", severity="INFO")
             self._loop.call_soon_threadsafe(queue.put_nowait, False)
 
     async def _smooth_pursuit_consumer(self, queue: asyncio.Queue[bool]):
@@ -1015,6 +1013,7 @@ class Commander(BaseNode):
             while True:
                 smooth_pursuit = await queue.get()
                 if smooth_pursuit and not last_smooth_pursuit:
+                    self.log("Smooth pursuit started", severity="INFO")
                     fluidsynth.play_Note(self._default_note)
                     new_time = self.ros_time()
                     if new_time - last_time > duration - refresh_tolerance:
@@ -1023,6 +1022,7 @@ class Commander(BaseNode):
                         )
                         last_time = new_time
                 elif not smooth_pursuit and last_smooth_pursuit:
+                    self.log("Smooth pursuit ended", severity="INFO")
                     fluidsynth.stop_Note(self._default_note)
                     await self.set_reward(activate=False)
 

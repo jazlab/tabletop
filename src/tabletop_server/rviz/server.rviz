@@ -35,6 +35,42 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: world
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Markers
+      Namespaces:
+        mocap4r2_markers: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /markers_viz
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Predicted Markers
+      Namespaces:
+        mocap4r2_markers: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /predicted_markers_viz
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: RigidBodies
+      Namespaces:
+        mocap4r2_markers: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rigid_bodies_viz
+      Value: true
     - Class: moveit_rviz_plugin/PlanningScene
       Enabled: true
       Move Group Namespace: ""
@@ -101,11 +137,6 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          # bounding_cylinder:
-          #   Alpha: 1
-          #   Show Axes: false
-          #   Show Trail: false
-          #   Value: true
           tool0:
             Alpha: 1
             Show Axes: false

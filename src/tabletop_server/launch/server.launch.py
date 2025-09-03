@@ -1,3 +1,4 @@
+import math
 import os
 from datetime import datetime
 
@@ -118,7 +119,7 @@ def declare_arguments():
         # Bag
         DeclareLaunchArgument(
             "rosbag_record",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Record rosbag?",
         ),
@@ -426,7 +427,49 @@ def generate_launch_description():
         ],
         ros_arguments=[
             "--log-level",
-            LaunchConfiguration("eyelink_log_level"),
+            ["eyelink:=", LaunchConfiguration("eyelink_log_level")],
+        ],
+        on_exit=[Shutdown()],
+    )
+
+    # Static transform publisher for optitrack
+    optitrack_transform_publisher = Node(
+        name="optitrack_static_transform_publisher",
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        arguments=[
+            "--x",
+            "0.4925",
+            "--y",
+            "0.6025",
+            "--z",
+            "0.31",
+            "--yaw",
+            str(math.pi / 2),
+            "--pitch",
+            "0",
+            "--roll",
+            str(math.pi / 2),
+            "--frame-id",
+            "world",
+            "--child-frame-id",
+            "optitrack",
+        ],
+        output="both",
+        on_exit=[Shutdown()],
+    )
+
+    mocap4r2_marker_viz = Node(
+        package="mocap4r2_marker_viz",
+        executable="mocap4r2_marker_viz",
+        output="both",
+        emulate_tty=True,
+        parameters=[
+            {
+                "mocap4r2_system": "optitrack",
+                "marker_topics": ["markers", "predicted_markers"],
+                "rb_topics": ["rigid_bodies"],
+            }
         ],
         on_exit=[Shutdown()],
     )
@@ -511,6 +554,8 @@ def generate_launch_description():
         mock_teensy,
         flic,
         eyelink,
+        optitrack_transform_publisher,
+        mocap4r2_marker_viz,
         rviz_node,
         bag,
     ]

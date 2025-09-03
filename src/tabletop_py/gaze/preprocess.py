@@ -51,13 +51,16 @@ def reindex_steady_time(
     freq: float,
     on: str,
     direction: str = "backward",
+    tolerance: Optional[float] = None,
 ) -> pd.DataFrame:
     """
     Interpolates the data with NaNs.
     """
     steady_idx = np.arange(df[on].min(), df[on].max(), 1 / freq)
+    if tolerance is None:
+        tolerance = (1 + 1e-1) / freq
     return reindex_and_interpolate(
-        df, steady_idx, on=on, direction=direction, tolerance=1 / freq
+        df, steady_idx, on=on, direction=direction, tolerance=tolerance
     )
 
 
@@ -202,66 +205,6 @@ def format_columns(
     return eyelink_df, markers_df
 
 
-def get_smooth_pursuit(
-    df: pd.DataFrame,
-    freq: float,
-    window: float,
-    threshold: int,
-) -> bool | None:
-    """Check if the subject is smoothly pursuing.
-
-    This function will check if the subject is smoothly pursuing by
-    checking if the speed of the left and right eyes is below a threshold
-    (the eye can only move smoothly if it is following a smoothly moving
-    object, so we check if the speed remains below a threshold).
-
-    Args:
-        df: The dataframe containing the eye tracker and optical marker data.
-        freq: The frequency of the eye tracker and optical marker data.
-        window: The window size in seconds.
-        threshold: The threshold for the speed of the eyes.
-
-    Returns:
-        True if the subject is smoothly pursuing, False otherwise.
-    """
-    logger.info("Checking for smooth pursuit")
-
-    tmp_df = df.copy(deep=True)
-
-    time = tmp_df["time"]
-    left_positions = tmp_df[["left_x", "left_y"]]
-    right_positions = tmp_df[["right_x", "right_y"]]
-
-    # TODO: Add smoothing and/or filtering to the positional data so as
-    # to false negatives (e.g. if a spike of noise occurs for a single
-    # sample, it is likely not a saccade/break in smooth pursuit and we
-    # should ignore it).
-    left_speed = np.linalg.norm(
-        np.gradient(left_positions, time, axis=0), axis=1
-    )
-    right_speed = np.linalg.norm(
-        np.gradient(right_positions, time, axis=0), axis=1
-    )
-
-    tmp_df["timestamp"] = pd.to_datetime(time, unit="s")
-    rolling = tmp_df.rolling(
-        window=pd.Timedelta(window * 1e9, unit="ns"),  # type: ignore
-        min_periods=1,
-    )
-    left_speed = rolling["left_x"].diff() / rolling["timestamp"].diff()
-    right_speed = rolling["right_x"].diff() / rolling["timestamp"].diff()
-    left_speed = left_speed.fillna(0)
-    right_speed = right_speed.fillna(0)
-
-    # Ensure that smooth pursuit is occuring by checking if the speeds of
-    # the left and right eyes are below a threshold
-    is_smoothly_pursuing = np.all(
-        np.stack([left_speed, right_speed], axis=1) < threshold
-    ).item()
-
-    return is_smoothly_pursuing
-
-
 def clean_data(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
@@ -316,12 +259,14 @@ def clean_data(
     )
     markers_df = markers_df.dropna(subset=["marker_x", "marker_y", "marker_z"])
 
-    zscores = stats.zscore(
+    eyelink_zscores = stats.zscore(
         eyelink_df[["left_x", "left_y", "right_x", "right_y"]]
     )
-    eyelink_df = eyelink_df[(np.abs(zscores) < 3.0).all(axis=1)]  # type: ignore
-    # zscores = stats.zscore(markers_df[["marker_x", "marker_y", "marker_z"]])
-    # markers_df = markers_df[(np.abs(zscores) < 3.0).all(axis=1)]  # type: ignore
+    eyelink_df = eyelink_df[(np.abs(eyelink_zscores) < 3.0).all(axis=1)]  # type: ignore
+    markers_zscores = stats.zscore(
+        markers_df[["marker_x", "marker_y", "marker_z"]]
+    )
+    markers_df = markers_df[(np.abs(markers_zscores) < 3.0).all(axis=1)]  # type: ignore
 
     return eyelink_df, markers_df
 
@@ -451,6 +396,8 @@ def smooth_data(
 def preprocess_data(
     session_dir: os.PathLike,
     config: Mapping[str, Any],
+    *,
+    marker_idx: int,
     start_time: float = 0.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -467,7 +414,11 @@ def preprocess_data(
 
     logger.info("Formatting columns")
     raw_eyelink_df, raw_markers_df = format_columns(
-        eyelink_df, markers_df, eyelink_freq, markers_freq, marker_idx=0
+        eyelink_df,
+        markers_df,
+        eyelink_freq,
+        markers_freq,
+        marker_idx=marker_idx,
     )
     logger.info("Cleaning data")
     eyelink_df, markers_df = clean_data(
@@ -523,10 +474,18 @@ def main(args=None):
         help="Path to the training config file",
     )
     parser.add_argument(
+        "-t",
         "--start-time",
         type=float,
         default=0.0,
         help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "-m",
+        "--marker-idx",
+        type=int,
+        default=0,
+        help="The index of the marker to use.",
     )
     parser.add_argument(
         "--visualize",
@@ -539,7 +498,10 @@ def main(args=None):
         config = cast(Mapping[str, Any], yaml.safe_load(f))
 
     df, raw_eyelink_df, raw_markers_df = preprocess_data(
-        args.session_dir, config, start_time=args.start_time
+        args.session_dir,
+        config,
+        marker_idx=args.marker_idx,
+        start_time=args.start_time,
     )
 
     if args.visualize:

@@ -21,79 +21,6 @@ from tabletop_py.gaze.utils import (
 logger = logging.getLogger(__name__)
 
 
-def train(
-    model: nn.Module,
-    optimizer: optim.Optimizer,
-    criterion: nn.Module,
-    train_loader: torch.utils.data.DataLoader,
-    val_loader: torch.utils.data.DataLoader,
-    *,
-    num_epochs: int,
-    patience_epochs: int,
-    device: torch.device,
-):
-    """
-    Trains the eye tracking model using cross-validation.
-
-    Args:
-        X_train: Training input features.
-        y_train: Training target variables.
-        device: Device to run the model on (CPU or GPU).
-        y_scaler: Scaler for the target variables.
-        model_type: Type of model to use for gaze estimation.
-
-    Returns:
-        tuple: A tuple containing the trained model and cross-validation scores.
-    """
-
-    best_val_loss = float("inf")
-    patience_counter = 0
-
-    # Train the model
-    for epoch in range(num_epochs):
-        train_loss = 0
-        count = 0
-        model.train()
-        for x, y in train_loader:
-            x, y = x.to(device), y.to(device)
-            optimizer.zero_grad()
-            pred = model(x)
-            loss = criterion(pred, y)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item() * x.shape[0]
-            count += x.shape[0]
-
-        train_loss /= count
-
-        model.eval()
-        with torch.no_grad():
-            val_loss = 0
-            count = 0
-            for x, y in val_loader:
-                x, y = x.to(device), y.to(device)
-                pred = model(x)
-                loss = criterion(pred, y).item()
-                val_loss += loss * x.shape[0]
-                count += x.shape[0]
-            val_loss /= count
-
-        logger.info(
-            f"Epoch {epoch + 1} of {num_epochs} | Train loss: {train_loss:.4f} | Validation loss: {val_loss:.4f} | Patience counter: {patience_counter}/{patience_epochs}"
-        )
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-        else:
-            patience_counter += 1
-            if patience_counter >= patience_epochs:
-                logger.info(
-                    f"Early stopping at epoch {epoch + 1} of {num_epochs}"
-                )
-                break
-
-
 def evaluate(
     model: nn.Module,
     criterion: nn.Module,
@@ -169,6 +96,77 @@ def evaluate(
     }
 
 
+def train(
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+    criterion: nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    val_loader: torch.utils.data.DataLoader,
+    *,
+    num_epochs: int,
+    patience_epochs: int,
+    device: torch.device,
+) -> dict[str, float]:
+    """
+    Trains the eye tracking model using cross-validation.
+
+    Args:
+        X_train: Training input features.
+        y_train: Training target variables.
+        device: Device to run the model on (CPU or GPU).
+        y_scaler: Scaler for the target variables.
+        model_type: Type of model to use for gaze estimation.
+
+    Returns:
+        tuple: A tuple containing the trained model and cross-validation scores.
+    """
+
+    best_val_loss = float("inf")
+    patience_counter = 0
+
+    # Train the model
+    for epoch in range(num_epochs):
+        train_loss = 0
+        count = 0
+        model.train()
+        for x, y in train_loader:
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
+            pred = model(x)
+            loss = criterion(pred, y)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * x.shape[0]
+            count += x.shape[0]
+
+        train_loss /= count
+
+        val_results = evaluate(
+            model=model,
+            criterion=criterion,
+            loader=val_loader,
+            device=device,
+        )
+        val_loss = val_results["loss"]
+
+        logger.info(
+            f"Epoch {epoch + 1} of {num_epochs} | Train loss: {train_loss:.4f} | Validation loss: {val_loss:.4f} | Validation RMSE: {val_results['rmse']:.4f} | Patience counter: {patience_counter}/{patience_epochs}"
+        )
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience_epochs:
+                logger.info(
+                    f"Early stopping at epoch {epoch + 1} of {num_epochs}"
+                )
+                break
+
+    return val_results
+
+
 def train_and_evaluate(
     session_dir: os.PathLike,
     config: Mapping[str, Any],
@@ -189,9 +187,10 @@ def train_and_evaluate(
     )
 
     # Initialize best model and best validation loss
+    best_fold: int | None = None
     best_model: nn.Module | None = None
-    best_val_loss = float("inf")
     best_val_results: dict[str, float] | None = None
+    best_val_loss = float("inf")
 
     # Train and evaluate the model
     for i, (train_loader, val_loader) in enumerate(train_val_loader_generator):
@@ -205,7 +204,7 @@ def train_and_evaluate(
         criterion = init_criterion(**config["criterion"]).to(device)
 
         # Train the model
-        train(
+        val_results = train(
             model=model,
             optimizer=optimizer,
             criterion=criterion,
@@ -213,11 +212,6 @@ def train_and_evaluate(
             val_loader=val_loader,
             **config["train"],
             device=device,
-        )
-
-        # Validate the model
-        val_results = evaluate(
-            model=model, criterion=criterion, loader=val_loader, device=device
         )
 
         logger.info(
@@ -228,10 +222,16 @@ def train_and_evaluate(
             f"R2: {val_results['r2']:.4f}"
         )
         if val_results["loss"] < best_val_loss:
-            best_val_results = val_results
+            best_fold = i
             best_model = model
+            best_val_results = val_results
+            best_val_loss = val_results["loss"]
 
-    assert best_model is not None and best_val_results is not None
+    assert (
+        best_model is not None
+        and best_val_results is not None
+        and best_fold is not None
+    )
     test_results = evaluate(
         model=best_model,
         criterion=criterion,
@@ -241,7 +241,7 @@ def train_and_evaluate(
     )
 
     logger.info(
-        f"Test results for best model | "
+        f"Test results for best model from fold {best_fold} | "
         f"Loss: {test_results['loss']:.4f}, "
         f"MSE: {test_results['mse']:.4f}, "
         f"RMSE: {test_results['rmse']:.4f}, "

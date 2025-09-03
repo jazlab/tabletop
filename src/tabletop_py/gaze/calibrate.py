@@ -38,10 +38,18 @@ def main(args=None):
         help="Path to the training config file",
     )
     parser.add_argument(
+        "-t",
         "--start-time",
         type=float,
         default=0.0,
         help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "-m",
+        "--marker-idx",
+        type=int,
+        default=0,
+        help="The index of the marker to use.",
     )
     parser.add_argument(
         "-r",
@@ -97,7 +105,12 @@ def main(args=None):
 
     if args.reprocess or not already_preprocessed:
         print("Preprocessing data...")
-        preprocess_data(args.session_dir, config, start_time=args.start_time)
+        preprocess_data(
+            args.session_dir,
+            config,
+            marker_idx=args.marker_idx,
+            start_time=args.start_time,
+        )
 
     # Train and evaluate
     train_and_evaluate(args.session_dir, config)

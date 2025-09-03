@@ -26,10 +26,10 @@
   <exec_depend>micro_ros_agent</exec_depend>
   <exec_depend>tabletop_moveit_config</exec_depend>
   <exec_depend>tabletop_interfaces</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>mocap4r2_optitrack_driver</exec_depend>
   <exec_depend>mocap4r2_msgs</exec_depend>
   <exec_depend>mocap4r2_marker_viz</exec_depend>
-  <exec_depend>mocap4r2_robot_gt</exec_depend>
   <exec_depend>tabletop_utils</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

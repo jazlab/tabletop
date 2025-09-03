@@ -15,5 +15,4 @@ class DummyTask(BaseTask):
     async def run(self):
         async with self.commander as com:
             while True:
-                await com.reward_and_wait(1.0)
                 await asyncio.sleep(1.0)

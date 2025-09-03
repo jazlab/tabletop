@@ -97,28 +97,26 @@ def init_dataloaders(
     return train_val_generator(), test_loader
 
 
-def init_model(class_name: str, **kwargs) -> nn.Module:
+def init_model(name: str, **kwargs) -> nn.Module:
     model_class: type[nn.Module] = getattr(
-        importlib.import_module("tabletop_py.gaze.models"), class_name
+        importlib.import_module("tabletop_py.gaze.models"), name
     )
     model = model_class(**kwargs)
     return model
 
 
-def init_optimizer(
-    model: nn.Module, class_name: str, **kwargs
-) -> optim.Optimizer:
+def init_optimizer(model: nn.Module, name: str, **kwargs) -> optim.Optimizer:
     optimizer_class: type[optim.Optimizer] = getattr(
         importlib.import_module("torch.optim"),
-        class_name,  # type: ignore
+        name,  # type: ignore
     )
     optimizer = optimizer_class(model.parameters(), **kwargs)
     return optimizer
 
 
-def init_criterion(class_name: str, **kwargs) -> nn.Module:
+def init_criterion(name: str, **kwargs) -> nn.Module:
     criterion_class: type[nn.Module] = getattr(
-        importlib.import_module("torch.nn"), class_name
+        importlib.import_module("torch.nn"), name
     )
     criterion = criterion_class(**kwargs)
     return criterion
