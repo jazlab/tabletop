@@ -20,8 +20,8 @@
 	branch = rolling
 [submodule "mocap4r2"]
 	path = src/mocap4r2
-	url = https://github.com/MOCAP4ROS2-Project/mocap4r2.git
-	branch = mules
+	url = https://github.com/valmikikothare/mocap4r2.git
+	branch = rolling
 [submodule "mocap4r2_optitrack"]
 	path = src/mocap4r2_optitrack
 	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
