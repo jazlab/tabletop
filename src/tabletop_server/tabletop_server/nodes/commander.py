@@ -951,9 +951,11 @@ class Commander(BaseNode):
         self, activate: bool, duration: Optional[int | float] = None
     ) -> SetReward.Response:
         """Set the reward state."""
-        self.log(
-            f"{'Starting' if activate else 'Stopping'} reward{' for ' if duration is not None else ''} {duration} s"
-        )
+        if activate:
+            self.log(f"Starting reward for {duration}s")
+        else:
+            self.log("Stopping reward")
+
         request = SetReward.Request(activate=activate)
         if duration is not None:
             if duration < 0:
@@ -994,10 +996,13 @@ class Commander(BaseNode):
         """Callback for the eyelink smooth pursuit feedback."""
         feedback = feedback_msg.feedback
 
-        if feedback.is_smoothly_pursuing:
-            self._loop.call_soon_threadsafe(queue.put_nowait, True)
-        else:
-            self._loop.call_soon_threadsafe(queue.put_nowait, False)
+        self._loop.call_soon_threadsafe(
+            queue.put_nowait, feedback.is_smoothly_pursuing
+        )
+        self.log(
+            f"Monkey {'' if feedback.is_smoothly_pursuing else 'not '}smoothly pursuing",
+            severity="INFO",
+        )
 
     async def _smooth_pursuit_consumer(self, queue: asyncio.Queue[bool]):
         """Consumer for the eyelink smooth pursuit queue."""
@@ -1007,21 +1012,29 @@ class Commander(BaseNode):
         refresh_tolerance = self.get_parameter_wrapper(
             "smooth_pursuit.reward_refresh_tolerance_duration"
         )
-        last_time = self.ros_time()
+        last_reward_start_time = self.ros_time()
         last_smooth_pursuit = False
         try:
             while True:
                 smooth_pursuit = await queue.get()
-                if smooth_pursuit and not last_smooth_pursuit:
-                    self.log("Smooth pursuit started", severity="INFO")
-                    fluidsynth.play_Note(self._default_note)
+                if smooth_pursuit:
                     new_time = self.ros_time()
-                    if new_time - last_time > duration - refresh_tolerance:
+                    if not last_smooth_pursuit:
+                        self.log("Smooth pursuit started", severity="INFO")
+                        fluidsynth.play_Note(self._default_note)
                         await self.set_reward(
                             activate=smooth_pursuit, duration=duration
                         )
-                        last_time = new_time
-                elif not smooth_pursuit and last_smooth_pursuit:
+                        last_reward_start_time = new_time
+                    elif (
+                        new_time - last_reward_start_time
+                        > duration - refresh_tolerance
+                    ):
+                        await self.set_reward(
+                            activate=smooth_pursuit, duration=duration
+                        )
+                        last_reward_start_time = new_time
+                elif last_smooth_pursuit:
                     self.log("Smooth pursuit ended", severity="INFO")
                     fluidsynth.stop_Note(self._default_note)
                     await self.set_reward(activate=False)
@@ -1056,7 +1069,9 @@ class Commander(BaseNode):
             consumer_task = asyncio.create_task(
                 self._smooth_pursuit_consumer(queue)
             )
-            result_future.add_done_callback(lambda _: consumer_task.cancel())
+            result_future.add_done_callback(
+                lambda _: self._loop.call_soon_threadsafe(consumer_task.cancel)
+            )
             await consumer_task
         finally:
             goal_handle.cancel_goal_async()

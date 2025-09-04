@@ -354,10 +354,8 @@ class GazeEstimationModelGeometric(nn.Module):
 
     def __init__(
         self,
-        camera_left_tf: torch.Tensor | Any,
-        camera_left_intrinsic: torch.Tensor | Any,
-        camera_right_tf: torch.Tensor | Any | None,
-        camera_right_intrinsic: torch.Tensor | Any | None,
+        camera_tf: torch.Tensor | Any,
+        camera_intrinsic: torch.Tensor | Any,
         eye_left_center: torch.Tensor | Any,
         eye_right_center: torch.Tensor | Any,
         eye_radius: float | Any,
@@ -365,45 +363,19 @@ class GazeEstimationModelGeometric(nn.Module):
         super().__init__()
 
         # Camera frame transformations
-        camera_left_translation_tf, camera_left_rotation_tf = decompose_tf(
-            camera_left_tf
+        camera_translation_tf, camera_rotation_tf = decompose_tf(camera_tf)
+        self.camera_rotation_tf = LearnableMaskedCorrectionParameter(
+            camera_rotation_tf, self._CAMERA_ROTATION_LEARNABLE_MASK
         )
-        self.camera_left_rotation_tf = LearnableMaskedCorrectionParameter(
-            camera_left_rotation_tf, self._CAMERA_ROTATION_LEARNABLE_MASK
+        self.camera_position = LearnableMaskedCorrectionParameter(
+            camera_translation_tf[:3, 3]
         )
-        self.camera_left_position = LearnableMaskedCorrectionParameter(
-            camera_left_translation_tf[:3, 3]
-        )
-
-        # If camera_right_tf is not provided, we assume the same camera is used for both eyes
-        if camera_right_tf is not None:
-            camera_right_translation_tf, camera_right_rotation_tf = (
-                decompose_tf(camera_right_tf)
-            )
-            self.camera_right_rotation_tf = LearnableMaskedCorrectionParameter(
-                camera_right_rotation_tf, self._CAMERA_ROTATION_LEARNABLE_MASK
-            )
-            self.camera_right_position = LearnableMaskedCorrectionParameter(
-                camera_right_translation_tf[:3, 3]
-            )
-        else:
-            self.camera_right_rotation_tf = self.camera_left_rotation_tf
-            self.camera_right_position = self.camera_left_position
 
         # Camera intrinsics
-        self.camera_left_intrinsic_inv = LearnableMaskedCorrectionParameter(
-            torch.linalg.inv(camera_left_intrinsic),
+        self.camera_intrinsic_inv = LearnableMaskedCorrectionParameter(
+            torch.linalg.inv(camera_intrinsic),
             self._CAMERA_INTRINSIC_LEARNABLE_MASK,
         )
-        if camera_right_intrinsic is not None:
-            self.camera_right_intrinsic_inv = (
-                LearnableMaskedCorrectionParameter(
-                    torch.linalg.inv(camera_right_intrinsic),
-                    self._CAMERA_INTRINSIC_LEARNABLE_MASK,
-                )
-            )
-        else:
-            self.camera_right_intrinsic_inv = self.camera_left_intrinsic_inv
 
         # Eye position
         self.eye_left_center = LearnableMaskedCorrectionParameter(
@@ -437,10 +409,10 @@ class GazeEstimationModelGeometric(nn.Module):
 
         # Reverse the camera intrinsic projection
         pupil_left_ray_camera = mv(
-            self.camera_left_intrinsic_inv(), pupil_left_pixels
+            self.camera_intrinsic_inv(), pupil_left_pixels
         )
         pupil_right_ray_camera = mv(
-            self.camera_right_intrinsic_inv(), pupil_right_pixels
+            self.camera_intrinsic_inv(), pupil_right_pixels
         )
         # # assert (
         # #     pupil_left_ray_camera.shape
@@ -464,10 +436,10 @@ class GazeEstimationModelGeometric(nn.Module):
 
         # Rotate the rays into the world frame
         pupil_left_ray_world = mv(
-            self.camera_left_rotation_tf(), pupil_left_ray_camera
+            self.camera_rotation_tf(), pupil_left_ray_camera
         )
         pupil_right_ray_world = mv(
-            self.camera_right_rotation_tf(), pupil_right_ray_camera
+            self.camera_rotation_tf(), pupil_right_ray_camera
         )
         # assert (
         #     pupil_left_ray_world.shape == pupil_right_ray_world.shape == (B, 4)
@@ -475,13 +447,13 @@ class GazeEstimationModelGeometric(nn.Module):
 
         # Intersect the rays with the sphere
         pupil_left_pos_world = intersect_ray_sphere(
-            ray_origin=self.camera_left_position(),
+            ray_origin=self.camera_position(),
             ray_direction=pupil_left_ray_world[:, :3],
             sphere_center=self.eye_left_center(),
             sphere_radius=self.eye_radius(),
         )
         pupil_right_pos_world = intersect_ray_sphere(
-            ray_origin=self.camera_right_position(),
+            ray_origin=self.camera_position(),
             ray_direction=pupil_right_ray_world[:, :3],
             sphere_center=self.eye_right_center(),
             sphere_radius=self.eye_radius(),
@@ -513,12 +485,57 @@ class GazeEstimationModelMLP(nn.Module):
 
     def __init__(
         self,
-        input_size: int = 4,
+        input_size: int,
+        output_size: int,
+        input_mean: torch.Tensor,
+        input_std: torch.Tensor,
+        output_mean: torch.Tensor,
+        output_std: torch.Tensor,
         hidden_sizes: list[int] = [128, 256, 128],
-        output_size: int = 3,
         dropout_rate: float = 0.2,
+        learn_mean_and_std: bool = True,
     ):
         super().__init__()
+
+        self.input_mean = nn.Parameter(
+            input_mean.to(torch.float32).unsqueeze(0),
+            requires_grad=learn_mean_and_std,
+        )
+        self.input_std = nn.Parameter(
+            input_std.to(torch.float32).unsqueeze(0),
+            requires_grad=learn_mean_and_std,
+        )
+        self.output_mean = nn.Parameter(
+            output_mean.to(torch.float32).unsqueeze(0),
+            requires_grad=learn_mean_and_std,
+        )
+        self.output_std = nn.Parameter(
+            output_std.to(torch.float32).unsqueeze(0),
+            requires_grad=learn_mean_and_std,
+        )
+
+        if self.input_mean.ndim != 2 or self.input_mean.shape[1] != input_size:
+            raise ValueError(
+                f"Input mean length {self.input_mean.shape[1]} does not match input size {input_size}"
+            )
+        if (
+            self.output_mean.ndim != 2
+            or self.output_mean.shape[1] != output_size
+        ):
+            raise ValueError(
+                f"Output mean length {self.output_mean.shape[1]} does not match output size {output_size}"
+            )
+        if self.input_std.ndim != 2 or self.input_std.shape[1] != input_size:
+            raise ValueError(
+                f"Input std length {self.input_std.shape[1]} does not match input size {input_size}"
+            )
+        if (
+            self.output_std.ndim != 2
+            or self.output_std.shape[1] != output_size
+        ):
+            raise ValueError(
+                f"Output std length {self.output_std.shape[1]} does not match output size {output_size}"
+            )
 
         layers = []
         layers.append(nn.Linear(input_size, hidden_sizes[0]))
@@ -532,4 +549,7 @@ class GazeEstimationModelMLP(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layers(x)
+        x = (x - self.input_mean) / self.input_std
+        x = self.layers(x)
+        return x * self.output_std + self.output_mean
+        # return self.layers(x)

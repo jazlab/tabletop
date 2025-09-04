@@ -1,7 +1,7 @@
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -10,12 +10,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torcheval.metrics as metrics
 
+from tabletop_py.gaze.preprocess import EYELINK_POS_COLS, MARKER_DATA_COLS
 from tabletop_py.gaze.utils import (
-    GazeDataset,
     init_criterion,
     init_dataloaders,
     init_model,
     init_optimizer,
+    seed_everything,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,7 @@ def evaluate(
     criterion: nn.Module,
     loader: torch.utils.data.DataLoader,
     device: torch.device,
-    save_path: Optional[os.PathLike] = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """
     Calculates the test set metrics (MSE, RMSE, R2) for the trained model.
 
@@ -47,8 +47,6 @@ def evaluate(
     r2 = metrics.R2Score()
     targets = []
     preds = []
-    dataset = loader.dataset
-    assert isinstance(dataset, GazeDataset)
 
     model.eval()
     with torch.no_grad():
@@ -58,37 +56,23 @@ def evaluate(
             loss = criterion(pred, y).item()
             eval_loss += loss * x.shape[0]
             count += x.shape[0]
-            y_unscaled = dataset.unscale_y(y)
-            pred_unscaled = dataset.unscale_y(pred)
-            mse.update(pred_unscaled, y_unscaled)
-            r2.update(pred_unscaled, y_unscaled)
-            targets.append(y_unscaled)
-            preds.append(pred_unscaled)
+            pred, y = pred.detach().cpu(), y.detach().cpu()
+            mse.update(pred, y)
+            r2.update(pred, y)
+            targets.append(y)
+            preds.append(pred)
 
     eval_loss /= count
     mse = mse.compute()
     rmse = torch.sqrt(mse)
     r2 = r2.compute()
 
-    targets = np.concatenate(targets)
-    preds = np.concatenate(preds)
-    results = np.concatenate([targets, preds], axis=1)
-
-    if save_path is not None:
-        df = pd.DataFrame(
-            results,
-            columns=[
-                "target_x",
-                "target_y",
-                "target_z",
-                "pred_x",
-                "pred_y",
-                "pred_z",
-            ],  # type: ignore
-        )
-        df.to_csv(save_path, index=False)
+    targets = torch.cat(targets)
+    preds = torch.cat(preds)
 
     return {
+        "targets": targets,
+        "preds": preds,
         "loss": eval_loss,
         "mse": mse.item(),
         "rmse": rmse.item(),
@@ -150,7 +134,11 @@ def train(
         val_loss = val_results["loss"]
 
         logger.info(
-            f"Epoch {epoch + 1} of {num_epochs} | Train loss: {train_loss:.4f} | Validation loss: {val_loss:.4f} | Validation RMSE: {val_results['rmse']:.4f} | Patience counter: {patience_counter}/{patience_epochs}"
+            f"Epoch {epoch + 1} of {num_epochs} | "
+            f"Train loss: {train_loss:.6f} | "
+            f"Validation loss: {val_loss:.6f} | "
+            f"Validation RMSE: {val_results['rmse']:.6f} | "
+            f"Patience counter: {patience_counter}/{patience_epochs}"
         )
 
         if val_loss < best_val_loss:
@@ -170,20 +158,43 @@ def train(
 def train_and_evaluate(
     session_dir: os.PathLike,
     config: Mapping[str, Any],
+    visualize: bool = False,
 ) -> dict[str, Any]:
     """
     Trains and evaluates the gaze estimation model.
     """
+    seed_everything(50)
     # Load config
-
     path = os.path.join(session_dir, config["preprocess"]["filename"])
-    data = pd.read_csv(path, index_col=False)
+    df = pd.read_csv(path, index_col=False)
+
+    logger.info(df.describe())
+
+    input_mean = torch.tensor(
+        df[EYELINK_POS_COLS].mean(axis=0).to_numpy(),  # type: ignore
+        dtype=torch.float32,
+    )
+    input_std = torch.tensor(
+        df[EYELINK_POS_COLS].std(axis=0).to_numpy(),  # type: ignore
+        dtype=torch.float32,
+    )
+    output_mean = torch.tensor(
+        df[MARKER_DATA_COLS].mean(axis=0).to_numpy(),  # type: ignore
+        dtype=torch.float32,
+    )
+    output_std = torch.tensor(
+        df[MARKER_DATA_COLS].std(axis=0).to_numpy(),  # type: ignore
+        dtype=torch.float32,
+    )
+
+    logger.info(f"Input mean: {input_mean}, std: {input_std}")
+    logger.info(f"Output mean: {output_mean}, std: {output_std}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Initialize dataloaders
     train_val_loader_generator, test_loader = init_dataloaders(
-        data, **config["data"]
+        df, **config["data"]
     )
 
     # Initialize best model and best validation loss
@@ -191,15 +202,26 @@ def train_and_evaluate(
     best_model: nn.Module | None = None
     best_val_results: dict[str, float] | None = None
     best_val_loss = float("inf")
+    max_folds = config["train"].pop("max_folds")
 
     # Train and evaluate the model
     for i, (train_loader, val_loader) in enumerate(train_val_loader_generator):
+        if i >= max_folds:
+            break
+
         logger.info(
             f"Training and evaluating fold {i}/{config['data']['val_folds']}"
         )
 
         # Initialize model, optimizer, and criterion
-        model = init_model(**config["model"]).to(device)
+        model = init_model(
+            **config["model"],
+            input_mean=input_mean,
+            input_std=input_std,
+            output_mean=output_mean,
+            output_std=output_std,
+        ).to(device)
+        # model.compile()
         optimizer = init_optimizer(model=model, **config["optimizer"])
         criterion = init_criterion(**config["criterion"]).to(device)
 
@@ -216,10 +238,10 @@ def train_and_evaluate(
 
         logger.info(
             f"Validation results for fold {i} | "
-            f"Loss: {val_results['loss']:.4f}, "
-            f"MSE: {val_results['mse']:.4f}, "
-            f"RMSE: {val_results['rmse']:.4f}, "
-            f"R2: {val_results['r2']:.4f}"
+            f"Loss: {val_results['loss']:.6f}, "
+            f"MSE: {val_results['mse']:.6f}, "
+            f"RMSE: {val_results['rmse']:.6f}, "
+            f"R2: {val_results['r2']:.6f}"
         )
         if val_results["loss"] < best_val_loss:
             best_fold = i
@@ -237,15 +259,15 @@ def train_and_evaluate(
         criterion=criterion,
         loader=test_loader,
         device=device,
-        save_path=os.path.join(session_dir, config["predictions"]["filename"]),
     )
 
+    # Print test results
     logger.info(
         f"Test results for best model from fold {best_fold} | "
-        f"Loss: {test_results['loss']:.4f}, "
-        f"MSE: {test_results['mse']:.4f}, "
-        f"RMSE: {test_results['rmse']:.4f}, "
-        f"R2: {test_results['r2']:.4f}"
+        f"Loss: {test_results['loss']:.6f}, "
+        f"MSE: {test_results['mse']:.6f}, "
+        f"RMSE: {test_results['rmse']:.6f}, "
+        f"R2: {test_results['r2']:.6f}"
     )
 
     # Save the best model
@@ -256,6 +278,35 @@ def train_and_evaluate(
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(best_model.state_dict(), path)
     logger.info(f"Saved best model to {path}")
+
+    # Save the test targets and predictions
+    targets = test_results["targets"].numpy()
+    preds = test_results["preds"].numpy()
+    df = pd.DataFrame(
+        data=np.concatenate([targets, preds], axis=1),
+        columns=[
+            "target_x",
+            "target_y",
+            "target_z",
+            "pred_x",
+            "pred_y",
+            "pred_z",
+        ],  # type: ignore
+    )
+    df.to_csv(
+        os.path.join(session_dir, config["predictions"]["filename"]),
+        index=False,
+    )
+
+    if visualize:
+        from tabletop_py.gaze.visualize import animate_3d_dots
+
+        animate_3d_dots(
+            {"Target": targets, "Prediction": preds},
+            freq=config["preprocess"]["eyelink_freq"],
+            **config["visualize"]["markers_range"],
+            save_path=os.path.join(session_dir, "predictions.mp4"),
+        )
 
     return {
         "best_model": best_model,
@@ -286,9 +337,14 @@ def main(args=None):
         "--config",
         type=str,
         default=os.path.join(
-            os.environ["TABLETOP_DIR"], "config", "gaze_calibration.yaml"
+            os.environ["TABLETOP_DIR"], "config", "gaze_estimation.yaml"
         ),
         help="Path to model and training config file",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Visualize the test targets and predictions",
     )
     args = parser.parse_args(args)
 
@@ -297,7 +353,7 @@ def main(args=None):
         config = cast(Mapping[str, Any], yaml.safe_load(f))
 
     # Attempt to load the calibration data from the session directory
-    train_and_evaluate(args.session_dir, config)
+    train_and_evaluate(args.session_dir, config, visualize=args.visualize)
 
 
 if __name__ == "__main__":

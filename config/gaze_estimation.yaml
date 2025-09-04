@@ -2,6 +2,12 @@ preprocess:
   filename: preprocessed.csv
   eyelink_freq: 1000
   markers_freq: 120
+  eyelink_freq_rtol: 0.1
+  markers_freq_rtol: 0.01
+  max_marker_time_correction: 0.05
+  min_eye_pos: -20000
+  max_eye_pos: 20000
+  max_zscore: 3.0
   eyelink_filter_window: 0.005
   markers_filter_window: null
   max_marker_gap: 0.05
@@ -10,13 +16,14 @@ data:
   val_folds: 5
   shuffle_test_split: false
   shuffle_val_split: false
-  train_batch_size: 1024
-  val_batch_size: 4096
-  test_batch_size: 4096
+  train_batch_size: 512
+  val_batch_size: 8192
+  test_batch_size: 8192
+  num_workers: 8
 model:
   name: GazeEstimationModelMLP
   input_size: 4
-  hidden_sizes: [64, 128, 64]
+  hidden_sizes: [128, 256, 128]
   output_size: 3
   dropout_rate: 0.2
 optimizer:
@@ -27,7 +34,8 @@ criterion:
   reduction: mean
 train:
   num_epochs: 100
-  patience_epochs: 10
+  patience_epochs: 30
+  max_folds: 1
 weights_path: saved_weights/model.pt
 predictions:
   filename: predictions.csv

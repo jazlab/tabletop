@@ -3,6 +3,7 @@ import os
 import threading
 from collections import deque
 from enum import Enum
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,13 +25,18 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.serialization import serialize_message
 from rclpy.time import Time
-from scipy.signal import savgol_filter
 from std_srvs.srv import Trigger
 
 from mocap4r2_msgs.msg import Marker, Markers
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
-from tabletop_py.gaze.preprocess import reindex_steady_time
+from tabletop_py.gaze.preprocess import (
+    EYELINK_DATA_COLS,
+    EYELINK_POS_COLS,
+    calculate_eyelink_speed,
+    clean_eyelink_data,
+    smooth_savgol,
+)
 from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.eyelink import edf_to_csv
@@ -67,10 +73,12 @@ class Eyelink(BaseNode):
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "session_bag_dir": "null",
         "smooth_pursuit.window": 0.1,  # seconds
-        "smooth_pursuit.max_speed": 15000,  # scaled_units/s
-        "smooth_pursuit.min_speed": 3000,  # scaled_units/s
-        "smooth_pursuit.min_samples": 75,
-        "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_calibration.yaml",
+        "smooth_pursuit.smoothing_window": 0.05,  # seconds
+        "smooth_pursuit.max_speed": 30000,  # scaled_units/s
+        "smooth_pursuit.min_speed": 1000,  # scaled_units/s
+        "smooth_pursuit.min_samples": 80,
+        "live_gaze_estimation": True,
+        "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
         "gaze_estimation_frequency": 10,  # Hz
     }
 
@@ -153,10 +161,13 @@ class Eyelink(BaseNode):
         path = os.path.expandvars(
             self.get_parameter_wrapper("gaze_estimation_config")
         )
-        if path is not None:
-            with open(path, "r") as f:
-                config = yaml.safe_load(f)
-            self.gaze_estimation_model = init_model(**config["model"])
+        with open(path, "r") as f:
+            self.gaze_estimation_config = yaml.safe_load(f)
+
+        if self.get_parameter_wrapper("live_gaze_estimation"):
+            self.gaze_estimation_model = init_model(
+                **self.gaze_estimation_config["model"]
+            )
             self.gaze_estimation_model.eval()
 
     def init_ros(self):
@@ -540,13 +551,16 @@ class Eyelink(BaseNode):
         Returns:
             True if the subject is smoothly pursuing, False otherwise.
         """
-        self.log("Checking for smooth pursuit", severity="DEBUG")
-
         msgs = self.get_last_messages()
 
         max_speed = self.get_parameter_wrapper("smooth_pursuit.max_speed")
         min_speed = self.get_parameter_wrapper("smooth_pursuit.min_speed")
         min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
+        smoothing_window = self.get_parameter_wrapper(
+            "smooth_pursuit.smoothing_window"
+        )
+        min_eye_pos = self.gaze_estimation_config["preprocess"]["min_eye_pos"]
+        max_eye_pos = self.gaze_estimation_config["preprocess"]["max_eye_pos"]
         freq = self.get_parameter_wrapper("sample_rate")
 
         if len(msgs) == 0:
@@ -560,41 +574,31 @@ class Eyelink(BaseNode):
         start_time = self.ros_time()
 
         # Extract eye data from samples
-        time = (
-            np.array([msg.eyelink_time_ms for msg in msgs]) / 1000.0
-        )  # Convert to seconds
-        pos = np.array(
+        df = pd.DataFrame(
+            {"time": np.array([msg.eyelink_time_ms for msg in msgs]) / 1000.0}
+        )
+        df[EYELINK_DATA_COLS] = np.array(
             [
-                [msg.left_x, msg.left_y, msg.right_x, msg.right_y]
+                [
+                    msg.left_x,
+                    msg.left_y,
+                    msg.right_x,
+                    msg.right_y,
+                    msg.left_pupil,
+                    msg.right_pupil,
+                ]
                 for msg in msgs
             ]
         )
 
-        df = pd.DataFrame(
-            {
-                "time": time,
-                "left_x": pos[:, 0],
-                "left_y": pos[:, 1],
-                "right_x": pos[:, 2],
-                "right_y": pos[:, 3],
-            }
-        )
-
         # Remove rows with missing data from the arrays
-        df = df.replace(MISSING_DATA, np.nan)
-        df = df.dropna()
-
-        # Interpolate the data to the sample rate and apply a savgol smoothing filter
-        df = reindex_steady_time(df, freq=freq, on="time", tolerance=2 / freq)
-        for col in ["left_x", "left_y", "right_x", "right_y"]:
-            df[col] = savgol_filter(df[col], window_length=10, polyorder=3)
-
-        # valid_mask = (left_pos != MISSING_DATA).all(axis=1) & (
-        #     right_pos != MISSING_DATA
-        # ).all(axis=1)
-        # time = time[valid_mask]
-        # left_pos = left_pos[valid_mask]
-        # right_pos = right_pos[valid_mask]
+        df = clean_eyelink_data(
+            df,
+            min_eye_pos=min_eye_pos,
+            max_eye_pos=max_eye_pos,
+            max_zscore=None,
+        )
+        df = df[["time", *EYELINK_POS_COLS]]
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
@@ -605,28 +609,57 @@ class Eyelink(BaseNode):
             )
             return False
 
-        # TODO: Add smoothing and/or filtering to the positional data so as
-        # to false negatives (e.g. if a spike of noise occurs for a single
-        # sample, it is likely not a saccade/break in smooth pursuit and we
-        # should ignore it).
-        left_speed = np.linalg.norm(
-            np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
+        min_time = df["time"].min()
+        max_time = df["time"].max()
+        smoothing_window = min(smoothing_window / 2, max_time - min_time)
+        df = smooth_savgol(
+            df,  # type: ignore
+            columns=EYELINK_POS_COLS,
+            freq=freq,
+            on="time",
+            window=smoothing_window,
+            polyorder=5,
+            reindex_tolerance=3 / freq,
         )
-        right_speed = np.linalg.norm(
-            np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
-        )
+
+        # if df.isna().any(axis=None):  # type: ignore
+        #     self.log(
+        #         "NaN values in dataframe, skipping smooth pursuit check",
+        #         severity="DEBUG",
+        #     )
+        #     return False
+        num_na = df.isna().any(axis=1).sum()  # type: ignore
+        if num_na > 0:
+            self.log(
+                f"{num_na} NaN values in dataframe after smoothing",
+                severity="DEBUG",
+            )
+        df = df.dropna()
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of
         # the left and right eyes are below a threshold
-        speed = np.stack([left_speed, right_speed], axis=1)
-        self.log(
-            f"Min speed: {speed.min()}, Max speed: {speed.max()}",
-            severity="DEBUG",
-        )
-        is_smoothly_pursuing = (
-            np.all(speed < max_speed).item()
-            and np.all(speed > min_speed).item()
-        )
+        df = calculate_eyelink_speed(df)
+        min_speed_calculated = df[["left_speed", "right_speed"]].min(axis=None)
+        max_speed_calculated = df[["left_speed", "right_speed"]].max(axis=None)
+
+        too_slow = min_speed_calculated < min_speed
+        too_fast = max_speed_calculated > max_speed
+        is_smoothly_pursuing = not (too_slow or too_fast)
+
+        if is_smoothly_pursuing:
+            self.log("Monkey is smoothly pursuing!", severity="DEBUG")
+        else:
+            if too_slow:
+                self.log(
+                    f"Monkey is too slow: {min_speed_calculated} < {min_speed}",
+                    severity="DEBUG",
+                )
+
+            if too_fast:
+                self.log(
+                    f"Monkey is too fast: {max_speed_calculated} > {max_speed}",
+                    severity="DEBUG",
+                )
 
         # Log the smooth pursuit status and statistics about the eye speed data
         # if self.get_logger().get_effective_level() <= logging.DEBUG:
@@ -708,9 +741,7 @@ class Eyelink(BaseNode):
         response.message = "Recording stopped"
         return response
 
-    def smooth_pursuit_goal_callback(
-        self, goal: EyelinkSmoothPursuit.Goal
-    ) -> GoalResponse:
+    def smooth_pursuit_goal_callback(self, _: Any) -> GoalResponse:
         with self.goal_callback_lock:
             if self.goal_ongoing:
                 self.log(
@@ -722,7 +753,7 @@ class Eyelink(BaseNode):
                 self.goal_ongoing = True
                 return GoalResponse.ACCEPT
 
-    def smooth_pursuit_cancel_callback(self, _) -> CancelResponse:
+    def smooth_pursuit_cancel_callback(self, _: Any) -> CancelResponse:
         with self.goal_callback_lock:
             if self.goal_ongoing:
                 return CancelResponse.ACCEPT

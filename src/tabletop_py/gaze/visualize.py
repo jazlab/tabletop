@@ -8,17 +8,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from tabletop_py.gaze.preprocess import format_columns, reindex_steady_time
+from tabletop_py.gaze.preprocess import reindex_and_interpolate_steady_time
 
 logger = logging.getLogger(__name__)
 
 
 def plot_eyelink_markers(
     df: pd.DataFrame,
-    *,
-    freq: float,
     markers_df: Optional[pd.DataFrame] = None,
+    *,
+    reindex: bool = True,
+    freq: Optional[float] = None,
     markers_freq: Optional[float] = None,
+    overlay: bool = False,
     title: str = "Eyelink and Marker Data",
     save_path: str | None = None,
 ):
@@ -31,30 +33,82 @@ def plot_eyelink_markers(
         title: The title of the plot.
         save_path: The path to save the plot.
     """
-    eyelink_df = reindex_steady_time(df, freq, on="time")
-    # eyelink_df = df
-    if markers_df is not None:
-        if markers_freq is None:
-            raise ValueError(
-                "markers_freq must be provided if markers_df is provided"
+    if reindex:
+        if freq is None:
+            raise ValueError("freq must be provided if reindex is True")
+
+        df = df.copy()
+        df = reindex_and_interpolate_steady_time(
+            df, freq=freq, on="time", tolerance=1 / freq
+        )
+
+        if markers_df is not None:
+            if markers_freq is None:
+                raise ValueError(
+                    "markers_freq must be provided if markers_df is provided"
+                )
+            markers_df = markers_df.copy()
+            markers_df = reindex_and_interpolate_steady_time(
+                markers_df,
+                freq=markers_freq,
+                on="time",
+                tolerance=3 / markers_freq,
             )
-        markers_df = reindex_steady_time(markers_df, markers_freq, on="time")
-        # markers_df = markers_df
-    else:
+
+    eyelink_df = df
+
+    if markers_df is None:
         markers_df = eyelink_df
 
-    fig, ax = plt.subplots(7, 1, sharex=True, figsize=(10, 15))
+    if overlay:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 3))
+        ax = [ax]
+    else:
+        fig, ax = plt.subplots(5, 1, sharex=True, figsize=(10, 10))
+
     fig.suptitle(title)
+
     i = 0
-    for col in ["left_x", "left_y", "right_x", "right_y"]:
-        ax[i].plot(eyelink_df["time"], eyelink_df[col])
-        ax[i].set_title(f"Eyelink {col}")
-        i += 1
+    for dim in ["x", "y"]:
+        for col in [f"left_{dim}", f"right_{dim}"]:
+            if overlay:
+                data = (eyelink_df[col] - eyelink_df[col].mean()) / eyelink_df[
+                    col
+                ].std()
+            else:
+                data = eyelink_df[col]
+
+            ax[i].plot(
+                eyelink_df["time"], data, label=col, alpha=0.5, linestyle="--"
+            )
+        if not overlay:
+            ax[i].set_title(f"Eyelink {dim.upper()}")
+            ax[i].legend()
+            i += 1
 
     for col in ["marker_x", "marker_y", "marker_z"]:
-        ax[i].plot(markers_df["time"], markers_df[col])
-        ax[i].set_title(f"Markers {col}")
-        i += 1
+        if overlay:
+            data = (markers_df[col] - markers_df[col].mean()) / markers_df[
+                col
+            ].std()
+        else:
+            data = markers_df[col]
+
+        ax[i].plot(
+            markers_df["time"],
+            data,
+            label=col if overlay else None,
+            alpha=0.5 if overlay else 1,
+            linestyle="--" if overlay else "-",
+        )
+        if not overlay:
+            ax[i].set_title(f"Markers {col}")
+            i += 1
+
+    if overlay:
+        ax[0].legend()
+
+    fig.tight_layout()
 
     if save_path is not None:
         plt.savefig(save_path)
@@ -240,20 +294,16 @@ def visualize_calibration(
             f"Session directory not found at {session_dir}"
         )
 
-    # Raw data
-    logger.info("Visualizing raw data")
-    eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
-    markers_path = os.path.join(session_dir, "markers.csv")
-    eyelink_df = pd.read_csv(eyelink_path, index_col=False)
-    markers_df = pd.read_csv(markers_path, index_col=False)
-
+    # Get frequencies
     eyelink_freq = config["preprocess"]["eyelink_freq"]
     markers_freq = config["preprocess"]["markers_freq"]
 
-    eyelink_df, markers_df = format_columns(
-        eyelink_df, markers_df, eyelink_freq, markers_freq, marker_idx=0
-    )
-
+    # Raw data
+    logger.info("Visualizing raw data")
+    eyelink_path = os.path.join(session_dir, "raw_eyelink.csv")
+    markers_path = os.path.join(session_dir, "raw_markers.csv")
+    eyelink_df = pd.read_csv(eyelink_path, index_col=False)
+    markers_df = pd.read_csv(markers_path, index_col=False)
     plot_eyelink_markers(
         eyelink_df,
         freq=eyelink_freq,
@@ -278,8 +328,10 @@ def visualize_calibration(
 
     # Eyelink data
     logger.info("Animating eyelink data")
-    left_eye = cast(np.ndarray, eyelink_df[["left_x", "left_y"]].values)
-    right_eye = cast(np.ndarray, eyelink_df[["right_x", "right_y"]].values)
+    left_eye = cast(np.ndarray, preprocessed_df[["left_x", "left_y"]].values)
+    right_eye = cast(
+        np.ndarray, preprocessed_df[["right_x", "right_y"]].values
+    )
     animate_2d_dots(
         {"Left eye": left_eye, "Right eye": right_eye},
         freq=eyelink_freq,
@@ -323,7 +375,7 @@ def main(args=None):
         "--config",
         type=str,
         default=os.path.join(
-            os.environ["TABLETOP_DIR"], "config", "gaze_calibration.yaml"
+            os.environ["TABLETOP_DIR"], "config", "gaze_estimation.yaml"
         ),
     )
     args = parser.parse_args(args)

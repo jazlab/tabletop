@@ -8,7 +8,6 @@ import yaml
 
 from tabletop_py.gaze.preprocess import preprocess_data
 from tabletop_py.gaze.train import train_and_evaluate
-from tabletop_py.gaze.visualize import visualize_calibration
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ def main(args=None):
         "--config",
         type=str,
         default=os.path.join(
-            os.environ["TABLETOP_DIR"], "config", "gaze_calibration.yaml"
+            os.environ["TABLETOP_DIR"], "config", "gaze_estimation.yaml"
         ),
         help="Path to the training config file",
     )
@@ -110,14 +109,11 @@ def main(args=None):
             config,
             marker_idx=args.marker_idx,
             start_time=args.start_time,
+            visualize=args.visualize,
         )
 
     # Train and evaluate
-    train_and_evaluate(args.session_dir, config)
-
-    # Visualize
-    if args.visualize:
-        visualize_calibration(args.session_dir, config)
+    train_and_evaluate(args.session_dir, config, visualize=args.visualize)
 
 
 if __name__ == "__main__":

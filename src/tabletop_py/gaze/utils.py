@@ -1,44 +1,44 @@
 import importlib
+import random
 from collections.abc import Generator
 from typing import cast
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import KFold, train_test_split
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
+
+
+def seed_everything(seed: int):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 class GazeDataset(Dataset):
     def __init__(self, df: pd.DataFrame):
-        x = df[["left_x", "left_y", "right_x", "right_y"]].values
-        y = df[["marker_x", "marker_y", "marker_z"]].values
-        self.x_scaler = StandardScaler()
-        self.y_scaler = StandardScaler()
-        self.x = torch.from_numpy(self.x_scaler.fit_transform(x)).to(
-            torch.float32
+        from tabletop_py.gaze.preprocess import (
+            EYELINK_POS_COLS,
+            MARKER_DATA_COLS,
         )
-        self.y = torch.from_numpy(self.y_scaler.fit_transform(y)).to(
-            torch.float32
+
+        self.x = torch.tensor(
+            df[EYELINK_POS_COLS].to_numpy(), dtype=torch.float32
+        )
+        self.y = torch.tensor(
+            df[MARKER_DATA_COLS].to_numpy(), dtype=torch.float32
         )
 
     def __len__(self):
-        return len(self.x)
+        return self.x.shape[0]
 
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]
-
-    def unscale_x(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.from_numpy(
-            self.x_scaler.inverse_transform(x.detach().cpu())
-        )
-
-    def unscale_y(self, y: torch.Tensor) -> torch.Tensor:
-        return torch.from_numpy(
-            self.y_scaler.inverse_transform(y.detach().cpu())
-        )
 
 
 def init_dataloaders(
@@ -50,6 +50,7 @@ def init_dataloaders(
     train_batch_size: int,
     val_batch_size: int,
     test_batch_size: int,
+    num_workers: int,
 ) -> tuple[Generator[tuple[DataLoader, DataLoader], None, None], DataLoader]:
     """
     Initializes the dataloaders for the training, validation, and test sets.
