@@ -236,7 +236,9 @@ class Commander(BaseNode):
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
         "planning_scene.rig_meshes",
-        "smooth_pursuit.max_reward_duration",
+        "smooth_pursuit.reward_duration",
+        "smooth_pursuit.reward_interval",
+        "smooth_pursuit.reward_threshold_ratio",
     }
 
     ###########################################################################
@@ -1025,38 +1027,36 @@ class Commander(BaseNode):
 
     async def _smooth_pursuit_consumer(self, queue: asyncio.Queue[bool]):
         """Consumer for the eyelink smooth pursuit queue."""
-        duration = self.get_parameter_wrapper(
-            "smooth_pursuit.max_reward_duration"
+        duration = self.get_parameter_wrapper("smooth_pursuit.reward_duration")
+        interval = self.get_parameter_wrapper("smooth_pursuit.reward_interval")
+        reward_threshold = self.get_parameter_wrapper(
+            "smooth_pursuit.reward_threshold_ratio"
         )
-        refresh_tolerance = self.get_parameter_wrapper(
-            "smooth_pursuit.reward_refresh_tolerance_duration"
-        )
-        last_reward_start_time = self.ros_time()
+
+        interval_start_time = self.ros_time()
         last_smooth_pursuit = False
+        pursuit_count = 0
+        count = 0
         try:
             while True:
                 smooth_pursuit = await queue.get()
+                count += 1
                 if smooth_pursuit:
-                    new_time = self.ros_time()
+                    pursuit_count += 1
                     if not last_smooth_pursuit:
                         self.log("Smooth pursuit started", severity="INFO")
                         self.start_note(self._default_note)
-                        await self.set_reward(
-                            activate=smooth_pursuit, duration=duration
-                        )
-                        last_reward_start_time = new_time
-                    elif (
-                        new_time - last_reward_start_time
-                        > duration - refresh_tolerance
-                    ):
-                        await self.set_reward(
-                            activate=smooth_pursuit, duration=duration
-                        )
-                        last_reward_start_time = new_time
                 elif last_smooth_pursuit:
                     self.log("Smooth pursuit ended", severity="INFO")
                     self.stop_note(self._default_note)
-                    await self.set_reward(activate=False)
+
+                if self.ros_time() - interval_start_time >= interval:
+                    if pursuit_count / count >= reward_threshold:
+                        await self.set_reward(activate=True, duration=duration)
+
+                    interval_start_time = self.ros_time()
+                    pursuit_count = 0
+                    count = 0
 
                 last_smooth_pursuit = smooth_pursuit
         finally:

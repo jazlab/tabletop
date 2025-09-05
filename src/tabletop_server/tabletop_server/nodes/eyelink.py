@@ -868,11 +868,11 @@ class Eyelink(BaseNode):
                 self.log(f"Gaze estimation: {y}", severity="DEBUG")
                 break
         else:
+            y = [0.0, 0.1, 0.0]
             self.log(
-                "No valid messages in queue, skipping gaze estimation",
+                f"No valid messages in queue, publishing default ({y})",
                 severity="DEBUG",
             )
-            y = [0.0, 0.1, 0.0]
 
         markers = Markers()
         markers.header.stamp = self.get_clock().now().to_msg()

@@ -1,11 +1,14 @@
 import argparse
 import io
+import logging
 import os
 import subprocess
 from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def edf_to_asc(
@@ -67,7 +70,7 @@ def asc_to_df(
 
     df = pd.read_csv(
         io.StringIO("\n".join(file_text)),
-        delim_whitespace=True,
+        sep=r"\s+",
         index_col=False,
         na_values=["."],
         on_bad_lines="warn",
@@ -125,22 +128,34 @@ def edf_to_csv(
         input_file (str): The path to the input ASC file.
         output_file (str): The path to the output CSV file.
     """
-    output_dir = None
     if output_path is None:
         output_path = os.path.splitext(edf_path)[0] + ".csv"
-    else:
-        output_dir = os.path.dirname(output_path)
 
+    output_dir = os.path.dirname(output_path)
+
+    logger.info(f"Converting {edf_path} to asc")
     asc_path = edf_to_asc(edf_path, edf2asc_args, output_dir=output_dir)
+
+    logger.info(f"Converting {asc_path} to DataFrame")
     df = asc_to_df(asc_path, input_mapping)
+
+    logger.info(f"Saving DataFrame to {output_path}")
     df.to_csv(output_path, index=False)
+
     if not keep_asc:
+        logger.info(f"Removing {asc_path}")
         os.remove(asc_path)
+
+    logger.info(f"Successfully converted {edf_path} to {output_path}")
 
     return output_path
 
 
 def main(args=None):
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s - %(message)s"
+    )
+
     parser = argparse.ArgumentParser(
         description="Convert an EDF file to a CSV file."
     )
@@ -162,7 +177,7 @@ def main(args=None):
     )
     parser.add_argument(
         "-o",
-        "--output",
+        "--output-path",
         type=str,
         default=None,
         help="The path to the output CSV file. If not provided, the output will be saved in the same directory as the EDF file.",

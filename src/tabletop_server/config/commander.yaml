@@ -10,7 +10,7 @@
       play_retry_delay: 1.0
 
     sound:
-      enable: false
+      enable: true
       soundfont_path: $TABLETOP_DIR/soundfonts/moog.sf2
       instrument: 62
       default_note:
@@ -27,15 +27,11 @@
       spin_period: 0.05
 
     smooth_pursuit:
-      window: 0.05
-      check_interval: 0.1
-      threshold: 150
-      min_samples: 10
-      # sent to teensy to guarantee that reward eventually turns off
-      max_reward_duration: 5.0
-      # if Wiggins is smoothly pursuing, we wait until this amount of time is
-      # left on the reward before sending another reward
-      reward_refresh_tolerance_duration: 0.1
+      reward_duration: 0.1
+      reward_interval: 1.0
+      # minimum ratio of smoothly pursuing feedback messages to total messages
+      # to activate the reward
+      reward_threshold_ratio: 0.8
 
     flic:
       bd_addrs:

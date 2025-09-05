@@ -106,6 +106,12 @@ def declare_arguments():
             description="The name or index of the initial attached object",
         ),
         DeclareLaunchArgument(
+            "use_sound",
+            default_value="null",
+            description="Whether to enable sound from the commander",
+            choices=["true", "false", "null"],
+        ),
+        DeclareLaunchArgument(
             "optimize_python",
             default_value="false",
             description="Whether to optimize the Python code for the "
@@ -192,6 +198,11 @@ def generate_launch_description():
             commander_overrides["trajectory_cache.use_cached_trajectories"] = (
                 use_cache_value == "true"
             )
+
+        # Use sound
+        use_sound_value = LaunchConfiguration("use_sound").perform(context)
+        if use_sound_value != "null":
+            commander_overrides["sound.enable"] = use_sound_value == "true"
 
         # Initial attached object
         initial_object_value = LaunchConfiguration("initial_object").perform(

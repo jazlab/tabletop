@@ -537,6 +537,7 @@ def generate_launch_description():
     server_bag_dir = os.path.join(session_bag_dir, "server")
 
     bag_converter = ExecuteProcess(
+        name="bag_converter",
         cmd=[
             "ros2",
             "run",
@@ -544,14 +545,16 @@ def generate_launch_description():
             "rosbag_to_csv",
             "-d",
             session_bag_dir,
-        ]
+        ],
+        output=LaunchConfiguration("bag_output"),
+        on_exit=[Shutdown()],
     )
     bag_recorder = ExecuteProcess(
-        name="rosbag",
+        name="rosbag_recorder",
         cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
         output=LaunchConfiguration("bag_output"),
         condition=IfCondition(LaunchConfiguration("rosbag_record")),
-        on_exit=[Shutdown(), bag_converter],
+        on_exit=[bag_converter],
     )
 
     launch_actions = [
