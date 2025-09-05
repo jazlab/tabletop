@@ -1,17 +1,30 @@
+eyelink_freq: 1000
+markers_freq: 120
 preprocess:
   filename: preprocessed.csv
-  eyelink_freq: 1000
-  markers_freq: 120
-  eyelink_freq_rtol: 0.1
-  markers_freq_rtol: 0.01
-  max_marker_time_correction: 0.05
-  min_eye_pos: -20000
-  max_eye_pos: 20000
-  max_zscore: 3.0
-  eyelink_filter_window: 0.005
-  markers_filter_window: null
-  max_marker_gap: 0.05
-data:
+  format_eyelink:
+    verify: true
+    freq_rtol: 0.1
+    freq_var_tol: 0.01
+  format_marker:
+    verify: true
+    freq_rtol: 0.01
+    freq_var_tol: 0.001
+    max_marker_time_correction: 0.05
+  clean_eyelink:
+    min_eye_pos: -20000
+    max_eye_pos: 20000
+    max_zscore: 3.0
+  clean_marker:
+    max_zscore: null
+  reindex_and_interpolate_eyelink:
+    tolerance: 0.01
+  smooth_eyelink:
+    window: 0.03
+    polyorder: 3
+  merge_and_interpolate:
+    marker_interpolation_limit: 0.05
+dataloaders:
   test_size: 0.2
   val_folds: 5
   shuffle_test_split: false
@@ -23,9 +36,19 @@ data:
 model:
   name: GazeEstimationModelMLP
   input_size: 4
-  hidden_sizes: [128, 256, 128]
   output_size: 3
+  hidden_sizes: [256, 512, 256]
   dropout_rate: 0.2
+  learn_stats: true
+compile:
+  dynamic: false
+  # mode: max-autotune
+  backend: inductor
+  options:
+    max_autotune: True
+    triton.cudagraphs: True
+    coordinate_descent_tuning: True
+    epilogue_fusion: true
 optimizer:
   name: AdamW
   lr: 0.001
@@ -40,15 +63,17 @@ weights_path: saved_weights/model.pt
 predictions:
   filename: predictions.csv
 visualize:
-  eyelink_range:
+  animate_2d_dots:
     min_x: -30000
     max_x: 30000
     min_y: -30000
     max_y: 30000
-  markers_range:
+    fr: 10
+  animate_3d_dots:
     min_x: 0.0
     max_x: 1.0
     min_y: -0.5
     max_y: 0.5
     min_z: 0.0
     max_z: 1.0
+    fr: 10

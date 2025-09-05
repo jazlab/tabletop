@@ -10,6 +10,7 @@
       play_retry_delay: 1.0
 
     sound:
+      enable: false
       soundfont_path: $TABLETOP_DIR/soundfonts/moog.sf2
       instrument: 62
       default_note:
@@ -35,6 +36,7 @@
       # if Wiggins is smoothly pursuing, we wait until this amount of time is
       # left on the reward before sending another reward
       reward_refresh_tolerance_duration: 0.1
+
     flic:
       bd_addrs:
         small_object_0: 90:88:a9:50:5f:b6

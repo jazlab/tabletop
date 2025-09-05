@@ -180,7 +180,7 @@ def main():
         "-d",
         "--session-dir",
         type=str,
-        help="The path to the session directory.",
+        help="The path to the session directory. If not provided, all session directories in ROS_BAG_DIR will be converted.",
     )
     parser.add_argument("--topics", type=str, nargs="*")
     parser.add_argument(
@@ -190,9 +190,10 @@ def main():
         default=["/rosout", "/parameter_events"],
     )
     parser.add_argument(
-        "--overwrite",
+        "-f",
+        "--force",
         action="store_true",
-        help="Overwrite existing CSV files.",
+        help="Force overwrite existing CSV files.",
     )
     args = parser.parse_args()
 
@@ -212,7 +213,7 @@ def main():
 
     for session_dir in session_dirs:
         csv_files = glob.glob(os.path.join(session_dir, "*.csv"))
-        if csv_files and not args.overwrite:
+        if csv_files and not args.force:
             print(f"{session_dir} already converted, skipping...")
             continue
 

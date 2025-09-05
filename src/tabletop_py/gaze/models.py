@@ -487,52 +487,51 @@ class GazeEstimationModelMLP(nn.Module):
         self,
         input_size: int,
         output_size: int,
-        input_mean: torch.Tensor,
-        input_std: torch.Tensor,
-        output_mean: torch.Tensor,
-        output_std: torch.Tensor,
+        input_mean: Optional[torch.Tensor] = None,
+        input_std: Optional[torch.Tensor] = None,
+        output_mean: Optional[torch.Tensor] = None,
+        output_std: Optional[torch.Tensor] = None,
         hidden_sizes: list[int] = [128, 256, 128],
         dropout_rate: float = 0.2,
-        learn_mean_and_std: bool = True,
+        learn_stats: bool = True,
     ):
         super().__init__()
 
+        if input_mean is None:
+            input_mean = torch.zeros(input_size)
+        if input_std is None:
+            input_std = torch.ones(input_size)
+        if output_mean is None:
+            output_mean = torch.zeros(output_size)
+        if output_std is None:
+            output_std = torch.ones(output_size)
+
         self.input_mean = nn.Parameter(
-            input_mean.to(torch.float32).unsqueeze(0),
-            requires_grad=learn_mean_and_std,
+            input_mean.unsqueeze(0), requires_grad=learn_stats
         )
         self.input_std = nn.Parameter(
-            input_std.to(torch.float32).unsqueeze(0),
-            requires_grad=learn_mean_and_std,
+            input_std.unsqueeze(0), requires_grad=learn_stats
         )
         self.output_mean = nn.Parameter(
-            output_mean.to(torch.float32).unsqueeze(0),
-            requires_grad=learn_mean_and_std,
+            output_mean.unsqueeze(0), requires_grad=learn_stats
         )
         self.output_std = nn.Parameter(
-            output_std.to(torch.float32).unsqueeze(0),
-            requires_grad=learn_mean_and_std,
+            output_std.unsqueeze(0), requires_grad=learn_stats
         )
 
-        if self.input_mean.ndim != 2 or self.input_mean.shape[1] != input_size:
+        if self.input_mean.shape != (1, input_size):
             raise ValueError(
                 f"Input mean length {self.input_mean.shape[1]} does not match input size {input_size}"
             )
-        if (
-            self.output_mean.ndim != 2
-            or self.output_mean.shape[1] != output_size
-        ):
+        if self.output_mean.shape != (1, output_size):
             raise ValueError(
                 f"Output mean length {self.output_mean.shape[1]} does not match output size {output_size}"
             )
-        if self.input_std.ndim != 2 or self.input_std.shape[1] != input_size:
+        if self.input_std.shape != (1, input_size):
             raise ValueError(
                 f"Input std length {self.input_std.shape[1]} does not match input size {input_size}"
             )
-        if (
-            self.output_std.ndim != 2
-            or self.output_std.shape[1] != output_size
-        ):
+        if self.output_std.shape != (1, output_size):
             raise ValueError(
                 f"Output std length {self.output_std.shape[1]} does not match output size {output_size}"
             )

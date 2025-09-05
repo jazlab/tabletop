@@ -20,19 +20,34 @@ def seed_everything(seed: int):
     random.seed(seed)
 
 
+def configure_torch_dtype(
+    dtype: torch.dtype = torch.float32, matmul_precision: str = "high"
+):
+    torch.set_default_dtype(dtype)
+    torch.set_float32_matmul_precision(matmul_precision)
+
+
 class GazeDataset(Dataset):
     def __init__(self, df: pd.DataFrame):
         from tabletop_py.gaze.preprocess import (
-            EYELINK_POS_COLS,
+            EYELINK_DATA_COLS,
             MARKER_DATA_COLS,
         )
 
         self.x = torch.tensor(
-            df[EYELINK_POS_COLS].to_numpy(), dtype=torch.float32
+            df[EYELINK_DATA_COLS].to_numpy(), dtype=torch.get_default_dtype()
         )
         self.y = torch.tensor(
-            df[MARKER_DATA_COLS].to_numpy(), dtype=torch.float32
+            df[MARKER_DATA_COLS].to_numpy(), dtype=torch.get_default_dtype()
         )
+
+    def stats(self) -> dict[str, torch.Tensor]:
+        return {
+            "x_mean": self.x.mean(dim=0),
+            "x_std": self.x.std(dim=0),
+            "y_mean": self.y.mean(dim=0),
+            "y_std": self.y.std(dim=0),
+        }
 
     def __len__(self):
         return self.x.shape[0]
@@ -83,10 +98,16 @@ def init_dataloaders(
             train_dataset = GazeDataset(train_val_df.iloc[train_idx])
             val_dataset = GazeDataset(train_val_df.iloc[val_idx])
             train_loader = DataLoader(
-                train_dataset, batch_size=train_batch_size, shuffle=True
+                train_dataset,
+                batch_size=train_batch_size,
+                shuffle=True,
+                num_workers=num_workers,
             )
             val_loader = DataLoader(
-                val_dataset, batch_size=val_batch_size, shuffle=False
+                val_dataset,
+                batch_size=val_batch_size,
+                shuffle=False,
+                num_workers=num_workers,
             )
             yield train_loader, val_loader
 

@@ -518,7 +518,7 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    # Bag
+    # Bag Recorder and Converter
     interfaces_config_file = os.path.join(
         get_package_share_directory("tabletop_server"),
         "config",
@@ -534,17 +534,28 @@ def generate_launch_description():
             args.extend(["--topics", *interfaces_config["topics"]])
         if "services" in interfaces_config:
             args.extend(["--services", *interfaces_config["services"]])
-
     server_bag_dir = os.path.join(session_bag_dir, "server")
-    bag = ExecuteProcess(
+
+    bag_converter = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "run",
+            "tabletop_utils",
+            "rosbag_to_csv",
+            "-d",
+            session_bag_dir,
+        ]
+    )
+    bag_recorder = ExecuteProcess(
         name="rosbag",
         cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
         output=LaunchConfiguration("bag_output"),
         condition=IfCondition(LaunchConfiguration("rosbag_record")),
-        on_exit=[Shutdown()],
+        on_exit=[Shutdown(), bag_converter],
     )
 
     launch_actions = [
+        *declare_arguments(),
         print_substitutions_action,
         set_ros_log_dir,
         create_session_bag_dir,
@@ -557,10 +568,10 @@ def generate_launch_description():
         optitrack_transform_publisher,
         mocap4r2_marker_viz,
         rviz_node,
-        bag,
+        bag_recorder,
     ]
 
-    return LaunchDescription(declare_arguments() + launch_actions)
+    return LaunchDescription(launch_actions)
 
 
 # def main():

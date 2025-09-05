@@ -7,22 +7,21 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-from tabletop_py.gaze.preprocess import reindex_and_interpolate_steady_time
+import yaml
 
 logger = logging.getLogger(__name__)
 
 
 def plot_eyelink_markers(
     df: pd.DataFrame,
-    markers_df: Optional[pd.DataFrame] = None,
+    title: str,
     *,
+    markers_df: Optional[pd.DataFrame] = None,
     reindex: bool = True,
     freq: Optional[float] = None,
     markers_freq: Optional[float] = None,
     overlay: bool = False,
-    title: str = "Eyelink and Marker Data",
-    save_path: str | None = None,
+    save_path: Optional[str] = None,
 ):
     """
     Plot the eyelink and markers data.
@@ -33,6 +32,8 @@ def plot_eyelink_markers(
         title: The title of the plot.
         save_path: The path to save the plot.
     """
+    from tabletop_py.gaze.preprocess import reindex_and_interpolate_steady_time
+
     if reindex:
         if freq is None:
             raise ValueError("freq must be provided if reindex is True")
@@ -71,6 +72,7 @@ def plot_eyelink_markers(
     i = 0
     for dim in ["x", "y"]:
         for col in [f"left_{dim}", f"right_{dim}"]:
+            # Normalize the data if overlaying so scales are comparable
             if overlay:
                 data = (eyelink_df[col] - eyelink_df[col].mean()) / eyelink_df[
                     col
@@ -79,14 +81,20 @@ def plot_eyelink_markers(
                 data = eyelink_df[col]
 
             ax[i].plot(
-                eyelink_df["time"], data, label=col, alpha=0.5, linestyle="--"
+                eyelink_df["time"],
+                data,
+                label=col,
+                alpha=0.5,
+                linestyle="--" if overlay else "-",
             )
         if not overlay:
             ax[i].set_title(f"Eyelink {dim.upper()}")
             ax[i].legend()
+            ax[i].grid(True, which="both", axis="x")
             i += 1
 
     for col in ["marker_x", "marker_y", "marker_z"]:
+        # Normalize the data if overlaying so scales are comparable
         if overlay:
             data = (markers_df[col] - markers_df[col].mean()) / markers_df[
                 col
@@ -103,6 +111,7 @@ def plot_eyelink_markers(
         )
         if not overlay:
             ax[i].set_title(f"Markers {col}")
+            ax[i].grid(True, which="both", axis="x")
             i += 1
 
     if overlay:
@@ -125,7 +134,7 @@ def animate_2d_dots(
     min_y: float,
     max_y: float,
     fr: int = 10,
-    save_path: str | None = None,
+    save_path: Optional[str] = None,
 ):
     """
     Animates 2D dots.
@@ -208,7 +217,7 @@ def animate_3d_dots(
     min_z: float,
     max_z: float,
     fr: int = 10,
-    save_path: str | None = None,
+    save_path: Optional[str] = None,
 ):
     """
     Animates 3D dots.
@@ -286,17 +295,23 @@ def animate_3d_dots(
 
 
 def visualize_calibration(
-    session_dir: os.PathLike,
-    config: Mapping[str, Any],
+    session_dir: os.PathLike, config: Mapping[str, Any] | os.PathLike | str
 ):
     if not os.path.exists(session_dir):
         raise FileNotFoundError(
             f"Session directory not found at {session_dir}"
         )
 
+    if not isinstance(config, Mapping):
+        with open(config, "r") as f:
+            config = cast(Mapping[str, Any], yaml.safe_load(f))
+
     # Get frequencies
-    eyelink_freq = config["preprocess"]["eyelink_freq"]
-    markers_freq = config["preprocess"]["markers_freq"]
+    eyelink_freq = config["eyelink_freq"]
+    markers_freq = config["markers_freq"]
+    preprocess_filename = config["preprocess"]["filename"]
+    predictions_filename = config["predictions"]["filename"]
+    config = cast(Mapping[str, Any], config["visualize"])
 
     # Raw data
     logger.info("Visualizing raw data")
@@ -306,60 +321,60 @@ def visualize_calibration(
     markers_df = pd.read_csv(markers_path, index_col=False)
     plot_eyelink_markers(
         eyelink_df,
+        title="Raw data",
         freq=eyelink_freq,
         markers_df=markers_df,
         markers_freq=markers_freq,
-        title="Raw data",
         save_path=os.path.join(session_dir, "raw.png"),
     )
 
     # Preprocessed data
     logger.info("Visualizing preprocessed data")
-    preprocessed_path = os.path.join(
-        session_dir, config["preprocess"]["filename"]
-    )
+    preprocessed_path = os.path.join(session_dir, preprocess_filename)
     preprocessed_df = pd.read_csv(preprocessed_path)
     plot_eyelink_markers(
         preprocessed_df,
-        freq=eyelink_freq,
         title="Preprocessed data",
+        freq=eyelink_freq,
         save_path=os.path.join(session_dir, "preprocessed.png"),
     )
 
     # Eyelink data
     logger.info("Animating eyelink data")
-    left_eye = cast(np.ndarray, preprocessed_df[["left_x", "left_y"]].values)
+    left_eye = cast(
+        np.ndarray, preprocessed_df[["left_x", "left_y"]].to_numpy()
+    )
     right_eye = cast(
-        np.ndarray, preprocessed_df[["right_x", "right_y"]].values
+        np.ndarray, preprocessed_df[["right_x", "right_y"]].to_numpy()
     )
     animate_2d_dots(
         {"Left eye": left_eye, "Right eye": right_eye},
         freq=eyelink_freq,
-        **config["visualize"]["eyelink_range"],
+        **config["animate_2d_dots"],
         save_path=os.path.join(session_dir, "eyelink.mp4"),
     )
 
     # Predicted data
     logger.info("Animating predicted marker data")
-    results_path = os.path.join(session_dir, config["predictions"]["filename"])
+    results_path = os.path.join(session_dir, predictions_filename)
     results_df = pd.read_csv(results_path)
     targets = cast(
-        np.ndarray, results_df[["target_x", "target_y", "target_z"]].values
+        np.ndarray, results_df[["target_x", "target_y", "target_z"]].to_numpy()
     )
-    preds = cast(np.ndarray, results_df[["pred_x", "pred_y", "pred_z"]].values)
+    preds = cast(
+        np.ndarray, results_df[["pred_x", "pred_y", "pred_z"]].to_numpy()
+    )
 
     animate_3d_dots(
         {"Target": targets, "Prediction": preds},
         freq=eyelink_freq,
-        **config["visualize"]["markers_range"],
+        **config["animate_3d_dots"],
         save_path=os.path.join(session_dir, "predictions.mp4"),
     )
 
 
 def main(args=None):
     import argparse
-
-    import yaml
 
     parser = argparse.ArgumentParser(
         description="Visualize the calibration data"
@@ -384,10 +399,7 @@ def main(args=None):
         level=logging.INFO, format="%(levelname)s - %(message)s"
     )
 
-    with open(args.config, "r") as f:
-        config = cast(Mapping[str, Any], yaml.safe_load(f))
-
-    visualize_calibration(args.session_dir, config)
+    visualize_calibration(**vars(args))
 
 
 if __name__ == "__main__":

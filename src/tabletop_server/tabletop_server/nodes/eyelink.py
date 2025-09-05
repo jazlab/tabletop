@@ -3,9 +3,8 @@ import os
 import threading
 from collections import deque
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
-import numpy as np
 import pandas as pd
 import rclpy
 import rosbag2_py
@@ -30,17 +29,17 @@ from std_srvs.srv import Trigger
 from mocap4r2_msgs.msg import Marker, Markers
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
+from tabletop_py.gaze.convert import edf_to_csv
 from tabletop_py.gaze.preprocess import (
     EYELINK_DATA_COLS,
-    EYELINK_POS_COLS,
     calculate_eyelink_speed,
     clean_eyelink_data,
-    smooth_savgol,
+    reindex_and_interpolate_eyelink_data,
+    smooth_eyelink_data,
 )
 from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
-from tabletop_utils.eyelink import edf_to_csv
-from tabletop_utils.ros import ROSSleepError
+from tabletop_utils.ros import ROSSleepError, seconds_from_ros_time
 
 
 class DataFileReceiveError(Exception):
@@ -58,6 +57,29 @@ class EyeAvailable(Enum):
     BINOCULAR = 2
 
 
+class EyelinkMessageQueue:
+    """Thread-safe message queue for Eyelink messages."""
+
+    def __init__(self, maxlen: int):
+        self.queue = deque[EyelinkMsg](maxlen=maxlen)
+        self.lock = threading.Lock()
+
+    def append(self, msg: EyelinkMsg):
+        """Append a message to the queue."""
+        with self.lock:
+            self.queue.append(msg)
+
+    def to_list(self) -> list[EyelinkMsg]:
+        """Get the latest messages from the queue."""
+        with self.lock:
+            return list(self.queue)
+
+    def clear(self):
+        """Clear the queue."""
+        with self.lock:
+            self.queue.clear()
+
+
 class Eyelink(BaseNode):
     default_params = BaseNode.default_params | {
         "tracker_address": "192.168.13.30",
@@ -73,13 +95,15 @@ class Eyelink(BaseNode):
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
         "session_bag_dir": "null",
         "smooth_pursuit.window": 0.1,  # seconds
-        "smooth_pursuit.smoothing_window": 0.05,  # seconds
+        "smooth_pursuit.clean.max_zscore": "null",
+        "smooth_pursuit.reindex_and_interpolate.tolerance": 0.003,  # seconds
+        "smooth_pursuit.smooth.window": 0.05,  # seconds
         "smooth_pursuit.max_speed": 30000,  # scaled_units/s
         "smooth_pursuit.min_speed": 1000,  # scaled_units/s
         "smooth_pursuit.min_samples": 80,
         "live_gaze_estimation": True,
         "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
-        "gaze_estimation_frequency": 10,  # Hz
+        "gaze_estimation_frequency": 100,  # Hz
     }
 
     ###########################################################################
@@ -110,10 +134,9 @@ class Eyelink(BaseNode):
         self.smooth_pursuit_window = self.get_parameter_wrapper(
             "smooth_pursuit.window"
         )
-        self.message_queue: deque[EyelinkMsg] = deque(
+        self.message_queue = EyelinkMessageQueue(
             maxlen=int(sample_rate * self.smooth_pursuit_window)
         )
-        self.message_queue_lock = threading.Lock()
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.stop_sample_retrieval_event = threading.Event()
         self.stop_sample_retrieval_event.set()
@@ -163,6 +186,26 @@ class Eyelink(BaseNode):
         )
         with open(path, "r") as f:
             self.gaze_estimation_config = yaml.safe_load(f)
+
+        sample_rate = self.get_parameter_wrapper("sample_rate")
+        eyelink_freq = self.gaze_estimation_config["eyelink_freq"]
+        if sample_rate != eyelink_freq:
+            raise ValueError(
+                f"Sample rate ({sample_rate}) and gaze estimation eyelink frequency ({eyelink_freq}) must be the same"
+            )
+
+        self.preprocess_config = self.gaze_estimation_config["preprocess"]
+        self.preprocess_config["clean_eyelink"].update(
+            self.get_parameter_wrapper("smooth_pursuit.clean")
+        )
+        self.preprocess_config["reindex_and_interpolate_eyelink"].update(
+            self.get_parameter_wrapper(
+                "smooth_pursuit.reindex_and_interpolate"
+            )
+        )
+        self.preprocess_config["smooth_eyelink"].update(
+            self.get_parameter_wrapper("smooth_pursuit.smooth")
+        )
 
         if self.get_parameter_wrapper("live_gaze_estimation"):
             self.gaze_estimation_model = init_model(
@@ -286,8 +329,7 @@ class Eyelink(BaseNode):
         assert self.stop_sample_retrieval_event.is_set()
         assert self.sample_retrieval_future.done(), "Sample retrieval already running, may be in the process of stopping"
 
-        with self.message_queue_lock:
-            self.message_queue.clear()
+        self.message_queue.clear()
 
         self.stop_sample_retrieval_event.clear()
         # self.sample_retrieval_future = self.tpe.submit(
@@ -297,8 +339,7 @@ class Eyelink(BaseNode):
         if self.executor is None:
             raise RuntimeError("Executor for Eyelink node is not set")
         self.sample_retrieval_future = self.executor.create_task(
-            self.sample_retrieval_loop,
-            stop_event=self.stop_sample_retrieval_event,
+            self.sample_retrieval_loop
         )
         self.sample_retrieval_future.add_done_callback(
             lambda _: self.executor.wake()  # type: ignore
@@ -470,7 +511,7 @@ class Eyelink(BaseNode):
 
         return msg
 
-    def sample_retrieval_loop(self, stop_event: threading.Event):
+    def sample_retrieval_loop(self):
         """Get samples from the tracker.
 
         This function will loop indefinitely, getting samples from the
@@ -488,11 +529,14 @@ class Eyelink(BaseNode):
         )
         period = 1 / self.get_parameter_wrapper("sample_rate")
         try:
-            while not stop_event.is_set() and not self.tracker.isConnected():
+            while (
+                not self.stop_sample_retrieval_event.is_set()
+                and not self.tracker.isConnected()
+            ):
                 self.ros_sleep(period)
 
             # start_time = self.ros_time()
-            while not stop_event.is_set():
+            while not self.stop_sample_retrieval_event.is_set():
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
                 except RuntimeError as e:
@@ -507,8 +551,7 @@ class Eyelink(BaseNode):
                     timestamp = self.get_clock().now()
                     self.tracker.resetData()
                     msg = self.sample_to_msg(sample, timestamp)
-                    with self.message_queue_lock:
-                        self.message_queue.append(msg)
+                    self.message_queue.append(msg)
                     if hasattr(self, "bag_writer"):
                         self.bag_writer.write(
                             "/eyelink/sample",
@@ -523,82 +566,71 @@ class Eyelink(BaseNode):
             if rclpy.ok():  # type: ignore
                 raise RuntimeError("ROS2 is still running") from e
 
-    def get_last_messages(self) -> list[EyelinkMsg]:
-        """Get the latest samples from the eyelink tracker.
-
-        This function will return a copy of the contents of the sample queue
-        as a list.
-        """
-        with self.message_queue_lock:
-            return list(self.message_queue)
-
     ###########################################################################
     # Smooth pursuit
     ###########################################################################
 
-    def get_smooth_pursuit(self) -> bool:
-        """Check if the subject is smoothly pursuing.
-
-        This function will check if the subject is smoothly pursuing by
-        checking if the speed of the left and right eyes is below a threshold
-        (the eye can only move smoothly if it is following a smoothly moving
-        object, so we check if the speed remains below a threshold).
-
-        Args:
-            window: The window size in seconds.
-            threshold: The threshold for the speed of the eyes.
-
-        Returns:
-            True if the subject is smoothly pursuing, False otherwise.
-        """
-        msgs = self.get_last_messages()
-
-        max_speed = self.get_parameter_wrapper("smooth_pursuit.max_speed")
-        min_speed = self.get_parameter_wrapper("smooth_pursuit.min_speed")
-        min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
-        smoothing_window = self.get_parameter_wrapper(
-            "smooth_pursuit.smoothing_window"
-        )
-        min_eye_pos = self.gaze_estimation_config["preprocess"]["min_eye_pos"]
-        max_eye_pos = self.gaze_estimation_config["preprocess"]["max_eye_pos"]
-        freq = self.get_parameter_wrapper("sample_rate")
-
-        if len(msgs) == 0:
-            self.log(
-                "No samples in queue, skipping smooth pursuit check",
-                severity="DEBUG",
-            )
-            return False
-
-        # Track duration of smooth pursuit extraction, for logging purposes
-        start_time = self.ros_time()
-
-        # Extract eye data from samples
-        df = pd.DataFrame(
-            {"time": np.array([msg.eyelink_time_ms for msg in msgs]) / 1000.0}
-        )
-        df[EYELINK_DATA_COLS] = np.array(
-            [
-                [
+    def _df_from_messages(self, msgs: list[EyelinkMsg]) -> pd.DataFrame:
+        """Convert a list of Eyelink messages to a pandas dataframe."""
+        return pd.DataFrame(
+            (
+                (
+                    seconds_from_ros_time(msg.header.stamp),
                     msg.left_x,
                     msg.left_y,
                     msg.right_x,
                     msg.right_y,
-                    msg.left_pupil,
-                    msg.right_pupil,
-                ]
+                )
                 for msg in msgs
-            ]
+            ),
+            columns=["time", *EYELINK_DATA_COLS],  # type: ignore
         )
 
+    def get_smooth_pursuit(self) -> bool:
+        """Check if the monkey is smoothly pursuing.
+
+        This function will check if the monkey is smoothly pursuing by
+        checking if the speed of the left and right eyes is within the range
+        provided by the min_speed and max_speed parameters.
+        This is motivated by the fact that the eye can only move smoothly if it
+        is following a smoothly moving object. Thus, if the speed of the eyes
+        is below the minimum speed, we assume that the monkey is fixating on a
+        static object. If the speed of the eyes is above the maximum speed, we
+        assume that the monkey is saccading between objects. In either case, we
+        assume that the monkey is not smoothly pursuing the desired target,
+        which should be moving smoothly.
+
+        Returns:
+            True if the monkey is smoothly pursuing, False otherwise.
+        """
+        window = self.get_parameter_wrapper("smooth_pursuit.window")
+        max_speed = self.get_parameter_wrapper("smooth_pursuit.max_speed")
+        min_speed = self.get_parameter_wrapper("smooth_pursuit.min_speed")
+        min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
+        freq = self.get_parameter_wrapper("sample_rate")
+
+        msgs = self.message_queue.to_list()
+        start_time = self.ros_time()
+        if len(msgs) < min_samples:
+            self.log(
+                f"Not enough samples in queue (min: {min_samples}, got: {len(msgs)})",
+                severity="DEBUG",
+            )
+            return False
+
+        # Convert messages to dataframe and filter out old samples
+        df = self._df_from_messages(msgs)
+        df = cast(pd.DataFrame, df[df["time"] > (start_time - window)])
+        if df.shape[0] < min_samples:
+            self.log(
+                f"Not enough recent samples (min: {min_samples}, got: {df.shape[0]})",
+                severity="DEBUG",
+            )
+            return False
+
         # Remove rows with missing data from the arrays
-        df = clean_eyelink_data(
-            df,
-            min_eye_pos=min_eye_pos,
-            max_eye_pos=max_eye_pos,
-            max_zscore=None,
-        )
-        df = df[["time", *EYELINK_POS_COLS]]
+        config = self.preprocess_config["clean_eyelink"]
+        df = clean_eyelink_data(df, **config)
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
@@ -609,17 +641,18 @@ class Eyelink(BaseNode):
             )
             return False
 
-        min_time = df["time"].min()
-        max_time = df["time"].max()
-        smoothing_window = min(smoothing_window / 2, max_time - min_time)
-        df = smooth_savgol(
-            df,  # type: ignore
-            columns=EYELINK_POS_COLS,
+        df = reindex_and_interpolate_eyelink_data(
+            df,
             freq=freq,
-            on="time",
-            window=smoothing_window,
-            polyorder=5,
-            reindex_tolerance=3 / freq,
+            **self.preprocess_config["reindex_and_interpolate_eyelink"],
+        )
+
+        self.preprocess_config["smooth_eyelink"]["window"] = min(
+            self.preprocess_config["smooth_eyelink"]["window"],
+            df["time"].max() - df["time"].min(),
+        )
+        df = smooth_eyelink_data(
+            df, freq=freq, **self.preprocess_config["smooth_eyelink"]
         )
 
         # if df.isna().any(axis=None):  # type: ignore
@@ -810,7 +843,7 @@ class Eyelink(BaseNode):
 
     def gaze_estimation_callback(self):
         """Callback to publish gaze estimation markers."""
-        msgs = self.get_last_messages()
+        msgs = self.message_queue.to_list()
 
         x = None
         for msg in msgs:
@@ -824,23 +857,22 @@ class Eyelink(BaseNode):
                     [msg.left_x, msg.left_y, msg.right_x, msg.right_y],
                     dtype=torch.float32,
                 ).unsqueeze(0)
+                with torch.no_grad():
+                    y = (
+                        self.gaze_estimation_model(x)
+                        .detach()
+                        .squeeze()
+                        .numpy()
+                        .tolist()
+                    )
+                self.log(f"Gaze estimation: {y}", severity="DEBUG")
                 break
         else:
             self.log(
                 "No valid messages in queue, skipping gaze estimation",
                 severity="DEBUG",
             )
-            return
-
-        with torch.no_grad():
-            y = (
-                self.gaze_estimation_model(x)
-                .detach()
-                .squeeze()
-                .numpy()
-                .tolist()
-            )
-            self.log(f"Gaze estimation: {y}", severity="DEBUG")
+            y = [0.0, 0.1, 0.0]
 
         markers = Markers()
         markers.header.stamp = self.get_clock().now().to_msg()

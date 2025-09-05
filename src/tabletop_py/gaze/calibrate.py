@@ -37,11 +37,18 @@ def main(args=None):
         help="Path to the training config file",
     )
     parser.add_argument(
-        "-t",
+        "-s",
         "--start-time",
         type=float,
         default=0.0,
         help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "-e",
+        "--end-time",
+        type=float,
+        default=float("inf"),
+        help="The end time of the data to visualize in seconds, relative to the start of the session.",
     )
     parser.add_argument(
         "-m",
@@ -51,10 +58,10 @@ def main(args=None):
         help="The index of the marker to use.",
     )
     parser.add_argument(
-        "-r",
-        "--reprocess",
+        "-f",
+        "--force",
         action="store_true",
-        help="Rerun all steps",
+        help="Force rerun all steps, even if already converted or preprocessed",
     )
     parser.add_argument(
         "--visualize",
@@ -78,7 +85,7 @@ def main(args=None):
     already_converted = os.path.exists(eyelink_path) and os.path.exists(
         markers_path
     )
-    if args.reprocess or not already_converted:
+    if args.force or not already_converted:
         try:
             from tabletop_utils.rosbag import rosbag_session_to_dfs
         except ImportError:
@@ -102,13 +109,14 @@ def main(args=None):
     print(f"Path: {path}")
     print(f"Already preprocessed: {already_preprocessed}")
 
-    if args.reprocess or not already_preprocessed:
+    if args.force or not already_preprocessed:
         print("Preprocessing data...")
         preprocess_data(
             args.session_dir,
             config,
             marker_idx=args.marker_idx,
             start_time=args.start_time,
+            end_time=args.end_time,
             visualize=args.visualize,
         )
 

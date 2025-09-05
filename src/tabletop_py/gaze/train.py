@@ -9,9 +9,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torcheval.metrics as metrics
+import yaml
 
-from tabletop_py.gaze.preprocess import EYELINK_POS_COLS, MARKER_DATA_COLS
 from tabletop_py.gaze.utils import (
+    configure_torch_dtype,
     init_criterion,
     init_dataloaders,
     init_model,
@@ -27,7 +28,7 @@ def evaluate(
     criterion: nn.Module,
     loader: torch.utils.data.DataLoader,
     device: torch.device,
-) -> dict[str, Any]:
+) -> dict[str, float | torch.Tensor]:
     """
     Calculates the test set metrics (MSE, RMSE, R2) for the trained model.
 
@@ -90,7 +91,7 @@ def train(
     num_epochs: int,
     patience_epochs: int,
     device: torch.device,
-) -> dict[str, float]:
+) -> dict[str, float | torch.Tensor]:
     """
     Trains the eye tracking model using cross-validation.
 
@@ -157,50 +158,38 @@ def train(
 
 def train_and_evaluate(
     session_dir: os.PathLike,
-    config: Mapping[str, Any],
+    config: Mapping[str, Any] | os.PathLike | str,
     visualize: bool = False,
 ) -> dict[str, Any]:
     """
     Trains and evaluates the gaze estimation model.
     """
+    # Configure PyTorch
     seed_everything(50)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
+    configure_torch_dtype()
+
     # Load config
+    if not isinstance(config, Mapping):
+        with open(config, "r") as f:
+            config = cast(Mapping[str, Any], yaml.safe_load(f))
+
+    # Load data
     path = os.path.join(session_dir, config["preprocess"]["filename"])
     df = pd.read_csv(path, index_col=False)
 
     logger.info(df.describe())
 
-    input_mean = torch.tensor(
-        df[EYELINK_POS_COLS].mean(axis=0).to_numpy(),  # type: ignore
-        dtype=torch.float32,
-    )
-    input_std = torch.tensor(
-        df[EYELINK_POS_COLS].std(axis=0).to_numpy(),  # type: ignore
-        dtype=torch.float32,
-    )
-    output_mean = torch.tensor(
-        df[MARKER_DATA_COLS].mean(axis=0).to_numpy(),  # type: ignore
-        dtype=torch.float32,
-    )
-    output_std = torch.tensor(
-        df[MARKER_DATA_COLS].std(axis=0).to_numpy(),  # type: ignore
-        dtype=torch.float32,
-    )
-
-    logger.info(f"Input mean: {input_mean}, std: {input_std}")
-    logger.info(f"Output mean: {output_mean}, std: {output_std}")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     # Initialize dataloaders
     train_val_loader_generator, test_loader = init_dataloaders(
-        df, **config["data"]
+        df, **config["dataloaders"]
     )
 
     # Initialize best model and best validation loss
     best_fold: int | None = None
     best_model: nn.Module | None = None
-    best_val_results: dict[str, float] | None = None
+    best_val_results: dict[str, float | torch.Tensor] | None = None
     best_val_loss = float("inf")
     max_folds = config["train"].pop("max_folds")
 
@@ -210,18 +199,21 @@ def train_and_evaluate(
             break
 
         logger.info(
-            f"Training and evaluating fold {i}/{config['data']['val_folds']}"
+            f"Training and evaluating fold {i}/{config['dataloaders']['val_folds']}"
         )
+
+        train_data_stats = train_loader.dataset.stats()  # type: ignore
 
         # Initialize model, optimizer, and criterion
         model = init_model(
+            input_mean=train_data_stats["x_mean"],
+            input_std=train_data_stats["x_std"],
+            output_mean=train_data_stats["y_mean"],
+            output_std=train_data_stats["y_std"],
             **config["model"],
-            input_mean=input_mean,
-            input_std=input_std,
-            output_mean=output_mean,
-            output_std=output_std,
         ).to(device)
-        # model.compile()
+        model.compile(**config["compile"])
+
         optimizer = init_optimizer(model=model, **config["optimizer"])
         criterion = init_criterion(**config["criterion"]).to(device)
 
@@ -280,8 +272,8 @@ def train_and_evaluate(
     logger.info(f"Saved best model to {path}")
 
     # Save the test targets and predictions
-    targets = test_results["targets"].numpy()
-    preds = test_results["preds"].numpy()
+    targets = test_results["targets"].numpy()  # type: ignore
+    preds = test_results["preds"].numpy()  # type: ignore
     df = pd.DataFrame(
         data=np.concatenate([targets, preds], axis=1),
         columns=[
@@ -303,8 +295,8 @@ def train_and_evaluate(
 
         animate_3d_dots(
             {"Target": targets, "Prediction": preds},
-            freq=config["preprocess"]["eyelink_freq"],
-            **config["visualize"]["markers_range"],
+            freq=config["eyelink_freq"],
+            **config["visualize"]["animate_3d_dots"],
             save_path=os.path.join(session_dir, "predictions.mp4"),
         )
 
@@ -317,8 +309,6 @@ def train_and_evaluate(
 
 def main(args=None):
     import argparse
-
-    import yaml
 
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s - %(message)s"
@@ -348,12 +338,8 @@ def main(args=None):
     )
     args = parser.parse_args(args)
 
-    # Load config
-    with open(args.config, "r") as f:
-        config = cast(Mapping[str, Any], yaml.safe_load(f))
-
     # Attempt to load the calibration data from the session directory
-    train_and_evaluate(args.session_dir, config, visualize=args.visualize)
+    train_and_evaluate(**vars(args))
 
 
 if __name__ == "__main__":

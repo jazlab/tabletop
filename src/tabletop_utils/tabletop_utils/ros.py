@@ -9,13 +9,14 @@ import numpy as np
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from builtin_interfaces.msg import Time
+from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from rclpy.client import Client
+from rclpy.time import Time
 from shape_msgs.msg import Mesh as MeshMsg
 from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
 from std_msgs.msg import ColorRGBA, Header
@@ -468,7 +469,27 @@ def validate_service_response(
         raise ServiceCallUnsuccessfulError(error_msg)
 
 
-# Geometric ROS2 message utilities
+# ROS2 time utilities
+
+
+def seconds_from_ros_time(timestamp: Time | TimeMsg) -> float:
+    """Convert a ROS2 Time message to seconds."""
+    if isinstance(timestamp, Time):
+        return timestamp.nanoseconds / 1e9
+    elif isinstance(timestamp, TimeMsg):
+        return float(timestamp.sec) + float(timestamp.nanosec) / 1e9
+    else:
+        raise ValueError(f"Invalid timestamp type: {type(timestamp).__name__}")
+
+
+def time_msg_from_seconds(seconds: float) -> TimeMsg:
+    """Convert seconds to a ROS2 Time message."""
+    return TimeMsg(
+        sec=int(seconds), nanosec=int((seconds - int(seconds)) * 1e9)
+    )
+
+
+# ROS2 geometric message utilities
 
 
 def array_from_point_msg(point: Point) -> np.ndarray:
@@ -478,7 +499,7 @@ def array_from_point_msg(point: Point) -> np.ndarray:
 
 def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
     """Convert a geometry_msgs/Quaternion message to a normalized numpy array."""
-    q = np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+    q = np.array([quaternion.w, quaternion.x, quaternion.y, quaternion.z])
     q = q / np.linalg.norm(q)
     return q
 

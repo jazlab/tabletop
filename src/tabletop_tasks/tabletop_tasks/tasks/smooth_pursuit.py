@@ -1,6 +1,5 @@
 """SmoothPursuit task."""
 
-import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -127,28 +126,28 @@ class SmoothPursuitTask(BaseTask):
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            # await self.commander.smooth_pursuit_and_reward()
-            trajectory = await self.generate_trajectory()
+            await self.commander.smooth_pursuit_and_reward()
+            # trajectory = await self.generate_trajectory()
 
-            self.log("Moving to start of spiral")
-            await self.commander.plan_and_execute(trajectory[0])
+            # self.log("Moving to start of spiral")
+            # await self.commander.plan_and_execute(trajectory[0])
 
-            self.log(
-                f"Executing spiral trajectory for {trajectory.duration} seconds"
-            )
+            # self.log(
+            #     f"Executing spiral trajectory for {trajectory.duration} seconds"
+            # )
 
-            smooth_pursuit_task = self.commander.smooth_pursuit_and_reward()
-            execution_task = asyncio.create_task(
-                self.commander.execute(trajectory, preprocess_trajectory=False)
-            )
+            # smooth_pursuit_task = self.commander.smooth_pursuit_and_reward()
+            # execution_task = asyncio.create_task(
+            #     self.commander.execute(trajectory, preprocess_trajectory=False)
+            # )
 
-            done, pending = await asyncio.wait(
-                [smooth_pursuit_task, execution_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            # done, pending = await asyncio.wait(
+            #     [smooth_pursuit_task, execution_task],
+            #     return_when=asyncio.FIRST_COMPLETED,
+            # )
 
-            for task in pending:
-                task.cancel()
+            # for task in pending:
+            #     task.cancel()
 
-            for task in done:
-                task.result()
+            # for task in done:
+            #     task.result()

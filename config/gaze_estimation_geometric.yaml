@@ -2,8 +2,14 @@ preprocess:
   filename: preprocessed.csv
   eyelink_freq: 1000
   markers_freq: 120
-  eyelink_freq_rtol: 0.1
-  markers_freq_rtol: 0.01
+  format_columns:
+    eyelink:
+      verify: true
+      freq_rtol: 0.1
+    markers:
+      verify: true
+      freq_rtol: 0.01
+      max_marker_time_correction: 0.05
   max_marker_time_correction: 0.05
   min_eye_pos: -20000
   max_eye_pos: 20000

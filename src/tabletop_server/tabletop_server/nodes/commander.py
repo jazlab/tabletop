@@ -272,6 +272,11 @@ class Commander(BaseNode):
     def init_sound(self):
         """Initialize sound."""
         config: dict[str, Any] = self.get_parameter_wrapper("sound")
+
+        self.sound_enabled = config["enable"]
+        if not self.sound_enabled:
+            return
+
         soundfont_path = os.path.expandvars(config["soundfont_path"])
         if not os.path.exists(soundfont_path):
             raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
@@ -548,6 +553,20 @@ class Commander(BaseNode):
 
         # Object manipulation lock
         self.object_manipulation_lock = asyncio.Lock()
+
+    ###########################################################################
+    ########## Sound ##########################################################
+    ###########################################################################
+
+    def start_note(self, note: Note):
+        """Start a note."""
+        if self.sound_enabled:
+            fluidsynth.play_Note(note)
+
+    def stop_note(self, note: Note):
+        """Stop a note."""
+        if self.sound_enabled:
+            fluidsynth.stop_Note(note)
 
     ###########################################################################
     ########## MoveItPy Interface #############################################
@@ -1021,7 +1040,7 @@ class Commander(BaseNode):
                     new_time = self.ros_time()
                     if not last_smooth_pursuit:
                         self.log("Smooth pursuit started", severity="INFO")
-                        fluidsynth.play_Note(self._default_note)
+                        self.start_note(self._default_note)
                         await self.set_reward(
                             activate=smooth_pursuit, duration=duration
                         )
@@ -1036,12 +1055,12 @@ class Commander(BaseNode):
                         last_reward_start_time = new_time
                 elif last_smooth_pursuit:
                     self.log("Smooth pursuit ended", severity="INFO")
-                    fluidsynth.stop_Note(self._default_note)
+                    self.stop_note(self._default_note)
                     await self.set_reward(activate=False)
 
                 last_smooth_pursuit = smooth_pursuit
         finally:
-            fluidsynth.stop_Note(self._default_note)
+            self.stop_note(self._default_note)
             try:
                 await self.set_reward(activate=False)
             except Exception as e:
@@ -1093,18 +1112,19 @@ class Commander(BaseNode):
             instrument: Midi instrument to play, e.g. 62. If None, the default instrument is used.
             duration: Duration of the sound in seconds. If None, the default duration is used.
         """
-        if note is None:
-            note = self._default_note
-        elif not isinstance(note, Note):
-            note = Note(**note)
-        note.channel = self._default_note.channel
+        if self.sound_enabled:
+            if note is None:
+                note = self._default_note
+            elif not isinstance(note, Note):
+                note = Note(**note)
+            note.channel = self._default_note.channel
 
-        if duration is None:
-            duration = self._default_duration
+            if duration is None:
+                duration = self._default_duration
 
-        fluidsynth.play_Note(note)
-        await asyncio.sleep(duration)
-        fluidsynth.stop_Note(note)
+            fluidsynth.play_Note(note)
+            await asyncio.sleep(duration)
+            fluidsynth.stop_Note(note)
 
     ###########################################################################
     ########## Planning scene #################################################
