@@ -90,7 +90,11 @@ rosdep update -q
 
 # Install Python dependencies
 print_status "Installing Python dependencies using uv"
-uv sync --locked
+if [ "$TT_USE_NVIDIA" = "true" ]; then
+    uv sync --locked --extra cu128
+else
+    uv sync --locked --extra cpu
+fi
 
 # Remove any existing MoveIt2 debian packages
 print_status "Removing any existing MoveIt2 debian packages"

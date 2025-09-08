@@ -3,8 +3,6 @@ ARG ROS_DISTRO=jazzy
 # Base image for running all server nodes
 FROM ros:$ROS_DISTRO AS base
 
-ARG ROS_DISTRO
-
 SHELL ["/bin/bash", "-c"]
 
 # Keep downloaded packages to reduce build time
@@ -25,7 +23,9 @@ apt-get clean && rm -rf /var/lib/apt/lists/*
 EOT
 
 # Add SR Research repository
-RUN <<EOT
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+<<EOT
 set -ex
 apt-get update && apt-get upgrade -y
 apt-get install -y ca-certificates software-properties-common
@@ -45,8 +45,8 @@ apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
 
 # Create user if not root
-ARG USER=mules
-ARG UID=1000
+ARG USER
+ARG UID
 ARG GID=$UID
 
 RUN <<EOT
@@ -55,8 +55,8 @@ if [[ -z $USER || $USER = root ]] ; then
     echo "USER must be set to a non-root user"
     exit 1
 fi
-if [[ $UID = 0 || $GID = 0 ]] ; then
-    echo "UID and/or GID cannot be 0"
+if [[ -z $UID || -z $GID || $UID = 0 || $GID = 0 ]] ; then
+    echo "UID and GID must be set and cannot be 0"
     exit 1
 fi
 if id -u $UID ; then
@@ -95,10 +95,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
+ARG USE_NVIDIA
+RUN --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project
+<<EOT
+set -ex
+if [[ $USE_NVIDIA = true ]] ; then
+    uv sync --locked --no-install-project --extra cu128
+else
+    uv sync --locked --no-install-project --extra cpu
+fi
+EOT
 
 # Development image with additional dependencies and tools
 FROM base AS dev

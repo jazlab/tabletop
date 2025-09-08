@@ -54,65 +54,68 @@ services:
       pull: true
       args:
         - ROS_DISTRO=jazzy
-        - USER=mules
-        - UID=1000 # Enter your user id here
+        - USER=$TT_USER
+        - UID=$TT_UID
+        - USE_NVIDIA=$TT_USE_NVIDIA
+      platforms:
+        - linux/amd64
     volumes:
       - ./:/tabletop
       - /tabletop/.venv
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    environment:
+      - DISPLAY=novnc:0.0
+    working_dir: /tabletop
+    init: true
+    command: sleep infinity
 
-
-  server:
+  server-base-linux:
     extends: server-base
     runtime: nvidia
+    environment:
+      # - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - PULSE_SERVER=/tmp/pulseaudio.socket
+    volumes:
+      - $XDG_RUNTIME_DIR/pulse/native:/tmp/pulseaudio.socket
+      - ~/.config/pulse/cookie:/home/$TT_USER/.config/pulse/cookie
+
+  server:
+    extends: $TT_SERVER_BASE_SERVICE
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
     hostname: server
-    working_dir: /tabletop
     ports:
       - 50001:50001
       - 50002:50002
       - 50003:50003
       - 50004:50004
-    environment:
-      - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - DISPLAY=$DISPLAY
-    # Uncomment the following section if a teensy is connected
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
     # Uncomment the following section if you plan on connecting a teensy after starting the container
     # device_cgroup_rules:
     #   - c 161:* rmw
-    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    init: true
-    command: sleep infinity
+    # Uncomment the following section if a teensy is connected before starting the container
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
 
   server-dev:
     extends: server
     build:
       target: dev
     # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    privileged: true
+    # privileged: true
     volumes:
       - /dev:/dev
-      - ~/.vimrc:/home/mules/.vimrc
-      - ~/.config/starship.toml:/home/mules/.config/starship.toml
-      - ~/.config/pulse/cookie:/home/mules/.config/pulse/cookie
-      - $XDG_RUNTIME_DIR/pulse/native:/tmp/pulseaudio.socket
+      - ~/.vimrc:/home/$TT_USER/.vimrc
+      - ~/.config/starship.toml:/home/$TT_USER/.config/starship.toml
     environment:
       - SHELL=/bin/bash
-      - PULSE_SERVER=/tmp/pulseaudio.socket
+
 
   optitrack:
     extends: server-base
     network_mode: host
-
-    working_dir: /tabletop
-    init: true
-    command: bash -c "source /tabletop/install/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+    command: bash -c "source /tabletop/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
 
   flic:
     image: ubuntu:latest

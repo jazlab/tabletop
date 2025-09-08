@@ -54,14 +54,14 @@ export SIM_REVERSE_IP=192.168.12.10
 export ROBOT_IP=192.168.13.20
 export REVERSE_IP=192.168.13.10
 export PYTHONUNBUFFERED=1
-export COMPOSE_BAKE=true
+
+# Source Python virtual environment
+if [[ -f $TABLETOP_DIR/.venv/bin/activate  ]]; then
+    source $TABLETOP_DIR/.venv/bin/activate
+fi
 
 # Source ROS environment
 if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
-    # Python virtual environment must be sourced before ROS environment (I think)
-    if [[ -f $TABLETOP_DIR/.venv/bin/activate  ]]; then
-        source $TABLETOP_DIR/.venv/bin/activate
-    fi
     # Source ROS environment
     source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
     # Source colcon workspace
@@ -80,3 +80,16 @@ fi
 
 # Add tabletop bin directory to PATH
 export PATH=$TABLETOP_DIR/bin:$PATH
+
+# Set build variables for Docker
+export TT_USER=mules
+export TT_UID=$(id -u)
+export COMPOSE_BAKE=true
+if [[ $(command -v nvidia-smi) ]]; then
+    export TT_USE_NVIDIA=true
+    export TT_SERVER_BASE_SERVICE=server-base-linux
+else
+    export TT_USE_NVIDIA=false
+    export TT_SERVER_BASE_SERVICE=server-base
+fi
+

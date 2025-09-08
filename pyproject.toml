@@ -29,20 +29,17 @@ dev = [
   "ros2-graph>=0.0.5",
 ]
 
-[project.scripts]
-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
-gaze-train = "tabletop_py.gaze.train:main"
-gaze-visualize = "tabletop_py.gaze.visualize:main"
-gaze-calibrate = "tabletop_py.gaze.calibrate:main"
+[project.optional-dependencies]
+cpu = ["torch>=2.8.0"]
+cu128 = ["torch>=2.8.0"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cu128" }]]
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
-  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
-]
-torchvision = [
-  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
-  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu128", extra = "cu128" },
 ]
 
 [[tool.uv.index]]
@@ -54,6 +51,12 @@ explicit = true
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
+[project.scripts]
+gaze-preprocess = "tabletop_py.gaze.preprocess:main"
+gaze-train = "tabletop_py.gaze.train:main"
+gaze-visualize = "tabletop_py.gaze.visualize:main"
+gaze-calibrate = "tabletop_py.gaze.calibrate:main"
 
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]
