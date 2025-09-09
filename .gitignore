@@ -1,49 +1,35 @@
 # Ignore caches
-**/__pycache__/
-**/.ruff_cache/
-**/.DS_Store
-**/.cache/
-
-# Ignore logs
-/log/
-**/*.log
-**/nohup.out
-
-# Ignore build artifacts
-**/build/
-**/install/
-**/dist/
-**/egg-info/
-**/.pio/
-**/compile_commands.json
-
-# Ignore cursor files
-**/.cursorignore
-
-# Ignore meshes
-**/meshes/test/
-
-# Ignore flic files
-/docker/flic/flic.db
-
-# Ignore venv
-/.venv/
-
-# Ignore piano stuff
-**/*.mid
-
-# Ignore cache files
+__pycache__/
+.ruff_cache/
+.DS_Store
+.cache/
 /cache/
 
-# Ignore optitrack files
-**/Client-output.pts
+# Ignore logs
+log/
+*.log
+
+# Temporary files
+*.tmp
+
+# Ignore build artifacts
+/build/
+/install/
+.pio/
+compile_commands.json
+
+# Ignore flic files
+flic.db
+
+# Ignore venv
+.venv/
 
 # Ignore videos
-**/*.mp4
-**/*.gif
+*.mp4
+*.gif
 
 # Ignore bags
-/bags/
+bags/
 
 # Ignore saved models
-/saved_weights/
+saved_weights/
