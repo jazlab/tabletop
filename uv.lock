@@ -302,6 +302,19 @@ wheels = [
 ]
 
 [[package]]
+name = "colcon-mixin"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colcon-core" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ea/8c/fc63ad7fe97ec564a6b12680ae123b13911608b059d0c2b05c79a22a4bb2/colcon-mixin-0.2.3.tar.gz", hash = "sha256:e0c349cf7b07096128866ec10fa508e35400db208fecbbeb86a54ab1a1d49ee9", size = 16606, upload-time = "2023-02-02T00:22:51.371Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/49/2b4caad29ddc938c09a1b9c3332d1346194fcf45262d54fca262785773b5/colcon_mixin-0.2.3-py3-none-any.whl", hash = "sha256:48c23b4102fd6a482988aaacaed7a7aabc4dd2fa59d0eb2d42a92fbb95f4283c", size = 20279, upload-time = "2023-02-02T00:22:48.895Z" },
+]
+
+[[package]]
 name = "colcon-notification"
 version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1781,6 +1794,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "colcon-common-extensions" },
+    { name = "colcon-mixin" },
     { name = "debugpy" },
     { name = "lark" },
     { name = "matplotlib" },
@@ -1819,6 +1833,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "colcon-common-extensions", specifier = ">=0.3.0" },
+    { name = "colcon-mixin", specifier = ">=0.2.3" },
     { name = "debugpy", specifier = ">=1.8.16" },
     { name = "lark", specifier = ">=1.2.2" },
     { name = "matplotlib", specifier = ">=3.10.5" },
