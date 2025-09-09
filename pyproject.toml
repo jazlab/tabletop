@@ -13,8 +13,6 @@ dependencies = [
   "numpy>=2.3.2",
   "pandas>=2.3.1",
   "scikit-learn>=1.7.1",
-  "sr-research-pylink>=2.1.1145.post1",
-  "torch>=2.8.0",
   "torcheval>=0.0.7",
   "tqdm>=4.67.1",
   "transformations>=2025.8.1",
@@ -33,6 +31,7 @@ dev = [
 [project.optional-dependencies]
 cpu = ["torch>=2.8.0"]
 cu128 = ["torch>=2.8.0"]
+eyelink = ["sr-research-pylink>=2.1.1145.post1"]
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cu128" }]]
@@ -42,6 +41,7 @@ torch = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-cu128", extra = "cu128" },
 ]
+sr-research-pylink = { index = "sr-research" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -51,6 +51,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "sr-research"
+url = "https://pypi.sr-research.com"
 explicit = true
 
 [project.scripts]

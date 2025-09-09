@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Literal, Optional, Protocol
 
 import numpy as np
+import rclpy
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -16,6 +17,8 @@ from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from rclpy.client import Client
+from rclpy.impl.logging_severity import LoggingSeverity
+from rclpy.impl.rcutils_logger import RcutilsLogger
 from rclpy.time import Time
 from shape_msgs.msg import Mesh as MeshMsg
 from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
@@ -91,6 +94,39 @@ SOLID_PRIMITIVE_TYPE_MAP = {
     "PRISM": SolidPrimitive.PRISM,
 }
 """Solid primitive type map from type name to solid primitive type."""
+
+
+def ros_log(
+    logger: RcutilsLogger,
+    message: Any,
+    severity: str | LoggingSeverity = "INFO",
+    **kwargs,
+):
+    """Log a message with the given severity."""
+
+    if not isinstance(severity, LoggingSeverity):
+        severity = LoggingSeverity[severity]
+
+    if rclpy.ok():  # type: ignore
+        match severity:
+            case LoggingSeverity.DEBUG:
+                return logger.debug(message, **kwargs)
+            case LoggingSeverity.INFO:
+                return logger.info(message, **kwargs)
+            case LoggingSeverity.WARN:
+                return logger.warning(message, **kwargs)
+            case LoggingSeverity.ERROR:
+                return logger.error(message, **kwargs)
+            case LoggingSeverity.FATAL:
+                return logger.fatal(message, **kwargs)
+            case _:
+                raise ValueError(f"Invalid severity: {severity}")
+    elif severity >= logger.get_effective_level():
+        print(f"{severity.name}: {message}")
+        return True
+    else:
+        return False
+
 
 # ROS message utilities
 

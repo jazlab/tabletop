@@ -427,7 +427,7 @@ def generate_launch_description():
         ],
         ros_arguments=[
             "--log-level",
-            ["eyelink:=", LaunchConfiguration("eyelink_log_level")],
+            LaunchConfiguration("eyelink_log_level"),
         ],
         on_exit=[Shutdown()],
     )

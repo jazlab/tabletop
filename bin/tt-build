@@ -6,7 +6,7 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
 print_usage() {
-    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [-p|--packages <package_name>...] [--all] [--only-rosdep]"
+    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-deps]"
 }
 
 pushd $COLCON_WS
@@ -17,9 +17,10 @@ clean=false
 clean_all=false
 workers=
 packages=()
+linker=mold
 all=false
 clang=false
-only_rosdep=false
+only_deps=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --debug)
@@ -38,6 +39,10 @@ while [[ $# -gt 0 ]]; do
         --clang)
             clang=true
             ;;
+        --linker)
+            linker=$2
+            shift
+            ;;
         -p|--packages)
             if [[ $# -le 1  || $2 == -* ]]; then
                 print_error "No packages provided"
@@ -52,8 +57,8 @@ while [[ $# -gt 0 ]]; do
         -a|--all)
             all=true
             ;;
-        --only-rosdep)
-            only_rosdep=true
+        --only-deps)
+            only_deps=true
             ;;
         *)
             print_error "Unknown argument $1"
@@ -94,26 +99,28 @@ rosdep update -q
 
 # Install Python dependencies
 print_status "Installing Python dependencies using uv"
-if [ "$TT_USE_NVIDIA" = "true" ]; then
-    uv sync --locked --extra cu128
-else
-    uv sync --locked --extra cpu
-fi
+uv sync $TT_UV_EXTRA
 
 # Remove any existing MoveIt2 debian packages
 print_status "Removing any existing MoveIt2 debian packages"
 sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
 
 # Source ROS environment again after rosdep update
-source /opt/ros/${ROS_DISTRO}/setup.bash
+source $TABLETOP_DIR/setup.bash
 
 # Install ROS 2 build dependencies
-print_status "Installing ROS 2 build dependencies"
 dependency_types="-t buildtool_export -t build -t build_export -t buildtool"
+if [ "$only_deps" = "true" ]; then
+    print_status "Installing ROS 2 dependencies"
+    dependency_types="$dependency_types -t exec"
+else
+    print_status "Installing ROS 2 build dependencies"
+fi
+
 rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
 
-if [ "$only_rosdep" = "true" ]; then
-    print_status "Successfully installed ROS 2 dependencies, skipping build and exiting"
+if [ "$only_deps" = "true" ]; then
+    print_status "Successfully installed dependencies, skipping build and exiting"
     exit 0
 fi
 
@@ -131,7 +138,7 @@ fi
 if [ "$clang" = "true" ]; then
     mixins+=("clang")
 fi
-mixins+=("compile-commands" "build-testing-off" "lld")
+mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
 
 # Build ROS 2 packages
 if [ -n "$workers" ]; then
@@ -144,8 +151,8 @@ command="python3 -m colcon build \
 --cmake-args "${cmake_args[@]}" \
 --mixin "${mixins[@]}" \
 $parallel_workers \
-$package_selection
-"
+$package_selection"
+
 print_status "Building ROS 2 packages with command: $command"
 $command
 

@@ -5,15 +5,13 @@ from collections import deque
 from enum import Enum
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 import rclpy
 import rosbag2_py
 import torch
 import yaml
 from geometry_msgs.msg import Point
-from pylink import EyeLink as EyeLinkTracker
-from pylink.constants import MISSING_DATA
-from pylink.tracker import Sample, SampleData
 from rclpy.action.server import (
     ActionServer,
     CancelResponse,
@@ -40,6 +38,16 @@ from tabletop_py.gaze.preprocess import (
 from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.ros import ROSSleepError, seconds_from_ros_time
+
+if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
+    from pylink import EyeLink as EyeLinkTracker
+    from pylink.constants import MISSING_DATA
+    from pylink.tracker import Sample, SampleData
+else:
+    type EyelinkTracker = Any
+    type Sample = Any
+    type SampleData = Any
+    MISSING_DATA = -32768
 
 
 class DataFileReceiveError(Exception):
@@ -84,7 +92,7 @@ class Eyelink(BaseNode):
     default_params = BaseNode.default_params | {
         "tracker_address": "192.168.13.30",
         "do_tracker_setup": True,
-        "wait_for_data_timeout": 0.2,  # seconds
+        "wait_for_data_timeout": 0.1,  # seconds
         "sample_rate": 1000,  # Hz
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
@@ -104,6 +112,7 @@ class Eyelink(BaseNode):
         "live_gaze_estimation": True,
         "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
         "gaze_estimation_frequency": 100,  # Hz
+        "simulate_tracker": True,
     }
 
     ###########################################################################
@@ -113,9 +122,17 @@ class Eyelink(BaseNode):
     def __init__(self):
         super().__init__("eyelink")
 
-        self.tracker = EyeLinkTracker(
-            self.get_parameter_wrapper("tracker_address")
+        self.log(
+            f"TT_EYELINK_SUPPORTED: {os.environ.get('TT_EYELINK_SUPPORTED')}"
         )
+
+        if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
+            self.tracker = EyeLinkTracker(
+                self.get_parameter_wrapper("tracker_address")
+            )
+            self.simulate = False
+        else:
+            self.simulate = True
         # pylink.endRealTimeMode()
 
         self.init_bag_writer()
@@ -286,13 +303,15 @@ class Eyelink(BaseNode):
         Ctrl+C) from this machine. Make sure to press the "ESC" key to end
         the setup.
         """
+        if self.simulate:
+            raise RuntimeError("Simulating eyelink, cannot do tracker setup")
+
         self.log("Starting tracker setup on the Eyelink PC")
         try:
             self.tracker.doTrackerSetup()
         except RuntimeError as e:
             self.log(f"Error doing tracker setup: {e}", severity="WARN")
             self.tracker.exitCalibration()
-
         self.log("Eyelink PC tracker setup complete")
 
     def open_data_file(self):
@@ -302,6 +321,13 @@ class Eyelink(BaseNode):
         This file will be named "last.edf" and will store the data from the
         current recording session.
         """
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping data file opening",
+                severity="WARN",
+            )
+            return
+
         self.log("Opening data file")
         edf_file_name = "last.edf"
         self.tracker.openDataFile(edf_file_name)
@@ -359,34 +385,48 @@ class Eyelink(BaseNode):
 
     def start_recording(self):
         """Start the tracker recording and sample retrieval."""
-        self.log("Starting recording")
+
         if self.recording:
             self.log("Already recording, skipping start", severity="WARN")
             return
 
         self.start_sample_retrieval()
-        self.tracker.setOfflineMode()
-        self.tracker.startRecording(1, 0, 1, 0)
-        # pylink.endRealTimeMode()
-        self.tracker.sendMessage("SYNCTIME")
-        eye_available = self.eye_available()
-        if eye_available != EyeAvailable.BINOCULAR:
-            self.stop_sample_retrieval()
-            raise RuntimeError(
-                f"Only binocular mode is supported, got {eye_available}"
+
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping recording start", severity="WARN"
             )
+        else:
+            self.log("Starting recording")
+            self.tracker.setOfflineMode()
+            self.tracker.startRecording(1, 0, 1, 0)
+            # pylink.endRealTimeMode()
+            self.tracker.sendMessage("SYNCTIME")
+            eye_available = self.eye_available()
+            if eye_available != EyeAvailable.BINOCULAR:
+                self.stop_sample_retrieval()
+                raise RuntimeError(
+                    f"Only binocular mode is supported, got {eye_available}"
+                )
 
         self.recording = True
 
     def stop_recording(self):
         """Stop the recording."""
-        self.log("Stopping recording")
         if not self.recording:
             self.log("Not recording, skipping stop", severity="WARN")
             return
 
         self.stop_sample_retrieval()
-        self.tracker.stopRecording()
+
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping recording stop", severity="WARN"
+            )
+        else:
+            self.log("Stopping recording")
+            self.tracker.stopRecording()
+
         self.recording = False
 
     def close_data_file(self):
@@ -396,10 +436,16 @@ class Eyelink(BaseNode):
         data file on the EyeLink PC and transfer it to the local machine. It
         will then convert the EDF file to ASC format.
         """
-        self.log("Closing data file")
-        if self.recording:
-            self.stop_recording()
+        self.stop_recording()
 
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping data file closing",
+                severity="WARN",
+            )
+            return
+
+        self.log("Closing data file")
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
@@ -436,21 +482,12 @@ class Eyelink(BaseNode):
         - BINOCULAR: Both eyes are available.
         - NO_EYE: No eye is available.
         """
+        if self.simulate:
+            raise RuntimeError(
+                "Simulating eyelink, cannot get eye availability"
+            )
+
         return EyeAvailable(self.tracker.eyeAvailable())
-
-    def left_eye_available(self) -> bool:
-        """Check if the left eye is available."""
-        return self.eye_available() in [
-            EyeAvailable.LEFT_EYE,
-            EyeAvailable.BINOCULAR,
-        ]
-
-    def right_eye_available(self) -> bool:
-        """Check if the right eye is available."""
-        return self.eye_available() in [
-            EyeAvailable.RIGHT_EYE,
-            EyeAvailable.BINOCULAR,
-        ]
 
     ###########################################################################
     # Sample retrieval
@@ -480,24 +517,6 @@ class Eyelink(BaseNode):
         if right_sample is None:
             raise RuntimeError("Right eye sample is None")
 
-        # eye_used = self.eye_available()
-        # if eye_used == EyeAvailable.LEFT_EYE:
-        #     assert left_sample is not None
-        #     assert right_sample is None
-        # elif eye_used == EyeAvailable.RIGHT_EYE:
-        #     assert left_sample is None
-        #     assert right_sample is not None
-        # elif eye_used == EyeAvailable.BINOCULAR:
-        #     assert left_sample is not None
-        #     assert right_sample is not None
-        # elif eye_used == EyeAvailable.NO_EYE:
-        #     assert left_sample is None
-        #     assert right_sample is None
-        #     self.log("No eye available", severity="WARN")
-        #     return None
-        # else:
-        #     assert False, f"Unknown eye available value: {eye_used}"
-
         msg = EyelinkMsg()
         msg.header.stamp = timestamp.to_msg()
         msg.eyelink_time_ms = int(sample.getTime())
@@ -509,6 +528,24 @@ class Eyelink(BaseNode):
         msg.right_x, msg.right_y = right_sample.getRawPupil()
         msg.right_pupil = right_sample.getPupilSize()
 
+        return msg
+
+    def generate_simulated_msg(
+        self, min_pos: float, max_pos: float
+    ) -> EyelinkMsg:
+        msg = EyelinkMsg()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.eyelink_time_ms = int(self.ros_time() / 1e3)
+        data = np.random.randint(int(min_pos), int(max_pos), size=4)
+        p = 1e-3
+        prob = [p, 1 - p]
+        msg.left_x = np.random.choice([MISSING_DATA, data[0]], p=prob)
+        msg.left_y = np.random.choice([MISSING_DATA, data[1]], p=prob)
+        msg.left_pupil = np.random.choice([MISSING_DATA, 5000], p=prob)
+        msg.right_x = np.random.choice([MISSING_DATA, data[2]], p=prob)
+        msg.right_y = np.random.choice([MISSING_DATA, data[3]], p=prob)
+        msg.right_pupil = np.random.choice([MISSING_DATA, 5000], p=prob)
+        msg.input = int(np.random.choice([255, 247]))
         return msg
 
     def sample_retrieval_loop(self):
@@ -528,29 +565,46 @@ class Eyelink(BaseNode):
             self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
         )
         period = 1 / self.get_parameter_wrapper("sample_rate")
+        config = self.preprocess_config["clean_eyelink"]
+        min_pos = config["min_eye_pos"]
+        max_pos = config["max_eye_pos"]
         try:
+            # Wait for the tracker to be connected
             while (
-                not self.stop_sample_retrieval_event.is_set()
+                not self.simulate
+                and not self.stop_sample_retrieval_event.is_set()
                 and not self.tracker.isConnected()
             ):
                 self.ros_sleep(period)
 
-            # start_time = self.ros_time()
+            # Receive data from the tracker, add it to the message queue, and
+            # record it to the bag
             while not self.stop_sample_retrieval_event.is_set():
-                try:
-                    self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
-                except RuntimeError as e:
-                    self.log(
-                        f"No data from tracker with error: {e}",
-                        severity="WARN",
-                    )
-                    continue
-
-                sample: Sample | None = self.tracker.getNewestSample()
-                if sample is not None and isinstance(sample, Sample):
+                start_time = self.ros_time()
+                if self.simulate:
+                    msg = self.generate_simulated_msg(min_pos, max_pos)
                     timestamp = self.get_clock().now()
-                    self.tracker.resetData()
-                    msg = self.sample_to_msg(sample, timestamp)
+                else:
+                    try:
+                        self.tracker.waitForData(
+                            wait_for_data_timeout_ms, 1, 0
+                        )
+                    except RuntimeError as e:
+                        self.log(
+                            f"No data from tracker with error: {e}",
+                            severity="WARN",
+                        )
+                        continue
+
+                    sample: Sample | None = self.tracker.getNewestSample()
+                    if sample is None or not isinstance(sample, Sample):  # type: ignore
+                        msg = None
+                    else:
+                        timestamp = self.get_clock().now()
+                        self.tracker.resetData()
+                        msg = self.sample_to_msg(sample, timestamp)
+
+                if msg is not None:
                     self.message_queue.append(msg)
                     if hasattr(self, "bag_writer"):
                         self.bag_writer.write(
@@ -560,8 +614,12 @@ class Eyelink(BaseNode):
                         )
 
                 # Sleep for a short period to avoid busy-waiting (necessary
-                # for avoiding delayed execution in other threads)
-                self.ros_sleep(1e-5)
+                # to force a context switch to other threads)
+                sleep_time = period - (self.ros_time() - start_time)
+                if self.simulate:
+                    self.ros_sleep(0.9 * sleep_time)
+                else:
+                    self.ros_sleep(sleep_time)
         except ROSSleepError as e:
             if rclpy.ok():  # type: ignore
                 raise RuntimeError("ROS2 is still running") from e
@@ -895,6 +953,7 @@ class Eyelink(BaseNode):
         """
 
         try:
+            self.log("Closing data file")
             self.close_data_file()
         except Exception as e:
             self.log(
@@ -904,6 +963,7 @@ class Eyelink(BaseNode):
 
         if hasattr(self, "bag_writer"):
             try:
+                self.log("Closing bag writer")
                 self.bag_writer.close()
             except Exception as e:
                 self.log(
@@ -917,8 +977,9 @@ class Eyelink(BaseNode):
         # except Exception as e:
         #     self.log(f"Error shutting down thread pool: {e}", severity="ERROR")
 
-        self.log("Closing tracker")
-        self.tracker.close()
+        if not self.simulate:
+            self.log("Closing tracker")
+            self.tracker.close()
 
         super().destroy_node()
 

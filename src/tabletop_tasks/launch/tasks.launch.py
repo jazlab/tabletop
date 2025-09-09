@@ -62,6 +62,26 @@ def generate_launch_description():
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
+    # Server
+    server = GroupAction(
+        [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("tabletop_server"),
+                            "launch",
+                            "server.launch.py",
+                        ]
+                    ),
+                ),
+            ),
+        ],
+        condition=IfCondition(launch_server),
+        scoped=True,
+        forwarding=True,
+    )
+
     # Commander
     commander = GroupAction(
         [
@@ -88,30 +108,6 @@ def generate_launch_description():
         forwarding=True,
     )
 
-    # Server
-    server = GroupAction(
-        [
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    PathJoinSubstitution(
-                        [
-                            FindPackageShare("tabletop_server"),
-                            "launch",
-                            "server.launch.py",
-                        ]
-                    ),
-                ),
-            ),
-        ],
-        condition=IfCondition(launch_server),
-        scoped=True,
-        forwarding=True,
-    )
-
-    launch_actions = [
-        set_ros_log_dir,
-        commander,
-        server,
-    ]
+    launch_actions = [set_ros_log_dir, server, commander]
 
     return LaunchDescription(declare_arguments() + launch_actions)

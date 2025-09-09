@@ -1,8 +1,0 @@
-{
-  "build": {
-    "dockerfile": "docker/server/Dockerfile",
-    "context": "../"
-  },
-  "terminals": [],
-  "install": "tt-build"
-}

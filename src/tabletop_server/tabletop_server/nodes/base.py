@@ -1,7 +1,6 @@
 import asyncio
 from typing import Any, Optional, cast
 
-import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.duration import Duration
@@ -20,6 +19,7 @@ from tabletop_utils.ros import (
     SrvTypeRequest,
     SrvTypeResponse,
     msg_to_dict,
+    ros_log,
     validate_service_response,
 )
 
@@ -51,34 +51,11 @@ class BaseNode(Node):
         self._declare_default_parameters()
         # self.log_parameters(severity="DEBUG")
 
-    def log(
-        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
-    ):
+    def log(self, *args: Any, **kwargs: Any):
         """
         Log a message with the given severity.
         """
-        if not isinstance(severity, LoggingSeverity):
-            severity = LoggingSeverity[severity]
-
-        if rclpy.ok():  # type: ignore
-            match severity:
-                case LoggingSeverity.DEBUG:
-                    return self.get_logger().debug(message, **kwargs)
-                case LoggingSeverity.INFO:
-                    return self.get_logger().info(message, **kwargs)
-                case LoggingSeverity.WARN:
-                    return self.get_logger().warning(message, **kwargs)
-                case LoggingSeverity.ERROR:
-                    return self.get_logger().error(message, **kwargs)
-                case LoggingSeverity.FATAL:
-                    return self.get_logger().fatal(message, **kwargs)
-                case _:
-                    raise ValueError(f"Invalid severity: {severity}")
-        elif severity >= self.log_level:
-            print(f"{severity.name}: {message}")
-            return True
-        else:
-            return False
+        return ros_log(self.get_logger(), *args, **kwargs)
 
     @property
     def log_level(self) -> LoggingSeverity:
@@ -109,7 +86,10 @@ class BaseNode(Node):
             return False
 
     def log_parameters(
-        self, prefix: str = "", severity: str | LoggingSeverity = "INFO"
+        self,
+        prefix: str = "",
+        severity: str | LoggingSeverity = "INFO",
+        **kwargs: Any,
     ) -> bool:
         """
         Log all parameters with the given prefix.
@@ -124,7 +104,7 @@ class BaseNode(Node):
             )
             if prefix:
                 string = f"Parameters with prefix {prefix}:\n{string}"
-            success = self.log(string, severity=severity)
+            success = self.log(string, severity=severity, **kwargs)
             assert success
             return True
         else:

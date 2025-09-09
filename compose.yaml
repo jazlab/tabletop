@@ -54,11 +54,9 @@ services:
       pull: true
       args:
         - ROS_DISTRO=jazzy
-        - USER=$TT_USER
-        - UID=$TT_UID
-        - USE_NVIDIA=$TT_USE_NVIDIA
-      platforms:
-        - linux/amd64
+        - USER=mules
+        - UID=${TT_UID:-1000}
+        - USE_NVIDIA=${TT_USE_NVIDIA:-false}
     volumes:
       - ./:/tabletop
       - /tabletop/.venv
@@ -77,8 +75,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - PULSE_SERVER=/tmp/pulseaudio.socket
     volumes:
-      - $XDG_RUNTIME_DIR/pulse/native:/tmp/pulseaudio.socket
-      - ~/.config/pulse/cookie:/home/$TT_USER/.config/pulse/cookie
+      - ${XDG_RUNTIME_DIR:-/run/user/${TT_UID:-1000}}/pulse/native:/tmp/pulseaudio.socket
+      - ~/.config/pulse/cookie:/home/mules/.config/pulse/cookie
 
   server:
     extends: $TT_SERVER_BASE_SERVICE
@@ -103,11 +101,11 @@ services:
     build:
       target: dev
     # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    # privileged: true
+    privileged: true
     volumes:
       - /dev:/dev
-      - ~/.vimrc:/home/$TT_USER/.vimrc
-      - ~/.config/starship.toml:/home/$TT_USER/.config/starship.toml
+      - ~/.vimrc:/home/mules/.vimrc
+      - ~/.config/starship.toml:/home/mules/.config/starship.toml
     environment:
       - SHELL=/bin/bash
 

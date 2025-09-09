@@ -53,7 +53,6 @@ class SmoothPursuitTask(BaseTask):
 
         last_waypoint: RobotState | None = None
         for i in range(self._num_segments + 1):
-            self.log(f"Generating segment {i} of {self._num_segments}")
             # Calculate x and z coordinates of spiral (circular motion)
             theta_xz = (
                 2 * np.pi * i * self._num_revolutions
@@ -74,38 +73,42 @@ class SmoothPursuitTask(BaseTask):
                 orientation=self._center_pose.pose.orientation,
             )
 
-            if i == 0:
-                # Plan to start of spiral
-                trajectory = await self.commander.plan(
-                    goal=waypoint_pose_stamped
-                )
-                if trajectory is None:
-                    self.log(
-                        "Initial robot pose close enough to first waypoint, skipping planning",
-                        severity="INFO",
+            try:
+                if i == 0:
+                    # Plan to start of spiral
+                    trajectory = await self.commander.plan(
+                        goal=waypoint_pose_stamped
                     )
-                    last_waypoint = self.commander.current_state
-                    continue
-            else:
-                # Plan segment of spiral
-                trajectory = await self.commander.plan(
-                    goal=waypoint_pose_stamped,
-                    start_state=last_waypoint,
-                    planning_pipeline="linear",
-                )
-                if trajectory is None:
-                    self.log(
-                        "Waypoints may be too close, skipping segment",
-                        severity="WARN",
-                    )
-                    continue
-
-                if i == 1:
-                    spiral_trajectory = trajectory
+                    if trajectory is None:
+                        self.log(
+                            "Initial robot pose close enough to first waypoint, skipping planning",
+                            severity="INFO",
+                        )
+                        last_waypoint = self.commander.current_state
+                        continue
                 else:
-                    spiral_trajectory.append(
-                        trajectory, dt=0.01, start_index=1
+                    # Plan segment of spiral
+                    trajectory = await self.commander.plan(
+                        goal=waypoint_pose_stamped,
+                        start_state=last_waypoint,
+                        planning_pipeline="linear",
                     )
+                    if trajectory is None:
+                        self.log(
+                            "Waypoints may be too close, skipping segment",
+                            severity="WARN",
+                        )
+                        continue
+
+                    if i == 1:
+                        spiral_trajectory = trajectory
+                    else:
+                        spiral_trajectory.append(
+                            trajectory, dt=0.01, start_index=1
+                        )
+            except Exception:
+                self.log(f"Error generating segment {i}", severity="ERROR")
+                raise
 
             last_waypoint = trajectory[len(trajectory) - 1]
 

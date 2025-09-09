@@ -33,14 +33,13 @@ print_warning() {
     echo -e "\033[1;33m$@\033[0m"
 }
 
-# Aliases
-alias tree="tree -I 'build|install|logs|results"
 
-# ROS-specific aliases
+# Aliases
 if [ -d /opt/ros ]; then
     alias tt-server="ros2 launch tabletop_server server.launch.py"
     alias tt-commander="ros2 launch tabletop_server commander.launch.py"
     alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
+    alias tree="tree -I 'build|install|logs|results"
 fi
 
 # Set environment variables
@@ -60,6 +59,14 @@ if [[ -f $TABLETOP_DIR/.venv/bin/activate  ]]; then
     source $TABLETOP_DIR/.venv/bin/activate
 fi
 
+# Source colcon cd and argcomplete if it exists
+if [ -f $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh ]; then
+    source $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh
+fi
+if [ -f $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then
+    source $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+fi
+
 # Source ROS environment
 if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
     # Source ROS environment
@@ -70,26 +77,23 @@ if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
     fi
 fi
 
-# Source colcon cd and argcomplete if it exists
-if [ -f $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh ]; then
-    source $TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh
-fi
-if [ -f $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then
-    source $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash
-fi
-
 # Add tabletop bin directory to PATH
 export PATH=$TABLETOP_DIR/bin:$PATH
 
 # Set build variables for Docker
-export TT_USER=mules
 export TT_UID=$(id -u)
 export COMPOSE_BAKE=true
 if [[ $(command -v nvidia-smi) ]]; then
     export TT_USE_NVIDIA=true
     export TT_SERVER_BASE_SERVICE=server-base-linux
+    export TT_UV_EXTRA="--extra cu128"
 else
     export TT_USE_NVIDIA=false
     export TT_SERVER_BASE_SERVICE=server-base
+    export TT_UV_EXTRA="--extra cpu"
 fi
 
+if [[ $(uname -m) = x86_64 ]] ; then
+    export TT_EYELINK_SUPPORTED=true
+    export TT_UV_EXTRA="$TT_UV_EXTRA --extra eyelink"
+fi

@@ -27,11 +27,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
 <<EOT
 set -ex
-apt-get update && apt-get upgrade -y
-apt-get install -y ca-certificates software-properties-common
-apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
-add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
-apt-get clean && rm -rf /var/lib/apt/lists/*
+if [[ $(uname -m) = x86_64 ]] ; then
+    apt-get update && apt-get upgrade -y
+    apt-get install -y ca-certificates software-properties-common
+    apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
+    add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
+    apt-get update
+    apt-get install -y eyelink-display-software
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+fi
 EOT
 
 # Install apt packages
@@ -101,11 +105,24 @@ RUN --mount=type=bind,source=uv.lock,target=uv.lock \
 <<EOT
 set -ex
 if [[ $USE_NVIDIA = true ]] ; then
-    uv sync --locked --no-install-project --extra cu128
+    UV_EXTRA="--extra cu128"
 else
-    uv sync --locked --no-install-project --extra cpu
+    UV_EXTRA="--extra cpu"
 fi
+if [[ $(uname -m) = x86_64 ]] ; then
+    UV_EXTRA="$UV_EXTRA --extra eyelink"
+fi
+uv sync --locked --no-install-project $UV_EXTRA
 EOT
+
+# Install colcon mixins
+RUN <<EOT
+set -ex
+colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
+colcon mixin update default
+EOT
+
+ENV TT_IN_CONTAINER=true
 
 # Development image with additional dependencies and tools
 FROM base AS dev
@@ -143,7 +160,6 @@ export PATH=~/.local/bin:\$PATH
 source /tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
-eval "\$(direnv hook bash)"
 eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF
