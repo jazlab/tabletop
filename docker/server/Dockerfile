@@ -9,19 +9,6 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-# Add mirror to apt sources
-RUN <<EOT
-set -ex
-cat <<EOF > /etc/apt/sources.list.d/mirrors.sources
-Types: deb
-URIs: http://us.archive.ubuntu.com/ubuntu/
-Suites: noble noble-updates noble-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-EOF
-apt-get clean && rm -rf /var/lib/apt/lists/*
-EOT
-
 # Add SR Research repository
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
