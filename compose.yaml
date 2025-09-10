@@ -1,6 +1,18 @@
 name: tabletop
 
 services:
+  autoheal:
+    deploy:
+      replicas: 1
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal-tabletop
+    image: willfarrell/autoheal:latest
+    network_mode: none
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
   novnc:
     build:
       context: ./docker/novnc
@@ -9,21 +21,16 @@ services:
       tabletop_net:
         ipv4_address: 192.168.12.100
     hostname: novnc
-    restart: on-failure
-    healthcheck:
-      test: [ "CMD", "/app/healthcheck.sh" ]
-      interval: 10s
-      timeout: 2s
-      retries: 3
-      start_period: 10s
-      start_interval: 2s
     ports:
       - 8080:8080
     environment:
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
       - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
-      - RUN_XTERM=no
-      - WINDOW_MANAGER=DWM
+      - WINDOW_MANAGER=dwm
+    depends_on:
+      - autoheal
+    labels:
+      autoheal-tabletop: true
 
   ursim:
     image: universalrobots/ursim_e-series:latest
@@ -33,9 +40,6 @@ services:
         ipv4_address: 192.168.12.20
     hostname: ursim
     restart: unless-stopped
-    depends_on:
-      novnc:
-        condition: service_healthy
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -45,75 +49,9 @@ services:
       - DISPLAY=novnc:0.0
     init: true
     entrypoint: [ "/entrypoint.sh" ]
-
-  server-base:
-    build:
-      context: .
-      dockerfile: ./docker/server/Dockerfile
-      target: base
-      pull: true
-      args:
-        - ROS_DISTRO=jazzy
-        - USER=mules
-        - UID=${TT_UID:-1000}
-        - USE_NVIDIA=${TT_USE_NVIDIA:-false}
-    volumes:
-      - ./:/tabletop
-      - /tabletop/.venv
-    environment:
-      - DISPLAY=novnc:0.0
-    working_dir: /tabletop
-    init: true
-    command: sleep infinity
-
-  server-base-linux:
-    extends: server-base
-    runtime: nvidia
-    environment:
-      # - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - PULSE_SERVER=/tmp/pulseaudio.socket
-    volumes:
-      - ${XDG_RUNTIME_DIR:-/run/user/${TT_UID:-1000}}/pulse/native:/tmp/pulseaudio.socket
-      - ~/.config/pulse/cookie:/home/mules/.config/pulse/cookie
-
-  server:
-    extends: $TT_SERVER_BASE_SERVICE
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.10
-    hostname: server
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
-    # Uncomment the following section if you plan on connecting a teensy after starting the container
-    # device_cgroup_rules:
-    #   - c 161:* rmw
-    # Uncomment the following section if a teensy is connected before starting the container
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
-
-  server-dev:
-    extends: server
-    build:
-      target: dev
-    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    privileged: true
-    volumes:
-      - /dev:/dev
-      - ~/.vimrc:/home/mules/.vimrc
-      - ~/.config/starship.toml:/home/mules/.config/starship.toml
-    environment:
-      - SHELL=/bin/bash
-
-
-  optitrack:
-    extends: server-base
-    network_mode: host
-    command: bash -c "source /tabletop/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+    depends_on:
+      novnc:
+        condition: service_healthy
 
   flic:
     image: ubuntu:latest
@@ -131,14 +69,85 @@ services:
       - SERVER_ADDR=0.0.0.0
     init: true
     command: /app/entrypoint.sh
-    # command: bash -c
-    #   "/app/flicd
-    #   --db-file /app/flic.db
-    #   --my-bdaddr $$BD_ADDR
-    #   --server-addr $$SERVER_ADDR
-    #   --server-port $$PORT
-    #   --hci-dev $$HCI_DEV
-    #   --wait-for-hci"
+    healthcheck:
+      test: [ "CMD", "/app/healthcheck.sh" ]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+    depends_on:
+      - autoheal
+    labels:
+      autoheal-tabletop: true
+
+  server-base:
+    build:
+      context: .
+      dockerfile: ./docker/server/Dockerfile
+      target: base
+      pull: true
+      args:
+        - ROS_DISTRO=jazzy
+        - USER=mules
+        - UID=$TT_UID
+        - USE_NVIDIA=$TT_USE_NVIDIA
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./:/tabletop
+      - /tabletop/.venv
+    working_dir: /tabletop
+    init: true
+    command: sleep infinity
+
+  optitrack:
+    extends: server-base
+    network_mode: host
+    command: bash -c "source /tabletop/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+
+  server:
+    extends: server-base
+    runtime: $TT_CONTAINER_RUNTIME
+    networks:
+      tabletop_net:
+        ipv4_address: 192.168.12.10
+    hostname: server
+    ports:
+      - 50001:50001
+      - 50002:50002
+      - 50003:50003
+      - 50004:50004
+    # Uncomment the following section if you plan on connecting a teensy after starting the container
+    # device_cgroup_rules:
+    #   - c 161:* rmw
+    # Uncomment the following section if a teensy is connected before starting the container
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    environment:
+      - DISPLAY=novnc:0.0
+      # - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=$TT_NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$TT_NVIDIA_DRIVER_CAPABILITIES
+      - PULSE_SERVER=/tmp/pulseaudio.socket
+    volumes:
+      - ${TT_PULSE_SERVER_HOST:-/dev/null}:/tmp/pulseaudio.socket
+      - ${TT_PULSE_COOKIE_HOST:-/dev/null}:/home/mules/.config/pulse/cookie:ro
+    depends_on:
+      novnc:
+        condition: service_healthy
+
+  server-dev:
+    extends: server
+    build:
+      target: dev
+    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - ~/.vimrc:/home/mules/.vimrc:ro
+      - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
+    environment:
+      - SHELL=/bin/bash
 
 networks:
   tabletop_net:

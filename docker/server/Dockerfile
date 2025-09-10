@@ -28,7 +28,7 @@ EOT
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=apt.list,target=/tmp/apt.list \
+    --mount=type=bind,source=deps/apt.list,target=/tmp/apt.list \
 <<EOT
 set -ex
 apt-get update && apt-get upgrade -y

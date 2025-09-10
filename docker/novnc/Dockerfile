@@ -1,14 +1,12 @@
 FROM debian:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
-
 # Keep downloaded packages to reduce build time
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
 # Install git, supervisor, VNC, & X11 packages
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-novnc,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,id=apt-lib-novnc,sharing=locked <<EOT
 set -ex
 apt-get update && apt-get upgrade -y
 apt-get install -y \
@@ -25,14 +23,12 @@ apt-get install -y \
 EOT
 
 # Setup environment variables
-ENV HOME=/root \
-    USER=root \
-    DISPLAY=:0.0
-# SESSION_MANAGER= \
-# DBUS_SESSION_BUS_ADDRESS=
+USER root
+ENV DISPLAY=:0.0
 
 COPY . /app
 RUN chmod +x /app/entrypoint.sh /app/healthcheck.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
+HEALTHCHECK --interval=10s --timeout=2s --retries=3 --start-period=10s --start-interval=2s CMD ["/app/healthcheck.sh"]
 CMD []
 EXPOSE 8080

@@ -80,7 +80,7 @@ exit_on_disconnect() {
 
 # --wait-for-hci necessary, see musings.md
 app_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-exit_on_disconnect $app_dir/flicd \
+$app_dir/flicd \
     --db-file $app_dir/flic.db \
     --my-bdaddr $BD_ADDR \
     --server-addr $SERVER_ADDR \

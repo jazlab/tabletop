@@ -1,5 +1,5 @@
 *
 !src/**/package.xml
-!apt.list
+!deps/apt.list
 !uv.lock
 !pyproject.toml

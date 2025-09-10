@@ -2,12 +2,10 @@
 
 set -e
 
-case "$(echo "$RUN_XTERM" | tr '[:upper:]' '[:lower:]')" in
-  false|no|n|0|'')
+if [ "$RUN_XTERM" != "true" ]; then
     rm -f /app/conf.d/xterm.conf
-    ;;
-esac
+fi
 
-cp /app/conf.wm/$(echo "$WINDOW_MANAGER" | tr '[:upper:]' '[:lower:]').conf /app/conf.d/
+cp /app/conf.wm/$WINDOW_MANAGER.conf /app/conf.d/
 
 exec supervisord -c /app/supervisord.conf

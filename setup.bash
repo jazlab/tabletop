@@ -55,7 +55,7 @@ export REVERSE_IP=192.168.13.10
 export PYTHONUNBUFFERED=1
 
 # Source Python virtual environment
-if [[ -f $TABLETOP_DIR/.venv/bin/activate  ]]; then
+if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then
     source $TABLETOP_DIR/.venv/bin/activate
 fi
 
@@ -83,17 +83,37 @@ export PATH=$TABLETOP_DIR/bin:$PATH
 # Set build variables for Docker
 export TT_UID=$(id -u)
 export COMPOSE_BAKE=true
-if [[ $(command -v nvidia-smi) ]]; then
+if command -v nvidia-smi >/dev/null 2>&1; then
     export TT_USE_NVIDIA=true
-    export TT_SERVER_BASE_SERVICE=server-base-linux
+    export TT_CONTAINER_RUNTIME=nvidia
+    export TT_NVIDIA_VISIBLE_DEVICES=all
+    export TT_NVIDIA_DRIVER_CAPABILITIES=all
     export TT_UV_EXTRA="--extra cu128"
 else
     export TT_USE_NVIDIA=false
-    export TT_SERVER_BASE_SERVICE=server-base
+    export TT_CONTAINER_RUNTIME=runc
+    export TT_NVIDIA_VISIBLE_DEVICES=
+    export TT_NVIDIA_DRIVER_CAPABILITIES=
     export TT_UV_EXTRA="--extra cpu"
 fi
 
-if [[ $(uname -m) = x86_64 ]] ; then
+if [ "$(uname -m)" = "x86_64" ] ; then
     export TT_EYELINK_SUPPORTED=true
     export TT_UV_EXTRA="$TT_UV_EXTRA --extra eyelink"
+fi
+
+if command -v pactl >/dev/null 2>&1; then
+    export TT_PULSE_SERVER_HOST=$(pactl --format=json info | jq -r '.server_string')
+    if [[ -S $TT_PULSE_SERVER_HOST ]]; then
+        export TT_PULSE_COOKIE_HOST=~/.config/pulse/cookie
+    else
+        export TT_PULSE_SERVER_HOST=/tmp/pulseaudio-empty.socket
+        export TT_PULSE_COOKIE_HOST=/tmp/pulseaudio-empty.cookie
+    fi
+elif [ -S "$XDG_RUNTIME_DIR/pulse/native" ]; then
+    export TT_PULSE_SERVER_HOST=$XDG_RUNTIME_DIR/pulse/native
+    export TT_PULSE_COOKIE_HOST=~/.config/pulse/cookie
+else
+    export TT_PULSE_SERVER_HOST=/tmp/pulseaudio-empty.socket
+    export TT_PULSE_COOKIE_HOST=/tmp/pulseaudio-empty.cookie
 fi
