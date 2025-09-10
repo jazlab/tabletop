@@ -11,16 +11,16 @@ from rclpy.action.server import (
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.time import Time
-
 from tabletop_interfaces.action import FlicResponseTime
-from tabletop_server.nodes.base import BaseNode
-from tabletop_server.nodes.commander import argparse
 from tabletop_utils.executors import AIOExecutor
 from tabletop_utils.flic_client import (
     BluetoothControllerState,
     ClickType,
     FlicClient,
 )
+
+from tabletop_server.nodes.base import BaseNode
+from tabletop_server.nodes.commander import argparse
 
 
 class Flic(BaseNode):

@@ -11,7 +11,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 calib_file="$1"
-config_dir="$TABLETOP_DIR/src/tabletop_description/config"
+config_dir=$(colcon_cd tabletop_description)/config
 target_file="$config_dir/$calib_file"
 
 if [[ -f "$target_file" ]]; then

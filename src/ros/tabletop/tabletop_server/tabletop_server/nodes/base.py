@@ -10,7 +10,6 @@ from rclpy.exceptions import (
 )
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
-
 from tabletop_utils.common import yaml_dump_string
 from tabletop_utils.ros import (
     ROSSleepError,

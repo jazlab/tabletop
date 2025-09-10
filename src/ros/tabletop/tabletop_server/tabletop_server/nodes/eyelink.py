@@ -12,6 +12,7 @@ import rosbag2_py
 import torch
 import yaml
 from geometry_msgs.msg import Point
+from mocap4r2_msgs.msg import Marker, Markers
 from rclpy.action.server import (
     ActionServer,
     CancelResponse,
@@ -23,10 +24,10 @@ from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.serialization import serialize_message
 from rclpy.time import Time
 from std_srvs.srv import Trigger
-
-from mocap4r2_msgs.msg import Marker, Markers
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
+from tabletop_utils.ros import ROSSleepError, seconds_from_ros_time
+
 from tabletop_py.gaze.convert import edf_to_csv
 from tabletop_py.gaze.preprocess import (
     EYELINK_DATA_COLS,
@@ -37,7 +38,6 @@ from tabletop_py.gaze.preprocess import (
 )
 from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
-from tabletop_utils.ros import ROSSleepError, seconds_from_ros_time
 
 if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
     from pylink import EyeLink as EyeLinkTracker

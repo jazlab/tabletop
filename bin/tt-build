@@ -6,13 +6,13 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
 print_usage() {
-    print_error "Usage: $0 [--debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-deps]"
+    print_error "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-deps]"
 }
 
-pushd $COLCON_WS
+cd $COLCON_WS
 
 # Parse arguments
-debug=false
+build_debug=false
 clean=false
 clean_all=false
 workers=
@@ -21,18 +21,41 @@ linker=mold
 all=false
 clang=false
 only_deps=false
+verbose=false
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --debug)
-            debug=true
-            ;;
         --clean)
             clean=true
             ;;
         --clean-all)
             clean_all=true
             ;;
-        -w|--workers)
+        -a|--all)
+            all=true
+            ;;
+        -p|--packages)
+            while [[ $# -gt 1 && $2 != -* ]]; do
+                packages+=($2)
+                shift
+            done
+            if [[ ${#packages[@]} -eq 0 ]]; then
+                print_error "No packages provided with -p|--packages"
+                print_usage
+                exit 1
+            fi
+            ;;
+        -d|--only-deps)
+            only_deps=true
+            ;;
+        --build-debug)
+            build_debug=true
+            ;;
+        --workers)
+            if [[ $# -le 1  || $2 == -* ]]; then
+                print_error "No workers provided with --workers"
+                print_usage
+                exit 1
+            fi
             workers=$2
             shift
             ;;
@@ -40,25 +63,16 @@ while [[ $# -gt 0 ]]; do
             clang=true
             ;;
         --linker)
-            linker=$2
-            shift
-            ;;
-        -p|--packages)
             if [[ $# -le 1  || $2 == -* ]]; then
-                print_error "No packages provided"
+                print_error "No linker provided with --linker"
                 print_usage
                 exit 1
             fi
-            while [[ $# -gt 1 && $2 != -* ]]; do
-                packages+=($2)
-                shift
-            done
+            linker=$2
+            shift
             ;;
-        -a|--all)
-            all=true
-            ;;
-        --only-deps)
-            only_deps=true
+        -v|--verbose)
+            verbose=true
             ;;
         *)
             print_error "Unknown argument $1"
@@ -69,72 +83,55 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+# Package selection
+base_paths="src/ros"
 if [ "$all" = "true" ]; then
-    if [ ${#packages[@]} -gt 0 ]; then
-        print_error "Cannot use --all with -p|--packages"
+    # Build all packages in src/ros
+    if [ ${#packages[@]} -gt 0 ] || [ "$only_deps" = "true" ]; then
+        print_error "Cannot use --all with -p|--packages or -d|--only-deps"
         print_usage
         exit 1
     fi
-    package_selection=
-else
-    if [ ${#packages[@]} -eq 0 ]; then
-        packages=(tabletop)
+elif [ "$only_deps" = "true" ]; then
+    # Build only dependency packages in src/ros/modules
+    if [ ${#packages[@]} -gt 0 ]; then
+        print_error "Cannot use -p|--packages with -d|--only-deps"
+        print_usage
+        exit 1
     fi
+    base_paths="src/ros/modules"
+    from_paths="--from-paths $base_paths"
+elif [ ${#packages[@]} -gt 0 ]; then
+    # Build only the specified packages and their recursive dependencies
     package_selection="--packages-up-to ${packages[@]}"
+else
+    # Build only the tabletop packages in src/ros/tabletop
+    base_paths="src/ros/tabletop"
 fi
+
+# Skip x86_64-dependent packages
+packages_to_skip=(moveit_ros_tests)
+if [ "$(uname -m)" != "x86_64" ]; then
+    packages_to_skip+=("mocap4r2_optitrack_driver")
+fi
+packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
 if [ "$clean_all" = "true" ]; then
-    tt-clean-ws --all --log
+    tt-clean-ws --all
 elif [ "$clean" = "true" ]; then
     tt-clean-ws
 fi
 
-# Upgrade apt packages
-print_status "Upgrading apt packages"
-sudo apt update
-sudo apt upgrade -y
-sudo apt dist-upgrade -y
-rosdep update -q
-
-# Install Python dependencies
-print_status "Installing Python dependencies using uv"
-uv sync $TT_UV_EXTRA
-
-# Remove any existing MoveIt2 debian packages
-print_status "Removing any existing MoveIt2 debian packages"
-sudo apt remove -y ros-${ROS_DISTRO}-moveit* || true
-
-# Source ROS environment again after rosdep update
-source $TABLETOP_DIR/setup.bash
-
 # Install ROS 2 build dependencies
-dependency_types="-t buildtool_export -t build -t build_export -t buildtool"
-if [ "$only_deps" = "true" ]; then
-    print_status "Installing ROS 2 dependencies"
-    dependency_types="$dependency_types -t exec"
-else
-    print_status "Installing ROS 2 build dependencies"
-fi
-
-rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
-
-if [ "$only_deps" = "true" ]; then
-    print_status "Successfully installed dependencies, skipping build and exiting"
-    exit 0
-fi
-
-# Skip x86_64-dependent packages
-if [ "$(uname -m)" != "x86_64" ]; then
-    packages_skip="--packages-skip mocap4r2_optitrack_driver"
-fi
+tt-dep-install --type build $from_paths
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 
 # Set Mixins
 mixins=()
-if [ "$debug" = "true" ]; then
+if [ "$build_debug" = "true" ]; then
     mixins+=("debug")
 else
     mixins+=("release")
@@ -151,26 +148,27 @@ if [ -n "$workers" ]; then
     parallel_workers="--parallel-workers $workers"
 fi
 
+if [ "$verbose" = "true" ]; then
+    event_handlers="--event-handlers console_cohesion+"
+fi
+
 # Build ROS 2 packages
-command="python3 -m colcon build \
---symlink-install \
---event-handlers console_cohesion+ \
+command="colcon --log-base $COLCON_WS/log/colcon build \
+--base-paths $base_paths \
+$packages_skip \
+$package_selection \
 --cmake-args "${cmake_args[@]}" \
 --mixin "${mixins[@]}" \
 $parallel_workers \
-$packages_skip \
-$package_selection"
+--symlink-install \
+$event_handlers"
+
 
 print_status "Building ROS 2 packages with command: $command"
 $command
+print_status "Successfully built ROS 2 packages!"
 
 source install/setup.bash
 
 # Install ROS 2 runtime dependencies
-print_status "Installing ROS 2 runtime dependencies"
-dependency_types="-t exec"
-rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} $dependency_types -y
-
-print_status "Successfully built ROS 2 packages!"
-
-popd
+tt-dep-install --type exec $from_paths --skip-uv --skip-apt

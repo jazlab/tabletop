@@ -5,7 +5,13 @@ set -e
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
-output_file=${1:-graph.md}
+if [[ $# -gt 1 ]]; then
+    print_error "Usage: $0 [output_file]"
+    print_error "If not provided, the graph will be saved to $TABLETOP_DIR/docs/graph.md"
+    exit 1
+fi
+
+pushd $TABLETOP_DIR/docs
 
 nodes_to_ignore=""
 # /rosbag2_recorder
@@ -21,7 +27,7 @@ nodes_to_ignore=""
 nodes=$(ros2 node list | grep -vE "$nodes_to_ignore" | tr '\n' ' ')
 echo Nodes: $nodes
 
-source $TABLETOP_DIR/install/setup.bash
-source $TABLETOP_DIR/venv/bin/activate
-cd $TABLETOP_DIR/src/tabletop
+output_file=${1:-graph.md}
 ros2_graph $nodes -o $output_file --styleConfig ros/graph_style.yaml
+
+popd

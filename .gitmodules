@@ -1,28 +1,28 @@
 [submodule "micro-ROS-Agent"]
-	path = src/micro-ROS-Agent
+	path = src/ros/modules/micro-ROS-Agent
 	url = https://github.com/micro-ROS/micro-ROS-Agent.git
 	branch = jazzy
 [submodule "micro_ros_msgs"]
-	path = src/micro_ros_msgs
+	path = src/ros/modules/micro_ros_msgs
 	url = https://github.com/micro-ROS/micro_ros_msgs.git
 	branch = jazzy
 [submodule "moveit2"]
-	path = src/moveit2
+	path = src/ros/modules/moveit2
 	url = https://github.com/valmikikothare/moveit2.git
 	branch = main
 [submodule "moveit_msgs"]
-	path = src/moveit_msgs
+	path = src/ros/modules/moveit_msgs
 	url = https://github.com/moveit/moveit_msgs
 	branch = ros2
 [submodule "mocap4r2_msgs"]
-	path = src/mocap4r2_msgs
+	path = src/ros/modules/mocap4r2_msgs
 	url = https://github.com/valmikikothare/mocap4r2_msgs.git
 	branch = rolling
 [submodule "mocap4r2"]
-	path = src/mocap4r2
+	path = src/ros/modules/mocap4r2
 	url = https://github.com/valmikikothare/mocap4r2.git
 	branch = rolling
 [submodule "mocap4r2_optitrack"]
-	path = src/mocap4r2_optitrack
+	path = src/ros/modules/mocap4r2_optitrack
 	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
 	branch = rolling

@@ -45,7 +45,8 @@ fi
 # Set environment variables
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 export COLCON_WS=$TABLETOP_DIR
-export ROS_LOG_DIR=$TABLETOP_DIR/log
+export COLCON_LOG_DIR=$COLCON_WS/log/colcon
+export ROS_LOG_DIR=$TABLETOP_DIR/log/ros
 export ROS_BAG_DIR=$TABLETOP_DIR/bags
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export SIM_ROBOT_IP=192.168.12.20

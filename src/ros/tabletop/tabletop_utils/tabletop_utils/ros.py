@@ -16,6 +16,14 @@ from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
+from moveit_msgs.msg import (
+    AttachedCollisionObject,
+    CollisionObject,
+    Constraints,
+    MoveItErrorCodes,
+    ObjectColor,
+)
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.client import Client
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.impl.rcutils_logger import RcutilsLogger
@@ -34,14 +42,6 @@ from transformations import (
     translation_matrix,
 )
 
-from moveit_msgs.msg import (
-    AttachedCollisionObject,
-    CollisionObject,
-    Constraints,
-    MoveItErrorCodes,
-    ObjectColor,
-)
-from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from tabletop_utils.common import is_iterable
 
 # Constants

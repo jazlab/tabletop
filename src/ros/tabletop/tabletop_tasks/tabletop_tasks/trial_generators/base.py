@@ -7,7 +7,6 @@ from typing import Any, Literal, NamedTuple
 import rclpy.logging
 from geometry_msgs.msg import PoseStamped
 from rclpy.impl.logging_severity import LoggingSeverity
-
 from tabletop_server.nodes import Commander
 
 logger = rclpy.logging.get_logger("trial_generator")

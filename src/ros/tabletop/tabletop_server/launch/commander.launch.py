@@ -21,7 +21,6 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-
 from tabletop_utils.common import yaml_dump_string
 
 

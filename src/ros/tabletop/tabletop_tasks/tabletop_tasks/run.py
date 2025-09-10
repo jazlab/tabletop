@@ -1,10 +1,10 @@
 import importlib
 
 import yaml
-
 from tabletop_server.nodes import Commander
-from tabletop_tasks.tasks.base import BaseTask
 from tabletop_utils.common import yaml_dump_string
+
+from tabletop_tasks.tasks.base import BaseTask
 
 
 async def run_tasks(commander: Commander, config_file: str) -> None:

@@ -592,6 +592,15 @@ wheels = [
 ]
 
 [[package]]
+name = "distro"
+version = "1.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
 name = "docutils"
 version = "0.22"
 source = { registry = "https://pypi.org/simple" }
@@ -1619,6 +1628,50 @@ wheels = [
 ]
 
 [[package]]
+name = "rosdep"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "catkin-pkg" },
+    { name = "pyyaml" },
+    { name = "rosdistro" },
+    { name = "rospkg" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/87/98/cac5c90f12f609d79d442a34939034d4b0ca9602ee1e6dfcac975257a334/rosdep-0.26.0.tar.gz", hash = "sha256:c4743003058bc0eed47607f4661f5d1a7c5058a830b8cb3a0403eefa09dd6dad", size = 96527, upload-time = "2025-06-30T03:44:33.342Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/c1/15c5c296f41e6a290e6c3515316b2676be580c66b10e26372200a0ecbdd7/rosdep-0.26.0-py3-none-any.whl", hash = "sha256:3b666053929e802afb70870c694d4095fff355a2c20e07abee4e1390b9f53925", size = 111052, upload-time = "2025-06-30T03:44:26.452Z" },
+]
+
+[[package]]
+name = "rosdistro"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "catkin-pkg" },
+    { name = "pyyaml" },
+    { name = "rospkg" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5f/3f/5f52b68bc146c871631e3ef12c5334bd2cf0cc6b528880efc172945d8743/rosdistro-1.0.1.tar.gz", hash = "sha256:27f88b4bf0ad79e905e91db37674b9f3a25d127ae6e47baabd1e18044d60c26c", size = 50469, upload-time = "2024-10-19T13:56:53.014Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/22/32/d0fbc4383a6a213d315c39dda9107f81654d9941c43d6c687e61995ec388/rosdistro-1.0.1-py3-none-any.whl", hash = "sha256:587da10e1bc9f1ff8dc026ac9361ac1a1d2a79a434dfcb73175e45110880651c", size = 96785, upload-time = "2024-10-19T13:56:50.516Z" },
+]
+
+[[package]]
+name = "rospkg"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "catkin-pkg" },
+    { name = "distro" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ca/15/c74423bc434c7b3a8236fdd2af5f4c4ce3b4a5fd081cfa0fc3066c2f2638/rospkg-1.6.0.tar.gz", hash = "sha256:61c87ab60877388c0874c2e89f506b862918e8ca87b7f2949d9991a4add87036", size = 42642, upload-time = "2025-01-24T23:19:14.604Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/c1/b0616243c1f922252ceb4513c22abefc1773cf372bfc0b6f7e59c2829f96/rospkg-1.6.0-py3-none-any.whl", hash = "sha256:491d49a0d85969cd99df056122f95fc33ff277992a4e275c4448c2e02220a9cb", size = 36040, upload-time = "2025-01-24T23:19:12.771Z" },
+]
+
+[[package]]
 name = "rpds-py"
 version = "0.27.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1800,6 +1853,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "rosdep" },
     { name = "scikit-learn" },
     { name = "torcheval" },
     { name = "tqdm" },
@@ -1837,6 +1891,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.5" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "pandas", specifier = ">=2.3.1" },
+    { name = "rosdep", specifier = ">=0.26.0" },
     { name = "scikit-learn", specifier = ">=1.7.1" },
     { name = "sr-research-pylink", marker = "extra == 'eyelink'", specifier = ">=2.1.1145.post1", index = "https://pypi.sr-research.com/" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "tabletop-py", extra = "cpu" } },

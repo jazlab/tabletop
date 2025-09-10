@@ -11,11 +11,11 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
-
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
-from tabletop_server.nodes.base import BaseNode
 from tabletop_utils.executors import AIOExecutor
+
+from tabletop_server.nodes.base import BaseNode
 
 monkey_logger = rclpy.logging.get_logger("wiggins")
 

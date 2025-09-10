@@ -13,8 +13,8 @@ import rclpy.logging
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
-
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
+
 from tabletop_utils import dbm_sqlite3
 from tabletop_utils.common import is_iterable
 from tabletop_utils.ros import (

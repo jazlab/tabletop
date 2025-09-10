@@ -4,7 +4,7 @@
 		{
 			"type": "shell",
 			"label": "build_debug",
-			"command": "tt-build --debug",
+			"command": "tt-build --build-debug",
 			"problemMatcher": [
 				"$catkin-gcc"
 			],

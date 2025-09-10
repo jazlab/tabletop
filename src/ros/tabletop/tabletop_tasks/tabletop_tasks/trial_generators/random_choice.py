@@ -1,10 +1,11 @@
 """Block-structured cup/drawer trial generator."""
 
-import itertools
 from collections.abc import Mapping
 from typing import Any, Literal
 
+import numpy as np
 from tabletop_server.nodes import Commander
+
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
     TrialFeedback,
@@ -12,10 +13,11 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class OrderedChoice(BaseTrialGenerator):
-    """Ordered choice trial generator.
+class RandomChoice(BaseTrialGenerator):
+    """
+    Random choice trial generator.
 
-    Chooses an object from a list of objects and a pose from a list of poses in order.
+    Randomly chooses an object from a list of objects and a pose from a list of poses.
 
     Args:
         object_ids: List of object ids to choose from.
@@ -29,7 +31,7 @@ class OrderedChoice(BaseTrialGenerator):
         object_ids: list[str],
         poses: list[Mapping[str, Any]],
         arms: list[Literal["left", "right", "both"]],
-        occlude: list[bool],
+        occlude_prob: float,
         num_trials: int,
     ):
         super().__init__(commander)
@@ -39,30 +41,37 @@ class OrderedChoice(BaseTrialGenerator):
             self.commander.create_pose_stamped(**pose) for pose in poses
         ]
         self._arms = arms
-        self._occlude = occlude
+
+        self._occlude_prob = occlude_prob
 
         if num_trials < 1:
             raise ValueError("num_trials must be at least 1")
         self._num_trials = num_trials
         self._trial_counter = 0
 
-        self._parameter_grid = list(
-            itertools.product(
-                self._occlude, self._poses, self._arms, self._object_ids
-            )
-        )
-
     def __next__(self) -> TrialSpec:
         """Return a trial."""
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
-        occlude, pose, arm, object_id = self._parameter_grid[
-            self._trial_counter % len(self._parameter_grid)
-        ]
+        # Sample object pose
+        object_pose = np.random.choice(self._poses)  # type: ignore[arg-type]
+
+        # Sample object id
+        object_id = np.random.choice(self._object_ids)
+
+        # Sample arm
+        arm = np.random.choice(self._arms)
+
+        # Sample occlude
+        occlude = np.random.choice(
+            [True, False], p=[self._occlude_prob, 1 - self._occlude_prob]
+        )
+
+        # Make trial spec
         trial_spec = TrialSpec(
             object_id=object_id,
-            object_pose=pose,
+            object_pose=object_pose,
             arm=arm,
             occlude=occlude,
         )

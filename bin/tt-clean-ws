@@ -5,10 +5,9 @@ set -e
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
+cd $COLCON_WS
+
 # Parse arguments
-all=false
-micro_ros=false
-log=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --all)
@@ -19,33 +18,25 @@ while [[ $# -gt 0 ]]; do
             micro_ros=true
             shift
             ;;
-        --log)
-            log=true
-            shift
-            ;;
         *)
             print_error "Unknown argument: $1"
-            print_error "Usage: $0 [--all] [--micro-ros] [--log]"
+            print_error "Usage: $0 [--all] [--micro-ros]"
             exit 1
             ;;
     esac
 done
 
 if [[ $all = true ]]; then
-    print_status "Removing $COLCON_WS/build and $COLCON_WS/install (including moveit)"
-    sudo rm -rf $COLCON_WS/build $COLCON_WS/install
+    to_clean=("build" "install" "log/colcon")
 else
-    dirs_to_clean=("tabletop*")
+    sub_to_clean=("tabletop*")
     if [[ $micro_ros = true ]]; then
-        dirs_to_clean+=("micro_ros_agent" "micro_ros_msgs")
+        sub_to_clean+=("micro_ros*")
     fi
-    print_status "Removing ${dirs_to_clean[@]} in $COLCON_WS/install and $COLCON_WS/build"
-    for dir in "${dirs_to_clean[@]}"; do
-        rm -rf $COLCON_WS/install/$dir $COLCON_WS/build/$dir
+    for dir in "${sub_to_clean[@]}"; do
+        to_clean+=("install/$dir" "build/$dir")
     done
 fi
 
-if [[ "$log" = true ]]; then
-    print_status "Removing $COLCON_WS/log"
-    sudo rm -rf $COLCON_WS/log
-fi
+print_status "Removing ${to_clean[@]}"
+rm -rf ${to_clean[@]}

@@ -3,7 +3,7 @@
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
-PROJECT_DIR=$TABLETOP_DIR/src/tabletop_teensy
+project_dir=$(colcon_cd tabletop_teensy)
 
 target_arg="--target upload"
 compile=false
@@ -48,23 +48,23 @@ if [[ $clean = true ]]; then
 fi
 
 if [[ $compile = true ]]; then
-    EXTRA_SCRIPT_PATH=$PROJECT_DIR/.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
-    if [[ -f $EXTRA_SCRIPT_PATH ]]; then
-cat << EOF >> $EXTRA_SCRIPT_PATH
+    extra_script_path=$project_dir/.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
+    if [[ -f $extra_script_path ]]; then
+        cat << EOF >> $extra_script_path
 env.Replace(COMPILATIONDB_INCLUDE_TOOLCHAIN=True)
 env.Replace(
     COMPILATIONDB_PATH=os.path.join("$BUILD_DIR", "compile_commands.json")
 )
 EOF
     else
-        print_error "Extra script not found at $EXTRA_SCRIPT_PATH"
+        print_error "Extra script not found at $extra_script_path"
         print_error "Please run without the --compile flag, then run with --compile"
         exit 1
     fi
 fi
 
 print_status "Building Teensy code"
-while ! pio run $target_arg --project-dir $TABLETOP_DIR/src/tabletop_teensy; do
+while ! pio run $target_arg --project-dir $project_dir; do
     if [[ -n $target_arg ]]; then
         print_status "Build failed, retrying..."
         sleep 1

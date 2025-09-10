@@ -27,7 +27,6 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-
 from tabletop_utils.common import print_substitutions
 
 # TODO: Don't shutdown on exit, try to restart the node instead
