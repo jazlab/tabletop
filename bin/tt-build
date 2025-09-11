@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
         --build-debug)
             build_debug=true
             ;;
-        --workers)
+        -w|--workers)
             if [[ $# -le 1  || $2 == -* ]]; then
                 print_error "No workers provided with --workers"
                 print_usage
@@ -85,70 +85,71 @@ done
 
 # Package selection
 base_paths="src/ros"
-if [ "$all" = "true" ]; then
+if [[ $all = true ]]; then
     # Build all packages in src/ros
-    if [ ${#packages[@]} -gt 0 ] || [ "$only_deps" = "true" ]; then
+    if [[ ${#packages[@]} -gt 0  || $only_deps = true ]]; then
         print_error "Cannot use --all with -p|--packages or -d|--only-deps"
         print_usage
         exit 1
     fi
-elif [ "$only_deps" = "true" ]; then
+elif [[ $only_deps = true ]]; then
     # Build only dependency packages in src/ros/modules
-    if [ ${#packages[@]} -gt 0 ]; then
+    if [[ ${#packages[@]} -gt 0 ]]; then
         print_error "Cannot use -p|--packages with -d|--only-deps"
         print_usage
         exit 1
     fi
     base_paths="src/ros/modules"
     from_paths="--from-paths $base_paths"
-elif [ ${#packages[@]} -gt 0 ]; then
+elif [[ ${#packages[@]} -gt 0 ]]; then
     # Build only the specified packages and their recursive dependencies
     package_selection="--packages-up-to ${packages[@]}"
 else
     # Build only the tabletop packages in src/ros/tabletop
     base_paths="src/ros/tabletop"
+    skip_moveit_apt_removal="--skip-moveit-apt-removal"
 fi
 
 # Skip x86_64-dependent packages
 packages_to_skip=(moveit_ros_tests)
-if [ "$(uname -m)" != "x86_64" ]; then
+if [[ $(uname -m) != x86_64 ]]; then
     packages_to_skip+=("mocap4r2_optitrack_driver")
 fi
 packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
-if [ "$clean_all" = "true" ]; then
+if [[ $clean_all = true ]]; then
     tt-clean-ws --all
-elif [ "$clean" = "true" ]; then
+elif [[ $clean = true ]]; then
     tt-clean-ws
 fi
 
 # Install ROS 2 build dependencies
-tt-dep-install --type build $from_paths
+tt-dep-install --type build $skip_moveit_apt_removal $from_paths
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 
 # Set Mixins
 mixins=()
-if [ "$build_debug" = "true" ]; then
+if [[ $build_debug = true ]]; then
     mixins+=("debug")
 else
     mixins+=("release")
 fi
 
-if [ "$clang" = "true" ]; then
+if [[ $clang = true ]]; then
     mixins+=("clang")
 fi
 mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
 
 # Set parallel workers
-if [ -n "$workers" ]; then
-    export MAKEFLAGS="-j$workers"
+if [[ -n $workers ]]; then
+    export MAKEFLAGS="-j$workers -l1"
     parallel_workers="--parallel-workers $workers"
 fi
 
-if [ "$verbose" = "true" ]; then
+if [[ $verbose = true ]]; then
     event_handlers="--event-handlers console_cohesion+"
 fi
 

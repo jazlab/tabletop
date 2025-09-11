@@ -38,7 +38,8 @@ EOT
 # Create user if not root
 ARG USER
 ARG UID
-ARG GID=$UID
+ARG GID
+ARG GROUPS
 
 RUN <<EOT
 set -ex
@@ -50,12 +51,16 @@ if [[ -z $UID || -z $GID || $UID = 0 || $GID = 0 ]] ; then
     echo "UID and GID must be set and cannot be 0"
     exit 1
 fi
-if id -u $UID ; then
+
+if id -u $UID >/dev/null 2>&1; then
     echo "User ID $UID already exists, deleting..."
     userdel -r $(id -un $UID)
 fi
-groupadd --gid $GID $USER
-useradd --uid $UID --gid $GID -m $USER
+if ! getent group $GID >/dev/null 2>&1 ; then
+    echo "Group ID $GID does not exist, creating..."
+    groupadd -g $GID $USER
+fi
+useradd -u $UID -g $GID -s /bin/bash -G $GROUPS -m $USER
 echo $USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER
 chmod 0440 /etc/sudoers.d/$USER
 EOT
@@ -77,7 +82,7 @@ DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t e
 rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
-WORKDIR /tabletop
+WORKDIR /home/$USER/tabletop
 
 # Install python dependencies using uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -87,7 +92,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ARG USE_NVIDIA
-RUN --mount=type=bind,source=uv.lock,target=uv.lock \
+
+RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
 <<EOT
 set -ex
@@ -144,11 +151,11 @@ set -ex
 cat <<EOF >> ~/.bashrc
 export EDITOR=vim
 export PATH=~/.local/bin:\$PATH
-source /tabletop/setup.bash
+source /home/$USER/tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
 eval "\$(starship init bash)"
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 EOF
-mkdir -p ~/.config
+mkdir -p ~/.config/pulse
 EOT

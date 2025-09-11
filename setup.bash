@@ -82,7 +82,9 @@ fi
 export PATH=$TABLETOP_DIR/bin:$PATH
 
 # Set build variables for Docker
+export TT_USER=$(id -un)
 export TT_UID=$(id -u)
+export TT_GID=$(id -g)
 export COMPOSE_BAKE=true
 if command -v nvidia-smi >/dev/null 2>&1; then
     export TT_USE_NVIDIA=true

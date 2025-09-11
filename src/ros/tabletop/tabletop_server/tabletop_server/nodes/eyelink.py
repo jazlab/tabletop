@@ -26,7 +26,6 @@ from rclpy.time import Time
 from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
-from tabletop_utils.ros import ROSSleepError, seconds_from_ros_time
 
 from tabletop_py.gaze.convert import edf_to_csv
 from tabletop_py.gaze.preprocess import (
@@ -38,6 +37,7 @@ from tabletop_py.gaze.preprocess import (
 )
 from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
+from tabletop_server.utils.ros import ROSSleepError, seconds_from_ros_time
 
 if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
     from pylink import EyeLink as EyeLinkTracker

@@ -1,4 +1,3 @@
-import logging
 import os
 from typing import Any, Optional, TypeVar, cast
 
@@ -111,8 +110,6 @@ def _simplify_quadratic_decimation_mesh(
 
     mesh_simplifier = pyfqmr.Simplify()  # type: ignore
     mesh_simplifier.setMesh(mesh.vertices, mesh.faces)
-    logging.basicConfig(level=logging.DEBUG)
-    logging.getLogger("pyfqmr")
     mesh_simplifier.simplify_mesh(
         target_count=target_count,
         aggressiveness=aggressiveness,

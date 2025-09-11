@@ -2,7 +2,6 @@ from collections.abc import Hashable, Iterable, Mapping
 from typing import Any
 
 import yaml
-from launch.substitution import Substitution
 
 
 class BracketedListDumper(yaml.Dumper):
@@ -54,8 +53,3 @@ def without_keys(d, keys: Hashable | Iterable[Hashable]):
         return {x: d[x] for x in d if x not in keys_set}
     else:
         raise ValueError(f"Keys {keys} not found in dictionary {d}")
-
-
-def print_substitutions(context, substitutions: dict[str, Substitution]):
-    for name, substitution in substitutions.items():
-        print(f"{name}: {substitution.perform(context)}")

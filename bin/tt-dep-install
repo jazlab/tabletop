@@ -8,11 +8,11 @@ source $bin_dir/../setup.bash
 print_usage() {
     print_error "Usage: $0 [-t|--type <type>] [--skip-uv] [--skip-apt]"
     print_error "-t|--type can be 'build', 'exec', or 'both (default)'"
-    print_error "If not provided, both build and runtime dependencies will be installed (default)"
-    print_error "If -t|--type is build, existing moveit apt packages will be removed"
+    print_error "   If set to 'build', existing moveit apt packages will be removed"
     print_error "--from-paths will set the from paths for the dependency installation (default: src/ros)"
     print_error "--skip-uv will skip the Python dependency installation using uv"
     print_error "--skip-apt will skip the apt package installation"
+    print_error "--skip-moveit-apt-removal will skip the removal of existing moveit apt packages if -t|--type is set to 'build'"
 }
 
 cd $COLCON_WS
@@ -45,6 +45,9 @@ while [[ $# -gt 0 ]]; do
                 print_usage
                 exit 1
             fi
+            ;;
+        --skip-moveit-apt-removal)
+            skip_moveit_apt_removal=true
             ;;
         --skip-apt)
             skip_apt=true
@@ -80,7 +83,7 @@ if [[ $skip_uv != true ]]; then
 fi
 
 # Remove any existing MoveIt2 debian packages
-if [[ $type = "build" ]]; then
+if [[ $type = build && $skip_moveit_apt_removal != true ]]; then
     print_status "Removing any existing MoveIt2 debian packages"
     sudo apt remove ros-$ROS_DISTRO-moveit* -qq -y
 fi

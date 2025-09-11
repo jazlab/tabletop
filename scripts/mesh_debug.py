@@ -2,8 +2,6 @@
 
 import os
 
-from tf_transformations import inverse_matrix
-
 from tabletop_utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,
@@ -11,6 +9,7 @@ from tabletop_utils.mesh import (
     visualize_geometry,
 )
 from tabletop_utils.ros import pose_msg_from_matrix
+from tf_transformations import inverse_matrix
 
 
 def main_mesh():

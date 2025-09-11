@@ -6,9 +6,13 @@ from typing import Any, Optional, cast
 import numpy as np
 import pandas as pd
 import yaml
-from pylink.constants import MISSING_DATA
 from scipy.signal import savgol_filter
 from scipy.stats import zscore
+
+try:
+    from pylink.constants import MISSING_DATA
+except ImportError:
+    MISSING_DATA = -32768
 
 logger = logging.getLogger(__name__)
 

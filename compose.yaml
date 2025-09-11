@@ -89,21 +89,25 @@ services:
       pull: true
       args:
         - ROS_DISTRO=jazzy
-        - USER=mules
+        - USER=$TT_USER
         - UID=$TT_UID
+        - GID=$TT_GID
         - USE_NVIDIA=$TT_USE_NVIDIA
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ./:/tabletop
-      - /tabletop/.venv
-    working_dir: /tabletop
+      - type: bind
+        source: ./
+        target: /home/$TT_USER/tabletop
+        consistency: cached
+      - /home/$TT_USER/tabletop/.venv
+    working_dir: /home/$TT_USER/tabletop
     init: true
     command: sleep infinity
 
   optitrack:
     extends: server-base
     network_mode: host
-    command: bash -c "source /tabletop/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
+    command: bash -c "source \$TABLETOP_DIR/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
 
   server:
     extends: server-base
@@ -128,10 +132,12 @@ services:
       # - QT_X11_NO_MITSHM=1
       - NVIDIA_VISIBLE_DEVICES=$TT_NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$TT_NVIDIA_DRIVER_CAPABILITIES
-      - PULSE_SERVER=/tmp/pulseaudio.socket
+      - PULSE_SERVER=unix:/tmp/pulseaudio.socket
+      # - PULSE_COOKIE=/tmp/pulseaudio.cookie
     volumes:
       - ${TT_PULSE_SERVER_HOST:-/dev/null}:/tmp/pulseaudio.socket
-      - ${TT_PULSE_COOKIE_HOST:-/dev/null}:/home/mules/.config/pulse/cookie:ro
+      - ${TT_PULSE_COOKIE_HOST:-/dev/null}:/home/$TT_USER/.config/pulse/cookie
+      # - ~/.config/pulse:/home/$TT_USER/.config/pulse:ro
     depends_on:
       novnc:
         condition: service_healthy
@@ -144,8 +150,8 @@ services:
     privileged: true
     volumes:
       - /dev:/dev
-      - ~/.vimrc:/home/mules/.vimrc:ro
-      - ~/.config/starship.toml:/home/mules/.config/starship.toml:ro
+      - ~/.vimrc:/home/$TT_USER/.vimrc:ro
+      - ~/.config/starship.toml:/home/$TT_USER/.config/starship.toml:ro
     environment:
       - SHELL=/bin/bash
 

@@ -9,7 +9,7 @@ import mingus.core.scales as scales
 import mingus.midi.fluidsynth as fluidsynth
 from mingus.containers import Note
 
-from tabletop_utils.flic_client import (
+from tabletop_py.flic.client import (
     ButtonConnectionChannel,
     ClickType,
     FlicClient,

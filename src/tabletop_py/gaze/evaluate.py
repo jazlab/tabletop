@@ -336,11 +336,6 @@ def main(args=None):
         action="store_true",
         help="Visualize the test targets and predictions",
     )
-    parser.add_argument(
-        "--predict",
-        action="store_true",
-        help="Predict the gaze from the model",
-    )
     args = parser.parse_args(args)
 
     # Attempt to load the calibration data from the session directory

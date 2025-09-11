@@ -31,7 +31,7 @@ from geometry_msgs.msg import Pose, PoseStamped
 from mingus.containers import Note
 from mingus.midi import fluidsynth
 from moveit.core.collision_detection import (  # type: ignore
-    AllowedCollisionMatrix,  # type: ignore
+    AllowedCollisionMatrix,
     CollisionRequest,
     CollisionResult,
 )
@@ -74,14 +74,20 @@ from tabletop_interfaces.srv import (
     SetReward,
     SetSmartglass,
 )
-from tabletop_utils.executors import TestExecutor
-from tabletop_utils.mesh import (
+from trimesh.transformations import identity_matrix
+from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
+from ur_dashboard_msgs.srv import Load as DashboardLoad
+
+from tabletop_py.utils.mesh import (
     load_geometry,
     simplify_convex_hull,
     simplify_quadratic_decimation,
     transform_geometry,
 )
-from tabletop_utils.ros import (
+from tabletop_server.executors import TestExecutor
+from tabletop_server.nodes.base import BaseNode
+from tabletop_server.utils.ros import (
     ActionCallUnsuccessfulError,
     CommanderRecoverableError,
     ExecuteRequest,
@@ -115,15 +121,9 @@ from tabletop_utils.ros import (
     pose_stamped_msg,
     robot_trajectory_copy,
 )
-from tabletop_utils.trajectory_cache import (
+from tabletop_server.utils.trajectory_cache import (
     FuzzyTrajectoryCache,
 )
-from trimesh.transformations import identity_matrix
-from ur_dashboard_msgs.msg import RobotMode, SafetyMode
-from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
-from ur_dashboard_msgs.srv import Load as DashboardLoad
-
-from tabletop_server.nodes.base import BaseNode
 
 
 def asyncio_task_decorator[T](
