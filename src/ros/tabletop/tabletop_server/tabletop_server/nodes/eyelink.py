@@ -923,7 +923,7 @@ class Eyelink(BaseNode):
                         .numpy()
                         .tolist()
                     )
-                self.log(f"Gaze estimation: {y}", severity="DEBUG")
+                self.log(f"Gaze estimation: {y}", severity="INFO")
                 break
         else:
             y = [0.0, 0.1, 0.0]

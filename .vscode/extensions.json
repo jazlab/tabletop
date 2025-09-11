@@ -1,6 +1,5 @@
 {
     "recommendations": [
-        "ms-python.python",
         "ms-python.debugpy",
         "mechatroner.rainbow-csv",
         "charliermarsh.ruff",
@@ -13,6 +12,7 @@
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
         "ms-toolsai.jupyter",
-        "anysphere.cpptools"
+        "anysphere.cpptools",
+        "anysphere.cursorpyright"
     ]
 }

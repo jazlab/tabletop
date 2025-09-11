@@ -153,13 +153,13 @@ planner_configs:
     multi_query_planning_enabled: 1
     store_planner_data: 1
     load_planner_data: 0
-    planner_data_path: /root/ws/src/tabletop/ros/roadmap.graph
+    planner_data_path: /tabletop/cache/roadmap.graph
   PersistentLazyPRM: # use this to load a previously created roadmap
     type: geometric::LazyPRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 1
-    planner_data_path: /root/ws/src/tabletop/ros/roadmap.graph
+    planner_data_path: /tabletop/cache/roadmap.graph
   SemiPersistentLazyPRMstar: # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
     type: geometric::LazyPRMstar
     multi_query_planning_enabled: 1
@@ -178,8 +178,8 @@ planner_configs:
     num_planners: 4 # The number of default planners to use for planning
     termination_condition: CostConvergence[10,0.1]
     planners:
-      "LazyPRMstar[multi_query_planning_enabled=0 store_planner_data=1 load_planner_data=1 planner_data_path=/root/ws/src/tabletop/ros/roadmap.graph],\
-      LazyPRM[multi_query_planning_enabled=0 store_planner_data=0 load_planner_data=1 planner_data_path=/root/ws/src/tabletop/ros/roadmap.graph],\
+      "LazyPRMstar[multi_query_planning_enabled=0 store_planner_data=1 load_planner_data=1 planner_data_path=/tabletop/cache/roadmap.graph],\
+      LazyPRM[multi_query_planning_enabled=0 store_planner_data=0 load_planner_data=1 planner_data_path=/tabletop/cache/roadmap.graph],\
       RRTstar[range=0.0 goal_bias=0.05 delay_collision_checking=1],\
       RRTstar[range=0.0 goal_bias=0.05 delay_collision_checking=1]"
   APSRRTConnect:

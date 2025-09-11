@@ -141,7 +141,7 @@
       allowed_collision_ids:
         - eef_sphere
       simplification: bounding_box_oriented
-      color: [1.0, 1.0, 1.0, 1.0]
+      color: [1.0, 1.0, 1.0, 0.5]
 
     planning_scene:
       dir: $TABLETOP_DIR/cache/planning_scene
@@ -191,7 +191,7 @@
             position: [0.9525, 1.0625, 0.155]
           allowed_collision_ids:
             - base_link_inertia
-          color: [1.0, 1.0, 1.0, 1.0]
+          color: [1.0, 1.0, 1.0, 0.5]
         box_0:
           type: BOX
           dimensions: [0.5, 0.4, 1.9812]

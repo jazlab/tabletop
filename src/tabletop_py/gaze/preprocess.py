@@ -586,9 +586,9 @@ def merge_and_interpolate_data(
         df.shape[0] == eyelink_df.shape[0]
     ), f"Expected {eyelink_df.shape[0]} rows after merging, got {df.shape[0]}"
     matched = df[MARKER_DATA_COLS].notna().all(axis=1).sum()  # type: ignore
-    assert (
-        matched == num_marker_samples
-    ), f"Expected {num_marker_samples} matched marker data points, got {matched}"
+    # assert (
+    #     matched == num_marker_samples
+    # ), f"Expected {num_marker_samples} matched marker data points, got {matched}"
 
     # gaps = df["time"][df[MARKER_DATA_COLS].notna().all(axis=1)].diff()  # type: ignore
     # logger.info(

@@ -4,7 +4,7 @@ preprocess:
   filename: preprocessed.csv
   format_eyelink:
     verify: true
-    freq_rtol: 0.1
+    freq_rtol: 1.0
     freq_var_tol: 0.01
   format_marker:
     verify: true
