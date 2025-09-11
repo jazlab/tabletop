@@ -41,6 +41,7 @@ setup(
             "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
             "eyelink = tabletop_server.nodes.eyelink:main",
             "flic = tabletop_server.nodes.flic:main",
+            "rosbag_to_csv = tabletop_server.utils.rosbag:main",
         ],
     },
 )

@@ -1,5 +1,6 @@
 """SmoothPursuit task."""
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -7,7 +8,7 @@ import numpy as np
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
 from tabletop_server.nodes import Commander
-from tabletop_utils.ros import robot_trajectory_copy
+from tabletop_server.utils.ros import robot_trajectory_copy
 
 from tabletop_tasks.tasks.base import BaseTask
 
@@ -129,28 +130,28 @@ class SmoothPursuitTask(BaseTask):
     async def run(self) -> None:
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            await self.commander.smooth_pursuit_and_reward()
-            # trajectory = await self.generate_trajectory()
+            # await self.commander.smooth_pursuit_and_reward()
+            trajectory = await self.generate_trajectory()
 
-            # self.log("Moving to start of spiral")
-            # await self.commander.plan_and_execute(trajectory[0])
+            self.log("Moving to start of spiral")
+            await self.commander.plan_and_execute(trajectory[0])
 
-            # self.log(
-            #     f"Executing spiral trajectory for {trajectory.duration} seconds"
-            # )
+            self.log(
+                f"Executing spiral trajectory for {trajectory.duration} seconds"
+            )
 
-            # smooth_pursuit_task = self.commander.smooth_pursuit_and_reward()
-            # execution_task = asyncio.create_task(
-            #     self.commander.execute(trajectory, preprocess_trajectory=False)
-            # )
+            smooth_pursuit_task = self.commander.smooth_pursuit_and_reward()
+            execution_task = asyncio.create_task(
+                self.commander.execute(trajectory, preprocess_trajectory=False)
+            )
 
-            # done, pending = await asyncio.wait(
-            #     [smooth_pursuit_task, execution_task],
-            #     return_when=asyncio.FIRST_COMPLETED,
-            # )
+            done, pending = await asyncio.wait(
+                [smooth_pursuit_task, execution_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-            # for task in pending:
-            #     task.cancel()
+            for task in pending:
+                task.cancel()
 
-            # for task in done:
-            #     task.result()
+            for task in done:
+                task.result()

@@ -3,7 +3,7 @@
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../setup.bash
 
-project_dir=$(colcon_cd tabletop_teensy)
+project_dir=$TABLETOP_DIR/src/ros/tabletop/tabletop_teensy
 
 target_arg="--target upload"
 compile=false

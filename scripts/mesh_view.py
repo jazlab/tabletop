@@ -3,7 +3,9 @@
 import argparse
 
 import numpy as np
-from tabletop_utils.mesh import (
+from transformations import euler_matrix, translation_matrix
+
+from tabletop_py.utils.mesh import (
     count_vertices_faces,
     load_geometry,
     simplify_bounding_primitive,
@@ -12,7 +14,6 @@ from tabletop_utils.mesh import (
     transform_geometry,
     visualize_geometry,
 )
-from tf_transformations import euler_matrix, translation_matrix
 
 
 def main():

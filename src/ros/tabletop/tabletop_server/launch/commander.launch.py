@@ -21,7 +21,6 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-from tabletop_utils.common import yaml_dump_string
 
 
 def save_yaml(file_path, data, sort_keys=False):
@@ -232,7 +231,7 @@ def generate_launch_description():
             LaunchConfiguration("commander_log_level").perform(context)
             == "DEBUG"
         ):
-            print(yaml_dump_string(commander_overrides_scoped, width=80))
+            print(commander_overrides_scoped)
         save_yaml(commander_overrides_path, commander_overrides_scoped)
 
     commander_overrides_action = OpaqueFunction(

@@ -12,7 +12,6 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from launch.substitution import Substitution
 from moveit.core.controller_manager import ExecutionStatus  # type: ignore
 from moveit.core.planning_scene import PlanningScene  # type: ignore
 from moveit.core.robot_state import RobotState  # type: ignore
@@ -129,14 +128,6 @@ def ros_log(
         return True
     else:
         return False
-
-
-# Launch utilities
-
-
-def print_substitutions(context, substitutions: dict[str, Substitution]):
-    for name, substitution in substitutions.items():
-        print(f"{name}: {substitution.perform(context)}")
 
 
 # ROS message utilities

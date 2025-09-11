@@ -16,6 +16,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitution import Substitution
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -27,9 +28,13 @@ from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
-from tabletop_utils.common import print_substitutions
 
 # TODO: Don't shutdown on exit, try to restart the node instead
+
+
+def print_substitutions(context, substitutions: dict[str, Substitution]):
+    for name, substitution in substitutions.items():
+        print(f"{name}: {substitution.perform(context)}")
 
 
 def declare_arguments():
@@ -540,7 +545,7 @@ def generate_launch_description():
         cmd=[
             "ros2",
             "run",
-            "tabletop_utils",
+            "tabletop_server",
             "rosbag_to_csv",
             "-d",
             session_bag_dir,

@@ -2,14 +2,15 @@
 
 import os
 
-from tabletop_utils.mesh import (
+from tabletop_server.utils.ros import pose_msg_from_matrix
+from transformations import inverse_matrix
+
+from tabletop_py.utils.mesh import (
     load_geometry,
     simplify_bounding_primitive,
     simplify_convex_hull,
     visualize_geometry,
 )
-from tabletop_utils.ros import pose_msg_from_matrix
-from tf_transformations import inverse_matrix
 
 
 def main_mesh():
