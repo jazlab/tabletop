@@ -105,6 +105,12 @@ if [ "$(uname -m)" = "x86_64" ] ; then
     export TT_UV_EXTRA="$TT_UV_EXTRA --extra eyelink"
 fi
 
+if [[ $(uname) = Darwin ]]; then
+    export TT_BIND_CONSISTENCY=cached
+else
+    export TT_BIND_CONSISTENCY=consistent
+fi
+
 if command -v pactl >/dev/null 2>&1; then
     export TT_PULSE_SERVER_HOST=$(pactl --format=json info | jq -r '.server_string')
     if [[ -S $TT_PULSE_SERVER_HOST ]]; then

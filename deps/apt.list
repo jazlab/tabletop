@@ -9,10 +9,11 @@ mold
 ccache
 gdb
 curl
+wget
 ffmpeg
 fluidsynth
 bash-completion
-vim
+neovim
 psmisc
 iputils-ping
 net-tools

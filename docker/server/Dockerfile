@@ -9,7 +9,7 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-# Add SR Research repository
+# Install eyelink display software
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
 <<EOT
@@ -25,12 +25,33 @@ if [[ $(uname -m) = x86_64 ]] ; then
 fi
 EOT
 
+# Install Spinnaker SDK
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+<<EOT
+set -ex
+apt-get update && apt-get upgrade -y
+apt-get install -y curl
+cd /tmp
+if [[ $(uname -m) = x86_64 ]] ; then
+    curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
+elif [[ $(uname -m) = aarch64 ]] ; then
+    curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
+fi
+tar -xzf spinnaker.tar.gz
+SPINNAKER_DIR=$(tar -tf spinnaker.tar.gz | head -1)
+cd $SPINNAKER_DIR
+yes | sudo apt install ./*.deb
+rm -rf /tmp/spinnaker.tar.gz
+EOT
+
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=bind,source=deps/apt.list,target=/tmp/apt.list \
 <<EOT
 set -ex
+add-apt-repository ppa:neovim-ppa/unstable
 apt-get update && apt-get upgrade -y
 apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
@@ -121,6 +142,18 @@ ENV TT_IN_CONTAINER=true
 # Development image with additional dependencies and tools
 FROM base AS dev
 
+# Install npm
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+<<EOT
+set -ex
+apt-get update && apt-get upgrade -y
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+\. "$HOME/.nvm/nvm.sh"
+nvm install 22
+EOT
+
+# Install complete-alias
 RUN <<EOT
 set -ex
 curl -fsSL -o ~/complete-alias \
@@ -149,13 +182,14 @@ EOT
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
-export EDITOR=vim
 export PATH=~/.local/bin:\$PATH
 source /home/$USER/tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
-eval "\$(starship init bash)"
+alias vim="nvim"
+export EDITOR=nvim
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
+eval "\$(starship init bash)"
 EOF
 mkdir -p ~/.config/pulse
 EOT

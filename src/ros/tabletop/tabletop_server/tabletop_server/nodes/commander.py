@@ -54,9 +54,7 @@ from moveit_msgs.msg import (
     LinkPadding,
     ObjectColor,
 )
-from moveit_msgs.msg import (
-    PlanningScene as PlanningSceneMsg,
-)
+from moveit_msgs.msg import PlanningScene as PlanningSceneMsg
 from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
@@ -64,10 +62,7 @@ from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_srvs.srv import Trigger
-from tabletop_interfaces.action import (
-    EyelinkSmoothPursuit,
-    FlicResponseTime,
-)
+from tabletop_interfaces.action import EyelinkSmoothPursuit, FlicResponseTime
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     SetArmLock,
@@ -121,9 +116,7 @@ from tabletop_server.utils.ros import (
     pose_stamped_msg,
     robot_trajectory_copy,
 )
-from tabletop_server.utils.trajectory_cache import (
-    FuzzyTrajectoryCache,
-)
+from tabletop_server.utils.trajectory_cache import FuzzyTrajectoryCache
 
 
 def asyncio_task_decorator[T](
