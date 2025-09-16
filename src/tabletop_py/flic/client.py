@@ -14,6 +14,7 @@ Bd addr are represented as standard python strings, e.g. "aa:bb:cc:dd:ee:ff".
 import argparse
 import asyncio
 import itertools
+import logging
 import struct
 import time
 from collections import namedtuple
@@ -22,12 +23,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-import rclpy
-import rclpy.logging
-import rclpy.utilities
-from rclpy.impl.logging_severity import LoggingSeverity
-
-logger = rclpy.logging.get_logger("flic_client")
+logger = logging.getLogger(__name__)
 
 
 class CreateConnectionChannelError(Enum):
@@ -1570,8 +1566,6 @@ async def main_async(
 
 
 def main(args=None):
-    rclpy.init(args=args)
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
@@ -1597,21 +1591,17 @@ def main(args=None):
     parser_delete.add_argument("addresses", nargs="*")
     parser_delete.add_argument("--all", action="store_true")
 
-    non_ros_args = rclpy.utilities.remove_ros_args(args)
-    args, _ = parser.parse_known_args(non_ros_args[1:])
+    args = parser.parse_args(args)
 
     if args.verbose:
-        logger.set_level(LoggingSeverity.DEBUG)
+        level = logging.DEBUG
     else:
-        logger.set_level(LoggingSeverity.INFO)
+        level = logging.INFO
+
+    logging.basicConfig(level=level, format="%(levelname)s - %(message)s")
     delattr(args, "verbose")
 
-    try:
-        asyncio.run(main_async(**vars(args)))
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt")
-    finally:
-        rclpy.try_shutdown()  # type: ignore
+    asyncio.run(main_async(**vars(args)))
 
 
 if __name__ == "__main__":

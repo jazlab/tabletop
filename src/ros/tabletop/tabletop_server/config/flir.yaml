@@ -1,0 +1,13 @@
+common:
+  camera_type: blackfly_s
+cameras:
+  - name: cam1
+    serial_number: "22442796"
+  - name: cam2
+    serial_number: "23240397"
+  - name: cam3
+    serial_number: "23240393"
+  - name: cam4
+    serial_number: "22157020"
+  - name: cam5
+    serial_number: "23240395"

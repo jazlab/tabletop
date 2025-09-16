@@ -127,10 +127,7 @@ class BaseNode(Node):
             try:
                 self.get_parameter_wrapper(name)
             except ParameterNotDeclaredException:
-                msg = (
-                    f"Required parameter {name} not declared "
-                    f"for {self.get_name()} node"
-                )
+                msg = f"Required parameter {name} not declared for {self.get_name()} node"
                 self.log(msg, severity="ERROR")
                 raise ParameterNotDeclaredException(msg)
 

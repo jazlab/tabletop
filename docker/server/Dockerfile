@@ -33,11 +33,18 @@ set -ex
 apt-get update && apt-get upgrade -y
 apt-get install -y curl
 cd /tmp
-if [[ $(uname -m) = x86_64 ]] ; then
-    curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
-elif [[ $(uname -m) = aarch64 ]] ; then
-    curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
-fi
+case $(uname -m) in
+    x86_64)
+        curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
+        ;;
+    aarch64)
+        curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
+        ;;
+    *)
+        echo "Unsupported architecture $(uname -m)!"
+        exit 1
+        ;;
+esac
 tar -xzf spinnaker.tar.gz
 SPINNAKER_DIR=$(tar -tf spinnaker.tar.gz | head -1)
 cd $SPINNAKER_DIR
@@ -160,6 +167,24 @@ curl -fsSL -o ~/complete-alias \
 https://raw.githubusercontent.com/cykerway/complete-alias/refs/heads/master/complete_alias
 chmod +x ~/complete-alias
 echo ". ~/complete-alias" >> ~/.bash_completion
+EOT
+
+# Install kitten
+RUN <<EOT
+set -ex
+case $(uname -m) in
+    x86_64)
+        sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-amd64
+        ;;
+    aarch64)
+        sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-arm64
+        ;;
+    *)
+        echo "Unsupported architecture $(uname -m)!"
+        exit 1
+        ;;
+esac
+sudo chmod +x /usr/local/bin/kitten
 EOT
 
 # Install starship

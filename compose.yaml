@@ -24,8 +24,8 @@ services:
     ports:
       - 8080:8080
     environment:
-      - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
-      - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
+      - DISPLAY_WIDTH=${TT_DISPLAY_WIDTH:-1280}
+      - DISPLAY_HEIGHT=${TT_DISPLAY_HEIGHT:-824}
       - WINDOW_MANAGER=dwm
     depends_on:
       - autoheal
@@ -48,7 +48,7 @@ services:
       - ROBOT_MODEL=ur5e
       - DISPLAY=novnc:0.0
     init: true
-    entrypoint: [ "/entrypoint.sh" ]
+    entrypoint: ["/entrypoint.sh"]
     depends_on:
       novnc:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
     init: true
     command: /app/entrypoint.sh
     healthcheck:
-      test: [ "CMD", "/app/healthcheck.sh" ]
+      test: ["CMD", "/app/healthcheck.sh"]
       interval: 10s
       timeout: 2s
       retries: 3

@@ -78,6 +78,10 @@ if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
     fi
 fi
 
+# Add Spinnaker bin directory to PATH
+# export PATH=/opt/spinnaker/bin:$PATH
+# SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+
 # Add tabletop bin directory to PATH
 export PATH=$TABLETOP_DIR/bin:$PATH
 
@@ -85,6 +89,8 @@ export PATH=$TABLETOP_DIR/bin:$PATH
 export TT_USER=$(id -un)
 export TT_UID=$(id -u)
 export TT_GID=$(id -g)
+export TT_DISPLAY_WIDTH=1920
+export TT_DISPLAY_HEIGHT=1080
 export COMPOSE_BAKE=true
 if command -v nvidia-smi >/dev/null 2>&1; then
     export TT_USE_NVIDIA=true

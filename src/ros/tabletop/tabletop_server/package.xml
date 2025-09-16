@@ -1,41 +1,42 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>tabletop_server</name>
-  <version>0.0.0</version>
-  <description>The server nodes for the TableTop project</description>
-  <maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
-  <license>MIT</license>
+	<name>tabletop_server</name>
+	<version>0.0.0</version>
+	<description>The server nodes for the TableTop project</description>
+	<maintainer email="valmiki.kothare.vk@gmail.com">Valmiki Kothare</maintainer>
+	<license>MIT</license>
 
-  <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>rviz2</exec_depend>
-  <exec_depend>ur</exec_depend>
-  <exec_depend>ur_dashboard_msgs</exec_depend>
-  <exec_depend>moveit</exec_depend>
-  <exec_depend>moveit_py</exec_depend>
-  <exec_depend>moveit_configs_utils</exec_depend>
-  <exec_depend>moveit_ros_visualization</exec_depend>
-  <exec_depend>ros2controlcli</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>rosbag2</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>shape_msgs</exec_depend>
-  <exec_depend>micro_ros_agent</exec_depend>
-  <exec_depend>tabletop_moveit_config</exec_depend>
-  <exec_depend>tabletop_interfaces</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
-  <exec_depend>mocap4r2_optitrack_driver</exec_depend>
-  <exec_depend>mocap4r2_msgs</exec_depend>
-  <exec_depend>mocap4r2_marker_viz</exec_depend>
+	<exec_depend>ament_index_python</exec_depend>
+	<exec_depend>rclpy</exec_depend>
+	<exec_depend>rviz2</exec_depend>
+	<exec_depend>ur</exec_depend>
+	<exec_depend>ur_dashboard_msgs</exec_depend>
+	<exec_depend>moveit</exec_depend>
+	<exec_depend>moveit_py</exec_depend>
+	<exec_depend>moveit_configs_utils</exec_depend>
+	<exec_depend>moveit_ros_visualization</exec_depend>
+	<exec_depend>ros2controlcli</exec_depend>
+	<exec_depend>std_msgs</exec_depend>
+	<exec_depend>sensor_msgs</exec_depend>
+	<exec_depend>rosbag2</exec_depend>
+	<exec_depend>geometry_msgs</exec_depend>
+	<exec_depend>shape_msgs</exec_depend>
+	<exec_depend>micro_ros_agent</exec_depend>
+	<exec_depend>tabletop_moveit_config</exec_depend>
+	<exec_depend>tabletop_interfaces</exec_depend>
+	<exec_depend>visualization_msgs</exec_depend>
+	<exec_depend>mocap4r2_optitrack_driver</exec_depend>
+	<exec_depend>mocap4r2_msgs</exec_depend>
+	<exec_depend>mocap4r2_marker_viz</exec_depend>
+	<exec_depend>spinnaker_camera_driver</exec_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+	<test_depend>ament_copyright</test_depend>
+	<test_depend>ament_flake8</test_depend>
+	<test_depend>ament_pep257</test_depend>
+	<test_depend>python3-pytest</test_depend>
 
-  <export>
-    <build_type>ament_python</build_type>
-  </export>
+	<export>
+		<build_type>ament_python</build_type>
+	</export>
 </package>

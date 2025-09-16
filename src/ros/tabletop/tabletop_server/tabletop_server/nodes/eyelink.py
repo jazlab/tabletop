@@ -135,8 +135,8 @@ class Eyelink(BaseNode):
             self.simulate = True
         # pylink.endRealTimeMode()
 
-        self.init_bag_writer()
         self.init_sample_retrieval()
+        self.init_bag_writer()
         self.init_gaze_estimation()
         self.init_ros()
         self.destroyed = False

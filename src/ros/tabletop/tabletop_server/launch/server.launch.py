@@ -24,7 +24,8 @@ from launch.substitutions import (
     LaunchLogDir,
     PathJoinSubstitution,
 )
-from launch_ros.actions import Node, SetROSLogDir
+from launch_ros.actions import ComposableNodeContainer, Node, SetROSLogDir
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -35,6 +36,61 @@ from moveit_configs_utils import MoveItConfigsBuilder
 def print_substitutions(context, substitutions: dict[str, Substitution]):
     for name, substitution in substitutions.items():
         print(f"{name}: {substitution.perform(context)}")
+
+
+FLIR_COMMON_PARAMS = {
+    "debug": False,
+    "compute_brightness": True,
+    "dump_node_map": False,
+    "adjust_timestamp": True,
+    "gain_auto": "Off",
+    "gain": 0,
+    "exposure_auto": "Off",
+    "exposure_time": 9000,
+    "line2_selector": "Line2",
+    "line2_v33enable": False,
+    "line3_selector": "Line3",
+    "line3_linemode": "Input",
+    "trigger_selector": "FrameStart",
+    "trigger_mode": "On",
+    "trigger_source": "Line3",
+    "trigger_delay": 9,
+    "trigger_overlap": "ReadOut",
+    "chunk_mode_active": True,
+    "chunk_selector_frame_id": "FrameID",
+    "chunk_enable_frame_id": True,
+    "chunk_selector_exposure_time": "ExposureTime",
+    "chunk_enable_exposure_time": True,
+    "chunk_selector_gain": "Gain",
+    "chunk_enable_gain": True,
+    "chunk_selector_timestamp": "Timestamp",
+    "chunk_enable_timestamp": True,
+}
+
+
+def make_camera_node(name, camera_type, serial_number):
+    parameter_file = PathJoinSubstitution(
+        [
+            FindPackageShare("spinnaker_camera_driver"),
+            "config",
+            camera_type + ".yaml",
+        ]
+    )
+
+    node = ComposableNode(
+        package="spinnaker_camera_driver",
+        plugin="spinnaker_camera_driver::CameraDriver",
+        name=name,
+        parameters=[
+            FLIR_COMMON_PARAMS,
+            {"parameter_file": parameter_file, "serial_number": serial_number},
+        ],
+        remappings=[
+            ("~/control", "/exposure_control/control"),
+        ],
+        extra_arguments=[{"use_intra_process_comms": True}],
+    )
+    return node
 
 
 def declare_arguments():
@@ -280,7 +336,7 @@ def generate_launch_description():
     session_bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], dirname)
     symlink_path = os.path.join(os.environ["ROS_BAG_DIR"], "latest")
 
-    def _create_session_bag_dir(context: LaunchContext):
+    def _create_session_bag_dir(_: LaunchContext):
         os.makedirs(session_bag_dir, exist_ok=True)
         try:
             os.remove(symlink_path)
@@ -463,6 +519,7 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
+    # Rviz visualizer for optitrack markers
     mocap4r2_marker_viz = Node(
         package="mocap4r2_marker_viz",
         executable="mocap4r2_marker_viz",
@@ -476,6 +533,27 @@ def generate_launch_description():
             }
         ],
         on_exit=[Shutdown()],
+    )
+
+    # Flir multi-camera setup
+    flir_config_file = os.path.join(
+        get_package_share_directory("tabletop_server"), "config", "flir.yaml"
+    )
+    with open(flir_config_file, "r") as f:
+        flir_config = yaml.safe_load(f)
+
+    flir_nodes = []
+    for config in flir_config["cameras"]:
+        config = flir_config["common"] | config
+        print(config)
+        flir_nodes.append(make_camera_node(**config))
+    flir_camera_container = ComposableNodeContainer(
+        name="flir_camera_container",
+        namespace="",
+        package="rclcpp_components",
+        executable="component_container",
+        composable_node_descriptions=flir_nodes,
+        output="both",
     )
 
     # RViz MoveIt Config
@@ -574,6 +652,7 @@ def generate_launch_description():
         eyelink,
         optitrack_transform_publisher,
         mocap4r2_marker_viz,
+        flir_camera_container,
         rviz_node,
         bag_recorder,
     ]
