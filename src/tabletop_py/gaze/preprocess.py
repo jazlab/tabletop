@@ -466,8 +466,7 @@ def clean_eyelink_data(
         ).any(axis=1)
         df = cast(pd.DataFrame, df[~invalid_mask])
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with "
-            f"z-score greater than {max_zscore}"
+            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with z-score greater than {max_zscore}"
         )
 
     # Keep only data within the expected eye position range
@@ -507,8 +506,7 @@ def clean_marker_data(
         )
         df = cast(pd.DataFrame, df[~invalid_mask])
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with "
-            f"z-score greater than {max_zscore}"
+            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with z-score greater than {max_zscore}"
         )
 
     return df
@@ -586,13 +584,13 @@ def merge_and_interpolate_data(
         eyelink_df, markers_df, on="time", suffixes=("_eyelink", "_marker")
     )
 
-    assert (
-        df.shape[0] == eyelink_df.shape[0]
-    ), f"Expected {eyelink_df.shape[0]} rows after merging, got {df.shape[0]}"
+    assert df.shape[0] == eyelink_df.shape[0], (
+        f"Expected {eyelink_df.shape[0]} rows after merging, got {df.shape[0]}"
+    )
     matched = df[MARKER_DATA_COLS].notna().all(axis=1).sum()  # type: ignore
-    # assert (
-    #     matched == num_marker_samples
-    # ), f"Expected {num_marker_samples} matched marker data points, got {matched}"
+    assert matched == num_marker_samples, (
+        f"Expected {num_marker_samples} matched marker data points, got {matched}"
+    )
 
     # gaps = df["time"][df[MARKER_DATA_COLS].notna().all(axis=1)].diff()  # type: ignore
     # logger.info(
@@ -629,15 +627,13 @@ def merge_and_interpolate_data(
     num_samples = df.shape[0]
     df = df.dropna(subset=MARKER_DATA_COLS)
     logger.info(
-        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with "
-        f"missing marker data"
+        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing marker data"
     )
 
     num_samples = df.shape[0]
     df = df.dropna()
     logger.info(
-        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with "
-        f"missing data"
+        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing data"
     )
 
     return df

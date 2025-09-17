@@ -158,6 +158,13 @@ def declare_arguments():
             choices=["true", "false"],
             description="Simulate Flic",
         ),
+        # Eyelink
+        DeclareLaunchArgument(
+            "simulate_eyelink",
+            default_value="false",
+            choices=["true", "false"],
+            description="Force simulation of eyelink, even if Eyelink SDK is available",
+        ),
         # RViz
         DeclareLaunchArgument(
             "launch_rviz_server",
@@ -475,6 +482,7 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "simulate": LaunchConfiguration("simulate_eyelink"),
                 "session_bag_dir": ParameterValue(
                     IfElseSubstitution(
                         LaunchConfiguration("rosbag_record"),
@@ -576,7 +584,7 @@ def generate_launch_description():
     }
 
     # RViz
-    rviz_node = Node(
+    rviz = Node(
         package="rviz2",
         executable="rviz2",
         output=LaunchConfiguration("rviz_output"),
@@ -598,6 +606,24 @@ def generate_launch_description():
         ros_arguments=["--log-level", LaunchConfiguration("rviz_log_level")],
         condition=IfCondition(LaunchConfiguration("launch_rviz_server")),
         on_exit=[Shutdown()],
+    )
+
+    # Foxglove Bridge
+    foxglove = GroupAction(
+        [
+            IncludeLaunchDescription(
+                PathJoinSubstitution(
+                    [
+                        FindPackageShare("foxglove_bridge"),
+                        "launch",
+                        "foxglove_bridge_launch.xml",
+                    ]
+                ),
+                launch_arguments={"port": "8765"}.items(),
+            )
+        ],
+        scoped=True,
+        forwarding=False,
     )
 
     # Bag Recorder and Converter
@@ -653,7 +679,8 @@ def generate_launch_description():
         optitrack_transform_publisher,
         mocap4r2_marker_viz,
         flir_camera_container,
-        rviz_node,
+        rviz,
+        foxglove,
         bag_recorder,
     ]
 

@@ -30,6 +30,7 @@
 	<exec_depend>mocap4r2_msgs</exec_depend>
 	<exec_depend>mocap4r2_marker_viz</exec_depend>
 	<exec_depend>spinnaker_camera_driver</exec_depend>
+	<exec_depend>foxglove_bridge</exec_depend>
 
 	<test_depend>ament_copyright</test_depend>
 	<test_depend>ament_flake8</test_depend>

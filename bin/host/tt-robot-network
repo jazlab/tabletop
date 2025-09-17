@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 if [ "${ROBOT_IP%.*}" != "${REVERSE_IP%.*}" ]; then
     print_status "Error: ROBOT_IP and REVERSE_IP must share the same first 3 octets"

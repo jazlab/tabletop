@@ -78,38 +78,38 @@ SYNC_PULSE_DURATION_MS = 100
 
 def digital_write(pin, value: bool):
     """Write a digital value to a pin."""
-    assert (
-        pin in digital_output_pin_states
-    ), f"Pin {pin} not found in digital_output_pin_states"
+    assert pin in digital_output_pin_states, (
+        f"Pin {pin} not found in digital_output_pin_states"
+    )
     digital_output_pin_states[pin] = value
 
 
 def digital_read(pin) -> bool:
     """Read a digital value from a pin."""
-    assert (
-        pin in digital_input_pin_states
-    ), f"Pin {pin} not found in digital_input_pin_states"
+    assert pin in digital_input_pin_states, (
+        f"Pin {pin} not found in digital_input_pin_states"
+    )
     return digital_input_pin_states[pin]
 
 
 def analog_read(pin) -> int:
-    assert (
-        pin in analog_input_pin_states
-    ), f"Pin {pin} not found in analog_input_pin_states"
+    assert pin in analog_input_pin_states, (
+        f"Pin {pin} not found in analog_input_pin_states"
+    )
     return analog_input_pin_states[pin]
 
 
 def _change_input_pin_state(pin, value: bool):
-    assert (
-        pin in digital_input_pin_states
-    ), f"Pin {pin} not found in digital_input_pin_states"
+    assert pin in digital_input_pin_states, (
+        f"Pin {pin} not found in digital_input_pin_states"
+    )
     digital_input_pin_states[pin] = value
 
 
 def _read_output_pin_state(pin) -> bool:
-    assert (
-        pin in digital_output_pin_states
-    ), f"Pin {pin} not found in digital_output_pin_states"
+    assert pin in digital_output_pin_states, (
+        f"Pin {pin} not found in digital_output_pin_states"
+    )
     return digital_output_pin_states[pin]
 
 
@@ -418,9 +418,9 @@ class MockTeensy(BaseNode):
         self, request: SetReward.Request, response: SetReward.Response
     ):
         timer_is_canceled = self.reward_timer.is_canceled()
-        assert (
-            self.reward_active != timer_is_canceled
-        ), "Reward timer state and reward_active state are inconsistent"
+        assert self.reward_active != timer_is_canceled, (
+            "Reward timer state and reward_active state are inconsistent"
+        )
 
         if request.activate:
             # Activate reward for the duration specified in the request

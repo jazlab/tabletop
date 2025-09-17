@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 pushd $TABLETOP_DIR
 
@@ -13,11 +16,11 @@ while true; do
     # Capture the output of the previous command
     output=$(docker compose logs flic 2>&1)
     if [[ "$output" != *"DISCONNECTED"* ]]; then
-        echo "Container stopped, exiting..."
+        print_status "Container stopped, exiting..."
         docker compose down flic
         break
     fi
-    echo "Client disconnected, restarting server..."
+    print_status "Client disconnected, restarting server..."
     sleep 2
 done
 popd

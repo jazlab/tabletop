@@ -248,9 +248,9 @@ class ButtonConnectionChannel:
         error: CreateConnectionChannelError,
         connection_status: ConnectionStatus,
     ):
-        assert (
-            not self._created_event.is_set()
-        ), "Create connection channel response already received"
+        assert not self._created_event.is_set(), (
+            "Create connection channel response already received"
+        )
         logger.debug(
             f"Create connection channel response: {error} {connection_status}"
         )
@@ -1385,10 +1385,19 @@ class FlicClient(asyncio.Protocol):
         return scan_wizard.bd_addr
 
     async def connect(
-        self, bd_addr: str, **connection_channel_kwargs: Any
+        self,
+        bd_addr: str,
+        connection_channel_class: type[
+            ButtonConnectionChannel
+        ] = ButtonConnectionChannel,
+        **connection_channel_kwargs: Any,
     ) -> ButtonConnectionChannel:
         """Connect to a button."""
-        cc = ButtonConnectionChannel(bd_addr, **connection_channel_kwargs)
+        cc = connection_channel_class(bd_addr, **connection_channel_kwargs)
+        if not isinstance(cc, ButtonConnectionChannel):
+            raise ValueError(
+                "connection_channel_class should be a subclass of ButtonConnectionChannel"
+            )
 
         if cc.conn_id in self._connection_channels:
             logger.debug(f"Connection channel {cc.conn_id} already exists")
@@ -1450,75 +1459,92 @@ class FlicClient(asyncio.Protocol):
     async def wait_for_closed(self):
         await self._closed_event.wait()
 
+    async def spin_scan(self):
+        """Scan for buttons until cancelled."""
 
-async def scan(client: FlicClient):
-    """Scan for buttons until cancelled."""
-
-    logger.info("Starting scan loop")
-    while True:
-        await client.get_info()
-
-        try:
-            await client.scan()
-        except ScanWizardError as e:
-            logger.warning(f"Scan wizard failed: {e}")
-            continue
-        logger.info("Scan wizard succeeded")
-
-
-async def spin(client: FlicClient, period: float):
-    """Repeatedly connect to verified buttons to get all button events."""
-
-    info = await client.get_info()
-    logger.info(
-        f"Spinning {len(info.bd_addr_of_verified_buttons)} buttons every {period}s"
-    )
-    time_per_button = period / len(info.bd_addr_of_verified_buttons)
-    try:
+        logger.info("Starting scan loop")
         while True:
-            for bd_addr in info.bd_addr_of_verified_buttons:
-                start = time.time()
-                await client.connect(bd_addr)
-                remaining = time_per_button - (time.time() - start)
-                if remaining > 0:
-                    await asyncio.sleep(remaining)
-    finally:
-        print("Buttons pressed in order:")
-        for channel in client._buttons_ordered.values():
-            print(channel.bd_addr)
+            await self.get_info()
 
+            try:
+                await self.scan()
+            except ScanWizardError as e:
+                logger.warning(f"Scan wizard failed: {e}")
+                continue
+            logger.info("Scan wizard succeeded")
 
-async def delete(client: FlicClient, addresses: str | list[str], all: bool):
-    """Delete buttons."""
-
-    if all and len(addresses) > 0:
-        raise ValueError("Cannot use all and provide addresses")
-
-    info = await client.get_info()
-
-    if all:
-        addresses = list(info.bd_addr_of_verified_buttons)
-    elif isinstance(addresses, str):
-        addresses = [addresses]
-    elif len(addresses) == 0:
-        raise ValueError("No addresses provided")
-
-    elif any(
-        bd_addr not in info.bd_addr_of_verified_buttons
-        for bd_addr in addresses
+    async def spin_listen(
+        self,
+        period: float,
+        bd_addrs: Optional[Iterable[str]] = None,
+        connection_channel_class: type[
+            ButtonConnectionChannel
+        ] = ButtonConnectionChannel,
     ):
-        raise ValueError("Invalid address provided")
+        """Repeatedly connect to verified buttons to get all button events."""
 
-    for bd_addr in addresses:
-        client.delete_button(bd_addr)
+        info = await self.get_info()
 
-    await asyncio.sleep(1.0)
+        if bd_addrs is None:
+            bd_addrs = info.bd_addr_of_verified_buttons
+        else:
+            unverified = set(bd_addrs) - set(info.bd_addr_of_verified_buttons)
+            if len(unverified) > 0:
+                raise ValueError(
+                    f"bd_addrs contains unverified buttons: {list(unverified)}. "
+                    f"Please scan for new buttons, then try again"
+                )
 
+        bd_addrs = list(bd_addrs)
 
-async def info(client: FlicClient):
-    """Get info."""
-    info = await client.get_info()
-    logger.info(f"Info: {info}")
+        logger.info(f"Spinning {len(bd_addrs)} buttons every {period}s")
+        time_per_button = period / len(info.bd_addr_of_verified_buttons)
+        try:
+            while True:
+                for bd_addr in bd_addrs:
+                    start = time.time()
+                    await self.connect(
+                        bd_addr,
+                        connection_channel_class=connection_channel_class,
+                    )
+                    remaining = time_per_button - (time.time() - start)
+                    if remaining > 0:
+                        await asyncio.sleep(remaining)
+        finally:
+            print("Buttons pressed in order:")
+            for channel in self._buttons_ordered.values():
+                print(channel.bd_addr)
+
+    async def delete(self, addresses: str | list[str], all: bool):
+        """Delete buttons."""
+
+        if all and len(addresses) > 0:
+            raise ValueError("Cannot use all and provide addresses")
+
+        info = await self.get_info()
+
+        if all:
+            addresses = list(info.bd_addr_of_verified_buttons)
+        elif isinstance(addresses, str):
+            addresses = [addresses]
+        elif len(addresses) == 0:
+            raise ValueError("No addresses provided")
+
+        elif any(
+            bd_addr not in info.bd_addr_of_verified_buttons
+            for bd_addr in addresses
+        ):
+            raise ValueError("Invalid address provided")
+
+        for bd_addr in addresses:
+            self.delete_button(bd_addr)
+
+        await asyncio.sleep(1.0)
+
+    async def print_info(self):
+        """Get info."""
+        info = await self.get_info()
+        logger.info(f"Info: {info}")
 
 
 async def main_async(
@@ -1529,18 +1555,6 @@ async def main_async(
     ignore_queued: bool,
     **kwargs,
 ):
-    match command:
-        case "scan":
-            coro_fn = scan
-        case "delete":
-            coro_fn = delete
-        case "spin":
-            coro_fn = spin
-        case "info":
-            coro_fn = info
-        case _:
-            raise ValueError(f"Invalid command: {command}")
-
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
         lambda: FlicClient(
@@ -1551,8 +1565,21 @@ async def main_async(
         host,
         port,
     )
+
+    match command:
+        case "scan":
+            coro_fn = client.spin_scan
+        case "delete":
+            coro_fn = client.delete
+        case "listen":
+            coro_fn = client.spin_listen
+        case "info":
+            coro_fn = client.print_info
+        case _:
+            raise ValueError(f"Invalid command: {command}")
+
     try:
-        coro_task = asyncio.create_task(coro_fn(client, **kwargs))
+        coro_task = asyncio.create_task(coro_fn(**kwargs))
         closed_task = asyncio.create_task(client.wait_for_closed())
 
         done, _ = await asyncio.wait(

@@ -62,6 +62,16 @@
                 "port": 1302
             },
             "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: Attach to eyelink",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 1303
+            },
+            "justMyCode": false
         }
     ],
     "inputs": [

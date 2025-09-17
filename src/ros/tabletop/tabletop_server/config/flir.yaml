@@ -7,7 +7,7 @@ cameras:
     serial_number: "23240397"
   - name: cam3
     serial_number: "23240393"
-  - name: cam4
-    serial_number: "22157020"
+  # - name: cam4
+  #   serial_number: "23240395"
   - name: cam5
-    serial_number: "23240395"
+    serial_number: "22157020"

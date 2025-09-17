@@ -121,6 +121,7 @@ services:
       - 50002:50002
       - 50003:50003
       - 50004:50004
+      - 8765:8765
     # Uncomment the following section if you plan on connecting a teensy after starting the container
     # device_cgroup_rules:
     #   - c 161:* rmw

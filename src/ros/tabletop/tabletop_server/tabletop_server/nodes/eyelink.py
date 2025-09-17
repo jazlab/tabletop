@@ -1,3 +1,4 @@
+import argparse
 import concurrent.futures
 import os
 import threading
@@ -5,6 +6,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, cast
 
+import debugpy
 import numpy as np
 import pandas as pd
 import rclpy
@@ -112,7 +114,7 @@ class Eyelink(BaseNode):
         "live_gaze_estimation": True,
         "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
         "gaze_estimation_frequency": 100,  # Hz
-        "simulate_tracker": True,
+        "simulate": False,
     }
 
     ###########################################################################
@@ -127,12 +129,13 @@ class Eyelink(BaseNode):
         )
 
         if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
-            self.tracker = EyeLinkTracker(
+            self.tracker = EyeLinkTracker(  # type: ignore
                 self.get_parameter_wrapper("tracker_address")
             )
-            self.simulate = False
-        else:
-            self.simulate = True
+
+        self.simulate = not hasattr(
+            self, "tracker"
+        ) or self.get_parameter_wrapper("simulate")
         # pylink.endRealTimeMode()
 
         self.init_sample_retrieval()
@@ -353,7 +356,9 @@ class Eyelink(BaseNode):
         """Start the sample retrieval loop."""
         self.log("Starting sample retrieval")
         assert self.stop_sample_retrieval_event.is_set()
-        assert self.sample_retrieval_future.done(), "Sample retrieval already running, may be in the process of stopping"
+        assert self.sample_retrieval_future.done(), (
+            "Sample retrieval already running, may be in the process of stopping"
+        )
 
         self.message_queue.clear()
 
@@ -610,7 +615,7 @@ class Eyelink(BaseNode):
                         self.bag_writer.write(
                             "/eyelink/sample",
                             serialize_message(msg),  # type: ignore
-                            timestamp.nanoseconds,
+                            timestamp.nanoseconds,  # type: ignore
                         )
 
                 # Sleep for a short period to avoid busy-waiting (necessary
@@ -923,7 +928,7 @@ class Eyelink(BaseNode):
                         .numpy()
                         .tolist()
                     )
-                self.log(f"Gaze estimation: {y}", severity="INFO")
+                self.log(f"Gaze estimation: {y}", severity="DEBUG")
                 break
         else:
             y = [0.0, 0.1, 0.0]
@@ -986,6 +991,21 @@ class Eyelink(BaseNode):
 
 def main(args=None):
     rclpy.init(args=args)
+
+    # Parse non-ROS arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False)
+
+    non_ros_args = rclpy.utilities.remove_ros_args(args)  # type: ignore
+    args, _ = parser.parse_known_args(non_ros_args)
+
+    if args.debug:
+        print("Debug mode enabled")
+        debugpy.listen(1303)
+        print("Waiting for debugger to attach")
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
     try:
         executor: MultiThreadedExecutor | SingleThreadedExecutor = (
             MultiThreadedExecutor(num_threads=8)

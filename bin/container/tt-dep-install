@@ -3,7 +3,8 @@
 set -e
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 print_usage() {
     print_error "Usage: $0 [-t|--type <type>] [--skip-uv] [--skip-apt]"

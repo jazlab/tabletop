@@ -13,7 +13,7 @@ wget
 ffmpeg
 fluidsynth
 bash-completion
-neovim
+vim
 psmisc
 iputils-ping
 net-tools

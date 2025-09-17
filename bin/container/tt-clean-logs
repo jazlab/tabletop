@@ -3,7 +3,8 @@
 set -e
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 # Parse arguments
 skip_confirmation=false

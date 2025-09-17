@@ -3,7 +3,8 @@
 set -e
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 <calibration_filename.yaml>"
@@ -15,7 +16,7 @@ config_dir=$(colcon_cd tabletop_description)/config
 target_file="$config_dir/$calib_file"
 
 if [[ -f "$target_file" ]]; then
-    echo "File '$target_file' already exists."
+    print_warning "File '$target_file' already exists."
     read -p "Overwrite? [y/N]: " confirm
     case "$confirm" in
         [yY][eE][sS]|[yY]) ;;

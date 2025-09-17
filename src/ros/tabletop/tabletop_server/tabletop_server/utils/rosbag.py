@@ -201,8 +201,7 @@ def main():
         session_dirs = glob.glob(os.path.join(os.environ["ROS_BAG_DIR"], "*"))
         if not session_dirs:
             raise ValueError(
-                f"No session directories found in ROS_BAG_DIR "
-                f"({os.environ['ROS_BAG_DIR']})"
+                f"No session directories found in ROS_BAG_DIR ({os.environ['ROS_BAG_DIR']})"
             )
     else:
         session_dirs = [args.session_dir]

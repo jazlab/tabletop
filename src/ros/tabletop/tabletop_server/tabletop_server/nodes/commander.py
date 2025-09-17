@@ -276,7 +276,8 @@ class Commander(BaseNode):
         if not os.path.exists(soundfont_path):
             raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
 
-        fluidsynth.init(soundfont_path, driver="pulseaudio")
+        if not fluidsynth.init(soundfont_path, driver="pulseaudio"):
+            raise RuntimeError("Failed to initialize fluidsynth")
 
         self._default_note = Note(**config["default_note"])
         if (
@@ -989,9 +990,9 @@ class Commander(BaseNode):
         spin_period = self.get_parameter_wrapper("teensy.spin_period")
 
         await asyncio.sleep(spin_period)
-        assert (
-            self.last_teensy_sensor.is_reward_active
-        ), "Reward not active after 1 spin period"
+        assert self.last_teensy_sensor.is_reward_active, (
+            "Reward not active after 1 spin period"
+        )
 
         timeout = duration + spin_period
         try:
@@ -1388,8 +1389,7 @@ class Commander(BaseNode):
         attached_collision_object_ids = self.attached_collision_object_ids
         if len(attached_collision_object_ids) != 1:
             raise RuntimeError(
-                f"Expected exactly one attached collision object, "
-                f"but got {len(attached_collision_object_ids)}"
+                f"Expected exactly one attached collision object, but got {len(attached_collision_object_ids)}"
             )
         return attached_collision_object_ids[0]
 
@@ -1427,9 +1427,9 @@ class Commander(BaseNode):
         self, success: bool, allowed_collision_type: str
     ) -> bool:
         """Parse the collision matrix entry for two collision objects."""
-        assert (
-            success or allowed_collision_type == "NEVER"
-        ), "Inconsistent collision matrix entry"
+        assert success or allowed_collision_type == "NEVER", (
+            "Inconsistent collision matrix entry"
+        )
         if allowed_collision_type == "ALWAYS":
             return True
         elif allowed_collision_type == "NEVER":
@@ -2471,8 +2471,7 @@ class Commander(BaseNode):
                 raise ValueError(f"Unused kwargs: {unused_kwargs}")
         elif len(args) > 0 or len(kwargs) > 0:
             raise ValueError(
-                f"Additional arguments ({args}) or kwargs ({kwargs}) "
-                "cannot be provided if plan_request is provided"
+                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if plan_request is provided"
             )
 
         # Check if the goal is already reached
@@ -2741,8 +2740,7 @@ class Commander(BaseNode):
                 raise ValueError(f"Unused kwargs: {unused_kwargs}")
         elif len(args) > 0 or len(kwargs) > 0:
             raise ValueError(
-                f"Additional arguments ({args}) or kwargs ({kwargs}) "
-                "cannot be provided if request is provided"
+                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if request is provided"
             )
 
         if preprocess_trajectory:
@@ -2919,8 +2917,15 @@ class Commander(BaseNode):
                 self.get_parameter_wrapper("plan_and_execute.max_attempts"),
             )
 
+        if max_attempts < 1:
+            raise ValueError(
+                f"max_attempts should be greater than or equal to 1, got {max_attempts}"
+            )
+
+        first_attempt = True
         for i in range(max_attempts):
             if i > 0:
+                first_attempt = False
                 kwargs["cache_trajectory"] = False
             try:
                 response = await self._plan_and_execute_impl(*args, **kwargs)
@@ -2929,8 +2934,7 @@ class Commander(BaseNode):
                 if i == max_attempts - 1:
                     raise
                 self.log(
-                    f"Error while planning and executing: {e}. "
-                    "Locking arms and waiting for safety before retrying",
+                    f"Error while planning and executing: {e}. Locking arms and waiting for safety before retrying",
                     severity="WARN",
                 )
                 await self._arm_lock_and_wait()
@@ -2942,8 +2946,7 @@ class Commander(BaseNode):
                 if i == max_attempts - 1:
                     raise
                 self.log(
-                    f"Error while planning and executing: {e}. "
-                    "Resetting dashboard before retrying",
+                    f"Error while planning and executing: {e}. Resetting dashboard before retrying",
                     severity="WARN",
                 )
                 await asyncio.sleep(2)
@@ -2952,8 +2955,9 @@ class Commander(BaseNode):
                     "Dashboard reset, retrying plan_and_execute",
                     severity="WARN",
                 )
-        if i == 0:
-            return response
+
+        if first_attempt:
+            return response  # type: ignore
         else:
             return None
 
@@ -3160,7 +3164,7 @@ class Commander(BaseNode):
                 severity="ERROR",
             )
             self.log("Attempting to return object to mount", severity="WARN")
-            start_idx = ObjectPhase.IDLE - i
+            start_idx = ObjectPhase.IDLE - i  # type: ignore
             for i in range(start_idx, ObjectPhase.IDLE + 1):
                 await self._object_phase(
                     object_id, ObjectPhase(i), cache_trajectory=False
@@ -3285,8 +3289,7 @@ class Commander(BaseNode):
                     or robot_mode.mode != RobotMode.RUNNING
                 ):
                     self.log(
-                        f"Safety mode is {safety_mode.mode}, "
-                        f"retrying after {config['play_retry_delay']} seconds...",
+                        f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
                         severity="WARN",
                     )
                     await asyncio.sleep(config["play_retry_delay"])
@@ -3564,8 +3567,7 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
     grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
     position, euler = arrays_from_pose_msg(grid_origin.pose, euler=True)
     commander.log(
-        f"Object grid origin position: {position.round(4)}, "
-        f"euler: {euler.round(4)}"
+        f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
     )
 
     while True:
@@ -3580,8 +3582,7 @@ async def debug_commander(commander: Commander, config: Optional[str] = None):
         )
         position, euler = arrays_from_pose_msg(rel_pose, euler=True)
         commander.log(
-            f"Eef relative position: {position.round(4).tolist()}, "
-            f"euler: {euler.round(4).tolist()}"
+            f"Eef relative position: {position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
         )
         await asyncio.sleep(1)
 
@@ -3644,12 +3645,10 @@ def main(args=None):
         ):
             if args.coroutine_name is None or args.coroutine_module is None:
                 raise ValueError(
-                    "Both coroutine_module and coroutine_name must be provided "
-                    "when one is provided"
+                    "Both coroutine_module and coroutine_name must be provided when one is provided"
                 )
             print(
-                f"Loading coroutine {args.coroutine_name} "
-                f"from module {args.coroutine_module} "
+                f"Loading coroutine {args.coroutine_name} from module {args.coroutine_module} "
             )
             coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
                 importlib.import_module(args.coroutine_module),

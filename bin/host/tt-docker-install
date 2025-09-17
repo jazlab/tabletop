@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
-
 set -e
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 # Uninstall old versions
 print_status "Removing old Docker packages if they exist..."

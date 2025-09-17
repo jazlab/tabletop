@@ -90,9 +90,9 @@ def init_dataloaders(
     train_val_df = cast(pd.DataFrame, train_val_df)
     test_df = cast(pd.DataFrame, test_df)
 
-    def train_val_generator() -> (
-        Generator[tuple[DataLoader, DataLoader], None, None]
-    ):
+    def train_val_generator() -> Generator[
+        tuple[DataLoader, DataLoader], None, None
+    ]:
         kf = KFold(n_splits=val_folds, shuffle=shuffle_val_split)
         for train_idx, val_idx in kf.split(train_val_df):
             train_dataset = GazeDataset(train_val_df.iloc[train_idx])

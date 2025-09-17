@@ -500,10 +500,7 @@ def validate_service_response(
         error_msg = f"{service_client.service_name} service call timed out!"
         raise ServiceCallTimeoutError(error_msg)
     elif hasattr(response, "success") and not response.success:  # type: ignore
-        error_msg = (
-            f"{service_client.service_name} service call returned "
-            f"unsuccessfully with response: {msg_to_dict(response)}"
-        )
+        error_msg = f"{service_client.service_name} service call returned unsuccessfully with response: {msg_to_dict(response)}"
         raise ServiceCallUnsuccessfulError(error_msg)
 
 
@@ -693,8 +690,7 @@ def pose_stamped_msg(
     if header is not None:
         if frame_id is not None or timestamp is not None:
             raise ValueError(
-                "Either header or (at least one of frame_id and timestamp) "
-                "must be provided, but not both"
+                "Either header or (at least one of frame_id and timestamp) must be provided, but not both"
             )
 
         header = deepcopy(header)
@@ -715,8 +711,7 @@ def pose_stamped_msg(
     if pose is not None:
         if position is not None or rpy is not None or orientation is not None:
             raise ValueError(
-                "Either pose or position/rpy/orientation must be provided, "
-                "but not both"
+                "Either pose or position/rpy/orientation must be provided, but not both"
             )
 
         pose = deepcopy(pose)

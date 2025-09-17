@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
+set -e
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../setup.bash
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
 
 project_dir=$TABLETOP_DIR/src/ros/tabletop/tabletop_teensy
 

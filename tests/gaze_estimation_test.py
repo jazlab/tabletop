@@ -374,9 +374,9 @@ class TestGazeEstimationModelGeometric:
             1,
             3,
         ), "Focus point shape mismatch for single input."
-        assert focus_error.shape == (
-            1,
-        ), "Focus error shape mismatch for single input."
+        assert focus_error.shape == (1,), (
+            "Focus error shape mismatch for single input."
+        )
 
     def test_forward_pass_batch_shapes(
         self, model: GazeEstimationModelGeometric
@@ -397,9 +397,9 @@ class TestGazeEstimationModelGeometric:
             2,
             3,
         ), "Focus point shape mismatch for batch input."
-        assert focus_error.shape == (
-            2,
-        ), "Focus error shape mismatch for batch input."
+        assert focus_error.shape == (2,), (
+            "Focus error shape mismatch for batch input."
+        )
 
     def test_forward_pass_parallel_gaze_error(
         self, default_params: dict[str, Any]
@@ -506,9 +506,7 @@ class TestGazeEstimationModelGeometric:
         print(
             f"Converging gaze test: focus_point={focus_point.tolist()}, focus_error={focus_error.item()}"
         )
-        assert (
-            focus_error.item() < 0.001
-        ), (
+        assert focus_error.item() < 0.001, (
             "Focus error for converging gaze is unexpectedly high."
         )  # Expect < 1mm error
 
@@ -547,15 +545,15 @@ class TestGazeEstimationModelGeometric:
         for param in model.parameters():
             if param.requires_grad:
                 num_learnable_model_params += 1
-                assert (
-                    param.grad is not None
-                ), f"A model parameter ({param.shape}) that requires grad has a None gradient."
+                assert param.grad is not None, (
+                    f"A model parameter ({param.shape}) that requires grad has a None gradient."
+                )
                 if torch.any(param.grad != 0):
                     found_any_non_zero_grad = True
 
-        assert (
-            num_learnable_model_params > 0
-        ), "No parameters requiring gradients found via model.parameters(). Check LearnableMaskedCorrectionParameter setup."
+        assert num_learnable_model_params > 0, (
+            "No parameters requiring gradients found via model.parameters(). Check LearnableMaskedCorrectionParameter setup."
+        )
         assert found_any_non_zero_grad, (
             "All gradients for model parameters requiring grad are zero. "
             "Check model structure, loss function, input data, or if masks/initialization disable all learning."

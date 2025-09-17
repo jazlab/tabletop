@@ -61,8 +61,7 @@ class FuzzyTrajectoryCacheKey:
         # Check that the start state is in the world frame
         if self.start_state.robot_model.model_frame != "world":
             raise ValueError(
-                f"Start state robot model frame must be 'world': "
-                f"{self.start_state.robot_model.model_frame}"
+                f"Start state robot model frame must be 'world': {self.start_state.robot_model.model_frame}"
             )
 
         # Check that the start state has the joint model group
@@ -70,23 +69,20 @@ class FuzzyTrajectoryCacheKey:
             self.group_name
         ):
             raise ValueError(
-                f"Start state robot model must have joint model group: "
-                f"{self.group_name}"
+                f"Start state robot model must have joint model group: {self.group_name}"
             )
 
         if isinstance(self.goal, RobotState):
             # Check that the goal state is in the world frame
             if self.goal.robot_model.model_frame != "world":
                 raise ValueError(
-                    f"Goal robot model frame must be 'world': "
-                    f"{self.goal.robot_model.model_frame}"
+                    f"Goal robot model frame must be 'world': {self.goal.robot_model.model_frame}"
                 )
 
             # Check that the pose link is not provided if the goal is a RobotState
             if self.pose_link is not None:
                 raise ValueError(
-                    f"Pose link must not be provided for a RobotState goal: "
-                    f"{self.pose_link}"
+                    f"Pose link must not be provided for a RobotState goal: {self.pose_link}"
                 )
 
             # Check that the goal state has the joint model group
@@ -94,15 +90,13 @@ class FuzzyTrajectoryCacheKey:
                 self.group_name
             ):
                 raise ValueError(
-                    f"Goal robot model must have joint model group: "
-                    f"{self.group_name}"
+                    f"Goal robot model must have joint model group: {self.group_name}"
                 )
         else:
             # Check that the goal pose is in the world frame
             if self.goal.header.frame_id != "world":
                 raise ValueError(
-                    f"Goal pose frame id must be 'world': "
-                    f"{self.goal.header.frame_id}"
+                    f"Goal pose frame id must be 'world': {self.goal.header.frame_id}"
                 )
 
             # Check that the pose link is provided if the goal is a PoseStamped
@@ -349,8 +343,7 @@ class FuzzyTrajectoryCache(Shelf):
                 # Check that current symlink is valid
                 if not os.path.islink(symlink_path):
                     raise RuntimeError(
-                        f"Symlink path does not exist or is not a symlink: "
-                        f"{symlink_path}"
+                        f"Symlink path does not exist or is not a symlink: {symlink_path}"
                     )
                 if not os.path.exists(symlink_path):
                     raise FileNotFoundError(
@@ -493,8 +486,7 @@ class FuzzyTrajectoryCache(Shelf):
 
             if old_value != value:
                 raise ValueError(
-                    f"Old {key} value in db is different from new value: "
-                    f"{old_value} != {value}."
+                    f"Old {key} value in db is different from new value: {old_value} != {value}."
                 )
 
         # Set the values in the db anyway

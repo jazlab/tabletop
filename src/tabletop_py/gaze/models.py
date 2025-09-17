@@ -109,9 +109,7 @@ def intersect_ray_sphere(
 
     # If t is negative, the ray either started inside the sphere or is
     # pointing away from the sphere, neither of which should happen.
-    assert (
-        t > 0
-    ).all(), (
+    assert (t > 0).all(), (
         "Ray started inside the sphere or is pointing away from the sphere"
     )
 

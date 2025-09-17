@@ -12,7 +12,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
 # Install eyelink display software
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-<<EOT
+    <<EOT
 set -ex
 if [[ $(uname -m) = x86_64 ]] ; then
     apt-get update && apt-get upgrade -y
@@ -26,39 +26,39 @@ fi
 EOT
 
 # Install Spinnaker SDK
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-<<EOT
-set -ex
-apt-get update && apt-get upgrade -y
-apt-get install -y curl
-cd /tmp
-case $(uname -m) in
-    x86_64)
-        curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
-        ;;
-    aarch64)
-        curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
-        ;;
-    *)
-        echo "Unsupported architecture $(uname -m)!"
-        exit 1
-        ;;
-esac
-tar -xzf spinnaker.tar.gz
-SPINNAKER_DIR=$(tar -tf spinnaker.tar.gz | head -1)
-cd $SPINNAKER_DIR
-yes | sudo apt install ./*.deb
-rm -rf /tmp/spinnaker.tar.gz
-EOT
+# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+#     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+# <<EOT
+# set -ex
+# apt-get update && apt-get upgrade -y
+# apt-get install -y curl
+# cd /tmp
+# case $(uname -m) in
+#     x86_64)
+#         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
+#         ;;
+#     aarch64)
+#         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
+#         ;;
+#     *)
+#         echo "Unsupported architecture $(uname -m)!"
+#         exit 1
+#         ;;
+# esac
+# tar -xzf spinnaker.tar.gz
+# SPINNAKER_DIR=$(tar -tf spinnaker.tar.gz | head -1)
+# cd $SPINNAKER_DIR
+# yes | sudo apt install ./*.deb
+# rm -rf /tmp/spinnaker.tar.gz
+# EOT
+
 
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=bind,source=deps/apt.list,target=/tmp/apt.list \
-<<EOT
+    <<EOT
 set -ex
-add-apt-repository ppa:neovim-ppa/unstable
 apt-get update && apt-get upgrade -y
 apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
@@ -95,11 +95,11 @@ EOT
 
 USER $USER
 
-# Install ROS dependencies from src directory
+# Install ROS dependencies from src/ros directory
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=src,target=/tmp/src \
-<<EOT
+    --mount=type=bind,source=src/ros,target=/tmp/src \
+    <<EOT
 set -ex
 cd /tmp/src
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade -y
@@ -124,7 +124,7 @@ ARG USE_NVIDIA
 RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-<<EOT
+    <<EOT
 set -ex
 if [[ $USE_NVIDIA = true ]] ; then
     UV_EXTRA="--extra cu128"
@@ -149,10 +149,31 @@ ENV TT_IN_CONTAINER=true
 # Development image with additional dependencies and tools
 FROM base AS dev
 
+# Install Neovim
+RUN <<EOT
+set -ex
+case $(uname -m) in
+    x86_64)
+        curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
+        ;;
+    aarch64)
+        curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-arm64.tar.gz
+        ;;
+    *)
+        echo "Unsupported architecture $(uname -m)!"
+        exit 1
+        ;;
+esac
+sudo tar -xzf /tmp/nvim.tar.gz -C /opt
+NVIM_DIRNAME=$(tar -tf /tmp/nvim.tar.gz | head -1 | cut -f1 -d"/")
+sudo ln -s /opt/$NVIM_DIRNAME/bin/nvim /usr/bin/nvim
+rm -f /tmp/nvim.tar.gz
+EOT
+
 # Install npm
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-<<EOT
+    <<EOT
 set -ex
 apt-get update && apt-get upgrade -y
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash

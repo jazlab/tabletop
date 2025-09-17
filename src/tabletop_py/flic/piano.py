@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import logging
 import os
-import subprocess
 import time
 
 import mingus.core.scales as scales
@@ -51,8 +50,10 @@ class PianoButtonConnectionChannel(ButtonConnectionChannel):  # type: ignore
             fluidsynth.play_Note(self.note)
 
 
-def init_piano(soundfont: str, key: str, octave: int, scale: str):
-    if not fluidsynth.init(soundfont, driver="pulseaudio"):
+def init_piano(
+    soundfont_path: str, key: str, octave: int, scale: str, driver: str
+):
+    if not fluidsynth.init(soundfont_path, driver=driver):
         raise RuntimeError("Failed to initialize fluidsynth")
 
     scale_cls = getattr(scales, scale)
@@ -77,59 +78,34 @@ async def run(
     _, client = await loop.create_connection(
         lambda: FlicClient(loop=loop), host, port
     )
-    fluidsynth_process = subprocess.Popen(["fluidsynth", "-a", driver, "-i"])
+    init_piano(soundfont, key, octave, scale, driver)
 
     try:
-        for bd_addr in bd_addr_ordered:
-            cc = PianoButtonConnectionChannel(
-                bd_addr, note=bd_addr_to_note[bd_addr]
-            )
-        print(
-            f"Waiting for {len(bd_addr_to_note) - client.num_buttons} buttons"
+        coro_task = asyncio.create_task(client.spin_listen(period=20))
+        closed_task = asyncio.create_task(client.wait_for_closed())
+
+        done, _ = await asyncio.wait(
+            [coro_task, closed_task],
+            return_when=asyncio.FIRST_COMPLETED,
         )
-        while client.num_buttons < len(bd_addr_to_note):
-            await asyncio.sleep(1)
-        print(f"Connected to {client.num_buttons} buttons")
-
-        init_piano(soundfont, key, octave, scale)
-
-        print("Spinning")
-        await client.wait_for_closed()
-    except KeyboardInterrupt:
-        print("Keyboard interrupt")
+        for task in done:
+            task.result()
     finally:
-        fluidsynth_process.terminate()
         client.close()
 
 
 def main():
-    dir_path = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "soundfonts"
-    )
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--port", type=int, default=5551)
-    parser.add_argument("--soundfont", type=str, default="lyzen.sf2")
-    parser.add_argument("--key", type=str, default="C")
-    parser.add_argument("--octave", type=int, default=4)
+    parser.add_argument("-s", "--soundfont", type=str, default="lyzen.sf2")
+    parser.add_argument("-k", "--key", type=str, default="C")
+    parser.add_argument("-o", "--octave", type=int, default=4)
     parser.add_argument("--scale", type=str, default="HarmonicMinor")
-    parser.add_argument("--driver", type=str, default="alsa")
+    parser.add_argument("--driver", type=str, default="pulseaudio")
     args = parser.parse_args()
 
-    soundfont_path = os.path.join(dir_path, args.soundfont)
-
-    asyncio.run(
-        run(
-            host=args.host,
-            port=args.port,
-            soundfont=soundfont_path,
-            driver=args.driver,
-            key=args.key,
-            octave=args.octave,
-            scale=args.scale,
-        )
-    )
+    asyncio.run(run(**vars(args)))
 
 
 def test_note():
@@ -138,23 +114,15 @@ def test_note():
     )
     if not os.path.exists(soundfont_path):
         raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
-    # fluidsynth_process = subprocess.Popen(
-    #     ["fluidsynth", "-a", "pulseaudio", "-i"]
-    # )
-    try:
-        fluidsynth.init(soundfont_path, driver="pulseaudio")
-        fluidsynth.set_instrument(0, 62)
-        note = Note("C", 4, velocity=127, channel=0)
-        fluidsynth.play_Note(note)
-        time.sleep(1)
-    finally:
-        pass
-        # fluidsynth_process.terminate()
+    fluidsynth.init(soundfont_path, driver="pulseaudio")
+    fluidsynth.set_instrument(0, 62)
+    note = Note("C", 4, velocity=127, channel=0)
+    fluidsynth.play_Note(note)
+    time.sleep(1)
 
 
 if __name__ == "__main__":
-    test_note()
-    # main()
+    main()
 
 
 # sudo apt install fluidsynth

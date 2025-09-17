@@ -14,6 +14,6 @@ class DummyTask(BaseTask):
         self._commander = commander
 
     async def run(self):
-        async with self.commander as com:
+        async with self.commander:
             while True:
                 await asyncio.sleep(1.0)
