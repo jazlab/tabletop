@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -e
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+print_usage() {
+    echo "Usage: $0 [<launch_type>] [<launch_options>...]"
+    echo "launch_type can be one of commander, server, or tasks"
+}
+
+case $1 in
+    commander)
+        LAUNCH="tabletop_server commander.launch.py"
+        ;;
+    server)
+        LAUNCH="tabletop_server server.launch.py"
+        ;;
+    task|tasks)
+        LAUNCH="tabletop_tasks tasks.launch.py"
+        ;;
+    *)
+        print_error launch_type must be one of commander, server, or tasks
+        print_usage
+        ;;
+esac
+shift
+
+ros2 launch $LAUNCH $@

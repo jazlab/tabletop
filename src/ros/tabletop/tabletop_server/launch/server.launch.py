@@ -38,37 +38,7 @@ def print_substitutions(context, substitutions: dict[str, Substitution]):
         print(f"{name}: {substitution.perform(context)}")
 
 
-FLIR_COMMON_PARAMS = {
-    "debug": False,
-    "compute_brightness": True,
-    "dump_node_map": False,
-    "adjust_timestamp": True,
-    "gain_auto": "Off",
-    "gain": 0,
-    "exposure_auto": "Off",
-    "exposure_time": 9000,
-    "line2_selector": "Line2",
-    "line2_v33enable": False,
-    "line3_selector": "Line3",
-    "line3_linemode": "Input",
-    "trigger_selector": "FrameStart",
-    "trigger_mode": "On",
-    "trigger_source": "Line3",
-    "trigger_delay": 9,
-    "trigger_overlap": "ReadOut",
-    "chunk_mode_active": True,
-    "chunk_selector_frame_id": "FrameID",
-    "chunk_enable_frame_id": True,
-    "chunk_selector_exposure_time": "ExposureTime",
-    "chunk_enable_exposure_time": True,
-    "chunk_selector_gain": "Gain",
-    "chunk_enable_gain": True,
-    "chunk_selector_timestamp": "Timestamp",
-    "chunk_enable_timestamp": True,
-}
-
-
-def make_camera_node(name, camera_type, serial_number):
+def make_camera_node(name, camera_type, serial_number, **params):
     parameter_file = PathJoinSubstitution(
         [
             FindPackageShare("spinnaker_camera_driver"),
@@ -82,8 +52,8 @@ def make_camera_node(name, camera_type, serial_number):
         plugin="spinnaker_camera_driver::CameraDriver",
         name=name,
         parameters=[
-            FLIR_COMMON_PARAMS,
             {"parameter_file": parameter_file, "serial_number": serial_number},
+            params,
         ],
         remappings=[
             ("~/control", "/exposure_control/control"),
@@ -182,6 +152,13 @@ def declare_arguments():
                 ]
             ),
             description="RViz config file",
+        ),
+        # Foxglove
+        DeclareLaunchArgument(
+            "foxglove",
+            default_value="true",
+            choices=["true", "false"],
+            description="Launch foxglove bridge?",
         ),
         # Bag
         DeclareLaunchArgument(
@@ -553,8 +530,8 @@ def generate_launch_description():
     flir_nodes = []
     for config in flir_config["cameras"]:
         config = flir_config["common"] | config
-        print(config)
         flir_nodes.append(make_camera_node(**config))
+
     flir_camera_container = ComposableNodeContainer(
         name="flir_camera_container",
         namespace="",
@@ -562,6 +539,7 @@ def generate_launch_description():
         executable="component_container",
         composable_node_descriptions=flir_nodes,
         output="both",
+        on_exit=[Shutdown()],
     )
 
     # RViz MoveIt Config
@@ -624,6 +602,7 @@ def generate_launch_description():
         ],
         scoped=True,
         forwarding=False,
+        condition=IfCondition(LaunchConfiguration("foxglove")),
     )
 
     # Bag Recorder and Converter

@@ -2,8 +2,8 @@
 name = "tabletop-py"
 version = "0.1.0"
 description = "ROS-independent Python utilities for the TableTop project"
-authors = [{ name = "Valmiki Kothare", email = "valmiki.kothare.vk@gmail.com" }]
 requires-python = "~=3.12.0"
+authors = [{ name = "Valmiki Kothare", email = "valmiki.kothare.vk@gmail.com" }]
 dependencies = [
   "colcon-common-extensions>=0.3.0",
   "colcon-mixin>=0.2.3",
@@ -21,6 +21,17 @@ dependencies = [
   "trimesh[easy]>=4.7.4",
 ]
 
+[project.scripts]
+gaze-calibrate = "tabletop_py.gaze.calibrate:main"
+gaze-preprocess = "tabletop_py.gaze.preprocess:main"
+gaze-train = "tabletop_py.gaze.train:main"
+gaze-visualize = "tabletop_py.gaze.visualize:main"
+
+[project.optional-dependencies]
+cpu = ["torch>=2.8.0"]
+cu128 = ["torch>=2.8.0"]
+eyelink = ["sr-research-pylink>=2.1.1145.post1"]
+
 [dependency-groups]
 dev = [
   "ipykernel>=6.30.1",
@@ -30,10 +41,9 @@ dev = [
   "ros2-graph>=0.0.5",
 ]
 
-[project.optional-dependencies]
-cpu = ["torch>=2.8.0"]
-cu128 = ["torch>=2.8.0"]
-eyelink = ["sr-research-pylink>=2.1.1145.post1"]
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cu128" }]]
@@ -59,13 +69,3 @@ explicit = true
 name = "sr-research"
 url = "https://pypi.sr-research.com"
 explicit = true
-
-[project.scripts]
-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
-gaze-train = "tabletop_py.gaze.train:main"
-gaze-visualize = "tabletop_py.gaze.visualize:main"
-gaze-calibrate = "tabletop_py.gaze.calibrate:main"
-
-[build-system]
-requires = ["uv_build>=0.8.11,<0.9.0"]
-build-backend = "uv_build"

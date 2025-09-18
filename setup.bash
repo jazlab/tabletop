@@ -1,11 +1,3 @@
-# Aliases
-if [ -d /opt/ros ]; then
-    alias tt-server="ros2 launch tabletop_server server.launch.py"
-    alias tt-commander="ros2 launch tabletop_server commander.launch.py"
-    alias tt-tasks="ros2 launch tabletop_tasks tasks.launch.py"
-    alias tree="tree -I 'build|install|logs|results"
-fi
-
 # Set environment variables
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 export COLCON_WS=$TABLETOP_DIR
@@ -44,7 +36,7 @@ fi
 
 # Add Spinnaker bin directory to PATH
 # export PATH=/opt/spinnaker/bin:$PATH
-SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
 
 # Add correct bin directories to PATH based on whether or not setup.bash was called inside the container or not
 export PATH=$TABLETOP_DIR/bin/common:$PATH

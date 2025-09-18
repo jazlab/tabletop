@@ -1,5 +1,17 @@
 common:
   camera_type: blackfly_s
+  debug: False
+  dump_node_map: False
+  gain_auto: Continuous
+  pixel_format: BayerRG8
+  exposure_auto: Continuous
+  frame_rate_auto: "Off"
+  frame_rate: 40.0
+  frame_rate_enable: True
+  buffer_queue_size: 5
+  trigger_mode: "Off"
+  # stream_buffer_handling_mode: NewestFirst
+  # multicast_monitor_mode: False
 cameras:
   - name: cam1
     serial_number: "22442796"
@@ -7,7 +19,7 @@ cameras:
     serial_number: "23240397"
   - name: cam3
     serial_number: "23240393"
-  # - name: cam4
-  #   serial_number: "23240395"
-  - name: cam5
+  - name: cam4
     serial_number: "22157020"
+  - name: cam5
+    serial_number: "23240395"
