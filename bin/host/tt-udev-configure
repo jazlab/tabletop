@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 
+
+set -e
+
+# PlatformIO
 sudo curl -fsSL -o /etc/udev/rules.d/99-platformio-udev.rules https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
+
+# Flir Cameras
+FLIR_UDEV_FILE=/etc/udev/rules.d/40-flir--udev.rules
+sudo tee $FLIR_UDEV_FILE > /dev/null <<EOF
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"
+EOF
+
 sudo udevadm control --reload
 sudo udevadm trigger
