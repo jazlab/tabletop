@@ -28,11 +28,11 @@ common:
   # connect_while_subscribed: true
   # reverse_x: true
   # reverse_y: true
-  frame_rate_auto: Off
+  frame_rate_auto: "Off"
   frame_rate: 40.0
   frame_rate_enable: true
   buffer_queue_size: 4
-  trigger_mode: Off
+  trigger_mode: "Off"
   chunk_mode_active: true
   chunk_selector_frame_id: FrameID
   chunk_enable_frame_id: true
@@ -51,7 +51,7 @@ cameras:
     serial_number: "23240397"
   - name: cam3
     serial_number: "23240393"
-  # - name: cam4
-  #   serial_number: "22157020"
+  - name: cam4
+    serial_number: "22157020"
   - name: cam5
     serial_number: "23240395"
