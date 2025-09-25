@@ -28,6 +28,6 @@ endif()
 ament_package()
 
 install(
-  DIRECTORY config launch meshes srdf
+  DIRECTORY config launch meshes srdf xrdf
   DESTINATION share/${PROJECT_NAME}
 )

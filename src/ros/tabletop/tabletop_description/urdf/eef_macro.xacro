@@ -13,8 +13,8 @@
     <xacro:property name="radius" value="0.0315" />
     <xacro:property name="mass" value="0.5" />
     <xacro:property name="sphere_radius" value="0.06" />
-    <xacro:property name="bounding_cylinder_radius" value="0.05" />
-    <xacro:property name="bounding_cylinder_length" value="0.11" />
+    <!-- <xacro:property name="bounding_cylinder_radius" value="0.05" />
+    <xacro:property name="bounding_cylinder_length" value="0.11" /> -->
 
     <link name="${tf_prefix}eef_link">
       <visual>

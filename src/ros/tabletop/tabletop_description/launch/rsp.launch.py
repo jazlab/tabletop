@@ -29,8 +29,10 @@
 #
 # Author: Felix Exner
 
+import os
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -197,6 +199,19 @@ def generate_launch_description():
             " ",
         ]
     )
+
+    def urdf_save(context):
+        print(robot_description_content)
+        urdf_str = robot_description_content.perform(context)
+        urdf_path = os.path.join(
+            os.environ["TABLETOP_DIR"], "cache", "tabletop.urdf"
+        )
+        if os.path.exists(urdf_path):
+            os.remove(urdf_path)
+        with open(urdf_path, "x") as f:
+            f.write(urdf_str)
+
+    urdf_save_action = OpaqueFunction(function=urdf_save)
     robot_description = {
         "robot_description": ParameterValue(
             robot_description_content, value_type=str
@@ -475,6 +490,7 @@ def generate_launch_description():
     return LaunchDescription(
         declared_arguments
         + [
+            urdf_save_action,
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
