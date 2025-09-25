@@ -11,8 +11,17 @@ planning_pipelines:
   pipeline_names:
     - ompl
     - pilz_industrial_motion_planner
+    - isaac_ros_cumotion
     # - chomp
     # - stomp
+
+cumotion:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: isaac_ros_cumotion
+    planning_time: 0.5
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
 
 ompl_aps_rrtc:
   plan_request_params:

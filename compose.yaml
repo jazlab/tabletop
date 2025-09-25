@@ -131,6 +131,7 @@ services:
     environment:
       - DISPLAY=novnc:0.0
       # - QT_X11_NO_MITSHM=1
+      # - NVIDIA_REQUIRE_CUDA="cuda=12.8"
       - NVIDIA_VISIBLE_DEVICES=$TT_NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$TT_NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=unix:/tmp/pulseaudio.socket

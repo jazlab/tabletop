@@ -26,3 +26,7 @@
 	path = src/ros/modules/mocap4r2_optitrack
 	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
 	branch = rolling
+[submodule "isaac_ros_cumotion"]
+	path = src/ros/modules/isaac_ros_cumotion
+	url = https://github.com/valmikikothare/isaac_ros_cumotion.git
+	branch = main

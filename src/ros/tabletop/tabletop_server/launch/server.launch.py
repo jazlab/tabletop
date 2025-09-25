@@ -250,6 +250,18 @@ def declare_arguments():
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
+            "optitrack_output",
+            default_value="own_log",
+            description="Optitrack output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "flir_output",
+            default_value="own_log",
+            description="Flir output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
             "rviz_output",
             default_value="own_log",
             description="RViz output",
@@ -500,7 +512,7 @@ def generate_launch_description():
             "--child-frame-id",
             "optitrack",
         ],
-        output="both",
+        output=LaunchConfiguration("optitrack_output"),
         on_exit=[Shutdown()],
     )
 
@@ -508,7 +520,7 @@ def generate_launch_description():
     mocap4r2_marker_viz = Node(
         package="mocap4r2_marker_viz",
         executable="mocap4r2_marker_viz",
-        output="both",
+        output=LaunchConfiguration("optitrack_output"),
         emulate_tty=True,
         parameters=[
             {
@@ -538,7 +550,7 @@ def generate_launch_description():
         package="rclcpp_components",
         executable="component_container",
         composable_node_descriptions=flir_nodes,
-        output="both",
+        output=LaunchConfiguration("flir_output"),
         on_exit=[Shutdown()],
     )
 
