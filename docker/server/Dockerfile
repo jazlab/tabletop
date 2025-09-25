@@ -9,7 +9,7 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-# Install eyelink display software
+# Install Eyelink Display Software
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     <<EOT
@@ -21,7 +21,29 @@ if [[ $(uname -m) = x86_64 ]] ; then
     add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
     apt-get update
     apt-get install -y eyelink-display-software
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+fi
+EOT
+
+ARG USE_NVIDIA
+
+# Install CUDA Toolkit
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    <<EOT
+set -ex
+cd /tmp
+if [[ $USE_NVIDIA = true ]] ; then
+    if [[ $(uname -m) != x86_64 ]] ; then
+        echo "Unsupported architecture when using nvidia: $(uname -m)!"
+        exit 1
+    fi
+    apt-get update && apt-get upgrade -y
+    apt-get install -y wget
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    apt-get update
+    apt-get -y install cuda-toolkit-12-8
+    rm cuda-keyring_1.1-1_all.deb
 fi
 EOT
 
@@ -51,7 +73,6 @@ EOT
 # yes | sudo apt install ./*.deb
 # rm -rf /tmp/spinnaker.tar.gz
 # EOT
-
 
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -118,8 +139,6 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=0
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-ARG USE_NVIDIA
 
 RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
