@@ -1,5 +1,6 @@
 {
     "recommendations": [
+        "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "anysphere.cursorpyright",
         "ms-python.python",
@@ -14,6 +15,6 @@
         "bierner.markdown-mermaid",
         "ms-vscode.cpptools-extension-pack",
         "ms-vscode.cpptools-themes",
-        "ms-vscode.cmake-tools"
+        "ms-vscode.cmake-tools",
     ]
 }

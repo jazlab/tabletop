@@ -41,11 +41,13 @@ from tabletop_py.gaze.utils import init_model
 from tabletop_server.nodes.base import BaseNode
 from tabletop_server.utils.ros import ROSSleepError, seconds_from_ros_time
 
-if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
+pylink_available = True
+try:
     from pylink import EyeLink as EyeLinkTracker
     from pylink.constants import MISSING_DATA
     from pylink.tracker import Sample, SampleData
-else:
+except ImportError:
+    pylink_available = False
     type EyelinkTracker = Any
     type Sample = Any
     type SampleData = Any
@@ -124,14 +126,13 @@ class Eyelink(BaseNode):
     def __init__(self):
         super().__init__("eyelink")
 
-        self.log(
-            f"TT_EYELINK_SUPPORTED: {os.environ.get('TT_EYELINK_SUPPORTED')}"
-        )
-
-        if os.environ.get("TT_EYELINK_SUPPORTED") == "true":
+        if pylink_available:
+            self.log("Pylink available")
             self.tracker = EyeLinkTracker(  # type: ignore
                 self.get_parameter_wrapper("tracker_address")
             )
+        else:
+            self.log("Pylink not available! Simulating...", severity="WARN")
 
         self.simulate = not hasattr(
             self, "tracker"

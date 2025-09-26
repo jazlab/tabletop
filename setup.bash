@@ -58,7 +58,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     export TT_CONTAINER_RUNTIME=nvidia
     export TT_NVIDIA_VISIBLE_DEVICES=all
     export TT_NVIDIA_DRIVER_CAPABILITIES=all
-    export TT_UV_EXTRA="--extra cu128"
+    export TT_UV_EXTRA="--extra cu129"
 else
     export TT_USE_NVIDIA=false
     export TT_CONTAINER_RUNTIME=runc

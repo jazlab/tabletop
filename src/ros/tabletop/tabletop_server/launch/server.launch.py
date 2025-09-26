@@ -24,8 +24,7 @@ from launch.substitutions import (
     LaunchLogDir,
     PathJoinSubstitution,
 )
-from launch_ros.actions import ComposableNodeContainer, Node, SetROSLogDir
-from launch_ros.descriptions import ComposableNode
+from launch_ros.actions import Node, SetROSLogDir
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -36,31 +35,6 @@ from moveit_configs_utils import MoveItConfigsBuilder
 def print_substitutions(context, substitutions: dict[str, Substitution]):
     for name, substitution in substitutions.items():
         print(f"{name}: {substitution.perform(context)}")
-
-
-def make_camera_node(name, camera_type, serial_number, **params):
-    parameter_file = PathJoinSubstitution(
-        [
-            FindPackageShare("spinnaker_camera_driver"),
-            "config",
-            camera_type + ".yaml",
-        ]
-    )
-
-    node = ComposableNode(
-        package="spinnaker_camera_driver",
-        plugin="spinnaker_camera_driver::CameraDriver",
-        name=name,
-        parameters=[
-            {"parameter_file": parameter_file, "serial_number": serial_number},
-            params,
-        ],
-        remappings=[
-            ("~/control", "/exposure_control/control"),
-        ],
-        extra_arguments=[{"use_intra_process_comms": True}],
-    )
-    return node
 
 
 def declare_arguments():
@@ -134,6 +108,13 @@ def declare_arguments():
             default_value="false",
             choices=["true", "false"],
             description="Force simulation of eyelink, even if Eyelink SDK is available",
+        ),
+        # Flir
+        DeclareLaunchArgument(
+            "launch_flir",
+            default_value="true",
+            choices=["true", "false"],
+            description="Simulate Flic",
         ),
         # RViz
         DeclareLaunchArgument(
@@ -253,12 +234,6 @@ def declare_arguments():
             "optitrack_output",
             default_value="own_log",
             description="Optitrack output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "flir_output",
-            default_value="own_log",
-            description="Flir output",
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
@@ -532,26 +507,28 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    # Flir multi-camera setup
-    flir_config_file = os.path.join(
-        get_package_share_directory("tabletop_server"), "config", "flir.yaml"
-    )
-    with open(flir_config_file, "r") as f:
-        flir_config = yaml.safe_load(f)
-
-    flir_nodes = []
-    for config in flir_config["cameras"]:
-        config = flir_config["common"] | config
-        flir_nodes.append(make_camera_node(**config))
-
-    flir_camera_container = ComposableNodeContainer(
-        name="flir_camera_container",
-        namespace="",
-        package="rclcpp_components",
-        executable="component_container",
-        composable_node_descriptions=flir_nodes,
-        output=LaunchConfiguration("flir_output"),
-        on_exit=[Shutdown()],
+    # UR Robot Driver (use group action to isolate the launch file)
+    flir = GroupAction(
+        [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_server"),
+                                "launch",
+                                "flir.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time")
+                }.items(),
+            ),
+        ],
+        scoped=True,
+        forwarding=True,
     )
 
     # RViz MoveIt Config
@@ -669,7 +646,7 @@ def generate_launch_description():
         eyelink,
         optitrack_transform_publisher,
         mocap4r2_marker_viz,
-        flir_camera_container,
+        flir,
         rviz,
         foxglove,
         bag_recorder,

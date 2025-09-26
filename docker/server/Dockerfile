@@ -9,12 +9,14 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
+ARG TARGETARCH
+
 # Install Eyelink Display Software
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     <<EOT
 set -ex
-if [[ $(uname -m) = x86_64 ]] ; then
+if [[ $TARGETARCH = amd64 ]] ; then
     apt-get update && apt-get upgrade -y
     apt-get install -y ca-certificates software-properties-common
     apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
@@ -33,8 +35,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 set -ex
 cd /tmp
 if [[ $USE_NVIDIA = true ]] ; then
-    if [[ $(uname -m) != x86_64 ]] ; then
-        echo "Unsupported architecture when using nvidia: $(uname -m)!"
+    if [[ $TARGETARCH != amd64 ]] ; then
+        echo "Unsupported architecture when using nvidia: $TARGETARCH!"
         exit 1
     fi
     apt-get update && apt-get upgrade -y
@@ -42,7 +44,7 @@ if [[ $USE_NVIDIA = true ]] ; then
     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
     dpkg -i cuda-keyring_1.1-1_all.deb
     apt-get update
-    apt-get -y install cuda-toolkit-12-8
+    apt-get -y install cuda-toolkit-12-9
     rm cuda-keyring_1.1-1_all.deb
 fi
 EOT
@@ -55,15 +57,15 @@ EOT
 # apt-get update && apt-get upgrade -y
 # apt-get install -y curl
 # cd /tmp
-# case $(uname -m) in
-#     x86_64)
+# case $TARGETARCH in
+#     amd64)
 #         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
 #         ;;
-#     aarch64)
+#     arm64)
 #         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
 #         ;;
 #     *)
-#         echo "Unsupported architecture $(uname -m)!"
+#         echo "Unsupported architecture $TARGETARCH!"
 #         exit 1
 #         ;;
 # esac
@@ -146,11 +148,11 @@ RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
     <<EOT
 set -ex
 if [[ $USE_NVIDIA = true ]] ; then
-    UV_EXTRA="--extra cu128"
+    UV_EXTRA="--extra cu129"
 else
     UV_EXTRA="--extra cpu"
 fi
-if [[ $(uname -m) = x86_64 ]] ; then
+if [[ $TARGETARCH = amd64 ]] ; then
     UV_EXTRA="$UV_EXTRA --extra eyelink"
 fi
 uv sync --locked --no-install-project $UV_EXTRA
@@ -171,15 +173,15 @@ FROM base AS dev
 # Install Neovim
 RUN <<EOT
 set -ex
-case $(uname -m) in
-    x86_64)
+case $TARGETARCH in
+    amd64)
         curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
         ;;
-    aarch64)
+    arm64)
         curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-arm64.tar.gz
         ;;
     *)
-        echo "Unsupported architecture $(uname -m)!"
+        echo "Unsupported architecture $TARGETARCH!"
         exit 1
         ;;
 esac
@@ -212,15 +214,15 @@ EOT
 # Install kitten
 RUN <<EOT
 set -ex
-case $(uname -m) in
-    x86_64)
+case $TARGETARCH in
+    amd64)
         sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-amd64
         ;;
-    aarch64)
+    arm64)
         sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-arm64
         ;;
     *)
-        echo "Unsupported architecture $(uname -m)!"
+        echo "Unsupported architecture $TARGETARCH!"
         exit 1
         ;;
 esac

@@ -70,8 +70,8 @@
       defaults:
         pose_link: eef
         group_name: manipulator
-        # planning_pipeline: ompl_aps_rrt_star
-        planning_pipeline: cumotion
+        planning_pipeline: ompl_aps_rrt_star
+        # planning_pipeline: cumotion
         planning_scene: null
         path_constraints: null
         max_plan_attempts: 5

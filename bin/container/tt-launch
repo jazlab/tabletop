@@ -8,7 +8,7 @@ source $bin_dir/../utils.sh
 
 print_usage() {
     echo "Usage: $0 [<launch_type>] [<launch_options>...]"
-    echo "launch_type can be one of commander, server, or tasks"
+    echo "launch_type can be one of commander, server, flir, or tasks"
 }
 
 case $1 in
@@ -17,6 +17,9 @@ case $1 in
         ;;
     server)
         LAUNCH="tabletop_server server.launch.py"
+        ;;
+    flir)
+        LAUNCH="tabletop_server flir.launch.py"
         ;;
     task|tasks)
         LAUNCH="tabletop_tasks tasks.launch.py"
