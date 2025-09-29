@@ -55,12 +55,14 @@ export TT_DISPLAY_HEIGHT=1080
 export COMPOSE_BAKE=true
 if command -v nvidia-smi >/dev/null 2>&1; then
     export TT_USE_NVIDIA=true
+    export TT_INSTALL_CUDA= # Used for building isaac cumotion library, if applicable
+    export TT_CUDA_VERSION=129
+    export TT_UV_EXTRA="--extra cu$TT_CUDA_VERSION"
     export TT_CONTAINER_RUNTIME=nvidia
     export TT_NVIDIA_VISIBLE_DEVICES=all
     export TT_NVIDIA_DRIVER_CAPABILITIES=all
-    export TT_UV_EXTRA="--extra cu129"
 else
-    export TT_USE_NVIDIA=false
+    export TT_USE_NVIDIA=
     export TT_CONTAINER_RUNTIME=runc
     export TT_NVIDIA_VISIBLE_DEVICES=
     export TT_NVIDIA_DRIVER_CAPABILITIES=

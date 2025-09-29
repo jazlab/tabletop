@@ -89,10 +89,12 @@ services:
       pull: true
       args:
         - ROS_DISTRO=jazzy
-        - USER=$TT_USER
-        - UID=$TT_UID
-        - GID=$TT_GID
+        - USER_NAME=$TT_USER
+        - USER_ID=$TT_UID
+        - GROUP_ID=$TT_GID
+        - INSTALL_CUDA=$TT_INSTALL_CUDA
         - USE_NVIDIA=$TT_USE_NVIDIA
+        - CUDA_VERSION=$TT_CUDA_VERSION
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind

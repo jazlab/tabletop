@@ -112,11 +112,15 @@ else
 fi
 
 # Skip x86_64-dependent packages
-packages_to_skip=(moveit_ros_tests)
+packages_to_skip=("moveit_ros_tests")
 if [[ $(uname -m) != x86_64 ]]; then
     packages_to_skip+=("mocap4r2_optitrack_driver")
 fi
 packages_skip="--packages-skip ${packages_to_skip[@]}"
+
+# if [[ ! $TT_USE_NVIDIA ]]; then
+#     packages_skip_regex="--packages-skip-regex isaac* curobo*"
+# fi
 
 # Clean workspace
 if [[ $clean_all = true ]]; then
@@ -158,6 +162,7 @@ fi
 command="colcon --log-base $COLCON_WS/log/colcon build \
 --base-paths $base_paths \
 $packages_skip \
+$packages_skip_regex \
 $package_selection \
 --cmake-args "${cmake_args[@]}" \
 --mixin "${mixins[@]}" \

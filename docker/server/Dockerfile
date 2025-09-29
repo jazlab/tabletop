@@ -1,7 +1,29 @@
 ARG ROS_DISTRO=jazzy
+ARG INSTALL_CUDA=false
+ARG CUDA_VERSION=129
 
-# Base image for running all server nodes
-FROM ros:$ROS_DISTRO AS base
+# Nvidia and non-nvidia build stages
+FROM ros:$ROS_DISTRO AS ros
+FROM ros:$ROS_DISTRO AS ros-nvidia-128
+
+COPY --from=nvidia/cuda:12.8.1-devel-ubuntu24.04 \
+    /usr/local/cuda /usr/local/cuda
+ENV PATH /usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+
+
+FROM ros:$ROS_DISTRO AS ros-nvidia-129
+
+COPY --from=nvidia/cuda:12.9.1-devel-ubuntu24.04 \
+    /usr/local/cuda /usr/local/cuda
+ENV PATH /usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+
+# Choose stage based on CUDA_VERSION arg
+FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia
+
+# Choose stage based on USE_NVIDIA arg
+FROM ros${INSTALL_CUDA:+-nvidia} AS base
 
 SHELL ["/bin/bash", "-c"]
 
@@ -23,29 +45,6 @@ if [[ $TARGETARCH = amd64 ]] ; then
     add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
     apt-get update
     apt-get install -y eyelink-display-software
-fi
-EOT
-
-ARG USE_NVIDIA
-
-# Install CUDA Toolkit
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    <<EOT
-set -ex
-cd /tmp
-if [[ $USE_NVIDIA = true ]] ; then
-    if [[ $TARGETARCH != amd64 ]] ; then
-        echo "Unsupported architecture when using nvidia: $TARGETARCH!"
-        exit 1
-    fi
-    apt-get update && apt-get upgrade -y
-    apt-get install -y wget
-    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-    dpkg -i cuda-keyring_1.1-1_all.deb
-    apt-get update
-    apt-get -y install cuda-toolkit-12-9
-    rm cuda-keyring_1.1-1_all.deb
 fi
 EOT
 
@@ -87,45 +86,46 @@ apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
 
 # Create user if not root
-ARG USER
-ARG UID
-ARG GID
-ARG GROUPS
+ARG USER_NAME
+ARG USER_ID
+ARG GROUP_ID
+ARG USER_GROUPS=sudo
 
 RUN <<EOT
 set -ex
-if [[ -z $USER || $USER = root ]] ; then
-    echo "USER must be set to a non-root user"
+if [[ -z $USER_NAME || $USER_NAME = root ]] ; then
+    echo "USER_NAME must be set to a non-root user"
     exit 1
 fi
-if [[ -z $UID || -z $GID || $UID = 0 || $GID = 0 ]] ; then
-    echo "UID and GID must be set and cannot be 0"
+if [[ -z $USER_ID || -z $GROUP_ID || $USER_ID = 0 || $GROUP_ID = 0 ]] ; then
+    echo "USER_ID and GROUP_ID must be set and cannot be 0"
     exit 1
 fi
 
-if id -u $UID >/dev/null 2>&1; then
-    echo "User ID $UID already exists, deleting..."
-    userdel -r $(id -un $UID)
+if id -u $USER_ID >/dev/null 2>&1; then
+    echo "User ID $USER_ID already exists, deleting..."
+    userdel -r $(id -un $USER_ID)
 fi
-if ! getent group $GID >/dev/null 2>&1 ; then
-    echo "Group ID $GID does not exist, creating..."
-    groupadd -g $GID $USER
+if ! getent group $GROUP_ID >/dev/null 2>&1 ; then
+    echo "Group ID $GROUP_ID does not exist, creating..."
+    groupadd -g $GROUP_ID $USER_NAME
 fi
-useradd -u $UID -g $GID -s /bin/bash -G $GROUPS -m $USER
-echo $USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER
-chmod 0440 /etc/sudoers.d/$USER
+useradd -u $USER_ID -g $GROUP_ID -s /bin/bash -G $USER_GROUPS -m $USER_NAME
+echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME
+chmod 0440 /etc/sudoers.d/$USER_NAME
 EOT
 
-USER $USER
+USER $USER_NAME
 
 # Install ROS dependencies from src/ros directory
+ARG ROS_DISTRO
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=bind,source=src/ros,target=/tmp/src \
     <<EOT
 set -ex
 cd /tmp/src
-sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade -y
+sudo apt-get update && sudo apt-get upgrade -y
 source /opt/ros/$ROS_DISTRO/setup.bash
 rosdep update
 echo $DEPENDENCY_TYPES
@@ -133,22 +133,25 @@ DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t e
 rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
-WORKDIR /home/$USER/tabletop
+WORKDIR /home/$USER_NAME/tabletop
 
 # Install python dependencies using uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=0
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ARG USE_NVIDIA
+ARG CUDA_VERSION
 
-RUN --mount=type=cache,target=/home/$USER/.cache/uv,uid=$UID,gid=$GID \
+RUN --mount=type=cache,target=/home/$USER_NAME/.cache/uv,uid=$USER_ID,gid=$GROUP_ID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     <<EOT
 set -ex
 if [[ $USE_NVIDIA = true ]] ; then
-    UV_EXTRA="--extra cu129"
+    UV_EXTRA="--extra cu$CUDA_VERSION"
 else
     UV_EXTRA="--extra cpu"
 fi
@@ -196,7 +199,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     <<EOT
 set -ex
-apt-get update && apt-get upgrade -y
+sudo apt-get update && sudo apt-get upgrade -y
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 \. "$HOME/.nvm/nvm.sh"
 nvm install 22
@@ -230,7 +233,7 @@ sudo chmod +x /usr/local/bin/kitten
 EOT
 
 # Install starship
-RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
+RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
 
 # Install platformio
 RUN <<EOT
@@ -246,11 +249,12 @@ rm /tmp/get-platformio.py
 EOT
 
 # Update .bashrc (must be unindented)
+ARG USER_NAME
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
 export PATH=~/.local/bin:\$PATH
-source /home/$USER/tabletop/setup.bash
+source /home/$USER_NAME/tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
 alias vim="nvim"

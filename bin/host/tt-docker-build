@@ -7,4 +7,6 @@ source $bin_dir/../../setup.bash
 
 cd $TABLETOP_DIR
 
+echo $TT_CUDA_VERSION
+
 docker compose build --pull $@

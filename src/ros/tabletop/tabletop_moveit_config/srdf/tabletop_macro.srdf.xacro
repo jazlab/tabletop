@@ -89,10 +89,10 @@
     <disable_collisions link1="wrist_1_link" link2="eef_sphere" reason="Never" />
     <disable_collisions link1="wrist_2_link" link2="wrist_3_link" reason="Adjacent" />
     <disable_collisions link1="wrist_2_link" link2="eef_link" reason="Never" />
-    <disable_collisions link1="wrist_2_link" link2="eef_sphere" reason="Never" />
+    <disable_collisions link1="wrist_2_link" link2="eef_sphere" reason="Default" />
     <disable_collisions link1="wrist_3_link" link2="eef_link" reason="Adjacent" />
     <disable_collisions link1="wrist_3_link" link2="eef_sphere" reason="Adjacent" />
-    <disable_collisions link1="eef_link" link2="eef_sphere" reason="Adjacent" />
+    <disable_collisions link1="eef_link" link2="eef_sphere" reason="Default" />
     <!-- <disable_collisions link1="eef_link" link2="bounding_cylinder" reason="Default" />
     <disable_collisions link1="bounding_cylinder" link2="eef_sphere" reason="Default" /> -->
     <!-- <disable_collisions link1="bounding_cylinder" link2="wrist_1_link" reason="Never" />
