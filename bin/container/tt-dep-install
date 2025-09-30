@@ -80,7 +80,15 @@ fi
 # Install Python dependencies
 if [[ $skip_uv != true ]]; then
     print_status "Installing Python dependencies using uv"
-    uv sync $TT_UV_EXTRA
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        UV_EXTRA="--extra cu$CUDA_VERSION"
+    else
+        UV_EXTRA="--extra cpu"
+    fi
+    if command -v edf2asc >/dev/null 2>&1; then
+        UV_EXTRA="$UV_EXTRA --extra eyelink"
+    fi
+    uv sync $UV_EXTRA
 fi
 
 # Remove any existing MoveIt2 debian packages

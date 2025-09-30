@@ -5,20 +5,18 @@ common:
   adjust_timestamp: true
   dump_node_map: false
   # set parameters defined in blackfly_s.yaml
+  exposure_auto: "Off"
   gain_auto: Continuous
+  frame_rate_enable: true
+  exposure_time: 4000
+  frame_rate: 120.0
+  trigger_mode: "Off"
   # pixel_format: BayerRG8
-  exposure_auto: Continuous
+  # exposure_auto: Continuous
   # to use a user set, do this:
   # user_set_selector: UserSet0
   # user_set_load: Yes
-  # These are useful for GigE cameras
-  # device_link_throughput_limit: 380000000
-  # gev_scps_packet_size: 9000
-  # PTP for GigE cameras
-  # gev_ieee_1588: true
-  # gev_ieee_1588_mode: SlaveOnly, # SlaveOnly,  #Auto
-  # use_ieee_1588 : true
-  # ---- to reduce the sensor width and shift the crop
+  # to reduce the sensor width and shift the crop
   # image_width: 1408
   # image_height: 1080
   # offset_x: 16
@@ -29,10 +27,7 @@ common:
   # reverse_x: true
   # reverse_y: true
   # frame_rate_auto: "Off"
-  frame_rate: 40.0
-  frame_rate_enable: false #frame rate 163
-  buffer_queue_size: 10
-  trigger_mode: "Off"
+  buffer_queue_size: 4
   chunk_mode_active: true
   chunk_selector_frame_id: FrameID
   chunk_enable_frame_id: true

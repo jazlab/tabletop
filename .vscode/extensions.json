@@ -16,5 +16,6 @@
         "ms-vscode.cpptools-extension-pack",
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
+        "mads-hartmann.bash-ide-vscode",
     ]
 }

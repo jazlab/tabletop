@@ -1,5 +1,5 @@
 ARG ROS_DISTRO=jazzy
-ARG INSTALL_CUDA=false
+ARG INSTALL_CUDA=
 ARG CUDA_VERSION=129
 
 # Nvidia and non-nvidia build stages
@@ -87,9 +87,9 @@ EOT
 
 # Create user if not root
 ARG USER_NAME
-ARG USER_ID
-ARG GROUP_ID
-ARG USER_GROUPS=sudo
+ARG USER_UID
+ARG USER_GID
+ARG USER_GROUPS=
 
 RUN <<EOT
 set -ex
@@ -97,20 +97,22 @@ if [[ -z $USER_NAME || $USER_NAME = root ]] ; then
     echo "USER_NAME must be set to a non-root user"
     exit 1
 fi
-if [[ -z $USER_ID || -z $GROUP_ID || $USER_ID = 0 || $GROUP_ID = 0 ]] ; then
-    echo "USER_ID and GROUP_ID must be set and cannot be 0"
+if [[ -z $USER_UID || -z $USER_GID || $USER_UID = 0 || $USER_GID = 0 ]] ; then
+    echo "USER_UID and USER_GID must be set and cannot be 0"
     exit 1
 fi
-
-if id -u $USER_ID >/dev/null 2>&1; then
-    echo "User ID $USER_ID already exists, deleting..."
-    userdel -r $(id -un $USER_ID)
+if id -u $USER_UID >/dev/null 2>&1; then
+    echo "User ID $USER_UID already exists, deleting..."
+    userdel -r $(id -un $USER_UID)
 fi
-if ! getent group $GROUP_ID >/dev/null 2>&1 ; then
-    echo "Group ID $GROUP_ID does not exist, creating..."
-    groupadd -g $GROUP_ID $USER_NAME
+if ! getent group $USER_GID >/dev/null 2>&1 ; then
+    echo "Group ID $USER_GID does not exist, creating..."
+    groupadd -g $USER_GID $USER_NAME
 fi
-useradd -u $USER_ID -g $GROUP_ID -s /bin/bash -G $USER_GROUPS -m $USER_NAME
+useradd -u $USER_UID -g $USER_GID -s /bin/bash -m $USER_NAME
+if [[ $USER_GROUPS ]]; then
+    usermod -aG $USER_GROUPS $USER_NAME
+fi
 echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME
 chmod 0440 /etc/sudoers.d/$USER_NAME
 EOT
@@ -133,6 +135,7 @@ DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t e
 rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
+# Set working directory to ~/tabletop
 WORKDIR /home/$USER_NAME/tabletop
 
 # Install python dependencies using uv
@@ -145,7 +148,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 ARG USE_NVIDIA
 ARG CUDA_VERSION
 
-RUN --mount=type=cache,target=/home/$USER_NAME/.cache/uv,uid=$USER_ID,gid=$GROUP_ID \
+RUN --mount=type=cache,target=/home/$USER_NAME/.cache/uv,uid=$USER_UID,gid=$USER_GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     <<EOT
@@ -155,7 +158,7 @@ if [[ $USE_NVIDIA = true ]] ; then
 else
     UV_EXTRA="--extra cpu"
 fi
-if [[ $TARGETARCH = amd64 ]] ; then
+if command -v edf2asc >/dev/null 2>&1; then
     UV_EXTRA="$UV_EXTRA --extra eyelink"
 fi
 uv sync --locked --no-install-project $UV_EXTRA
@@ -168,10 +171,47 @@ colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-r
 colcon mixin update default
 EOT
 
-ENV TT_IN_CONTAINER=true
+# Update .bashrc (must be unindented)
+RUN <<EOT
+set -ex
+cat <<EOF >> ~/.bashrc
+export PATH=~/.local/bin:\$PATH
+source ~/tabletop/setup.bash
+EOF
+mkdir -p ~/.config/pulse
+EOT
+
+# Convenience variable to indicate the
+ENV TABLETOP_CONTAINER=true
 
 # Development image with additional dependencies and tools
 FROM base AS dev
+
+ARG TARGETARCH
+
+# Install platformio
+RUN <<EOT
+set -ex
+curl -fsSL -o /tmp/get-platformio.py \
+https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
+python3 /tmp/get-platformio.py
+mkdir -p ~/.local/bin
+ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
+ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
+ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
+rm /tmp/get-platformio.py
+EOT
+
+# Install npm
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    <<EOT
+set -ex
+sudo apt-get update && sudo apt-get upgrade -y
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+\. "$HOME/.nvm/nvm.sh"
+nvm install 22
+EOT
 
 # Install Neovim
 RUN <<EOT
@@ -192,17 +232,6 @@ sudo tar -xzf /tmp/nvim.tar.gz -C /opt
 NVIM_DIRNAME=$(tar -tf /tmp/nvim.tar.gz | head -1 | cut -f1 -d"/")
 sudo ln -s /opt/$NVIM_DIRNAME/bin/nvim /usr/bin/nvim
 rm -f /tmp/nvim.tar.gz
-EOT
-
-# Install npm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    <<EOT
-set -ex
-sudo apt-get update && sudo apt-get upgrade -y
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-\. "$HOME/.nvm/nvm.sh"
-nvm install 22
 EOT
 
 # Install complete-alias
@@ -235,26 +264,10 @@ EOT
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
 
-# Install platformio
-RUN <<EOT
-set -ex
-curl -fsSL -o /tmp/get-platformio.py \
-https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
-python3 /tmp/get-platformio.py
-mkdir -p ~/.local/bin
-ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
-ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
-ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
-rm /tmp/get-platformio.py
-EOT
-
 # Update .bashrc (must be unindented)
-ARG USER_NAME
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
-export PATH=~/.local/bin:\$PATH
-source /home/$USER_NAME/tabletop/setup.bash
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
 alias vim="nvim"
@@ -262,5 +275,4 @@ export EDITOR=nvim
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 eval "\$(starship init bash)"
 EOF
-mkdir -p ~/.config/pulse
 EOT

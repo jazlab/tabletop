@@ -2,8 +2,7 @@ name: tabletop
 
 services:
   autoheal:
-    deploy:
-      replicas: 1
+    container_name: tabletop-autoheal
     environment:
       AUTOHEAL_CONTAINER_LABEL: autoheal-tabletop
     image: willfarrell/autoheal:latest
@@ -14,6 +13,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   novnc:
+    container_name: tabletop-novnc
     build:
       context: ./docker/novnc
       pull: true
@@ -24,8 +24,8 @@ services:
     ports:
       - 8080:8080
     environment:
-      - DISPLAY_WIDTH=${TT_DISPLAY_WIDTH:-1280}
-      - DISPLAY_HEIGHT=${TT_DISPLAY_HEIGHT:-824}
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
       - WINDOW_MANAGER=dwm
     depends_on:
       - autoheal
@@ -33,6 +33,7 @@ services:
       autoheal-tabletop: true
 
   ursim:
+    container_name: tabletop-ursim
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
     networks:
@@ -54,6 +55,7 @@ services:
         condition: service_healthy
 
   flic:
+    container_name: tabletop-flic
     image: ubuntu:latest
     pull_policy: always
     network_mode: host
@@ -89,31 +91,32 @@ services:
       pull: true
       args:
         - ROS_DISTRO=jazzy
-        - USER_NAME=$TT_USER
-        - USER_ID=$TT_UID
-        - GROUP_ID=$TT_GID
-        - INSTALL_CUDA=$TT_INSTALL_CUDA
-        - USE_NVIDIA=$TT_USE_NVIDIA
-        - CUDA_VERSION=$TT_CUDA_VERSION
+        - USER_NAME=$USER_NAME
+        - USER_UID=$USER_UID
+        - USER_GID=$USER_GID
+        - USE_NVIDIA=$USE_NVIDIA
+        - CUDA_VERSION=$CUDA_VERSION
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: ./
-        target: /home/$TT_USER/tabletop
+        target: /home/$USER_NAME/tabletop
         consistency: cached
-      - /home/$TT_USER/tabletop/.venv
-    working_dir: /home/$TT_USER/tabletop
+      - /home/$USER_NAME/tabletop/.venv
+    working_dir: /home/$USER_NAME/tabletop
     init: true
     command: sleep infinity
 
   optitrack:
+    container_name: tabletop-optitrack
     extends: server-base
     network_mode: host
     command: bash -c "source \$TABLETOP_DIR/setup.bash && ros2 launch mocap4r2_optitrack_driver optitrack2.launch.py"
 
   server:
+    container_name: tabletop-server
     extends: server-base
-    runtime: $TT_CONTAINER_RUNTIME
+    runtime: $CONTAINER_RUNTIME
     networks:
       tabletop_net:
         ipv4_address: 192.168.12.10
@@ -124,24 +127,21 @@ services:
       - 50003:50003
       - 50004:50004
       - 8765:8765
-    # Uncomment the following section if you plan on connecting a teensy after starting the container
-    # device_cgroup_rules:
-    #   - c 161:* rmw
-    # Uncomment the following section if a teensy is connected before starting the container
-    # devices:
-    #   - /dev/ttyACM0:/dev/ttyACM0
     environment:
       - DISPLAY=novnc:0.0
       # - QT_X11_NO_MITSHM=1
-      # - NVIDIA_REQUIRE_CUDA="cuda=12.8"
-      - NVIDIA_VISIBLE_DEVICES=$TT_NVIDIA_VISIBLE_DEVICES
-      - NVIDIA_DRIVER_CAPABILITIES=$TT_NVIDIA_DRIVER_CAPABILITIES
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=unix:/tmp/pulseaudio.socket
       # - PULSE_COOKIE=/tmp/pulseaudio.cookie
+    shm_size: 2g
+    ipc: host
+    privileged: true
     volumes:
-      - ${TT_PULSE_SERVER_HOST:-/dev/null}:/tmp/pulseaudio.socket
-      - ${TT_PULSE_COOKIE_HOST:-/dev/null}:/home/$TT_USER/.config/pulse/cookie
-      # - ~/.config/pulse:/home/$TT_USER/.config/pulse:ro
+      - /dev:/dev
+      - ${PULSE_SERVER_HOST:-/dev/null}:/tmp/pulseaudio.socket
+      - ${PULSE_COOKIE_HOST:-/dev/null}:/home/$USER_NAME/.config/pulse/cookie
+      # - ~/.config/pulse:/home/$USER_NAME/.config/pulse:ro
     depends_on:
       novnc:
         condition: service_healthy
@@ -150,13 +150,10 @@ services:
     extends: server
     build:
       target: dev
-    # Uncomment the following section if you plan on uploading code to the teensy from the dev container
-    privileged: true
     volumes:
-      - /dev:/dev
-      - ~/.vimrc:/home/$TT_USER/.vimrc
-      - ~/.config/nvim:/home/$TT_USER/.config/nvim
-      - ~/.config/starship.toml:/home/$TT_USER/.config/starship.toml
+      - ~/.vimrc:/home/$USER_NAME/.vimrc
+      - ~/.config/nvim:/home/$USER_NAME/.config/nvim
+      - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
     environment:
       - SHELL=/bin/bash
 

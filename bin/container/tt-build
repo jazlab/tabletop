@@ -118,10 +118,6 @@ if [[ $(uname -m) != x86_64 ]]; then
 fi
 packages_skip="--packages-skip ${packages_to_skip[@]}"
 
-# if [[ ! $TT_USE_NVIDIA ]]; then
-#     packages_skip_regex="--packages-skip-regex isaac* curobo*"
-# fi
-
 # Clean workspace
 if [[ $clean_all = true ]]; then
     tt-clean-ws --all

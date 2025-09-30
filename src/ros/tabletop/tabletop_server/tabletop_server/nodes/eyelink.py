@@ -29,7 +29,7 @@ from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
 
-from tabletop_py.gaze.convert import edf_to_csv
+from tabletop_py.gaze.edf import edf_to_csv
 from tabletop_py.gaze.preprocess import (
     EYELINK_DATA_COLS,
     calculate_eyelink_speed,

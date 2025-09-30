@@ -2,15 +2,24 @@
 
 set -e
 
+if [[ $# -gt 1 ]]; then
+    print_error "Usage: $0 [<service_name> (default 'server-dev')"
+    exit 1
+fi
+
+SERVICE=${1:-server-dev}
+
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
 
 cd $TABLETOP_DIR
 
-if [[ $TERM = xterm-kitty ]]; then
-    CMD="kitten run-shell --shell=bash"
-else
-    CMD=bash
+source docker/env.bash
+
+# Check if dev container is already running
+if [[ ! $(docker compose ps -q --status=running $SERVICE) ]]; then
+    docker compose up --force-recreate -d $SERVICE
 fi
 
-docker exec -it tabletop-server-dev-1 $CMD
+CONTAINER_ID=$(docker compose ps -q $SERVICE)
+docker exec -it $CONTAINER_ID bash

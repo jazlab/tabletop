@@ -53,7 +53,7 @@ def declare_arguments():
         # Outputs
         DeclareLaunchArgument(
             "flir_output",
-            default_value="own_log",
+            default_value="both",
             description="Flir output",
             choices=["log", "both", "screen", "own_log"],
         ),

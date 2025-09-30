@@ -6,7 +6,7 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
-pushd $TABLETOP_DIR
+cd $TABLETOP_DIR
 
 # Reset bluetooth module
 tt-bluetooth-reset
@@ -23,4 +23,3 @@ while true; do
     print_status "Client disconnected, restarting server..."
     sleep 2
 done
-popd

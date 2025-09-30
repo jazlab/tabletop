@@ -143,7 +143,7 @@ def declare_arguments():
         ),
         # Bag
         DeclareLaunchArgument(
-            "rosbag_record",
+            "rosbag",
             default_value="true",
             choices=["true", "false"],
             description="Record rosbag?",
@@ -243,6 +243,12 @@ def declare_arguments():
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
+            "foxglove_output",
+            default_value="own_log",
+            description="Foxglove output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
             "bag_output",
             default_value="both",
             description="Bag output",
@@ -317,7 +323,7 @@ def generate_launch_description():
 
     create_session_bag_dir = OpaqueFunction(
         function=_create_session_bag_dir,
-        condition=IfCondition(LaunchConfiguration("rosbag_record")),
+        condition=IfCondition(LaunchConfiguration("rosbag")),
     )
 
     # UR Robot Driver (use group action to isolate the launch file)
@@ -449,7 +455,7 @@ def generate_launch_description():
                 "simulate": LaunchConfiguration("simulate_eyelink"),
                 "session_bag_dir": ParameterValue(
                     IfElseSubstitution(
-                        LaunchConfiguration("rosbag_record"),
+                        LaunchConfiguration("rosbag"),
                         session_bag_dir,
                         "null",
                     ),
@@ -578,6 +584,10 @@ def generate_launch_description():
     # Foxglove Bridge
     foxglove = GroupAction(
         [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("foxglove_output"),
+            ),
             IncludeLaunchDescription(
                 PathJoinSubstitution(
                     [
@@ -587,10 +597,10 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={"port": "8765"}.items(),
-            )
+            ),
         ],
         scoped=True,
-        forwarding=False,
+        forwarding=True,
         condition=IfCondition(LaunchConfiguration("foxglove")),
     )
 
@@ -629,7 +639,7 @@ def generate_launch_description():
         name="rosbag_recorder",
         cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
         output=LaunchConfiguration("bag_output"),
-        condition=IfCondition(LaunchConfiguration("rosbag_record")),
+        condition=IfCondition(LaunchConfiguration("rosbag")),
         on_exit=[bag_converter],
     )
 

@@ -7,6 +7,5 @@ source $bin_dir/../../setup.bash
 
 cd $TABLETOP_DIR
 
-echo $TT_CUDA_VERSION
-
-docker compose build --pull $@
+source docker/env.bash
+docker compose --progress=plain build --pull $@
