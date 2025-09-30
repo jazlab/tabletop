@@ -32,7 +32,8 @@ if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
 
     # Add Spinnaker bin directory to PATH
     # export PATH=/opt/spinnaker/bin:$PATH
-    export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+    # export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+    # export SPINNAKER_GENTL64_CTI=$COLCON_WS/install/spinnaker_camera_driver/lib/spinnaker-gentl/Spinnaker_GenTL.cti
 
     # Source project workspace
     if [ -f $COLCON_WS/install/setup.bash ]; then

@@ -107,6 +107,7 @@ services:
     init: true
     command: sleep infinity
 
+  # TODO: Docker Desktop now supports host network mode! Let's see if it's worth converting everything
   optitrack:
     container_name: tabletop-optitrack
     extends: server-base
@@ -135,7 +136,7 @@ services:
       - PULSE_SERVER=unix:/tmp/pulseaudio.socket
       # - PULSE_COOKIE=/tmp/pulseaudio.cookie
     shm_size: 2g
-    ipc: host
+    # ipc: host
     privileged: true
     volumes:
       - /dev:/dev
