@@ -18,4 +18,5 @@ psmisc
 iputils-ping
 net-tools
 iproute2
+usbutils
 xarclock

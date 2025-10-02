@@ -7,12 +7,13 @@ from launch.actions import (
     DeclareLaunchArgument,
     Shutdown,
 )
+from launch.conditions import IfCondition
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
 )
-from launch_ros.actions import ComposableNodeContainer, SetROSLogDir
+from launch_ros.actions import ComposableNodeContainer, Node, SetROSLogDir
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
 
@@ -45,6 +46,12 @@ def make_camera_node(name, camera_type, serial_number, **params):
 def declare_arguments():
     return [
         DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
+        ),
+        DeclareLaunchArgument(
             "flir_log_level",
             default_value="INFO",
             description="Flir log level",
@@ -56,6 +63,23 @@ def declare_arguments():
             default_value="both",
             description="Flir output",
             choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "launch_rviz_flir",
+            default_value="true",
+            choices=["true", "false"],
+            description="Launch RViz for Flir camera feed?",
+        ),
+        DeclareLaunchArgument(
+            "rviz_flir_config_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_server"),
+                    "rviz",
+                    "server.rviz",
+                ]
+            ),
+            description="RViz config file",
         ),
     ]
 
@@ -85,10 +109,28 @@ def generate_launch_description():
         output=LaunchConfiguration("flir_output"),
         on_exit=[Shutdown()],
     )
+
+    rviz = Node(
+        package="rviz2",
+        executable="rviz2",
+        output="own_log",
+        parameters=[
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+        ],
+        # arguments=[
+        #     "-d",
+        #     LaunchConfiguration("rviz_config_file_server"),
+        #     "-l",
+        # ],  # -l for ogre log
+        cwd=LaunchLogDir(),
+        condition=IfCondition(LaunchConfiguration("launch_rviz_flir")),
+        on_exit=[Shutdown()],
+    )
     launch_actions = [
         *declare_arguments(),
         set_ros_log_dir,
         flir_camera_container,
+        rviz,
     ]
 
     return LaunchDescription(launch_actions)

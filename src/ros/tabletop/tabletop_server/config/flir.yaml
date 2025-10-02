@@ -1,14 +1,19 @@
 common:
   camera_type: blackfly_s
   debug: false
+  dump_node_map: false
   compute_brightness: false
   adjust_timestamp: true
-  dump_node_map: false
+  factory_reset: false
+  device_reset: false
+  # device_reset_timeout: 3.0
   # set parameters defined in blackfly_s.yaml
-  exposure_auto: "Off"
   gain_auto: Continuous
-  frame_rate_enable: true
+  acquisition_mode: Continuous
+  exposure_mode: Timed
+  exposure_auto: "Off"
   exposure_time: 4000
+  frame_rate_enable: true
   frame_rate: 120.0
   trigger_mode: "Off"
   # pixel_format: BayerRG8
@@ -37,6 +42,8 @@ common:
   chunk_enable_gain: true
   chunk_selector_timestamp: Timestamp
   chunk_enable_timestamp: true
+  chunk_selector_line_status: ExposureEndLineStatusAll
+  chunk_enable_line_status: true
   # stream_buffer_handling_mode: NewestFirst
   # multicast_monitor_mode: false
 cameras:
