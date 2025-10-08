@@ -11,6 +11,7 @@ export ROBOT_IP=192.168.13.20
 export REVERSE_IP=192.168.13.10
 export PYTHONUNBUFFERED=1
 export CUDA_VERSION=129
+export FOXGLOVE_PORT=8765
 
 # Source Python virtual environment
 if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then

@@ -15,11 +15,14 @@ case $1 in
     commander)
         LAUNCH="tabletop_server commander.launch.py"
         ;;
-    server)
-        LAUNCH="tabletop_server server.launch.py"
-        ;;
     flir)
         LAUNCH="tabletop_server flir.launch.py"
+        ;;
+    foxglove)
+        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
+        ;;
+    server)
+        LAUNCH="tabletop_server server.launch.py"
         ;;
     task|tasks)
         LAUNCH="tabletop_tasks tasks.launch.py"

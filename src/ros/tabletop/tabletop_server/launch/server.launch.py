@@ -119,7 +119,7 @@ def declare_arguments():
         # RViz
         DeclareLaunchArgument(
             "launch_rviz_server",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Launch RViz?",
         ),
@@ -144,7 +144,7 @@ def declare_arguments():
         # Bag
         DeclareLaunchArgument(
             "rosbag",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Record rosbag?",
         ),
@@ -529,7 +529,8 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={
-                    "use_sim_time": LaunchConfiguration("use_sim_time")
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "flir_output": "own_log",
                 }.items(),
             ),
         ],

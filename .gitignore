@@ -1,35 +1,36 @@
-# Ignore caches
+# Caches
 __pycache__/
 .ruff_cache/
 .DS_Store
 .cache/
 /cache/
 
-# Ignore logs
+# Logs
 log/
 *.log
 
 # Temporary files
 *.tmp
 
-# Ignore build artifacts
+# Build artifacts
 /build/
 /install/
 .pio/
 compile_commands.json
 
-# Ignore flic files
+# Flic files
 flic.db
 
-# Ignore venv
+# Venv
 .venv/
 
-# Ignore videos
+# Videos
 *.mp4
 *.gif
 
-# Ignore bags
+# Bags
 bags/
+icareaboutthesebags/
 
-# Ignore saved models
+# Saved models
 saved_weights/

@@ -1,9 +1,28 @@
 common:
   camera_type: blackfly_s
+  image_transport_plugins:
+    enable_pub_plugins:
+      # - image_transport/foxglove
+      # - image_transport/compressed
+      - image_transport/raw
+    foxglove:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
+      # bit_rate: 16485760
+      # qmax: 3
+      gop_size: 1
+    compressed:
+      jpeg_quality: 80
+      jpeg_compress_bayer: true
+      jpeg_level: 90
+      format: jpeg
+    jpeg_compress_bayer: true
   debug: false
   dump_node_map: false
   compute_brightness: false
   adjust_timestamp: true
+  buffer_queue_size: 4
+  acquisition_timeout: 5.0
   factory_reset: false
   device_reset: false
   # device_reset_timeout: 3.0
@@ -16,7 +35,7 @@ common:
   frame_rate_enable: true
   frame_rate: 120.0
   trigger_mode: "Off"
-  # pixel_format: BayerRG8
+  pixel_format: BayerRG8
   # exposure_auto: Continuous
   # to use a user set, do this:
   # user_set_selector: UserSet0
@@ -32,7 +51,8 @@ common:
   # reverse_x: true
   # reverse_y: true
   # frame_rate_auto: "Off"
-  buffer_queue_size: 4
+  line0_selector: Line0
+  line0_linemode: Input
   chunk_mode_active: true
   chunk_selector_frame_id: FrameID
   chunk_enable_frame_id: true
@@ -46,14 +66,30 @@ common:
   chunk_enable_line_status: true
   # stream_buffer_handling_mode: NewestFirst
   # multicast_monitor_mode: false
+
 cameras:
-  - name: cam1
-    serial_number: "22442796"
-  - name: cam2
+  - name: left_front_top_cam
     serial_number: "23240397"
-  - name: cam3
+    pose:
+      position: [0.6, 0.3, 1.3]
+      rpy: [3.1416, 0.0, 0.0]
+  - name: left_back_top_cam
+    serial_number: "22442796"
+    pose:
+      position: [0.6, 0.5, 1.3]
+      rpy: [3.1416, 0.0, 0.0]
+  - name: right_front_top_cam
     serial_number: "23240393"
-  - name: cam4
+    pose:
+      position: [1.2, 0.3, 1.3]
+      rpy: [3.1416, 0.0, 0.0]
+  - name: right_back_top_cam
     serial_number: "22157020"
-  - name: cam5
+    pose:
+      position: [1.2, 0.3, 1.3]
+      rpy: [3.1416, 0.0, 0.0]
+  - name: left_bottom_cam
     serial_number: "23240395"
+    pose:
+      position: [1.2, 0.3, 1.3]
+      rpy: [3.1416, 0.0, 0.0]
