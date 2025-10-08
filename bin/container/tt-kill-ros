@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 
 # Find all running ROS nodes and kill them
-pgrep -fa ros2
-pkill "$@" -f ros2
+pgrep -fa ros
+pkill "$@" -f ros

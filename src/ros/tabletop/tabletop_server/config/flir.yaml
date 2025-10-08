@@ -3,7 +3,8 @@ common:
   image_transport_plugins:
     enable_pub_plugins:
       # - image_transport/foxglove
-      # - image_transport/compressed
+      - image_transport/ffmpeg
+      - image_transport/compressed
       - image_transport/raw
     foxglove:
       encoder: h264_nvenc
@@ -11,6 +12,9 @@ common:
       # bit_rate: 16485760
       # qmax: 3
       gop_size: 1
+    ffmpeg:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
     compressed:
       jpeg_quality: 80
       jpeg_compress_bayer: true
@@ -23,8 +27,8 @@ common:
   adjust_timestamp: true
   buffer_queue_size: 4
   acquisition_timeout: 5.0
-  factory_reset: false
-  device_reset: false
+  # factory_reset: false
+  # device_reset: false
   # device_reset_timeout: 3.0
   # set parameters defined in blackfly_s.yaml
   gain_auto: Continuous
@@ -72,24 +76,29 @@ cameras:
     serial_number: "23240397"
     pose:
       position: [0.6, 0.3, 1.3]
-      rpy: [3.1416, 0.0, 0.0]
+      rpy: [3.1416, 0.0, -1.5707]
   - name: left_back_top_cam
     serial_number: "22442796"
     pose:
-      position: [0.6, 0.5, 1.3]
-      rpy: [3.1416, 0.0, 0.0]
-  - name: right_front_top_cam
-    serial_number: "23240393"
-    pose:
-      position: [1.2, 0.3, 1.3]
-      rpy: [3.1416, 0.0, 0.0]
-  - name: right_back_top_cam
-    serial_number: "22157020"
-    pose:
-      position: [1.2, 0.3, 1.3]
-      rpy: [3.1416, 0.0, 0.0]
+      position: [0.5, 0.5, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
   - name: left_bottom_cam
     serial_number: "23240395"
     pose:
-      position: [1.2, 0.3, 1.3]
-      rpy: [3.1416, 0.0, 0.0]
+      position: [0.3, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]
+  - name: right_front_top_cam
+    serial_number: "23240393"
+    pose:
+      position: [1.3, 0.3, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_back_top_cam
+    serial_number: "22157020"
+    pose:
+      position: [1.4, 0.5, 1.2]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_bottom_cam
+    serial_number: "22442797"
+    pose:
+      position: [1.2, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]

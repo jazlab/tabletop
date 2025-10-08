@@ -181,6 +181,10 @@ EOF
 mkdir -p ~/.config/pulse
 EOT
 
+# Copy entrypoint script
+COPY docker/server/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+
 # Convenience variable to indicate the
 ENV TABLETOP_CONTAINER=true
 

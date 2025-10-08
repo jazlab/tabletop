@@ -7,7 +7,6 @@ import importlib
 import json
 import os
 import threading
-import time
 import traceback
 from collections.abc import (
     Callable,
@@ -250,7 +249,7 @@ class Commander(BaseNode):
 
         self.init_ros()
 
-        self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
+        self.moveit_py = MoveItPy("moveit_py", provide_planning_service=False)
 
         self.init_collision_detector()
 
@@ -379,7 +378,6 @@ class Commander(BaseNode):
         """Initialize the collision detector."""
         with self.planning_scene_read_write() as scene:
             scene.allocate_collision_detector("bullet")
-        time.sleep(0.5)
 
     def init_planning_scene(self):
         """Setup the planning scene
@@ -442,17 +440,17 @@ class Commander(BaseNode):
 
         orig_config = deepcopy(config)
 
-        # Add plane collision objects
-        if "planes" in config:
-            for object_id, kwargs in config["planes"].items():
-                self.add_plane_collision_object(object_id=object_id, **kwargs)
-
         # Add primitive collision objects
         if "primitives" in config:
             for object_id, kwargs in config["primitives"].items():
                 self.add_primitive_collision_object(
                     object_id=object_id, **kwargs
                 )
+
+        # Add plane collision objects
+        if "planes" in config:
+            for object_id, kwargs in config["planes"].items():
+                self.add_plane_collision_object(object_id=object_id, **kwargs)
 
         # Add dynamic object meshes
         self.add_grid_mesh_collision_objects(**config["object_meshes"])

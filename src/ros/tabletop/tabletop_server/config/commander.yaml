@@ -156,7 +156,7 @@
         - wrist_3_link
         - eef_link
         - eef_sphere
-      use_saved_scene: true
+      use_saved_scene: false
       planes:
         floor:
           coef: [0.0, 0.0, 1.0, 0.0]

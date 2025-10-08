@@ -4,5 +4,5 @@
     "cursorpyright.analysis.useLibraryCodeForTypes": true,
     "git.detectSubmodules": true,
     "python.terminal.activateEnvironment": false,
-    "explorer.autoReveal": false
+    "explorer.autoReveal": false,
 }

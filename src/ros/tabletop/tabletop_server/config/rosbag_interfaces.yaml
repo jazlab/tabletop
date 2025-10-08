@@ -6,3 +6,4 @@ topics:
   - /markers
   - /predicted_markers
   - /rigid_bodies
+  - /left_front_top_cam/image_raw/ffmpeg

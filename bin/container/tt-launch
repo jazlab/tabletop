@@ -18,6 +18,9 @@ case $1 in
     flir)
         LAUNCH="tabletop_server flir.launch.py"
         ;;
+    flir_calibrate)
+        LAUNCH="tabletop_server flir_calibrate.launch.py"
+        ;;
     foxglove)
         LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
         ;;

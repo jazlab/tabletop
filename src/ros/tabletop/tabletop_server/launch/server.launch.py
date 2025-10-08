@@ -32,11 +32,6 @@ from moveit_configs_utils import MoveItConfigsBuilder
 # TODO: Don't shutdown on exit, try to restart the node instead
 
 
-def print_substitutions(context, substitutions: dict[str, Substitution]):
-    for name, substitution in substitutions.items():
-        print(f"{name}: {substitution.perform(context)}")
-
-
 def declare_arguments():
     return [
         # Common
@@ -182,6 +177,18 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "optitrack_log_level",
+            default_value="INFO",
+            description="Optitrack log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "flir_log_level",
+            default_value="INFO",
+            description="Flir log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "rviz_log_level",
             default_value="INFO",
             description="RViz Ogre log level",
@@ -237,6 +244,12 @@ def declare_arguments():
             choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
+            "flir_output",
+            default_value="own_log",
+            description="Flir output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
             "rviz_output",
             default_value="own_log",
             description="RViz output",
@@ -257,7 +270,15 @@ def declare_arguments():
     ]
 
 
+def print_substitutions(context, substitutions: dict[str, Substitution]):
+    for name, substitution in substitutions.items():
+        print(f"{name}: {substitution.perform(context)}")
+
+
 def generate_launch_description():
+    # Set ROS Log Directory
+    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+
     # Conditional substitutions
     robot_ip = IfElseSubstitution(
         EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
@@ -303,9 +324,6 @@ def generate_launch_description():
             )
         ),
     )
-
-    # Set ROS Log Directory
-    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # Create a new bag directory for the session and symlink to it
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -513,7 +531,7 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    # UR Robot Driver (use group action to isolate the launch file)
+    # Flir (use group action to isolate the launch file)
     flir = GroupAction(
         [
             IncludeLaunchDescription(
@@ -530,7 +548,9 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "flir_output": "own_log",
+                    "output": LaunchConfiguration("flir_output"),
+                    "log_level": LaunchConfiguration("flir_log_level"),
+                    "camera": "all",
                 }.items(),
             ),
         ],
