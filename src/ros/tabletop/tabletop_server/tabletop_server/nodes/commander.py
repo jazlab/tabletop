@@ -7,6 +7,7 @@ import importlib
 import json
 import os
 import threading
+import time
 import traceback
 from collections.abc import (
     Callable,
@@ -378,6 +379,7 @@ class Commander(BaseNode):
         """Initialize the collision detector."""
         with self.planning_scene_read_write() as scene:
             scene.allocate_collision_detector("bullet")
+            time.sleep(2.0)
 
     def init_planning_scene(self):
         """Setup the planning scene

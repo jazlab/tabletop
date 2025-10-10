@@ -268,7 +268,7 @@ EOT
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
 
-# Update .bashrc (must be unindented)
+# Update .bashrc and .inputrc
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
@@ -276,7 +276,13 @@ eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"
 alias vim="nvim"
 export EDITOR=nvim
+set -o vi
 complete -F _complete_alias "\${!BASH_ALIASES[@]}"
 eval "\$(starship init bash)"
 EOF
+cat <<EOF >> ~/.inputrc
+set editing-mode vi
+set vi-ins-mode-string \1\e[5 q\2
+set vi-cmd-mode-string \1\e[2 q\2
+set show-mode-in-prompt on
 EOT

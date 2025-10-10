@@ -128,13 +128,6 @@ services:
       - 50003:50003
       - 50004:50004
       - 8765:8765
-    environment:
-      - DISPLAY=novnc:0.0
-      # - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
-      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
-      - PULSE_SERVER=unix:/tmp/pulseaudio.socket
-      # - PULSE_COOKIE=/tmp/pulseaudio.cookie
     shm_size: 2g
     # ipc: host
     privileged: true
@@ -143,6 +136,13 @@ services:
       - ${PULSE_SERVER_HOST:-/dev/null}:/tmp/pulseaudio.socket
       - ${PULSE_COOKIE_HOST:-/dev/null}:/home/$USER_NAME/.config/pulse/cookie
       # - ~/.config/pulse:/home/$USER_NAME/.config/pulse:ro
+    environment:
+      - DISPLAY=novnc:0.0
+      # - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+      - PULSE_SERVER=unix:/tmp/pulseaudio.socket
+      # - PULSE_COOKIE=/tmp/pulseaudio.cookie
     depends_on:
       novnc:
         condition: service_healthy
@@ -155,8 +155,10 @@ services:
       - ~/.vimrc:/home/$USER_NAME/.vimrc
       - ~/.config/nvim:/home/$USER_NAME/.config/nvim
       - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
+      - ${KITTY_LISTEN_ON_HOST:-/dev/null}:/tmp/kitty
     environment:
       - SHELL=/bin/bash
+      - KITTY_LISTEN_ON=${KITTY_LISTEN_ON_HOST:+unix:/tmp/kitty}
 
 networks:
   tabletop_net:

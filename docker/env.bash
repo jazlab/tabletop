@@ -40,3 +40,5 @@ else
     export PULSE_SERVER_HOST=/tmp/pulseaudio-empty.socket
     export PULSE_COOKIE_HOST=/tmp/pulseaudio-empty.cookie
 fi
+
+export KITTY_LISTEN_ON_HOST=${KITTY_LISTEN_ON#unix:}

@@ -22,4 +22,10 @@ if [[ ! $(docker compose ps -q --status=running $SERVICE) ]]; then
 fi
 
 CONTAINER_ID=$(docker compose ps -q $SERVICE)
-docker exec -it $CONTAINER_ID bash
+if [[ $TERM = *kitty* ]]; then
+    CMD="kitten run-shell --shell bash"
+else
+    CMD=bash
+fi
+
+docker exec -it $CONTAINER_ID $CMD
