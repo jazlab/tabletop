@@ -45,8 +45,8 @@ common:
   # user_set_selector: UserSet0
   # user_set_load: Yes
   # to reduce the sensor width and shift the crop
-  # image_width: 1408
-  # image_height: 1080
+  image_width: 960
+  image_height: 600
   # offset_x: 16
   # offset_y: 0
   # binning_x: 1

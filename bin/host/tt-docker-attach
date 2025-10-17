@@ -23,7 +23,7 @@ fi
 
 CONTAINER_ID=$(docker compose ps -q $SERVICE)
 if [[ $TERM = *kitty* ]]; then
-    CMD="kitten run-shell --shell bash"
+    CMD="kitten run-shell --shell /bin/bash --shell-integration no-cursor"
 else
     CMD=bash
 fi
