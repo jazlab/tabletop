@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 #
 # Executes a command, monitors its output in real time, and terminates it

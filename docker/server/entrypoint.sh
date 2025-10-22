@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # setup project workspace or ros2 environment
 if [[ -f ~/tabletop/setup.bash ]]; then

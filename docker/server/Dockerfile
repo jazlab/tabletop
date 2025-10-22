@@ -8,16 +8,16 @@ FROM ros:$ROS_DISTRO AS ros-nvidia-128
 
 COPY --from=nvidia/cuda:12.8.1-devel-ubuntu24.04 \
     /usr/local/cuda /usr/local/cuda
-ENV PATH /usr/local/cuda/bin:$PATH
-ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 
 
 FROM ros:$ROS_DISTRO AS ros-nvidia-129
 
 COPY --from=nvidia/cuda:12.9.1-devel-ubuntu24.04 \
     /usr/local/cuda /usr/local/cuda
-ENV PATH /usr/local/cuda/bin:$PATH
-ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 
 # Choose stage based on CUDA_VERSION arg
 FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia

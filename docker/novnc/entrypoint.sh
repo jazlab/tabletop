@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 if [ "$RUN_XTERM" != "true" ]; then
     rm -f /app/conf.d/xterm.conf

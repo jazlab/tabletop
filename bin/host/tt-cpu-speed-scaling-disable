@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -eo pipefail
 
 sudo apt-get install -y cpufrequtils
 sudo systemctl disable ondemand &> /dev/null || true
