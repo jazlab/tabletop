@@ -1,16 +1,13 @@
 {
-    "name": "Tabletop Dev Container",
+    "name": "tabletop-dev",
     "dockerComposeFile": "../compose.yaml",
-    "service": "server-dev",
+    "service": "dev",
     "runServices": [
-        "server-dev"
+        "dev"
     ],
-    "shutdownAction": "stopContainer",
-    "workspaceFolder": "/tabletop",
-    "containerUser": "mules",
-    "updateRemoteUserUID": true,
-    "userEnvProbe": "loginInteractiveShell",
-    "postCreateCommand": "cd /tabletop && direnv allow",
+    // "shutdownAction": "stopCompose",
+    "workspaceFolder": "/home/mules/tabletop",
+    // "userEnvProbe": "loginInteractiveShell",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -27,7 +24,8 @@
                 "ms-vscode.cpptools-themes",
                 "ms-vscode.cmake-tools",
                 "ms-toolsai.jupyter",
-                "anysphere.cpptools"
+                "anysphere.cpptools",
+                "mads-hartmann.bash-ide-vscode"
             ]
         }
     }

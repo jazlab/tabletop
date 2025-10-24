@@ -5,4 +5,5 @@
     "git.detectSubmodules": true,
     "python.terminal.activateEnvironment": false,
     "explorer.autoReveal": false,
+    "python.analysis.typeCheckingMode": "standard",
 }

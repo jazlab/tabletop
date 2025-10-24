@@ -132,7 +132,7 @@ def declare_arguments():
         # Foxglove
         DeclareLaunchArgument(
             "foxglove",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Launch foxglove bridge?",
         ),

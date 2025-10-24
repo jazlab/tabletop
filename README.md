@@ -457,6 +457,11 @@ highlighting, intellisense, debugging, etc.) you can use the VSCode Dev
 Container extension. To open VSCode in the development container:
 
 1. Install the "Remote - Containers" extension in VSCode.
+2. **Important**: You must add `tt-docker` and `tt-compose` somewhere to your path
+    (by adding `source <repo-dir>/setup.bash` to your .bashrc), then go to VSCode
+    settings and set `dev.containers.dockerPath` to `tt-docker` and
+    `dev.containers.dockerComposePath` to `tt-compose` (*TODO*, fix this with env
+    files)
 2. Open the project folder in VSCode.
 3. When prompted, click "Rebuild and Reopen in Container" or use the command
     palette (F1 or Ctrl+Shift+P) and select "Remote-Containers: Rebuild and

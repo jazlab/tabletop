@@ -48,33 +48,6 @@ if [[ $TARGETARCH = amd64 ]] ; then
 fi
 EOT
 
-# Install Spinnaker SDK
-# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-#     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-# <<EOT
-# set -ex
-# apt-get update && apt-get upgrade -y
-# apt-get install -y curl
-# cd /tmp
-# case $TARGETARCH in
-#     amd64)
-#         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71711/original/attachment
-#         ;;
-#     arm64)
-#         curl -fsSL -o spinnaker.tar.gz https://flir.netx.net/file/asset/71712/original/attachment
-#         ;;
-#     *)
-#         echo "Unsupported architecture $TARGETARCH!"
-#         exit 1
-#         ;;
-# esac
-# tar -xzf spinnaker.tar.gz
-# SPINNAKER_DIR=$(tar -tf spinnaker.tar.gz | head -1)
-# cd $SPINNAKER_DIR
-# yes | sudo apt install ./*.deb
-# rm -rf /tmp/spinnaker.tar.gz
-# EOT
-
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -85,7 +58,7 @@ apt-get update && apt-get upgrade -y
 apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
 
-# Create user if not root
+# Create user
 ARG USER_NAME
 ARG USER_UID
 ARG USER_GID

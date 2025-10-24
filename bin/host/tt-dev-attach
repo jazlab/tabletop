@@ -7,13 +7,12 @@ if [[ $# -gt 1 ]]; then
     exit 1
 fi
 
-SERVICE=${1:-server-dev}
+SERVICE=${1:-dev}
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
 
 cd $TABLETOP_DIR
-
 source docker/env.bash
 
 # Check if dev container is already running

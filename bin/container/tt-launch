@@ -12,8 +12,8 @@ print_usage() {
 }
 
 case $1 in
-    commander)
-        LAUNCH="tabletop_server commander.launch.py"
+    foxglove)
+        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
         ;;
     flir)
         LAUNCH="tabletop_server flir.launch.py"
@@ -21,11 +21,17 @@ case $1 in
     flir_calibrate)
         LAUNCH="tabletop_server flir_calibrate.launch.py"
         ;;
-    foxglove)
-        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
+    optitrack)
+        LAUNCH="mocap4r2_optitrack_driver optitrack2.launch.py"
+        ;;
+    teensy)
+        LAUNCH="tabletop_server teensy.launch.py"
         ;;
     server)
         LAUNCH="tabletop_server server.launch.py"
+        ;;
+    commander)
+        LAUNCH="tabletop_server commander.launch.py"
         ;;
     task|tasks)
         LAUNCH="tabletop_tasks tasks.launch.py"
