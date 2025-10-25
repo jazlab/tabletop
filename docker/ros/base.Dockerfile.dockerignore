@@ -3,4 +3,4 @@
 !deps/apt.list
 !uv.lock
 !pyproject.toml
-!docker/server/entrypoint.sh
+!docker/ros/entrypoint.sh

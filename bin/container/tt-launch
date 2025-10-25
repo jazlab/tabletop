@@ -27,6 +27,9 @@ case $1 in
     teensy)
         LAUNCH="tabletop_server teensy.launch.py"
         ;;
+    flic)
+        LAUNCH="tabletop_server flic.launch.py"
+        ;;
     server)
         LAUNCH="tabletop_server server.launch.py"
         ;;

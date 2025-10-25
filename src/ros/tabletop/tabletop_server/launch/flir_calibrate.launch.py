@@ -23,12 +23,6 @@ def declare_arguments():
             description="Camera to calibrate (e.g. left_front_top_cam)",
         ),
         DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
-        ),
-        DeclareLaunchArgument(
             "size",
             default_value="9x11",
             description="Calibration grid dimensions (e.g. 9x11)",
@@ -49,6 +43,12 @@ def declare_arguments():
             default_value="both",
             description="Flir output",
             choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
         ),
     ]
 
@@ -121,15 +121,3 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(launch_actions)
-
-
-# def main():
-#     launch_logging_config.level = "DEBUG"
-#     ls = LaunchService()
-#     ld = generate_launch_description()
-#     ls.include_launch_description(ld)
-#     return ls.run()
-
-
-# if __name__ == "__main__":
-#     main()

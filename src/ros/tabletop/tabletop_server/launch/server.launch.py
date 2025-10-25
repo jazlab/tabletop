@@ -34,13 +34,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 def declare_arguments():
     return [
-        # Common
-        DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
-        ),
+        # UR Robot Driver
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
@@ -52,7 +46,6 @@ def declare_arguments():
             default_value="ur5e",
             description="Type/series of used UR robot.",
         ),
-        # UR Robot Driver
         DeclareLaunchArgument(
             "controller_spawner_timeout",
             default_value="120",
@@ -267,6 +260,13 @@ def declare_arguments():
             description="Bag output",
             choices=["log", "both", "screen", "own_log"],
         ),
+        # Sim time
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
+        ),
     ]
 
 
@@ -390,7 +390,6 @@ def generate_launch_description():
                             "tabletop.urdf.xacro",
                         ]
                     ),
-                    "use_sim_time": LaunchConfiguration("use_sim_time"),
                 }.items(),
             ),
         ],

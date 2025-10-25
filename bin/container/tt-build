@@ -7,7 +7,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-deps]"
+    echo "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
 }
 
 cd $COLCON_WS
@@ -21,7 +21,7 @@ packages=()
 linker=mold
 all=false
 clang=false
-only_deps=false
+only_modules=false
 verbose=false
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -45,8 +45,11 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
-        -d|--only-deps)
-            only_deps=true
+        -m|--only-modules)
+            only_modules=true
+            ;;
+        --skip-uv)
+            skip_uv=--skip-uv
             ;;
         --build-debug)
             build_debug=true
@@ -88,15 +91,15 @@ done
 base_paths="src/ros"
 if [[ $all = true ]]; then
     # Build all packages in src/ros
-    if [[ ${#packages[@]} -gt 0  || $only_deps = true ]]; then
-        print_error "Cannot use --all with -p|--packages or -d|--only-deps"
+    if [[ ${#packages[@]} -gt 0  || $only_modules = true ]]; then
+        print_error "Cannot use --all with -p|--packages or -d|--only-modules"
         print_usage
         exit 1
     fi
-elif [[ $only_deps = true ]]; then
+elif [[ $only_modules = true ]]; then
     # Build only dependency packages in src/ros/modules
     if [[ ${#packages[@]} -gt 0 ]]; then
-        print_error "Cannot use -p|--packages with -d|--only-deps"
+        print_error "Cannot use -p|--packages with -d|--only-modules"
         print_usage
         exit 1
     fi
@@ -126,7 +129,7 @@ elif [[ $clean = true ]]; then
 fi
 
 # Install ROS 2 build dependencies
-tt-dep-install --type build $skip_moveit_apt_removal $from_paths
+tt-dep-install --type build $skip_moveit_apt_removal $skip_uv $from_paths
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")

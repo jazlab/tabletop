@@ -13,14 +13,6 @@ from launch_ros.actions import Node, SetROSLogDir
 
 def declare_arguments():
     return [
-        # Common
-        DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
-        ),
-        # Teensy
         DeclareLaunchArgument(
             "micro_ros_transport",
             default_value="serial",
@@ -59,14 +51,18 @@ def declare_arguments():
             description="Micro ROS output",
             choices=["log", "both", "screen", "own_log"],
         ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
+        ),
     ]
 
 
 def generate_launch_description():
-    # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Micro ROS Agent
     micro_ros_agent = Node(
         package="micro_ros_agent",
         name="micro_ros_agent",
@@ -87,7 +83,6 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    # Mock Teensy
     mock_teensy = Node(
         name="teensy",
         package="tabletop_server",
@@ -107,15 +102,3 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(launch_actions)
-
-
-# def main():
-#     launch_logging_config.level = "DEBUG"
-#     ls = LaunchService()
-#     ld = generate_launch_description()
-#     ls.include_launch_description(ld)
-#     return ls.run()
-
-
-# if __name__ == "__main__":
-#     main()

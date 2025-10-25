@@ -6,4 +6,5 @@
     "python.terminal.activateEnvironment": false,
     "explorer.autoReveal": false,
     "python.analysis.typeCheckingMode": "standard",
+    "yaml.schemaStore.enable": true,
 }

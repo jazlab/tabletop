@@ -37,7 +37,7 @@ CMD []
 HEALTHCHECK --interval=10s --timeout=2s --retries=3 --start-period=10s --start-interval=2s CMD ["/app/healthcheck.sh"]
 
 # Setup environment variables
-EXPOSE 8080
+ENV PORT=8080
 ENV DISPLAY=:0.0
 ENV DISPLAY_WIDTH=1920
 ENV DISPLAY_HEIGHT=1080

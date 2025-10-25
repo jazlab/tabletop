@@ -9,26 +9,26 @@ source $bin_dir/../utils.sh
 builtin cd $TABLETOP_DIR
 source docker/env.bash
 
-ARGS=("$@")
-
-for (( i=0; i<$#; i++ )); do
-    case ${ARGS[$i]} in
+ARGS=()
+export COMPOSE_PROFILES="*"
+while [[ $# -gt 0 ]]; do
+    case $1 in
         down)
-            POST_CMD_ARGS=("--volumes")
-            break
+            ARGS+=("$1")
+            ARGS+=("--volumes")
             ;;
-        # build)
-        #     POST_CMD_ARGS=("--pull")
-        #     break
-        #     ;;
-        # up)
-        #     POST_CMD_ARGS=("--force-recreate")
-        #     break
-        #     ;;
+        up)
+            ARGS+=("$1")
+            unset COMPOSE_PROFILES
+            ;;
+        *)
+            ARGS+=("$1")
+            ;;
     esac
+    shift
 done
 
-set -- "${ARGS[@]:0:$i}" "${PRE_CMD_ARGS[@]}" "${ARGS[$i]}" "${POST_CMD_ARGS[@]}" "${ARGS[@]:$((i+1))}"
+set -- "${ARGS[@]}"
 
 print_status "docker compose $@"
 echo

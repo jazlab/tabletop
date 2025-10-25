@@ -26,12 +26,6 @@ from launch_ros.substitutions import FindPackageShare
 def declare_arguments():
     return [
         DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
-        ),
-        DeclareLaunchArgument(
             "camera",
             default_value="all",
             description="Camera to calibrate (e.g. left_front_top_cam), or 'all'",
@@ -64,6 +58,12 @@ def declare_arguments():
             default_value="both",
             description="Flir output",
             choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
         ),
     ]
 
@@ -235,15 +235,3 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(launch_actions)
-
-
-# def main():
-#     launch_logging_config.level = "DEBUG"
-#     ls = LaunchService()
-#     ld = generate_launch_description()
-#     ls.include_launch_description(ld)
-#     return ls.run()
-
-
-# if __name__ == "__main__":
-#     main()

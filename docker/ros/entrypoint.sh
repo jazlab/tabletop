@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -eo pipefail
 
 # setup project workspace or ros2 environment

@@ -30,13 +30,6 @@ def save_yaml(file_path, data, sort_keys=False):
 
 def declare_arguments():
     return [
-        # Common
-        DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
-        ),
         DeclareLaunchArgument(
             "ur_type",
             default_value="ur5e",
@@ -59,7 +52,6 @@ def declare_arguments():
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
         ),
-        # Commander
         DeclareLaunchArgument(
             "commander_config",
             default_value=PathJoinSubstitution(
@@ -154,6 +146,12 @@ def declare_arguments():
             default_value="false",
             description="Whether to debug the commander",
             choices=["true", "false"],
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
         ),
     ]
 

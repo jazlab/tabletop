@@ -3,21 +3,6 @@ name: tabletop
 x-common: &common
   ipc: host
   network_mode: host
-  volumes:
-    - /etc/localtime:/etc/localtime:ro
-
-x-autoheal: &autoheal
-  depends_on:
-    - autoheal
-  labels:
-    autoheal-tabletop: true
-
-x-novnc: &novnc
-  depends_on:
-    novnc:
-      condition: service_healthy
-  environment:
-    - DISPLAY=:20.0
 
 services:
   autoheal:
@@ -25,57 +10,60 @@ services:
     image: willfarrell/autoheal:latest
     pull_policy: always
     network_mode: none
-    restart: unless-stopped
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      AUTOHEAL_CONTAINER_LABEL: autoheal-tabletop
+      - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
+    restart: unless-stopped
 
   novnc:
-    <<: [*common, *autoheal]
+    <<: *common
     container_name: tabletop-novnc
+    image: tabletop/novnc
     build:
       context: ./docker/novnc
       pull: true
-    restart: unless-stopped
-    # pull_policy: build
-    # networks:
-    #   tabletop_net:
-    #     ipv4_address: 192.168.12.100
-    # hostname: novnc
-    # ports:
-    #   - 8080:8080
+    labels:
+      autoheal-tabletop: true
     environment:
+      - PORT=8080
       - DISPLAY=:20.0
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080
       - WINDOW_MANAGER=dwm
+    depends_on:
+      - autoheal
+    restart: unless-stopped
 
   ursim:
-    <<: [*common, *novnc]
+    <<: *common
     container_name: tabletop-ursim
+    profiles: [ sim ]
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
-    # networks:
-    #   tabletop_net:
-    #     ipv4_address: 192.168.12.20
-    # hostname: ursim
-    restart: unless-stopped
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
       - ./docker/ursim/entrypoint.sh:/entrypoint.sh
     environment:
+      - DISPLAY=:20.0
       - ROBOT_MODEL=ur5e
+    depends_on:
+      novnc:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
     init: true
-    entrypoint: ["/entrypoint.sh"]
+    entrypoint: [ /entrypoint.sh ]
 
   flicd:
-    <<: [*common, *autoheal]
+    <<: *common
     container_name: tabletop-flicd
     image: ubuntu:latest
     pull_policy: always
+    labels:
+      autoheal-tabletop: true
     # privileged: true
     cap_add:
       - NET_ADMIN
@@ -86,22 +74,24 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
-    init: true
-    command: /app/entrypoint.sh
+    depends_on: [ autoheal ]
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]
-      interval: 10s
+      disable: true
+      test: [ CMD, /app/healthcheck.sh ]
+      interval: 5s
       timeout: 2s
       retries: 3
-      start_period: 10s
-      start_interval: 2s
+      start_period: 5s
+      start_interval: 1s
+    init: true
+    command: /app/entrypoint.sh
 
-  server-base:
-    <<: *common
+  ros-base:
+    profiles: [ build ]
+    image: tabletop/ros-base
     build:
       context: .
-      dockerfile: ./docker/server/Dockerfile
-      target: base
+      dockerfile: ./docker/ros/base.Dockerfile
       pull: true
       args:
         - ROS_DISTRO=jazzy
@@ -110,34 +100,47 @@ services:
         - USER_GID=$USER_GID
         - USE_NVIDIA=$USE_NVIDIA
         - CUDA_VERSION=$CUDA_VERSION
-    # pull_policy: build
+
+  ros-build:
+    <<: *common
+    profiles: [ build ]
+    image: tabletop/ros-build
+    build:
+      context: .
+      dockerfile: ./docker/ros/build.Dockerfile
+      target: build-tabletop
+      pull: true
+      additional_contexts:
+        tabletop/ros-base: "service:ros-base"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
-        target: /home/$USER_NAME/tabletop
+        target: /tabletop
         consistency: cached
-      - venv:/home/$USER_NAME/tabletop/.venv
+      - venv:/tabletop/venv
+      - build:/tabletop/build
+      - install:/tabletop/install
     init: true
-    command: sleep infinity
 
   foxglove:
+    extends: ros-build
+    profiles: !reset []
     container_name: tabletop-foxglove
-    extends: server-base
-    command: tt-launch foxglove
     restart: unless-stopped
+    command: tt-launch foxglove
 
   optitrack:
+    extends: ros-build
+    profiles: !reset []
     container_name: tabletop-optitrack
-    extends: server-base
-    command: bash -c "tt-launch optitrack"
     restart: unless-stopped
+    command: tt-launch optitrack
 
   flir:
+    extends: ros-build
     container_name: tabletop-flir
-    extends: server-base
-    command: bash -c "tt-launch flir"
-    restart: unless-stopped
+    profiles: !reset []
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -145,97 +148,98 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
+    restart: unless-stopped
+    command: tt-launch flir
 
   teensy:
+    extends: ros-build
     container_name: tabletop-teensy
-    extends: server-base
-    command: bash -c "tt-launch teensy simulate:=false"
-    restart: unless-stopped
+    profiles: !reset []
     devices:
       - /dev/ttyACM0
+    restart: unless-stopped
+    command: tt-launch teensy simulate:=false
 
   mock-teensy:
-    container_name: tabletop-teensy
-    extends: server-base
-    command: bash -c "tt-launch teensy simulate:=true"
+    extends: ros-build
+    container_name: tabletop-mock-teensy
+    profiles: [ sim ]
     restart: unless-stopped
+    command: tt-launch teensy simulate:=true
 
   flic:
     container_name: tabletop-flic
-    extends: server-base
-    command: bash -c "tt-launch flic"
+    extends: ros-build
+    profiles: !reset []
+    depends_on: [ flicd ]
     restart: unless-stopped
-    depends_on:
-      flicd:
-        condition: service_healthy
-        restart: true
+    command: tt-launch flic
 
-  server:
-    <<: *novnc
-    container_name: tabletop-server
-    extends: server-base
-    runtime: $CONTAINER_RUNTIME
-    # networks:
-    #   tabletop_net:
-    #     ipv4_address: 192.168.12.10
-    # hostname: server
-    # ports:
-    #   - 50001:50001
-    #   - 50002:50002
-    #   - 50003:50003
-    #   - 50004:50004
-    #   - 8765:8765
-    # shm_size: 2g
-    # ipc: host
-    # privileged: true
-    # Uncomment the following section if you plan on connecting a teensy after starting the container
-    # device_cgroup_rules:
-    #   - c 166:* rmw
-    #   - c 239:* rmw
-    # Uncomment the following section if a teensy is connected before starting the container
-    devices:
-      - /dev/ttyACM0
-      # - /dev/flir/015216DC
-      # - /dev/flir/0156732C
-      # - /dev/flir/0156732D
-      # - /dev/flir/01629EC9
-      # - /dev/flir/01629ECB
-      # - /dev/flir/01629ECD
+  commander:
+    extends: ros-build
+    container_name: tabletop-commander
+    profiles: [ commander ]
+    runtime: $COMMANDER_RUNTIME
     volumes:
-      # - /dev:/dev
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
-      # - ~/.config/pulse:/home/$USER_NAME/.config/pulse:ro
     environment:
+      - DISPLAY=:20.0
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
-      # - QT_X11_NO_MITSHM=1
-      # - PULSE_COOKIE=/tmp/pulseaudio.cookie
+    depends_on:
+      novnc:
+        condition: service_healthy
+    command: tt-launch commander
 
   dev:
     container_name: tabletop-dev
-    extends: server
+    profiles: [ dev ]
+    image: tabletop/dev
     build:
-      target: dev
+      context: .
+      dockerfile: ./docker/ros/build.Dockerfile
+      pull: true
+      additional_contexts:
+        tabletop/ros-base: "service:ros-build"
+    runtime: $COMMANDER_RUNTIME
+    devices:
+      - $FLIR_DEV_0
+      - $FLIR_DEV_1
+      - $FLIR_DEV_2
+      - $FLIR_DEV_3
+      - $FLIR_DEV_4
+      - $FLIR_DEV_5
+      - /dev/ttyACM0
     volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - type: bind
+        source: .
+        target: /tabletop
+        consistency: cached
+      - venv:/tabletop/venv
+      - build:/tabletop/build
+      - install:/tabletop/install
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
       - ~/.vimrc:/home/$USER_NAME/.vimrc
       - ~/.config/nvim:/home/$USER_NAME/.config/nvim
       - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
       - $KITTY_LISTEN_ON_MNT
     environment:
-      - SHELL=/bin/bash
+      - DISPLAY=:20.0
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+      - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
+    depends_on:
+      novnc:
+        condition: service_healthy
+    init: true
+    command: sleep infinity
 
 volumes:
   venv:
-# networks:
-#   tabletop_net:
-#     name: tabletop_net
-#     attachable: true
-#     driver: bridge
-#     # driver_opts:
-#     #   com.docker.network.bridge.gateway_mode_ipv4: routed
-#     ipam:
-#       config:
-#         - subnet: 192.168.12.0/24
+  build:
+  install:

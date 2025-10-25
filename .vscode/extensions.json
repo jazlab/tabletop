@@ -17,5 +17,7 @@
         "ms-vscode.cpptools-themes",
         "ms-vscode.cmake-tools",
         "mads-hartmann.bash-ide-vscode",
+        "christian-kohler.npm-intellisense",
+        "docker.docker",
     ]
 }

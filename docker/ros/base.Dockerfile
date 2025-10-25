@@ -31,12 +31,28 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
+# Install apt packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
+set -ex
+apt-get update && apt-get upgrade -y
+apt-get install -y \
+    sudo \
+    curl \
+    wget \
+    python-is-python3 \
+    cmake \
+    mold \
+    ccache \
+    ffmpeg \
+    fluidsynth
+EOT
+
 ARG TARGETARCH
 
 # Install Eyelink Display Software
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    <<EOT
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
 if [[ $TARGETARCH = amd64 ]] ; then
     apt-get update && apt-get upgrade -y
@@ -46,16 +62,6 @@ if [[ $TARGETARCH = amd64 ]] ; then
     apt-get update
     apt-get install -y eyelink-display-software
 fi
-EOT
-
-# Install apt packages
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=deps/apt.list,target=/tmp/apt.list \
-    <<EOT
-set -ex
-apt-get update && apt-get upgrade -y
-apt-get install -y $(cat /tmp/apt.list | xargs)
 EOT
 
 # Create user
@@ -96,8 +102,7 @@ USER $USER_NAME
 ARG ROS_DISTRO
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=src/ros,target=/tmp/src \
-    <<EOT
+    --mount=type=bind,source=src/ros,target=/tmp/src <<EOT
 set -ex
 cd /tmp/src
 sudo apt-get update && sudo apt-get upgrade -y
@@ -108,8 +113,8 @@ DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t e
 rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
-# Set working directory to ~/tabletop
-WORKDIR /home/$USER_NAME/tabletop
+# Set working directory to /tabletop
+WORKDIR /tabletop
 
 # Install python dependencies using uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -121,11 +126,11 @@ ENV UV_COMPILE_BYTECODE=1 \
 ARG USE_NVIDIA
 ARG CUDA_VERSION
 
-RUN --mount=type=cache,target=/home/$USER_NAME/.cache/uv,uid=$USER_UID,gid=$USER_GID \
+RUN --mount=type=cache,target=/tmp/uv.cache \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    <<EOT
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
 set -ex
+export UV_CACHE_DIR=/tmp/uv.cache
 if [[ $USE_NVIDIA = true ]] ; then
     UV_EXTRA="--extra cu$CUDA_VERSION"
 else
@@ -144,28 +149,6 @@ colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-r
 colcon mixin update default
 EOT
 
-# Update .bashrc (must be unindented)
-RUN <<EOT
-set -ex
-cat <<EOF >> ~/.bashrc
-export PATH=~/.local/bin:\$PATH
-source ~/tabletop/setup.bash
-EOF
-mkdir -p ~/.config/pulse
-EOT
-
-# Copy entrypoint script
-COPY docker/server/entrypoint.sh /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
-
-# Convenience variable to indicate the
-ENV TABLETOP_CONTAINER=true
-
-# Development image with additional dependencies and tools
-FROM base AS dev
-
-ARG TARGETARCH
-
 # Install platformio
 RUN <<EOT
 set -ex
@@ -177,85 +160,12 @@ ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 rm /tmp/get-platformio.py
+echo "export PATH=~/.local/bin:\$PATH" >> ~/.bashrc
 EOT
 
-# Install npm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    <<EOT
-set -ex
-sudo apt-get update && sudo apt-get upgrade -y
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-\. "$HOME/.nvm/nvm.sh"
-nvm install 22
-EOT
+# Copy entrypoint script
+COPY docker/ros/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 
-# Install Neovim
-RUN <<EOT
-set -ex
-case $TARGETARCH in
-    amd64)
-        curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
-        ;;
-    arm64)
-        curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-arm64.tar.gz
-        ;;
-    *)
-        echo "Unsupported architecture $TARGETARCH!"
-        exit 1
-        ;;
-esac
-sudo tar -xzf /tmp/nvim.tar.gz -C /opt
-NVIM_DIRNAME=$(tar -tf /tmp/nvim.tar.gz | head -1 | cut -f1 -d"/")
-sudo ln -s /opt/$NVIM_DIRNAME/bin/nvim /usr/bin/nvim
-rm -f /tmp/nvim.tar.gz
-EOT
-
-# Install complete-alias
-RUN <<EOT
-set -ex
-curl -fsSL -o ~/complete-alias \
-https://raw.githubusercontent.com/cykerway/complete-alias/refs/heads/master/complete_alias
-chmod +x ~/complete-alias
-echo ". ~/complete-alias" >> ~/.bash_completion
-EOT
-
-# Install kitten
-RUN <<EOT
-set -ex
-case $TARGETARCH in
-    amd64)
-        sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-amd64
-        ;;
-    arm64)
-        sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-arm64
-        ;;
-    *)
-        echo "Unsupported architecture $TARGETARCH!"
-        exit 1
-        ;;
-esac
-sudo chmod +x /usr/local/bin/kitten
-EOT
-
-# Install starship
-RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
-
-# Update .bashrc and .inputrc
-RUN <<EOT
-set -ex
-cat <<EOF >> ~/.bashrc
-eval "\$(uv generate-shell-completion bash)"
-eval "\$(uvx --generate-shell-completion bash)"
-alias vim="nvim"
-export EDITOR=nvim
-set -o vi
-complete -F _complete_alias "\${!BASH_ALIASES[@]}"
-eval "\$(starship init bash)"
-EOF
-cat <<EOF >> ~/.inputrc
-set editing-mode vi
-set vi-ins-mode-string \1\e[5 q\2
-set vi-cmd-mode-string \1\e[2 q\2
-set show-mode-in-prompt on
-EOT
+# Convenience variable to indicate the
+ENV TABLETOP_CONTAINER=true

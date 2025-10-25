@@ -11,7 +11,7 @@ export INSTALL_CUDA= # Used for building isaac cumotion library, if applicable
 export CUDA_VERSION=${CUDA_VERSION:-129}
 if command -v nvidia-smi >/dev/null 2>&1; then
     export USE_NVIDIA=true
-    export CONTAINER_RUNTIME=nvidia
+    export COMMANDER_RUNTIME=nvidia
     export NVIDIA_VISIBLE_DEVICES=all
     export NVIDIA_DRIVER_CAPABILITIES=all
 else
