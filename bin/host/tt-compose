@@ -17,9 +17,9 @@ while [[ $# -gt 0 ]]; do
             ARGS+=("$1")
             ARGS+=("--volumes")
             ;;
-        up)
+        build)
             ARGS+=("$1")
-            unset COMPOSE_PROFILES
+            export BUILDKIT_PROGRESS=plain
             ;;
         *)
             ARGS+=("$1")

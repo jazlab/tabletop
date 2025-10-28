@@ -36,7 +36,7 @@ tasks:
       fixation_duration: 0.5
       stimulus_duration: 0.5
       delay_duration: 0.5
-      response_timeout: 5.0
+      response_timeout: 20.0
       reward_duration: 2.0
       reveal_duration: 0.5
       play_sound: true

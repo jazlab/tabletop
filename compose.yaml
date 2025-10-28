@@ -39,7 +39,7 @@ services:
   ursim:
     <<: *common
     container_name: tabletop-ursim
-    profiles: [ sim ]
+    # profiles: [sim]
     image: universalrobots/ursim_e-series:latest
     pull_policy: always
     volumes:
@@ -87,7 +87,8 @@ services:
     command: /app/entrypoint.sh
 
   ros-base:
-    profiles: [ build ]
+    <<: *common
+    # profiles: [build]
     image: tabletop/ros-base
     build:
       context: .
@@ -103,36 +104,40 @@ services:
 
   ros-build:
     <<: *common
-    profiles: [ build ]
+    # profiles: [build]
     image: tabletop/ros-build
     build:
       context: .
       dockerfile: ./docker/ros/build.Dockerfile
-      target: build-tabletop
-      pull: true
       additional_contexts:
-        tabletop/ros-base: "service:ros-base"
+        base_image: service:ros-base
+      pull: true
+      args:
+        - USER_UID=$USER_UID
+        - USER_GID=$USER_GID
+        - USE_NVIDIA=$USE_NVIDIA
+        - CUDA_VERSION=$CUDA_VERSION
     volumes:
-      - /etc/localtime:/etc/localtime:ro
+      # - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
         target: /tabletop
         consistency: cached
-      - venv:/tabletop/venv
-      - build:/tabletop/build
-      - install:/tabletop/install
+      - python-venv:/tabletop/.venv
+      - colcon-build:/tabletop/build
+      - colcon-install:/tabletop/install
     init: true
 
   foxglove:
     extends: ros-build
-    profiles: !reset []
+    # profiles: !reset []
     container_name: tabletop-foxglove
     restart: unless-stopped
     command: tt-launch foxglove
 
   optitrack:
     extends: ros-build
-    profiles: !reset []
+    # profiles: !reset []
     container_name: tabletop-optitrack
     restart: unless-stopped
     command: tt-launch optitrack
@@ -140,7 +145,7 @@ services:
   flir:
     extends: ros-build
     container_name: tabletop-flir
-    profiles: !reset []
+    # profiles: !reset []
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -154,35 +159,44 @@ services:
   teensy:
     extends: ros-build
     container_name: tabletop-teensy
-    profiles: !reset []
+    # profiles: !reset []
     devices:
       - /dev/ttyACM0
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
-  mock-teensy:
+  teensy-sim:
     extends: ros-build
-    container_name: tabletop-mock-teensy
-    profiles: [ sim ]
+    container_name: tabletop-teensy-sim
+    # profiles: !override
+    #   - sim
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
   flic:
     container_name: tabletop-flic
     extends: ros-build
-    profiles: !reset []
+    # profiles: !reset []
     depends_on: [ flicd ]
     restart: unless-stopped
     command: tt-launch flic
 
+  flic-sim:
+    container_name: tabletop-flic-sim
+    extends: ros-build
+    # profiles: !override
+    #   - sim
+    restart: unless-stopped
+    command: tt-launch flic simulate:=true
+
   commander:
     extends: ros-build
     container_name: tabletop-commander
-    profiles: [ commander ]
+    # profiles: [commander]
     runtime: $COMMANDER_RUNTIME
     volumes:
-      - $PULSE_SERVER_MNT
-      - $PULSE_COOKIE_MNT
+      - ${PULSE_SERVER_MNT:-/dev/null}
+      - ${PULSE_COOKIE_MNT:-/dev/null}
     environment:
       - DISPLAY=:20.0
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
@@ -194,15 +208,16 @@ services:
     command: tt-launch commander
 
   dev:
+    <<: *common
     container_name: tabletop-dev
-    profiles: [ dev ]
+    # profiles: [dev]
     image: tabletop/dev
     build:
       context: .
-      dockerfile: ./docker/ros/build.Dockerfile
-      pull: true
+      dockerfile: ./docker/ros/dev.Dockerfile
+      # pull: true
       additional_contexts:
-        tabletop/ros-base: "service:ros-build"
+        tabletop/ros-build: service:ros-build
     runtime: $COMMANDER_RUNTIME
     devices:
       - $FLIR_DEV_0
@@ -218,15 +233,15 @@ services:
         source: .
         target: /tabletop
         consistency: cached
-      - venv:/tabletop/venv
-      - build:/tabletop/build
-      - install:/tabletop/install
-      - $PULSE_SERVER_MNT
-      - $PULSE_COOKIE_MNT
+      - python-venv:/tabletop/.venv
+      - colcon-build:/tabletop/build
+      - colcon-install:/tabletop/install
+      - ${PULSE_SERVER_MNT:-/dev/null}
+      - ${PULSE_COOKIE_MNT:-/dev/null}
       - ~/.vimrc:/home/$USER_NAME/.vimrc
       - ~/.config/nvim:/home/$USER_NAME/.config/nvim
       - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
-      - $KITTY_LISTEN_ON_MNT
+      - ${KITTY_LISTEN_ON_MNT:-/dev/null}
     environment:
       - DISPLAY=:20.0
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
@@ -240,6 +255,6 @@ services:
     command: sleep infinity
 
 volumes:
-  venv:
-  build:
-  install:
+  python-venv:
+  colcon-build:
+  colcon-install:

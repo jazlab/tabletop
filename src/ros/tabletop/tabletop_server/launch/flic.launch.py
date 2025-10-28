@@ -14,7 +14,7 @@ def declare_arguments():
     return [
         DeclareLaunchArgument(
             "simulate",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Simulate Flic",
         ),
@@ -23,12 +23,6 @@ def declare_arguments():
             default_value="INFO",
             description="Flic log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "output",
-            default_value="both",
-            description="Flic output",
-            choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "use_sim_time",
@@ -46,7 +40,6 @@ def generate_launch_description():
         name="flic",
         package="tabletop_server",
         executable="flic",
-        output=LaunchConfiguration("output"),
         parameters=[
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),

@@ -1,5 +1,4 @@
 # Build variables
-export BUILDKIT_PROGRESS=plain
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
 export USER_NAME=$(id -un)

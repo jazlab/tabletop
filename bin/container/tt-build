@@ -51,6 +51,9 @@ while [[ $# -gt 0 ]]; do
         --skip-uv)
             skip_uv=--skip-uv
             ;;
+        --skip-apt)
+            skip_apt=true
+            ;;
         --build-debug)
             build_debug=true
             ;;
@@ -129,7 +132,9 @@ elif [[ $clean = true ]]; then
 fi
 
 # Install ROS 2 build dependencies
-tt-dep-install --type build $skip_moveit_apt_removal $skip_uv $from_paths
+if [[ $skip_apt != true ]]; then
+    tt-dep-install --type build $skip_moveit_apt_removal $skip_uv $from_paths
+fi
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")

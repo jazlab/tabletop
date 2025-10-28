@@ -15,9 +15,10 @@ source $bin_dir/../../setup.bash
 cd $TABLETOP_DIR
 source docker/env.bash
 
+export COMPOSE_PROFILES="*"
 # Check if dev container is already running
 if [[ ! $(docker compose ps -q --status=running $SERVICE) ]]; then
-    docker compose up --force-recreate -d $SERVICE
+    docker compose up -d $SERVICE
 fi
 
 CONTAINER_ID=$(docker compose ps -q $SERVICE)

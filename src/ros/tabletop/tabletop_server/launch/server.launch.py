@@ -1,23 +1,27 @@
-import math
+import logging
 import os
 from datetime import datetime
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchContext, LaunchDescription
+from launch import LaunchContext, LaunchDescription, LaunchService
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
+    RegisterEventHandler,
     SetEnvironmentVariable,
     Shutdown,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
+from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.logging import launch_config
 from launch.substitution import Substitution
 from launch.substitutions import (
+    AndSubstitution,
     EqualsSubstitution,
     IfElseSubstitution,
     LaunchConfiguration,
@@ -29,12 +33,10 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
-# TODO: Don't shutdown on exit, try to restart the node instead
-
 
 def declare_arguments():
     return [
-        # UR Robot Driver
+        # Common
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
@@ -42,77 +44,174 @@ def declare_arguments():
             description="Whether to use the mock robot, URSim, or real robot",
         ),
         DeclareLaunchArgument(
-            "ur_type",
-            default_value="ur5e",
-            description="Type/series of used UR robot.",
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Using or not time from simulation",
+        ),
+        # UR Driver
+        DeclareLaunchArgument(
+            "ur_launch",
+            default_value="true",
+            choices=["true", "false"],
+            description="Launch UR Driver?",
         ),
         DeclareLaunchArgument(
-            "controller_spawner_timeout",
+            "ur_type",
+            default_value="ur5e",
+            description="Type/series of UR robot.",
+        ),
+        DeclareLaunchArgument(
+            "ur_controller_spawner_timeout",
             default_value="120",
             description="Controller spawner timeout",
         ),
         DeclareLaunchArgument(
-            "initial_joint_controller",
+            "ur_initial_joint_controller",
             default_value="scaled_joint_trajectory_controller",
             description="Initially loaded robot controller.",
         ),
+        DeclareLaunchArgument(
+            "ur_output",
+            default_value="own_log",
+            description="UR output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        # Mock Dashboard
+        DeclareLaunchArgument(
+            "mock_dashboard_output",
+            default_value="own_log",
+            description="Mock Dashboard output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        DeclareLaunchArgument(
+            "mock_dashboard_log_level",
+            default_value="INFO",
+            description="Mock Dashboard log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
         # Teensy
         DeclareLaunchArgument(
-            "micro_ros_transport",
-            default_value="serial",
-            description="Micro ROS Agent transport protocol",
-        ),
-        DeclareLaunchArgument(
-            "micro_ros_device",
-            default_value="/dev/ttyACM0",
-            description="Micro ROS Agent serial device",
-        ),
-        DeclareLaunchArgument(
-            "micro_ros_baudrate",
-            default_value="115200",
-            description="Micro ROS Agent serial baudrate",
-        ),
-        DeclareLaunchArgument(
-            "micro_ros_verbosity",
-            default_value="4",
-            description="Micro ROS Agent verbose level",
-        ),
-        DeclareLaunchArgument(
-            "use_mock_teensy",
+            "teensy_launch",
             default_value="false",
             choices=["true", "false"],
-            description="Use mock TeensyBoard",
+            description="Launch Teensy?",
+        ),
+        DeclareLaunchArgument(
+            "teensy_simulate",
+            default_value="false",
+            choices=["true", "false"],
+            description="Use simulated teensy node",
+        ),
+        DeclareLaunchArgument(
+            "teensy_log_level",
+            default_value="INFO",
+            description="Teensy log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "teensy_output",
+            default_value="both",
+            description="Teensy output",
+            choices=["log", "both", "screen", "own_log"],
         ),
         # Flic
         DeclareLaunchArgument(
-            "simulate_flic",
-            default_value="true",
+            "flic_launch",
+            default_value="false",
             choices=["true", "false"],
-            description="Simulate Flic",
+            description="Launch Flic?",
+        ),
+        DeclareLaunchArgument(
+            "flic_simulate",
+            default_value="false",
+            choices=["true", "false"],
+            description="Simulate flic button presses",
+        ),
+        DeclareLaunchArgument(
+            "flic_log_level",
+            default_value="INFO",
+            description="Flic log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "flic_output",
+            default_value="both",
+            description="Flic output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        # Flir
+        DeclareLaunchArgument(
+            "flir_launch",
+            default_value="false",
+            choices=["true", "false"],
+            description="Launch Flir?",
+        ),
+        DeclareLaunchArgument(
+            "flir_log_level",
+            default_value="INFO",
+            description="Flir log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "flir_output",
+            default_value="both",
+            description="Flir output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        # Optitrack
+        DeclareLaunchArgument(
+            "optitrack_launch",
+            default_value="false",
+            choices=["true", "false"],
+            description="Launch Optitrack?",
+        ),
+        DeclareLaunchArgument(
+            "optitrack_log_level",
+            default_value="INFO",
+            description="Optitrack log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "optitrack_output",
+            default_value="both",
+            description="Optitrack output",
+            choices=["log", "both", "screen", "own_log"],
         ),
         # Eyelink
         DeclareLaunchArgument(
-            "simulate_eyelink",
+            "eyelink_launch",
+            default_value="true",
+            choices=["true", "false"],
+            description="Launch Eyelink?",
+        ),
+        DeclareLaunchArgument(
+            "eyelink_simulate",
             default_value="false",
             choices=["true", "false"],
             description="Force simulation of eyelink, even if Eyelink SDK is available",
         ),
-        # Flir
         DeclareLaunchArgument(
-            "launch_flir",
-            default_value="true",
-            choices=["true", "false"],
-            description="Simulate Flic",
+            "eyelink_log_level",
+            default_value="INFO",
+            description="Eyelink log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "eyelink_output",
+            default_value="both",
+            description="Eyelink output",
+            choices=["log", "both", "screen", "own_log"],
         ),
         # RViz
         DeclareLaunchArgument(
-            "launch_rviz_server",
-            default_value="false",
+            "rviz_launch",
+            default_value="true",
             choices=["true", "false"],
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
-            "rviz_config_file_server",
+            "rviz_config_file",
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_server"),
@@ -122,19 +221,30 @@ def declare_arguments():
             ),
             description="RViz config file",
         ),
-        # Foxglove
         DeclareLaunchArgument(
-            "foxglove",
-            default_value="false",
-            choices=["true", "false"],
-            description="Launch foxglove bridge?",
+            "rviz_log_level",
+            default_value="INFO",
+            description="RViz Ogre log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "rviz_output",
+            default_value="own_log",
+            description="RViz output",
+            choices=["log", "both", "screen", "own_log"],
         ),
         # Bag
         DeclareLaunchArgument(
             "rosbag",
-            default_value="false",
+            default_value="true",
             choices=["true", "false"],
             description="Record rosbag?",
+        ),
+        DeclareLaunchArgument(
+            "rosbag_output",
+            default_value="both",
+            description="Bag output",
+            choices=["log", "both", "screen", "own_log"],
         ),
         # ROS Warehouse
         DeclareLaunchArgument(
@@ -143,129 +253,6 @@ def declare_arguments():
                 os.environ["TABLETOP_DIR"], "cache", "warehouse_ros.sqlite"
             ),
             description="Path where the warehouse database should be stored",
-        ),
-        # Log levels
-        DeclareLaunchArgument(
-            "default_log_level",
-            default_value="INFO",
-            description="Default log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "teensy_log_level",
-            default_value="INFO",
-            description="Teensy log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "flic_log_level",
-            default_value="INFO",
-            description="Flic log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "eyelink_log_level",
-            default_value="INFO",
-            description="Eyelink log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "optitrack_log_level",
-            default_value="INFO",
-            description="Optitrack log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "flir_log_level",
-            default_value="INFO",
-            description="Flir log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "rviz_log_level",
-            default_value="INFO",
-            description="RViz Ogre log level",
-            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        # Outputs
-        DeclareLaunchArgument(
-            "mock_dashboard_output",
-            default_value="own_log",
-            description="Mock Dashboard output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "ur_output",
-            default_value="own_log",
-            description="UR output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "commander_output",
-            default_value="both",
-            description="Commander output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "micro_ros_output",
-            default_value="own_log",
-            description="Micro ROS output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "mock_teensy_output",
-            default_value="both",
-            description="Mock Teensy output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "flic_output",
-            default_value="both",
-            description="Flic output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "eyelink_output",
-            default_value="both",
-            description="Eyelink output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "optitrack_output",
-            default_value="own_log",
-            description="Optitrack output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "flir_output",
-            default_value="own_log",
-            description="Flir output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "rviz_output",
-            default_value="own_log",
-            description="RViz output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "foxglove_output",
-            default_value="own_log",
-            description="Foxglove output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        DeclareLaunchArgument(
-            "bag_output",
-            default_value="both",
-            description="Bag output",
-            choices=["log", "both", "screen", "own_log"],
-        ),
-        # Sim time
-        DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Using or not time from simulation",
         ),
     ]
 
@@ -276,7 +263,7 @@ def print_substitutions(context, substitutions: dict[str, Substitution]):
 
 
 def generate_launch_description():
-    # Set ROS Log Directory
+    # Set ROS Log Directory and use_sim_time parameter for all nodes
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # Conditional substitutions
@@ -318,11 +305,7 @@ def generate_launch_description():
                 "kinematics_params_file": kinematics_params_file,
             }
         ],
-        condition=IfCondition(
-            EqualsSubstitution(
-                LaunchConfiguration("default_log_level"), "DEBUG"
-            )
-        ),
+        condition=IfCondition(str(launch_config.level == logging.DEBUG)),
     )
 
     # Create a new bag directory for the session and symlink to it
@@ -351,6 +334,7 @@ def generate_launch_description():
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
                 value=LaunchConfiguration("ur_output"),
             ),
+            # SetUseSimTime(LaunchConfiguration("use_sim_time")),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [
@@ -369,10 +353,10 @@ def generate_launch_description():
                     "reverse_ip": reverse_ip,
                     "use_mock_hardware": use_mock_robot,
                     "controller_spawner_timeout": LaunchConfiguration(
-                        "controller_spawner_timeout"
+                        "ur_controller_spawner_timeout"
                     ),
                     "initial_joint_controller": LaunchConfiguration(
-                        "initial_joint_controller"
+                        "ur_initial_joint_controller"
                     ),
                     "launch_rviz": "false",
                     "kinematics_params_file": kinematics_params_file,
@@ -395,6 +379,7 @@ def generate_launch_description():
         ],
         scoped=True,
         forwarding=True,
+        condition=IfCondition(LaunchConfiguration("ur_launch")),
     )
 
     # Mock Dashboard
@@ -405,134 +390,111 @@ def generate_launch_description():
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=[
             "--log-level",
-            LaunchConfiguration("default_log_level"),
+            LaunchConfiguration("mock_dashboard_log_level"),
         ],
-        condition=IfCondition(use_mock_robot),
+        condition=IfCondition(
+            AndSubstitution(use_mock_robot, LaunchConfiguration("ur_launch"))
+        ),
         on_exit=[Shutdown()],
     )
 
-    # Micro ROS Agent
-    micro_ros_agent = Node(
-        package="micro_ros_agent",
-        name="micro_ros_agent",
-        executable="micro_ros_agent",
-        output=LaunchConfiguration("micro_ros_output"),
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
-        ros_arguments=["--log-level", LaunchConfiguration("teensy_log_level")],
-        arguments=[
-            LaunchConfiguration("micro_ros_transport"),
-            "--dev",
-            LaunchConfiguration("micro_ros_device"),
-            "--baudrate",
-            LaunchConfiguration("micro_ros_baudrate"),
-            "--verbose",
-            LaunchConfiguration("micro_ros_verbosity"),
-        ],
-        condition=UnlessCondition(LaunchConfiguration("use_mock_teensy")),
-        on_exit=[Shutdown()],
-    )
-
-    # Mock Teensy
-    mock_teensy = Node(
-        name="teensy",
-        package="tabletop_server",
-        executable="mock_teensy",
-        output=LaunchConfiguration("mock_teensy_output"),
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
-        ros_arguments=["--log-level", LaunchConfiguration("teensy_log_level")],
-        condition=IfCondition(LaunchConfiguration("use_mock_teensy")),
-        on_exit=[Shutdown()],
-    )
-
-    # Flic
-    flic = Node(
-        name="flic",
-        package="tabletop_server",
-        executable="flic",
-        output=LaunchConfiguration("flic_output"),
-        parameters=[
-            {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-                "simulate": LaunchConfiguration("simulate_flic"),
-            },
-        ],
-        ros_arguments=["--log-level", LaunchConfiguration("flic_log_level")],
-        on_exit=[Shutdown()],
-    )
-
-    # Eyelink
-    eyelink = Node(
-        name="eyelink",
-        package="tabletop_server",
-        executable="eyelink",
-        output=LaunchConfiguration("eyelink_output"),
-        parameters=[
-            {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-                "simulate": LaunchConfiguration("simulate_eyelink"),
-                "session_bag_dir": ParameterValue(
-                    IfElseSubstitution(
-                        LaunchConfiguration("rosbag"),
-                        session_bag_dir,
-                        "null",
-                    ),
-                    value_type=str,
+    teensy = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("teensy_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_server"),
+                                "launch",
+                                "teensy.launch.py",
+                            ]
+                        )
+                    ]
                 ),
-            },
+                launch_arguments={
+                    "simulate": LaunchConfiguration("teensy_simulate"),
+                    "log_level": LaunchConfiguration("teensy_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
         ],
-        ros_arguments=[
-            "--log-level",
-            LaunchConfiguration("eyelink_log_level"),
-        ],
-        on_exit=[Shutdown()],
+        scoped=True,
+        forwarding=True,
+        condition=IfCondition(LaunchConfiguration("teensy_launch")),
     )
 
-    # Static transform publisher for optitrack
-    optitrack_transform_publisher = Node(
-        name="optitrack_static_transform_publisher",
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        arguments=[
-            "--x",
-            "0.4925",
-            "--y",
-            "0.6025",
-            "--z",
-            "0.31",
-            "--yaw",
-            str(math.pi / 2),
-            "--pitch",
-            "0",
-            "--roll",
-            str(math.pi / 2),
-            "--frame-id",
-            "world",
-            "--child-frame-id",
-            "optitrack",
+    flic = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("flic_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_server"),
+                                "launch",
+                                "flic.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "simulate": LaunchConfiguration("flic_simulate"),
+                    "log_level": LaunchConfiguration("flic_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
         ],
-        output=LaunchConfiguration("optitrack_output"),
-        on_exit=[Shutdown()],
+        scoped=True,
+        forwarding=True,
+        condition=IfCondition(LaunchConfiguration("flic_launch")),
     )
 
-    # Rviz visualizer for optitrack markers
-    mocap4r2_marker_viz = Node(
-        package="mocap4r2_marker_viz",
-        executable="mocap4r2_marker_viz",
-        output=LaunchConfiguration("optitrack_output"),
-        emulate_tty=True,
-        parameters=[
-            {
-                "mocap4r2_system": "optitrack",
-                "marker_topics": ["markers", "predicted_markers"],
-                "rb_topics": ["rigid_bodies"],
-            }
+    optitrack = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("optitrack_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_server"),
+                                "launch",
+                                "optitrack.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "simulate": LaunchConfiguration("optitrack_simulate"),
+                    "log_level": LaunchConfiguration("optitrack_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
         ],
-        on_exit=[Shutdown()],
+        scoped=True,
+        forwarding=True,
+        condition=IfCondition(LaunchConfiguration("optitrack_launch")),
     )
 
     # Flir (use group action to isolate the launch file)
     flir = GroupAction(
         [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("flir_output"),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [
@@ -546,15 +508,43 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={
-                    "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "output": LaunchConfiguration("flir_output"),
-                    "log_level": LaunchConfiguration("flir_log_level"),
                     "camera": "all",
+                    "log_level": LaunchConfiguration("flir_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
                 }.items(),
             ),
         ],
         scoped=True,
         forwarding=True,
+        condition=IfCondition(LaunchConfiguration("flir_launch")),
+    )
+
+    # Eyelink
+    eyelink = Node(
+        name="eyelink",
+        package="tabletop_server",
+        executable="eyelink",
+        output=LaunchConfiguration("eyelink_output"),
+        parameters=[
+            {
+                "simulate": LaunchConfiguration("eyelink_simulate"),
+                "session_bag_dir": ParameterValue(
+                    IfElseSubstitution(
+                        LaunchConfiguration("rosbag"),
+                        session_bag_dir,
+                        "null",
+                    ),
+                    value_type=str,
+                ),
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+            },
+        ],
+        ros_arguments=[
+            "--log-level",
+            LaunchConfiguration("eyelink_log_level"),
+        ],
+        condition=IfCondition(LaunchConfiguration("eyelink_launch")),
+        on_exit=[Shutdown()],
     )
 
     # RViz MoveIt Config
@@ -592,36 +582,13 @@ def generate_launch_description():
         ],
         arguments=[
             "-d",
-            LaunchConfiguration("rviz_config_file_server"),
+            LaunchConfiguration("rviz_config_file"),
             "-l",
         ],  # -l for ogre log
         cwd=LaunchLogDir(),
         ros_arguments=["--log-level", LaunchConfiguration("rviz_log_level")],
-        condition=IfCondition(LaunchConfiguration("launch_rviz_server")),
+        condition=IfCondition(LaunchConfiguration("rviz_launch")),
         on_exit=[Shutdown()],
-    )
-
-    # Foxglove Bridge
-    foxglove = GroupAction(
-        [
-            SetEnvironmentVariable(
-                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value=LaunchConfiguration("foxglove_output"),
-            ),
-            IncludeLaunchDescription(
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare("foxglove_bridge"),
-                        "launch",
-                        "foxglove_bridge_launch.xml",
-                    ]
-                ),
-                launch_arguments={"port": "8765"}.items(),
-            ),
-        ],
-        scoped=True,
-        forwarding=True,
-        condition=IfCondition(LaunchConfiguration("foxglove")),
     )
 
     # Bag Recorder and Converter
@@ -642,6 +609,13 @@ def generate_launch_description():
             args.extend(["--services", *interfaces_config["services"]])
     server_bag_dir = os.path.join(session_bag_dir, "server")
 
+    bag_recorder = ExecuteProcess(
+        name="rosbag_recorder",
+        cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
+        output=LaunchConfiguration("rosbag_output"),
+        condition=IfCondition(LaunchConfiguration("rosbag")),
+        on_exit=[Shutdown()],
+    )
     bag_converter = ExecuteProcess(
         name="bag_converter",
         cmd=[
@@ -652,46 +626,42 @@ def generate_launch_description():
             "-d",
             session_bag_dir,
         ],
-        output=LaunchConfiguration("bag_output"),
-        on_exit=[Shutdown()],
+        shell=True,
+        output=LaunchConfiguration("rosbag_output"),
     )
-    bag_recorder = ExecuteProcess(
-        name="rosbag_recorder",
-        cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
-        output=LaunchConfiguration("bag_output"),
+    bag_converter_handler = RegisterEventHandler(
+        OnShutdown(on_shutdown=[bag_converter], handle_once=True),
         condition=IfCondition(LaunchConfiguration("rosbag")),
-        on_exit=[bag_converter],
     )
 
     launch_actions = [
         *declare_arguments(),
-        print_substitutions_action,
         set_ros_log_dir,
+        print_substitutions_action,
         create_session_bag_dir,
         ur_robot_driver,
         mock_dashboard,
-        micro_ros_agent,
-        mock_teensy,
         flic,
+        teensy,
+        optitrack,
         eyelink,
-        optitrack_transform_publisher,
-        mocap4r2_marker_viz,
         flir,
         rviz,
-        foxglove,
         bag_recorder,
+        bag_converter_handler,
     ]
 
     return LaunchDescription(launch_actions)
 
 
-# def main():
-#     launch_logging_config.level = "DEBUG"
-#     ls = LaunchService()
-#     ld = generate_launch_description()
-#     ls.include_launch_description(ld)
-#     return ls.run()
+def main():
+    launch_config.log_dir = os.path.join(os.environ["ROS_LOG_DIR"], "server")
+    launch_config.level = logging.DEBUG
+    ls = LaunchService()
+    ld = generate_launch_description()
+    ls.include_launch_description(ld)
+    return ls.run()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -22,7 +22,7 @@ case $1 in
         LAUNCH="tabletop_server flir_calibrate.launch.py"
         ;;
     optitrack)
-        LAUNCH="mocap4r2_optitrack_driver optitrack2.launch.py"
+        LAUNCH="tabletop_server optitrack.launch.py"
         ;;
     teensy)
         LAUNCH="tabletop_server teensy.launch.py"

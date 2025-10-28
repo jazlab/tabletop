@@ -42,14 +42,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
-            description="Teensy log level",
+            description="Log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "output",
-            default_value="both",
-            description="Micro ROS output",
-            choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "use_sim_time",
@@ -67,9 +61,6 @@ def generate_launch_description():
         package="micro_ros_agent",
         name="micro_ros_agent",
         executable="micro_ros_agent",
-        output=LaunchConfiguration("output"),
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
-        ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         arguments=[
             LaunchConfiguration("micro_ros_transport"),
             "--dev",
@@ -79,6 +70,8 @@ def generate_launch_description():
             "--verbose",
             LaunchConfiguration("micro_ros_verbosity"),
         ],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         condition=UnlessCondition(LaunchConfiguration("simulate")),
         on_exit=[Shutdown()],
     )
@@ -87,7 +80,6 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
-        output=LaunchConfiguration("output"),
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         condition=IfCondition(LaunchConfiguration("simulate")),

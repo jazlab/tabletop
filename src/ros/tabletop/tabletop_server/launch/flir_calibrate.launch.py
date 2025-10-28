@@ -35,14 +35,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
-            description="Flir log level",
+            description="Log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "output",
-            default_value="both",
-            description="Flir output",
-            choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "use_sim_time",
@@ -83,7 +77,6 @@ def generate_launch_description():
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
                     "camera": LaunchConfiguration("camera"),
-                    "output": LaunchConfiguration("output"),
                     "log_level": LaunchConfiguration("log_level"),
                 }.items(),
             ),
@@ -104,11 +97,11 @@ def generate_launch_description():
             ["camera:=/", LaunchConfiguration("camera")],
             # "--no-service-check",
         ],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=[
             "--log-level",
             LaunchConfiguration("log_level"),
         ],
-        output=LaunchConfiguration("output"),
         on_exit=[Shutdown()],
     )
 

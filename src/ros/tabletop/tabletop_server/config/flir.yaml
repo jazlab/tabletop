@@ -3,7 +3,7 @@ common:
   image_transport_plugins:
     enable_pub_plugins:
       # - image_transport/foxglove
-      - image_transport/ffmpeg
+      # - image_transport/ffmpeg
       - image_transport/compressed
       - image_transport/raw
     foxglove:
@@ -45,12 +45,14 @@ common:
   # user_set_selector: UserSet0
   # user_set_load: Yes
   # to reduce the sensor width and shift the crop
-  image_width: 960
-  image_height: 600
+  # image_width: 960
+  # image_height: 600
+  image_width: 1920
+  image_height: 1200
   # offset_x: 16
   # offset_y: 0
-  # binning_x: 1
-  # binning_y: 1
+  # binning_x: 2
+  # binning_y: 2
   # connect_while_subscribed: true
   # reverse_x: true
   # reverse_y: true

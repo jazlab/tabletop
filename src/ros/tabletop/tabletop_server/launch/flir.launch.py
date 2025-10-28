@@ -50,20 +50,14 @@ def declare_arguments():
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
-            description="Flir log level",
+            description="Log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "output",
-            default_value="both",
-            description="Flir output",
-            choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
-            description="Using or not time from simulation",
+            description="Use published simulated time",
         ),
     ]
 
@@ -109,7 +103,6 @@ def make_tf_publisher(
             "--child-frame-id",
             name,
         ],
-        output=LaunchConfiguration("output"),
         ros_arguments=[
             "--log-level",
             LaunchConfiguration("log_level"),
@@ -146,7 +139,6 @@ def make_camera_node(
     #         {"parameter_file": parameter_file},
     #     ],
     #     log_level=LaunchConfiguration("flir_log_level"),
-    #     output=LaunchConfiguration("flir_output"),
     #     remappings=[
     #         ("~/control", "/exposure_control/control"),
     #     ],
@@ -218,7 +210,6 @@ def generate_launch_description():
         package="rclcpp_components",
         executable="component_container",
         composable_node_descriptions=flir_nodes,
-        output=LaunchConfiguration("output"),
         ros_arguments=[
             "--log-level",
             LaunchConfiguration("log_level"),

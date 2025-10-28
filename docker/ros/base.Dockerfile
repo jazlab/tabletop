@@ -23,7 +23,7 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia
 
 # Choose stage based on USE_NVIDIA arg
-FROM ros${INSTALL_CUDA:+-nvidia} AS base
+FROM ros${INSTALL_CUDA:+-nvidia}
 
 SHELL ["/bin/bash", "-c"]
 
@@ -40,6 +40,10 @@ apt-get install -y \
     sudo \
     curl \
     wget \
+    git \
+    rsync \
+    python3-pip \
+    python3-venv \
     python-is-python3 \
     cmake \
     mold \
@@ -126,7 +130,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 ARG USE_NVIDIA
 ARG CUDA_VERSION
 
-RUN --mount=type=cache,target=/tmp/uv.cache \
+RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
 set -ex

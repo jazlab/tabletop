@@ -3,9 +3,9 @@ FROM tabletop/ros-build
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
-set -ex
-apt-get update && apt-get upgrade -y
-apt-get install -y \
+set -e
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y \
     git \
     git-lfs \
     gdb \
@@ -24,7 +24,7 @@ EOT
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     <<EOT
-set -ex
+set -e
 sudo apt-get update && sudo apt-get upgrade -y
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 \. "$HOME/.nvm/nvm.sh"
@@ -35,7 +35,7 @@ ARG TARGETARCH
 
 # Install Neovim
 RUN <<EOT
-set -ex
+set -e
 case $TARGETARCH in
     amd64)
         curl -fsSL -o /tmp/nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
@@ -56,7 +56,7 @@ EOT
 
 # Install complete-alias
 RUN <<EOT
-set -ex
+set -e
 curl -fsSL -o ~/complete-alias \
 https://raw.githubusercontent.com/cykerway/complete-alias/refs/heads/master/complete_alias
 chmod +x ~/complete-alias
@@ -65,7 +65,7 @@ EOT
 
 # Install kitten
 RUN <<EOT
-set -ex
+set -e
 case $TARGETARCH in
     amd64)
         sudo curl -fsSL -o /usr/local/bin/kitten https://github.com/kovidgoyal/kitty/releases/latest/download/kitten-linux-amd64
@@ -86,7 +86,7 @@ RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
 
 # Update .bashrc and .inputrc
 RUN <<EOT
-set -ex
+set -e
 cat <<EOF >> ~/.bashrc
 eval "\$(uv generate-shell-completion bash)"
 eval "\$(uvx --generate-shell-completion bash)"

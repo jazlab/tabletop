@@ -6,7 +6,7 @@
         "dev"
     ],
     // "shutdownAction": "stopCompose",
-    "workspaceFolder": "/home/mules/tabletop",
+    "workspaceFolder": "/tabletop",
     // "userEnvProbe": "loginInteractiveShell",
     "customizations": {
         "vscode": {
