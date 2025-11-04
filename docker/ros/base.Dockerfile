@@ -22,7 +22,7 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 # Choose stage based on CUDA_VERSION arg
 FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia
 
-# Choose stage based on USE_NVIDIA arg
+# Choose stage based on INSTALL_CUDA arg
 FROM ros${INSTALL_CUDA:+-nvidia}
 
 SHELL ["/bin/bash", "-c"]
@@ -123,23 +123,18 @@ WORKDIR /tabletop
 # Install python dependencies using uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+ARG UV_EXTRA
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0
-
-ARG USE_NVIDIA
-ARG CUDA_VERSION
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_EXTRA=$UV_EXTRA
 
 RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
 set -ex
 export UV_CACHE_DIR=/tmp/uv.cache
-if [[ $USE_NVIDIA = true ]] ; then
-    UV_EXTRA="--extra cu$CUDA_VERSION"
-else
-    UV_EXTRA="--extra cpu"
-fi
 uv sync --locked --no-install-project $UV_EXTRA
 EOT
 
@@ -167,6 +162,20 @@ EOT
 # Copy entrypoint script
 COPY docker/ros/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
+
+# Update .bashrc and create directories for bind mounts and volumes
+RUN <<EOT
+set -ex
+cat <<EOF >> ~/.bashrc
+if [[ -f /tabletop/setup.bash ]]; then
+    source /tabletop/setup.bash
+else
+    source "/opt/ros/$ROS_DISTRO/setup.bash" --
+fi
+EOF
+mkdir -p build install
+mkdir -p ~/.config
+EOT
 
 # Convenience variable to indicate the
 ENV TABLETOP_CONTAINER=true

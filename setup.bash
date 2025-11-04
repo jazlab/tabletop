@@ -9,9 +9,17 @@ export SIM_ROBOT_IP=192.168.12.20
 export SIM_REVERSE_IP=192.168.12.10
 export ROBOT_IP=192.168.13.20
 export REVERSE_IP=192.168.13.10
-export PYTHONUNBUFFERED=1
 export CUDA_VERSION=129
-export FOXGLOVE_PORT=8765
+export PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
+export FOXGLOVE_PORT=${FOXGLOVE_PORT:-8765}
+
+if [[ $UV_EXTRA ]]; then
+    export UV_EXTRA=$UV_EXTRA
+elif command -v nvidia-smi >/dev/null 2>&1; then
+    export UV_EXTRA="--extra cu$CUDA_VERSION"
+else
+    export UV_EXTRA="--extra cpu"
+fi
 
 # Source Python virtual environment
 if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then

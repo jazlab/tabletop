@@ -1,4 +1,4 @@
-FROM base_image
+FROM tabletop/ros-base
 
 WORKDIR /tabletop
 
@@ -39,20 +39,12 @@ EOT
 
 RUN cd /tmp/colcon && rsync -av build install /tabletop
 
-ARG USE_NVIDIA
-ARG CUDA_VERSION
-
 RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
     --mount=type=bind,source=src/tabletop_py,target=src/tabletop_py \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
 set -ex
 export UV_CACHE_DIR=/tmp/uv.cache
-if [[ $USE_NVIDIA = true ]] ; then
-    UV_EXTRA="--extra cu$CUDA_VERSION"
-else
-    UV_EXTRA="--extra cpu"
-fi
 uv sync --locked $UV_EXTRA
 EOT
 

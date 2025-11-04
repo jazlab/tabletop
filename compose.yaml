@@ -99,25 +99,7 @@ services:
         - USER_NAME=$USER_NAME
         - USER_UID=$USER_UID
         - USER_GID=$USER_GID
-        - USE_NVIDIA=$USE_NVIDIA
-        - CUDA_VERSION=$CUDA_VERSION
-
-  ros-build:
-    # <<: *common
-    # profiles: [build]
-    # image: tabletop/ros-build
-    # build:
-    #   context: .
-    #   dockerfile: ./docker/ros/build.Dockerfile
-    #   additional_contexts:
-    #     base_image: service:ros-base
-    #   pull: true
-    #   args:
-    #     - USER_UID=$USER_UID
-    #     - USER_GID=$USER_GID
-    #     - USE_NVIDIA=$USE_NVIDIA
-    #     - CUDA_VERSION=$CUDA_VERSION
-    extends: ros-base
+        - UV_EXTRA=$UV_EXTRA
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind
@@ -128,24 +110,40 @@ services:
       - colcon-build:/tabletop/build
       - colcon-install:/tabletop/install
     init: true
-    command: tt-build
+
+  ros-build:
+    # <<: *common
+    # profiles: [build]
+    # image: tabletop/ros-build
+    # build:
+    #   context: .
+    #   dockerfile: ./docker/ros/build.Dockerfile
+    #   additional_contexts:
+    #     tabletop/ros-base: service:ros-base
+    #   pull: true
+    #   args:
+    #     - USER_UID=$USER_UID
+    #     - USER_GID=$USER_GID
+    #     - UV_EXTRA=$UV_EXTRA
+    extends: ros-base
+    command: bash -c "tt-build --only-modules && tt-build"
 
   foxglove:
-    extends: ros-build
+    extends: ros-base
     # profiles: !reset []
     container_name: tabletop-foxglove
     restart: unless-stopped
     command: tt-launch foxglove
 
   optitrack:
-    extends: ros-build
+    extends: ros-base
     # profiles: !reset []
     container_name: tabletop-optitrack
     restart: unless-stopped
     command: tt-launch optitrack
 
   flir:
-    extends: ros-build
+    extends: ros-base
     container_name: tabletop-flir
     # profiles: !reset []
     devices:
@@ -159,7 +157,7 @@ services:
     command: tt-launch flir
 
   teensy:
-    extends: ros-build
+    extends: ros-base
     container_name: tabletop-teensy
     # profiles: !reset []
     devices:
@@ -168,7 +166,7 @@ services:
     command: tt-launch teensy simulate:=false
 
   teensy-sim:
-    extends: ros-build
+    extends: ros-base
     container_name: tabletop-teensy-sim
     # profiles: !override
     #   - sim
@@ -177,7 +175,7 @@ services:
 
   flic:
     container_name: tabletop-flic
-    extends: ros-build
+    extends: ros-base
     # profiles: !reset []
     depends_on: [ flicd ]
     restart: unless-stopped
@@ -185,14 +183,14 @@ services:
 
   flic-sim:
     container_name: tabletop-flic-sim
-    extends: ros-build
+    extends: ros-base
     # profiles: !override
     #   - sim
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
   commander:
-    extends: ros-build
+    extends: ros-base
     container_name: tabletop-commander
     # profiles: [commander]
     runtime: $COMMANDER_RUNTIME
@@ -219,7 +217,7 @@ services:
       dockerfile: ./docker/ros/dev.Dockerfile
       pull: true
       additional_contexts:
-        base_image: service:ros-base
+        tabletop/ros-base: service:ros-base
     runtime: $COMMANDER_RUNTIME
     devices:
       - $FLIR_DEV_0

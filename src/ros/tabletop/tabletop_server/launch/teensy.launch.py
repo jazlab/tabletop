@@ -61,6 +61,7 @@ def generate_launch_description():
         package="micro_ros_agent",
         name="micro_ros_agent",
         executable="micro_ros_agent",
+        output="both",
         arguments=[
             LaunchConfiguration("micro_ros_transport"),
             "--dev",
@@ -80,6 +81,7 @@ def generate_launch_description():
         name="teensy",
         package="tabletop_server",
         executable="mock_teensy",
+        output="both",
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         condition=IfCondition(LaunchConfiguration("simulate")),

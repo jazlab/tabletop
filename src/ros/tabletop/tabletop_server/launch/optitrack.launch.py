@@ -55,6 +55,7 @@ def generate_launch_description():
         name="mocap4r2_optitrack_driver_node",
         namespace="",
         package="mocap4r2_optitrack_driver",
+        output="both",
         executable="mocap4r2_optitrack_driver_main",
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         parameters=[
@@ -90,6 +91,7 @@ def generate_launch_description():
         name="optitrack_static_transform_publisher",
         package="tf2_ros",
         executable="static_transform_publisher",
+        output="both",
         arguments=[
             "--x",
             "0.4925",
@@ -115,8 +117,10 @@ def generate_launch_description():
 
     # Rviz visualizer for optitrack markers
     marker_viz = Node(
+        name="mocap4r2_maker_viz",
         package="mocap4r2_marker_viz",
         executable="mocap4r2_marker_viz",
+        output="both",
         emulate_tty=True,
         parameters=[
             {

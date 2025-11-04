@@ -80,11 +80,6 @@ fi
 # Install Python dependencies
 if [[ $skip_uv != true ]]; then
     print_status "Installing Python dependencies using uv"
-    if command -v nvidia-smi >/dev/null 2>&1; then
-        UV_EXTRA="--extra cu$CUDA_VERSION"
-    else
-        UV_EXTRA="--extra cpu"
-    fi
     uv sync $UV_EXTRA
 fi
 
