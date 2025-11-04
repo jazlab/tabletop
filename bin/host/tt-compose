@@ -21,6 +21,10 @@ while [[ $# -gt 0 ]]; do
             ARGS+=("$1")
             export BUILDKIT_PROGRESS=plain
             ;;
+        ps)
+            ARGS+=("$1")
+            ARGS+=("--all")
+            ;;
         *)
             ARGS+=("$1")
             ;;

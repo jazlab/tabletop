@@ -53,9 +53,6 @@ if [[ $USE_NVIDIA = true ]] ; then
 else
     UV_EXTRA="--extra cpu"
 fi
-if command -v edf2asc >/dev/null 2>&1; then
-    UV_EXTRA="$UV_EXTRA --extra eyelink"
-fi
 uv sync --locked $UV_EXTRA
 EOT
 

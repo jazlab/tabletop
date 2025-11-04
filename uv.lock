@@ -2229,6 +2229,7 @@ dependencies = [
     { name = "pandas" },
     { name = "rosdep" },
     { name = "scikit-learn" },
+    { name = "sr-research-pylink", marker = "platform_machine == 'x86_64' or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu126') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu129') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu129') or (extra == 'extra-11-tabletop-py-cu128' and extra == 'extra-11-tabletop-py-cu129')" },
     { name = "torcheval" },
     { name = "tqdm" },
     { name = "transformations" },
@@ -2248,9 +2249,6 @@ cu128 = [
 ]
 cu129 = [
     { name = "torch", version = "2.8.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" } },
-]
-eyelink = [
-    { name = "sr-research-pylink" },
 ]
 
 [package.dev-dependencies]
@@ -2274,7 +2272,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.1" },
     { name = "rosdep", specifier = ">=0.26.0" },
     { name = "scikit-learn", specifier = ">=1.7.1" },
-    { name = "sr-research-pylink", marker = "extra == 'eyelink'", specifier = ">=2.1.1145.post1", index = "https://pypi.sr-research.com/" },
+    { name = "sr-research-pylink", marker = "platform_machine == 'x86_64'", specifier = ">=2.1.1145.post1", index = "https://pypi.sr-research.com/" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "tabletop-py", extra = "cpu" } },
     { name = "torch", marker = "extra == 'cu126'", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "tabletop-py", extra = "cu126" } },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "tabletop-py", extra = "cu128" } },
@@ -2284,7 +2282,7 @@ requires-dist = [
     { name = "transformations", specifier = ">=2025.8.1" },
     { name = "trimesh", extras = ["easy"], specifier = ">=4.7.4" },
 ]
-provides-extras = ["cpu", "cu126", "cu128", "cu129", "eyelink"]
+provides-extras = ["cpu", "cu126", "cu128", "cu129"]
 
 [package.metadata.requires-dev]
 dev = [

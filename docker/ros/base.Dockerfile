@@ -140,9 +140,6 @@ if [[ $USE_NVIDIA = true ]] ; then
 else
     UV_EXTRA="--extra cpu"
 fi
-if command -v edf2asc >/dev/null 2>&1; then
-    UV_EXTRA="$UV_EXTRA --extra eyelink"
-fi
 uv sync --locked --no-install-project $UV_EXTRA
 EOT
 
@@ -164,7 +161,7 @@ ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 rm /tmp/get-platformio.py
-echo "export PATH=~/.local/bin:\$PATH" >> ~/.bashrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 EOT
 
 # Copy entrypoint script

@@ -119,9 +119,9 @@ fi
 
 # Skip x86_64-dependent packages
 packages_to_skip=("moveit_ros_tests")
-if [[ $(uname -m) != x86_64 ]]; then
-    packages_to_skip+=("mocap4r2_optitrack_driver")
-fi
+# if [[ $(uname -m) != x86_64 ]]; then
+#     packages_to_skip+=("mocap4r2_optitrack_driver")
+# fi
 packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
