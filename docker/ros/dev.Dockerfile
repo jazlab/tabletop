@@ -1,4 +1,4 @@
-FROM tabletop/ros-build
+FROM base_image
 
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

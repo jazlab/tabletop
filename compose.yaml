@@ -55,7 +55,7 @@ services:
         restart: true
     restart: unless-stopped
     init: true
-    entrypoint: [/entrypoint.sh]
+    entrypoint: [ /entrypoint.sh ]
 
   flicd:
     <<: *common
@@ -74,10 +74,10 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
-    depends_on: [autoheal]
+    depends_on: [ autoheal ]
     healthcheck:
       disable: true
-      test: [CMD, /app/healthcheck.sh]
+      test: [ CMD, /app/healthcheck.sh ]
       interval: 5s
       timeout: 2s
       retries: 3
@@ -103,22 +103,23 @@ services:
         - CUDA_VERSION=$CUDA_VERSION
 
   ros-build:
-    <<: *common
+    # <<: *common
     # profiles: [build]
-    image: tabletop/ros-build
-    build:
-      context: .
-      dockerfile: ./docker/ros/build.Dockerfile
-      additional_contexts:
-        base_image: service:ros-base
-      pull: true
-      args:
-        - USER_UID=$USER_UID
-        - USER_GID=$USER_GID
-        - USE_NVIDIA=$USE_NVIDIA
-        - CUDA_VERSION=$CUDA_VERSION
+    # image: tabletop/ros-build
+    # build:
+    #   context: .
+    #   dockerfile: ./docker/ros/build.Dockerfile
+    #   additional_contexts:
+    #     base_image: service:ros-base
+    #   pull: true
+    #   args:
+    #     - USER_UID=$USER_UID
+    #     - USER_GID=$USER_GID
+    #     - USE_NVIDIA=$USE_NVIDIA
+    #     - CUDA_VERSION=$CUDA_VERSION
+    extends: ros-base
     volumes:
-      # - /etc/localtime:/etc/localtime:ro
+      - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
         target: /tabletop
@@ -127,6 +128,7 @@ services:
       - colcon-build:/tabletop/build
       - colcon-install:/tabletop/install
     init: true
+    command: tt-build
 
   foxglove:
     extends: ros-build
@@ -177,7 +179,7 @@ services:
     container_name: tabletop-flic
     extends: ros-build
     # profiles: !reset []
-    depends_on: [flicd]
+    depends_on: [ flicd ]
     restart: unless-stopped
     command: tt-launch flic
 
@@ -215,9 +217,9 @@ services:
     build:
       context: .
       dockerfile: ./docker/ros/dev.Dockerfile
-      # pull: true
+      pull: true
       additional_contexts:
-        tabletop/ros-build: service:ros-build
+        base_image: service:ros-base
     runtime: $COMMANDER_RUNTIME
     devices:
       - $FLIR_DEV_0

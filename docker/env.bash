@@ -1,6 +1,7 @@
 # Build variables
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
+# export BUILDX_BUILDER=tabletop_builder
 export USER_NAME=$(id -un)
 export USER_UID=$(id -u)
 export USER_GID=$(id -g)

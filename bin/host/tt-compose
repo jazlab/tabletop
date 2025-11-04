@@ -19,6 +19,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         build)
             ARGS+=("$1")
+            # ARGS+=("--builder" "tabletop_builder")
             export BUILDKIT_PROGRESS=plain
             ;;
         ps)

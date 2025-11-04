@@ -1,0 +1,28 @@
+[worker.oci]
+gc = true
+reservedSpace = "10GB"
+maxUsedSpace = "100GB"
+minFreeSpace = "20%"
+
+[[worker.oci.gcpolicy]]
+filters = ["type==source.local", "type==source.git.checkout"]
+keepDuration = "48h"
+maxUsedSpace = "512MB"
+
+[[worker.oci.gcpolicy]]
+filters = ["type==exec.cachemount"]
+maxUsedSpace = "30GB"
+
+[[worker.oci.gcpolicy]]
+keepDuration = "1440h" # 60 days
+reservedSpace = "10GB"
+maxUsedSpace = "100GB"
+
+[[worker.oci.gcpolicy]]
+reservedSpace = "10GB"
+maxUsedSpace = "100GB"
+
+[[worker.oci.gcpolicy]]
+all = true
+reservedSpace = "10GB"
+maxUsedSpace = "100GB"
