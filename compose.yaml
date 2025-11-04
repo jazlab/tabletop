@@ -55,7 +55,7 @@ services:
         restart: true
     restart: unless-stopped
     init: true
-    entrypoint: [ /entrypoint.sh ]
+    entrypoint: [/entrypoint.sh]
 
   flicd:
     <<: *common
@@ -74,10 +74,10 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
-    depends_on: [ autoheal ]
+    depends_on: [autoheal]
     healthcheck:
       disable: true
-      test: [ CMD, /app/healthcheck.sh ]
+      test: [CMD, /app/healthcheck.sh]
       interval: 5s
       timeout: 2s
       retries: 3
@@ -161,7 +161,7 @@ services:
     container_name: tabletop-teensy
     # profiles: !reset []
     devices:
-      - /dev/ttyACM0
+      - $TEENSY_DEV
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
@@ -177,7 +177,7 @@ services:
     container_name: tabletop-flic
     extends: ros-build
     # profiles: !reset []
-    depends_on: [ flicd ]
+    depends_on: [flicd]
     restart: unless-stopped
     command: tt-launch flic
 
@@ -226,7 +226,7 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
-      - /dev/ttyACM0
+      - $TEENSY_DEV
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind

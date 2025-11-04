@@ -15,7 +15,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     export NVIDIA_DRIVER_CAPABILITIES=all
 else
     export USE_NVIDIA=
-    export CONTAINER_RUNTIME=runc
+    export COMMANDER_RUNTIME=runc
     export NVIDIA_VISIBLE_DEVICES=
     export NVIDIA_DRIVER_CAPABILITIES=
 fi
@@ -45,12 +45,18 @@ fi
 # printf -v FLIR_DEVS "%s, " "${FLIR_DEV_PATHS[@]}"
 # export FLIR_DEVS="[ ${FLIR_DEVS%, } ]"
 
-export FLIR_DEV_0="${FLIR_DEV_PATHS[0]}"
-export FLIR_DEV_1="${FLIR_DEV_PATHS[1]}"
-export FLIR_DEV_2="${FLIR_DEV_PATHS[2]}"
-export FLIR_DEV_3="${FLIR_DEV_PATHS[3]}"
-export FLIR_DEV_4="${FLIR_DEV_PATHS[4]}"
-export FLIR_DEV_5="${FLIR_DEV_PATHS[5]}"
+export FLIR_DEV_0="${FLIR_DEV_PATHS[0]:-/dev/null}"
+export FLIR_DEV_1="${FLIR_DEV_PATHS[1]:-/dev/null}"
+export FLIR_DEV_2="${FLIR_DEV_PATHS[2]:-/dev/null}"
+export FLIR_DEV_3="${FLIR_DEV_PATHS[3]:-/dev/null}"
+export FLIR_DEV_4="${FLIR_DEV_PATHS[4]:-/dev/null}"
+export FLIR_DEV_5="${FLIR_DEV_PATHS[5]:-/dev/null}"
+
+if [ -e /dev/ttyACM0 ]; then
+    export TEENSY_DEV=/dev/ttyACM0
+else
+    export TEENSY_DEV=/dev/null
+fi
 
 # # Build a JSON-style string from the array (properly escape backslashes and quotes)
 # FLIR_DEV_JSON="[]"
