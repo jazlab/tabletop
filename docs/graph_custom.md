@@ -26,7 +26,7 @@ end
 
 subgraph host_machine[<b>Host Machine<b/>]
 
-    subgraph server_container[<b>Server Docker Container<b/>]
+    subgraph rig_container[<b>Server Docker Container<b/>]
         subgraph moveit_py[<b>MoveItPy<b/>]
             planning_scene_monitor[Planning Scene Monitor]:::object
             planning_component[Planning Component]:::object
@@ -155,7 +155,7 @@ style legend opacity:0.15,fill:#FFF
 style nodes opacity:0.15,fill:#FFF
 style connection opacity:0.15,fill:#FFF
 style host_machine opacity:0.15,fill:#FFF
-style server_container opacity:0.15,fill:#FFF
+style rig_container opacity:0.15,fill:#FFF
 style moveit_py opacity:0.15,fill:#FFF
 style ur_driver opacity:0.15,fill:#FFF
 style novnc_container opacity:0.15,fill:#FFF

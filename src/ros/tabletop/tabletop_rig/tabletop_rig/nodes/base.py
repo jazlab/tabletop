@@ -16,8 +16,8 @@ from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 
 from tabletop_py.utils.common import yaml_dump_string
-from tabletop_server.utils.logging import LoggerMixin, msg_to_dict
-from tabletop_server.utils.ros import (
+from tabletop_rig.utils.logging import LoggerMixin, msg_to_dict
+from tabletop_rig.utils.ros import (
     ROSSleepError,
     ServiceCallTimeoutError,
     ServiceCallUnsuccessfulError,

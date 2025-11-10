@@ -87,11 +87,11 @@ def main(args=None):
     )
     if args.force or not already_converted:
         try:
-            from tabletop_server.utils.rosbag import rosbag_session_to_dfs
+            from tabletop_rig.utils.rosbag import rosbag_session_to_dfs
         except ImportError:
             if not already_converted:
                 raise ValueError(
-                    "tabletop_server.utils.rosbag does not seem to be installed and the session "
+                    "tabletop_rig.utils.rosbag does not seem to be installed and the session "
                     "bags have not yet been converted to CSV files, you are probably "
                     "not in the docker container and should consider entering it in order "
                     "to convert the session bags to CSV files"

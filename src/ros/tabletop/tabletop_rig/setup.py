@@ -3,7 +3,7 @@ from glob import glob
 
 from setuptools import find_packages, setup
 
-package_name = "tabletop_server"
+package_name = "tabletop_rig"
 
 setup(
     name=package_name,
@@ -32,16 +32,16 @@ setup(
     zip_safe=True,
     maintainer="Valmiki Kothare",
     maintainer_email="valmiki.kothare.vk@gmail.com",
-    description="The server nodes for the TableTop project",
+    description="The rig nodes for the TableTop project",
     license="MIT",
     entry_points={
         "console_scripts": [
-            "commander = tabletop_server.nodes.commander:main",
-            "mock_teensy = tabletop_server.nodes.mock_teensy:main",
-            "mock_dashboard = tabletop_server.nodes.mock_dashboard:main",
-            "eyelink = tabletop_server.nodes.eyelink:main",
-            "flic = tabletop_server.nodes.flic:main",
-            "rosbag_to_csv = tabletop_server.utils.rosbag:main",
+            "commander = tabletop_rig.nodes.commander:main",
+            "mock_teensy = tabletop_rig.nodes.mock_teensy:main",
+            "mock_dashboard = tabletop_rig.nodes.mock_dashboard:main",
+            "eyelink = tabletop_rig.nodes.eyelink:main",
+            "flic = tabletop_rig.nodes.flic:main",
+            "rosbag_to_csv = tabletop_rig.utils.rosbag:main",
         ],
     },
 )

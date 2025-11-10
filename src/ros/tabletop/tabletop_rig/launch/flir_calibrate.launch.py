@@ -67,7 +67,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "flir.launch.py",
                             ]

@@ -19,8 +19,8 @@ from tabletop_py.flic.client import (
     ClickType,
     FlicClient,
 )
-from tabletop_server.executors import AIOExecutor
-from tabletop_server.nodes.base import BaseNode
+from tabletop_rig.executors import AIOExecutor
+from tabletop_rig.nodes.base import BaseNode
 
 
 class Flic(BaseNode):

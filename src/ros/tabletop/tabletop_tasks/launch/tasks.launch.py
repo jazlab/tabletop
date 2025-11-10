@@ -20,9 +20,9 @@ from launch_ros.substitutions import FindPackageShare
 def declare_arguments():
     return [
         DeclareLaunchArgument(
-            "launch_server",
+            "launch_rig",
             default_value="true",
-            description="Launch server?",
+            description="Launch rig?",
             choices=["true", "false"],
         ),
         DeclareLaunchArgument(
@@ -34,7 +34,7 @@ def declare_arguments():
 
 
 def generate_launch_description():
-    launch_server = LaunchConfiguration("launch_server")
+    launch_rig = LaunchConfiguration("launch_rig")
     task_config = LaunchConfiguration("task_config")
 
     coroutine_config = IfElseSubstitution(
@@ -62,22 +62,22 @@ def generate_launch_description():
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Server
-    server = GroupAction(
+    # Rig
+    rig = GroupAction(
         [
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution(
                         [
-                            FindPackageShare("tabletop_server"),
+                            FindPackageShare("tabletop_rig"),
                             "launch",
-                            "server.launch.py",
+                            "rig.launch.py",
                         ]
                     ),
                 ),
             ),
         ],
-        condition=IfCondition(launch_server),
+        condition=IfCondition(launch_rig),
         scoped=True,
         forwarding=True,
     )
@@ -90,7 +90,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "commander.launch.py",
                             ]
@@ -108,6 +108,6 @@ def generate_launch_description():
         forwarding=True,
     )
 
-    launch_actions = [set_ros_log_dir, server, commander]
+    launch_actions = [set_ros_log_dir, rig, commander]
 
     return LaunchDescription(declare_arguments() + launch_actions)

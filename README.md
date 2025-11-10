@@ -111,7 +111,7 @@ You may experience issues with the `ursim` container otherwise.
 
 **Note**: If you are running a system without an Nvidia GPU, or if you do not
 want to permit the container GPU access, you can comment out the `runtime: nvidia`
-line in the `server` service in the `compose.yaml` file (see [Starting Docker
+line in the `rig` service in the `compose.yaml` file (see [Starting Docker
 Containers](#starting-docker-containers) for more information on the different
 containers and their associated services).
 
@@ -255,7 +255,7 @@ After you have done all of the above, save the program and installation by
 clicking **Save->Save All** at the top of the window. Make sure to save the
 program with the name `external_control.urp` and the installation with the name
 `default.installation` so that the commander loads the correct program and
-installation when the server program is started.
+installation when the rig program is started.
 
 
 #### Enabling Remote Control Mode
@@ -320,18 +320,18 @@ To run the entire software stack using Docker:
 
     All at once:
     ```bash
-    docker compose up [--force-recreate] ursim|ursim_novnc server|server_novnc
+    docker compose up [--force-recreate] ursim|ursim_novnc rig|rig_novnc
     ```
 
     Individually:
     ```bash
     docker compose up [--force-recreate] ursim
     docker compose up [--force-recreate] ursim_novnc
-    docker compose up [--force-recreate] server
-    docker compose up [--force-recreate] server_novnc
+    docker compose up [--force-recreate] rig
+    docker compose up [--force-recreate] rig_novnc
     ```
 
-    Running the `ursim` or `server` containers will use your host machine's
+    Running the `ursim` or `rig` containers will use your host machine's
     X server, in which case you may first need to run:
     ```bash
     xhost +
@@ -355,13 +355,13 @@ containers (and their variants):
     window manager ([dwm](https://dwm.suckless.org/)) for multiple GUI windows
     to be displayed at once. A list of commonly used keyboard shortcuts can be
     found [here](https://wiki.gentoo.org/wiki/Dwm#Keys_and_key_functions:~:text=the%20window%20to.-,Default%20shortcuts,-Those%20shortcuts%20are).
-- `server*`: The server container for the TableTop project, which
+- `rig*`: The rig container for the TableTop project, which
     runs all the local ROS 2 nodes (including the Universal Robots driver nodes,
-    the MoveIt nodes, and the TableTop nodes). On startup, the `server`
+    the MoveIt nodes, and the TableTop nodes). On startup, the `rig`
     container will optionally install any dependencies and build the project.
     It will then run the command specified in the `LAUNCH_COMMAND` environment
     variable or the default in `compose.yaml` if `LAUNCH_COMMAND` is not set. The
-    difference between `server` and `server_novnc` is that the former uses the
+    difference between `rig` and `rig_novnc` is that the former uses the
     host machine's X server to display the GUI, while the latter uses the noVNC
     web interface.
 - `ursim*`: The container for the Universal Robots simulator, which simulates the
@@ -391,21 +391,21 @@ To get started:
 1. Make sure any previous containers have been destroyed (call `docker compose
     down` in the root directory of the project).
 2. Start the `ursim_novnc` container, as above.
-    - It is currently necessary to do this before the `server_novnc` in order
+    - It is currently necessary to do this before the `rig_novnc` in order
       to give the URSim time to spin up.
-3. Start the `server_novnc` container, as above.
+3. Start the `rig_novnc` container, as above.
     * **Note**: If you are running MacOS, you may need to comment out the
         following lines in the `compose.yaml` file:
         ```yaml
         services:
             ...
-            server_novnc:
+            rig_novnc:
                 # depends_on:
                 #   novnc:
                 #     condition: service_healthy
                 ...
         ```
-        This will prevent the novnc container from restarting when the `server_novnc`
+        This will prevent the novnc container from restarting when the `rig_novnc`
         container is started. This seems to be an issue exclusive to MacOS.
 
 This will power on the simulated robot and initiate communication with the
@@ -413,7 +413,7 @@ ROS 2 driver.
 
 ### Choosing Launch Command
 
-The default behavior of the `server` container is to sleep indefinitely, which
+The default behavior of the `rig` container is to sleep indefinitely, which
 is useful if you want to interactively launch the ROS processes and inspect the
 container state. To change this default behavior, you can set the `LAUNCH_COMMAND`
 environment variable to your desired bash command. You can do this by:
@@ -440,7 +440,7 @@ environment variable to your desired bash command. You can do this by:
     ```yaml
     services:
         ...
-        server:
+        rig:
             ...
             environment:
                 # Edit the default value so that you can overwrite it from the command line later
@@ -495,9 +495,9 @@ launch the `tabletop_tasks` node, you can run:
 ```bash
 ros2 launch tabletop_tasks run_tasks.launch.py --task_config:=<path_to_task_config> use_mock_teensy:=<true|false>
 ```
-*The above commands will also work for the `server` and `server_novnc` containers if
+*The above commands will also work for the `rig` and `rig_novnc` containers if
 you choose to interact with them through the terminal (i.e. call `docker exec -it
-<container_name> bash` after starting the container `docker compose up server` with
+<container_name> bash` after starting the container `docker compose up rig` with
 the default launch command that sleeps indefinitely).*
 
 ### Uploading Teensy Firmware from the Dev Container
@@ -532,7 +532,7 @@ the repository's root directory:
 - `tabletop_description`: TableTop URDF description
 - `tabletop_moveit_config`: TableTop MoveIt configurations
 - `tabletop_interfaces`: TableTop message definitions
-- `tabletop_server`: TableTop server nodes and launch files
+- `tabletop_rig`: TableTop rig nodes and launch files
 - `tabletop_tasks`: TableTop task nodes and launch files
 - `tabletop_teensy`: TableTop Teensy nodes and launch files
 - `tabletop_utils`: TableTop utility nodes and launch files

@@ -5,7 +5,7 @@ import enum
 from collections.abc import Mapping
 from typing import Any, Optional
 
-from tabletop_server.nodes import Commander
+from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks import BaseTask
 from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialFeedback

@@ -11,32 +11,24 @@ cd $COLCON_WS
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --all)
+        -a|-all)
             all=true
-            shift
-            ;;
-        --micro-ros)
-            micro_ros=true
             shift
             ;;
         *)
             print_error "Unknown argument: $1"
-            print_error "Usage: $0 [--all] [--micro-ros]"
+            print_error "Usage: $0 [--all]"
             exit 1
             ;;
     esac
 done
 
+to_clean=("$COLCON_LOG_DIR")
+
 if [[ $all = true ]]; then
-    to_clean=("build" "install" "log/colcon")
+    to_clean+=("build" "install")
 else
-    sub_to_clean=("tabletop*")
-    if [[ $micro_ros = true ]]; then
-        sub_to_clean+=("micro_ros*")
-    fi
-    for dir in "${sub_to_clean[@]}"; do
-        to_clean+=("install/$dir" "build/$dir")
-    done
+    to_clean+=("build/tabletop*" "install/tabletop*")
 fi
 
 print_status "Removing ${to_clean[@]}"

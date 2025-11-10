@@ -79,7 +79,7 @@ def generate_launch_description():
 
     mock_teensy = Node(
         name="teensy",
-        package="tabletop_server",
+        package="tabletop_rig",
         executable="mock_teensy",
         output="both",
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],

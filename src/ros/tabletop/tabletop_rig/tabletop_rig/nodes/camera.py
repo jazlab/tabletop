@@ -4,7 +4,7 @@ from cv_bridge import CvBridge
 from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import Image
 
-from tabletop_server.nodes import BaseNode
+from tabletop_rig.nodes import BaseNode
 
 
 class Camera(BaseNode):

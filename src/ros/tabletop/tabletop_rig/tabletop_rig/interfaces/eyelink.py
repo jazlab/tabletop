@@ -80,9 +80,9 @@ from tabletop_py.utils.mesh import (
     simplify_quadratic_decimation,
     transform_geometry,
 )
-from tabletop_server.executors import TestExecutor
-from tabletop_server.nodes.base import BaseNode
-from tabletop_server.utils.ros import (
+from tabletop_rig.executors import TestExecutor
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import (
     ActionCallUnsuccessfulError,
     CommanderRecoverableError,
     ExecuteRequest,
@@ -116,7 +116,7 @@ from tabletop_server.utils.ros import (
     pose_stamped_msg,
     robot_trajectory_copy,
 )
-from tabletop_server.utils.trajectory_cache import FuzzyTrajectoryCache
+from tabletop_rig.utils.trajectory_cache import FuzzyTrajectoryCache
 
 
 def asyncio_task_decorator[T](

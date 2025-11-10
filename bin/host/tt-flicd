@@ -20,6 +20,6 @@ while true; do
         docker compose down flic
         break
     fi
-    print_status "Client disconnected, restarting server..."
+    print_status "Client disconnected, restarting rig..."
     sleep 2
 done

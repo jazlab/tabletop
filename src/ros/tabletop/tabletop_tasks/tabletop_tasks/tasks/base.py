@@ -7,7 +7,7 @@ from typing import Any
 import rclpy.logging
 from rclpy.impl.logging_severity import LoggingSeverity
 from rpyutils.import_c_library import importlib
-from tabletop_server.nodes import Commander
+from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.trial_generators.base import BaseTrialGenerator
 

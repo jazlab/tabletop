@@ -7,7 +7,7 @@ from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
 
-from tabletop_server.nodes.base import BaseNode
+from tabletop_rig.nodes.base import BaseNode
 
 
 class MockDashboard(BaseNode):

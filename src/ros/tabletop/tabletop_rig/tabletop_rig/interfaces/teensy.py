@@ -1,8 +1,6 @@
 import asyncio
 import threading
-from collections.abc import (
-    Callable,
-)
+from collections.abc import Callable
 from copy import copy, deepcopy
 from typing import Literal, Optional, cast
 
@@ -16,8 +14,8 @@ from tabletop_interfaces.srv import (
     SetSmartglass,
 )
 
-from tabletop_server.interfaces.base import BaseInterface
-from tabletop_server.nodes.base import BaseNode
+from tabletop_rig.interfaces.base import BaseInterface
+from tabletop_rig.nodes.base import BaseNode
 
 
 class TeensyInterface(BaseInterface):
@@ -49,14 +47,22 @@ class TeensyInterface(BaseInterface):
             qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        self.additional_subscription_callback = (
-            additional_subscription_callback
-        )
         self._last_teensy_sensor = TeensySensor()
         self._last_teensy_sensor_time = self.node.ros_time()
         self._last_unsafe_to_execute_time = self.node.ros_time()
         self._safe_to_execute = False
         self._teensy_sensor_lock = threading.Lock()
+
+        if additional_subscription_callback is None:
+
+            def noop(msg: TeensySensor):
+                pass
+
+            self._additional_subscription_callback = noop
+        else:
+            self._additional_subscription_callback = (
+                additional_subscription_callback
+            )
 
         # Service clients
 
@@ -85,6 +91,16 @@ class TeensyInterface(BaseInterface):
 
         self.log("Teensy interface ready")
 
+    def register_subscription_callback(
+        self, callback: Callable[[TeensySensor], None]
+    ):
+        """Register additional callback for teensy sensor subscription
+
+        Args:
+            callback: Callable that takes TeensySensor message as argument and returns None
+        """
+        self._additional_subscription_callback = callback
+
     ###########################################################################
     ########## ROS Interface ##################################################
     ###########################################################################
@@ -108,7 +124,9 @@ class TeensyInterface(BaseInterface):
             current_time = self.node.ros_time()
             if current_time - self._last_teensy_sensor_time > max_sensor_delay:
                 self.log(
-                    f"Have not received teensy sensor message in {current_time - self._last_teensy_sensor_time} > {max_sensor_delay}, not safe to execute",
+                    f"Have not received teensy sensor message in "
+                    f"{current_time - self._last_teensy_sensor_time} > "
+                    f"{max_sensor_delay}, not safe to execute",
                     severity="WARN",
                 )
                 return False
@@ -145,8 +163,7 @@ class TeensyInterface(BaseInterface):
                 self._last_unsafe_to_execute_time = current_time
 
         # Call additional callback if provided
-        if self.additional_subscription_callback:
-            self.additional_subscription_callback(msg)
+        self._additional_subscription_callback(msg)
 
     # Service clients
 

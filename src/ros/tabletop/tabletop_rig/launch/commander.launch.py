@@ -56,7 +56,7 @@ def declare_arguments():
             "commander_config",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_rig"),
                     "config",
                     "commander.yaml",
                 ]
@@ -134,12 +134,6 @@ def declare_arguments():
             default_value="WARN",
             description="ROS log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-        ),
-        DeclareLaunchArgument(
-            "commander_output",
-            default_value="both",
-            description="Commander output",
-            choices=["log", "both", "screen", "own_log"],
         ),
         DeclareLaunchArgument(
             "debug_commander",
@@ -284,8 +278,9 @@ def generate_launch_description():
 
     # Commander Node
     commander = Node(
-        package="tabletop_server",
+        package="tabletop_rig",
         executable="commander",
+        output="both",
         parameters=[
             moveit_config.to_dict(),
             warehouse_ros_config,
@@ -332,7 +327,6 @@ def generate_launch_description():
                 else_value="",
             ),
         ],
-        output=LaunchConfiguration("commander_output"),
         on_exit=[Shutdown()],
     )
 

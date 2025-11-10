@@ -38,8 +38,8 @@ from tabletop_py.gaze.preprocess import (
     smooth_eyelink_data,
 )
 from tabletop_py.gaze.utils import init_model
-from tabletop_server.nodes.base import BaseNode
-from tabletop_server.utils.ros import ROSSleepError, seconds_from_ros_time
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import ROSSleepError, seconds_from_ros_time
 
 PYLINK_AVAILABLE = True
 try:

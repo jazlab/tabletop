@@ -1,7 +1,7 @@
 from rclpy.impl.rcutils_logger import RcutilsLogger
 
-from tabletop_server.nodes.base import BaseNode
-from tabletop_server.utils.logging import LoggerMixin
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.logging import LoggerMixin
 
 
 class BaseInterface(LoggerMixin):

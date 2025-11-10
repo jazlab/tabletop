@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 import numpy as np
-from tabletop_server.nodes import Commander
+from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,

@@ -38,8 +38,9 @@ def generate_launch_description():
 
     flic = Node(
         name="flic",
-        package="tabletop_server",
+        package="tabletop_rig",
         executable="flic",
+        output="both",
         parameters=[
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),

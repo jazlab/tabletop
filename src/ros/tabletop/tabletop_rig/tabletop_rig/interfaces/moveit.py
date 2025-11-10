@@ -1,35 +1,23 @@
-import argparse
 import asyncio
-import concurrent.futures
 import glob
 import hashlib
-import importlib
 import json
 import os
 import threading
 import time
-import traceback
 from collections.abc import (
     Callable,
-    Coroutine,
     Iterable,
     Mapping,
 )
-from copy import copy, deepcopy
+from copy import deepcopy
 from enum import IntEnum
-from types import TracebackType
-from typing import Any, ContextManager, Literal, Optional, Self, cast
+from typing import Any, ContextManager, Literal, Optional, cast
 
-import debugpy
 import numpy as np
 import pandas as pd
-import rclpy
-import rclpy.utilities
 import yaml
-from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, PoseStamped
-from mingus.containers import Note
-from mingus.midi import fluidsynth
 from moveit.core.collision_detection import (  # type: ignore
     AllowedCollisionMatrix,
     CollisionRequest,
@@ -55,24 +43,9 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from moveit_msgs.msg import PlanningScene as PlanningSceneMsg
-from rclpy.action.client import ActionClient, ClientGoalHandle
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.impl.logging_severity import LoggingSeverity
-from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
-from std_srvs.srv import Trigger
-from tabletop_interfaces.action import EyelinkSmoothPursuit, FlicResponseTime
-from tabletop_interfaces.msg import TeensySensor
-from tabletop_interfaces.srv import (
-    SetArmLock,
-    SetReward,
-    SetSmartglass,
-)
 from trimesh.transformations import identity_matrix
-from ur_dashboard_msgs.msg import RobotMode, SafetyMode
-from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
-from ur_dashboard_msgs.srv import Load as DashboardLoad
 
 from tabletop_py.utils.mesh import (
     load_geometry,
@@ -80,23 +53,17 @@ from tabletop_py.utils.mesh import (
     simplify_quadratic_decimation,
     transform_geometry,
 )
-from tabletop_server.executors import TestExecutor
-from tabletop_server.nodes.base import BaseNode
-from tabletop_server.utils.ros import (
-    ActionCallUnsuccessfulError,
-    CommanderRecoverableError,
+from tabletop_rig.interfaces.base import BaseInterface
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import (
     ExecuteRequest,
-    ExecutionError,
     ExecutionInterruptedError,
     ExecutionRejectedError,
     MaxPlanningAttemptsReachedError,
     NotSafeToExecuteError,
-    ObjectManipulationError,
-    PlanningError,
     PlanningGoalT,
     PlanOnceError,
     PlanRequest,
-    ServiceCallUnsuccessfulError,
     TrajectoryError,
     TrajectoryErrorCodes,
     add_mesh_collision_object_msg,
@@ -107,7 +74,6 @@ from tabletop_server.utils.ros import (
     all_close_robot_states,
     arrays_from_pose_msg,
     attached_collision_object_msg,
-    change_reference_frame_pose,
     change_reference_frame_pose_stamped,
     matrix_from_pose_msg,
     object_color_msg,
@@ -116,57 +82,7 @@ from tabletop_server.utils.ros import (
     pose_stamped_msg,
     robot_trajectory_copy,
 )
-from tabletop_server.utils.trajectory_cache import FuzzyTrajectoryCache
-
-
-def asyncio_task_decorator[T](
-    coro_fn: Callable[..., Coroutine[None, None, T]],
-) -> Callable[..., asyncio.Task[T]]:
-    """
-    Decorator for methods that should be run in the current asyncio.TaskGroup.
-
-    This decorator is designed for BaseNode methods. It will only work for
-    methods whose first argument is `self` and whose class has an
-    `asyncio.TaskGroup` attribute named `tg`.
-
-    WARNING: If a task raises an exception, all tasks in the TaskGroup will
-    be cancelled. As a result, you should not use this decorator for coroutines
-    that are expected to raise exceptions (e.g. you cannot catch exceptions of tasks).
-
-    Args:
-        coro_fn: The coroutine function to decorate.
-
-    Returns:
-        The decorated function which returns an asyncio.Task.
-    """
-
-    def wrapper(*args: Any, **kwargs: Any) -> asyncio.Task:
-        """Wrapper function that creates and returns an asyncio.Task.
-
-        Args:
-            self: The instance of the class.
-            *args: Positional arguments for the coroutine function.
-            **kwargs: Keyword arguments for the coroutine function.
-
-        Returns:
-            The created asyncio.Task.
-        """
-        coro = coro_fn(*args, **kwargs)
-        return asyncio.create_task(coro)
-
-    return wrapper
-
-
-def object_manipulation_lock_decorator(
-    coro_fn: Callable[..., Coroutine],
-) -> Callable[..., Coroutine]:
-    """Decorator for methods that should be run with the object manipulation lock."""
-
-    async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
-        async with self.object_manipulation_lock:
-            return await coro_fn(self, *args, **kwargs)
-
-    return wrapper
+from tabletop_rig.utils.trajectory_cache import FuzzyTrajectoryCache
 
 
 class ObjectPhase(IntEnum):
@@ -198,59 +114,32 @@ OBJECT_MOUNT_PHASES = [
 ]
 
 
-class Commander(BaseNode):
-    default_params: dict[str, Any] = BaseNode.default_params | {}
-    required_params: set[str] = BaseNode.required_params | {
-        "simulate",
-        "max_workers",
-        "dashboard.installation",
-        "dashboard.program",
-        "teensy.spin_period",
-        "planning.defaults",
-        "planning.goal_position_tolerance",
-        "planning.goal_orientation_tolerance",
-        "planning.use_euler_tolerance",
-        "execution.defaults",
-        "predefined_states.idle_state",
-        "predefined_poses.pre_fetch_offset",
-        "predefined_poses.pre_attach_offset",
-        "predefined_poses.post_attach_offset",
-        "predefined_poses.post_fetch_offset",
-        "predefined_poses.pre_present_pose",
-        "trajectory_cache.use_cached_trajectories",
-        "trajectory_cache.freeze_cache",
-        "trajectory_cache.kwargs",
-        "object_manipulation.detach_velocity_scaling_factor",
-        "object_manipulation.allowed_collisions",
-        "object_manipulation.touch_links",
-        "object_manipulation.mount_ids",
-        "link_padding",
-        "planning_scene.dir",
-        "planning_scene.use_saved_scene",
-        "planning_scene.object_meshes",
-        "planning_scene.rig_meshes",
-        "smooth_pursuit.reward_duration",
-        "smooth_pursuit.reward_interval",
-        "smooth_pursuit.reward_threshold_ratio",
-    }
-
+class MoveItInterface(BaseInterface):
     ###########################################################################
     ########## Initialization #################################################
     ###########################################################################
 
-    def __init__(self):
-        """Initializes the Commander node.
+    def __init__(
+        self,
+        node: BaseNode,
+        safe_to_execute_callback: Optional[Callable[[], bool]] = None,
+    ):
+        """Initializes the MoveItInterface
 
         Sets up MoveItPy, trajectory execution manager, robot model, and planning scene monitor.
         """
-        super().__init__(
-            "commander", automatically_declare_parameters_from_overrides=True
-        )
-        self.init_sound()
-
-        self.init_ros()
+        super().__init__(node, "moveit_interface")
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=False)
+
+        if safe_to_execute_callback is None:
+
+            def always_safe():
+                return True
+
+            self._safe_to_execute_callback = always_safe
+        else:
+            self._safe_to_execute_callback = safe_to_execute_callback
 
         self.init_collision_detector()
 
@@ -264,116 +153,13 @@ class Commander(BaseNode):
 
         self.log("Commander initialized")
 
-    def init_sound(self):
-        """Initialize sound."""
-        config: dict[str, Any] = self.get_parameter_wrapper("sound")
+    def register_safe_to_execute_callback(self, callback: Callable[[], bool]):
+        """Register additional callback for teensy sensor subscription
 
-        self.sound_enabled = config["enable"]
-        if not self.sound_enabled:
-            return
-
-        soundfont_path = os.path.expandvars(config["soundfont_path"])
-        if not os.path.exists(soundfont_path):
-            raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
-
-        if not fluidsynth.init(soundfont_path, driver="pulseaudio"):
-            raise RuntimeError("Failed to initialize fluidsynth")
-
-        self._default_note = Note(**config["default_note"])
-        if (
-            not isinstance(config["default_duration"], (int, float))
-            or config["default_duration"] <= 0
-        ):
-            raise ValueError(
-                f"Default duration must be a positive number, got {config['default_duration']}"
-            )
-        self._default_duration = float(config["default_duration"])
-
-        fluidsynth.set_instrument(
-            channel=self._default_note.channel, midi_instr=config["instrument"]
-        )
-
-    def init_ros(self):
-        """Create services for the commander.
-
-        Services:
-        - /commander/get_frame_transform
-        - /commander/add_collision_object
-        - /commander/remove_collision_object
-        - /commander/attach_collision_object
-        - /commander/detach_collision_object
-        - /commander/allow_collision
-        - /commander/disallow_collision
-        - /commander/plan_and_execute
+        Args:
+            callback: Callable that takes TeensySensor message as argument and returns None
         """
-        # Subscribers
-
-        qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
-        qos.durability = QoSDurabilityPolicy.VOLATILE
-        qos.depth = 1
-        self.teensy_sub = self.create_subscription(
-            TeensySensor,
-            "/teensy/sensor",
-            self.teensy_sensor_callback,
-            qos_profile=qos,
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-        self._last_teensy_sensor = TeensySensor()
-        self._last_teensy_sensor_time = self.ros_time()
-        self._last_unsafe_to_execute_time = self.ros_time()
-        self._safe_to_execute = False
-        self._teensy_sensor_lock = threading.Lock()
-
-        # Service clients
-
-        self.set_arm_lock_client = self.create_client(
-            SetArmLock,
-            "/teensy/set_arm_lock",
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-        self.set_reward_client = self.create_client(
-            SetReward,
-            "/teensy/set_reward",
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-        self.set_smartglass_client = self.create_client(
-            SetSmartglass,
-            "/teensy/set_smartglass",
-            callback_group=MutuallyExclusiveCallbackGroup(),
-        )
-
-        # Action clients
-        # self.set_mode_client = ActionClient(
-        #     self,
-        #     SetMode,
-        #     "/ur_robot_state_helper/set_mode",
-        # )
-        self.flic_response_time_client = ActionClient(
-            self,
-            FlicResponseTime,
-            "/flic/response_time",
-        )
-        self.eyelink_smooth_pursuit_client = ActionClient(
-            self,
-            EyelinkSmoothPursuit,
-            "/eyelink/smooth_pursuit",
-        )
-
-        # Wait for ROS services and action servers
-
-        self.log("Waiting for dashboard client")
-        self.wait_for_service_blocking(
-            DashboardLoad, "/dashboard_client/load_program"
-        )
-        self.log("Waiting for teensy services")
-        self.set_arm_lock_client.wait_for_service()
-        self.set_reward_client.wait_for_service()
-        self.set_smartglass_client.wait_for_service()
-
-        # self.set_mode_client.wait_for_server()
-        self.log("Waiting for flic response time client")
-        self.flic_response_time_client.wait_for_server()
-        self.log("ROS services and action servers ready")
+        self._safe_to_execute_callback = callback
 
     def init_collision_detector(self):
         """Initialize the collision detector."""
@@ -391,7 +177,9 @@ class Commander(BaseNode):
 
         self.remove_all_collision_objects()
 
-        config: dict[str, Any] = self.get_parameter_wrapper("planning_scene")
+        config: dict[str, Any] = self.node.get_parameter_wrapper(
+            "planning_scene"
+        )
 
         cache_dir = os.path.expandvars(os.path.expanduser(config["dir"]))
         if not os.path.isabs(cache_dir):
@@ -477,12 +265,16 @@ class Commander(BaseNode):
         idx = None
 
         try:
-            object_id = self.get_parameter_wrapper("initial_attached_object")
+            object_id = self.node.get_parameter_wrapper(
+                "initial_attached_object"
+            )
         except ParameterNotDeclaredException:
             pass
 
         try:
-            idx = self.get_parameter_wrapper("initial_attached_object_idx")
+            idx = self.node.get_parameter_wrapper(
+                "initial_attached_object_idx"
+            )
         except ParameterNotDeclaredException:
             pass
 
@@ -518,7 +310,9 @@ class Commander(BaseNode):
 
     def init_link_padding(self):
         """Set the link padding for the planning scene."""
-        config: dict[str, Any] = self.get_parameter_wrapper("link_padding")
+        config: dict[str, Any] = self.node.get_parameter_wrapper(
+            "link_padding"
+        )
         with self.planning_scene_read_write() as scene:
             msg = PlanningSceneMsg(
                 is_diff=True,
@@ -533,12 +327,12 @@ class Commander(BaseNode):
     def init_additional_attributes(self):
         """Setup variables for the commander."""
         # Trajectory cache
-        trajectory_cache_config = self.get_parameter_wrapper(
+        trajectory_cache_config = self.node.get_parameter_wrapper(
             "trajectory_cache.kwargs"
         )
         self.trajectory_cache = FuzzyTrajectoryCache(
             rig_hash=self.rig_hash,
-            robot_state_tolerance=self.get_parameter_wrapper(
+            robot_state_tolerance=self.node.get_parameter_wrapper(
                 "trajectory_execution.allowed_start_tolerance"
             ),
             **trajectory_cache_config,
@@ -549,20 +343,6 @@ class Commander(BaseNode):
 
         # Object manipulation lock
         self.object_manipulation_lock = asyncio.Lock()
-
-    ###########################################################################
-    ########## Sound ##########################################################
-    ###########################################################################
-
-    def start_note(self, note: Note):
-        """Start a note."""
-        if self.sound_enabled:
-            fluidsynth.play_Note(note)
-
-    def stop_note(self, note: Note):
-        """Stop a note."""
-        if self.sound_enabled:
-            fluidsynth.stop_Note(note)
 
     ###########################################################################
     ########## MoveItPy Interface #############################################
@@ -605,24 +385,24 @@ class Commander(BaseNode):
     @property
     def simulate(self) -> bool:
         """Get the simulation flag."""
-        return self.get_parameter_wrapper("simulate")
+        return self.node.get_parameter_wrapper("simulate")
 
     @property
     def default_group_name(self) -> str:
         """Get the planning group name from the parameter server."""
-        return self.get_parameter_wrapper("planning.defaults.group_name")
+        return self.node.get_parameter_wrapper("planning.defaults.group_name")
 
     @property
     def default_pose_link(self) -> str:
         """Get the planning link from the parameter server."""
-        return self.get_parameter_wrapper("planning.defaults.pose_link")
+        return self.node.get_parameter_wrapper("planning.defaults.pose_link")
 
     @property
     def allowed_object_mount_collisions(self) -> list[tuple[str, str]]:
         """Get the allowed object mount collisions from the parameter server."""
         return [
             (id_0, id_1)
-            for id_0, id_1 in self.get_parameter_wrapper(
+            for id_0, id_1 in self.node.get_parameter_wrapper(
                 "object_manipulation.allowed_collisions"
             ).items()
         ]
@@ -630,27 +410,29 @@ class Commander(BaseNode):
     @property
     def touch_links(self) -> list[str]:
         """Get the touch links from the parameter server."""
-        return self.get_parameter_wrapper("object_manipulation.touch_links")
+        return self.node.get_parameter_wrapper(
+            "object_manipulation.touch_links"
+        )
 
     @property
     def object_mount_ids(self) -> list[str]:
         """Get the object mount ids from the parameter server."""
-        return self.get_parameter_wrapper("object_manipulation.mount_ids")
+        return self.node.get_parameter_wrapper("object_manipulation.mount_ids")
 
     @property
     def use_cached_trajectories(self) -> bool:
-        return self.get_parameter_wrapper(
+        return self.node.get_parameter_wrapper(
             "trajectory_cache.use_cached_trajectories"
         )
 
     @property
     def freeze_trajectory_cache(self) -> bool:
-        return self.get_parameter_wrapper("trajectory_cache.freeze_cache")
+        return self.node.get_parameter_wrapper("trajectory_cache.freeze_cache")
 
     @property
     def object_grid(self) -> np.ndarray:
         """Get the object grid config from the parameters."""
-        object_kwargs = self.get_parameter_wrapper(
+        object_kwargs = self.node.get_parameter_wrapper(
             "planning_scene.object_meshes.object_kwargs"
         )
 
@@ -730,395 +512,6 @@ class Commander(BaseNode):
                     severity=severity,
                 )
                 self.log("=" * 80, severity=severity)
-
-    ###########################################################################
-    ########## UR Dashboard Interface #########################################
-    ###########################################################################
-
-    async def dashboard_trigger(self, srv_name: str) -> Trigger.Response:
-        """Call a dashboard client Trigger service (asynchronous)."""
-        self.log(
-            f"Triggering {srv_name} in UR Dashboard",
-            severity="DEBUG",
-        )
-        response = await self.service_call_async(
-            srv_request=Trigger.Request(), srv_type=Trigger, srv_name=srv_name
-        )
-        return cast(Trigger.Response, response)
-
-    async def dashboard_load(
-        self,
-        srv_name: str,
-        filename: str,
-    ) -> DashboardLoad.Response:
-        """Load a program or installation on the robot dashboard (asynchronous)."""
-        self.log(
-            f"Loading {srv_name}: {filename} in UR Dashboard",
-            severity="DEBUG",
-        )
-        response = await self.service_call_async(
-            srv_request=DashboardLoad.Request(filename=filename),
-            srv_type=DashboardLoad,
-            srv_name=srv_name,
-        )
-        return cast(DashboardLoad.Response, response)
-
-    async def dashboard_get_safety_mode(self) -> SafetyMode:
-        """Get the safety mode from the dashboard client."""
-        response = cast(
-            GetSafetyMode.Response,
-            await self.service_call_async(
-                srv_request=GetSafetyMode.Request(),
-                srv_type=GetSafetyMode,
-                srv_name="/dashboard_client/get_safety_mode",
-            ),
-        )
-        return response.safety_mode
-
-    async def dashboard_get_robot_mode(self) -> RobotMode:
-        """Get the robot mode from the dashboard client."""
-        response = cast(
-            GetRobotMode.Response,
-            await self.service_call_async(
-                srv_request=GetRobotMode.Request(),
-                srv_type=GetRobotMode,
-                srv_name="/dashboard_client/get_robot_mode",
-            ),
-        )
-        return response.robot_mode
-
-    ###########################################################################
-    ########## ROS Interface ##################################################
-    ###########################################################################
-
-    # Properties
-
-    @property
-    def last_teensy_sensor(self) -> TeensySensor:
-        """Get the last teensy sensor."""
-        with self._teensy_sensor_lock:
-            return deepcopy(self._last_teensy_sensor)
-
-    @property
-    def safe_to_execute(self) -> bool:
-        """Get the is safe to execute state."""
-        max_sensor_delay = self.get_parameter_wrapper(
-            "teensy.safe_to_execute.max_sensor_delay"
-        )
-
-        with self._teensy_sensor_lock:
-            current_time = self.ros_time()
-            if current_time - self._last_teensy_sensor_time > max_sensor_delay:
-                self.log(
-                    f"Have not received teensy sensor message in {current_time - self._last_teensy_sensor_time} > {max_sensor_delay}, not safe to execute",
-                    severity="WARN",
-                )
-                return False
-            return self._safe_to_execute
-
-    # Subscribers
-
-    def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
-        """Check if the robot is safe to execute."""
-        return (
-            msg.is_left_arm_locked
-            and msg.is_right_arm_locked
-            and not msg.is_safety_laser_broken
-        )
-
-    def teensy_sensor_callback(self, msg: TeensySensor):
-        """Callback for the teensy sensor."""
-        required_time = self.get_parameter_wrapper(
-            "teensy.safe_to_execute.required_time"
-        )
-
-        with self._teensy_sensor_lock:
-            current_time = self.ros_time()
-            self._last_teensy_sensor = msg
-            self._last_teensy_sensor_time = current_time
-            if self._msg_safe_to_execute(msg):
-                self._safe_to_execute = (
-                    current_time - self._last_unsafe_to_execute_time
-                    > required_time
-                )
-            else:
-                self._safe_to_execute = False
-                self._last_unsafe_to_execute_time = current_time
-
-        # If it is not safe to execute and the robot is executing, stop execution
-        if not self._safe_to_execute and self.execution_lock.locked():
-            self.log(
-                "Not safe to execute, stopping execution",
-                severity="WARN",
-            )
-            self.trajectory_execution_manager.stop_execution()
-
-    # Service clients
-
-    async def _set_arm_lock(
-        self, arm: Literal["left", "right", "both"], lock: bool
-    ) -> SetArmLock.Response:
-        """Set the arm lock state."""
-        if arm not in ["left", "right", "both"]:
-            raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
-
-        left = arm in ["left", "both"]
-        right = arm in ["right", "both"]
-
-        response = await self.service_call_async(
-            srv_request=SetArmLock.Request(
-                left_arm=left, right_arm=right, lock=lock
-            ),
-            srv_client=self.set_arm_lock_client,
-        )
-        return cast(SetArmLock.Response, response)
-
-    @asyncio_task_decorator
-    async def arm_release(
-        self, arm: Literal["left", "right", "both"]
-    ) -> SetArmLock.Response:
-        """Release the arm lock."""
-        return await self._set_arm_lock(arm, lock=False)
-
-    async def _arm_lock_and_wait(
-        self, timeout: Optional[float] = None
-    ) -> bool:
-        """Lock arms and wait for safety laser to be unbroken
-
-        Args:
-            timeout: Timeout in seconds. If None, the default timeout from
-                parameters is used.
-
-        Returns:
-            True if arms were locked and safety laser was unbroken within the timeout,
-            False otherwise.
-        """
-        self.log("Locking arms and waiting until safe to execute")
-        await self._set_arm_lock("both", lock=True)
-
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-        try:
-            async with asyncio.timeout(timeout):
-                while not self.safe_to_execute:
-                    await asyncio.sleep(spin_period)
-            return True
-        except TimeoutError:
-            return False
-
-    @asyncio_task_decorator
-    async def arm_lock_and_wait(self, timeout: Optional[float] = None) -> bool:
-        """Lock arms and wait for safety laser to be unbroken"""
-        return await self._arm_lock_and_wait(timeout)
-
-    async def _set_smartglass(self, reveal: bool) -> SetSmartglass.Response:
-        """Set the smartglass state."""
-        self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
-        response = await self.service_call_async(
-            srv_request=SetSmartglass.Request(reveal=reveal),
-            srv_client=self.set_smartglass_client,
-        )
-        return cast(SetSmartglass.Response, response)
-
-    @asyncio_task_decorator
-    async def smartglass_reveal(self) -> SetSmartglass.Response:
-        """Reveal the smartglass."""
-        return await self._set_smartglass(True)
-
-    @asyncio_task_decorator
-    async def smartglass_occlude(self) -> SetSmartglass.Response:
-        """Occlude the smartglass."""
-        return await self._set_smartglass(False)
-
-    @asyncio_task_decorator
-    async def flic_response_time(
-        self, timeout: Optional[float] = None
-    ) -> float | None:
-        """Wait for flic button press, then return response time, or None if timeout is reached."""
-        object_id = self.get_exactly_one_attached_object_id()
-        bd_addr = self.get_parameter_wrapper(f"flic.bd_addrs.{object_id}")
-
-        try:
-            async with asyncio.timeout(timeout):
-                goal_handle = cast(
-                    ClientGoalHandle,
-                    await self.flic_response_time_client.send_goal_async(
-                        FlicResponseTime.Goal(bd_addr=bd_addr)
-                    ),
-                )
-                if not goal_handle.accepted:
-                    raise RuntimeError("Flic goal not accepted")
-
-                try:
-                    response = await goal_handle.get_result_async()
-                except asyncio.CancelledError:
-                    goal_handle.cancel_goal_async()
-                    raise
-        except TimeoutError:
-            return None
-
-        if response.status != GoalStatus.STATUS_SUCCEEDED:
-            raise RuntimeError("Flic goal failed")
-
-        response_time = Duration.from_msg(response.result.response_time)
-        return response_time.nanoseconds / 1e9
-
-    async def set_reward(
-        self, activate: bool, duration: Optional[int | float] = None
-    ) -> SetReward.Response:
-        """Set the reward state."""
-        if activate:
-            self.log(f"Starting reward for {duration}s")
-        else:
-            self.log("Stopping reward")
-
-        request = SetReward.Request(activate=activate)
-        if duration is not None:
-            if duration < 0:
-                raise ValueError("Duration must be greater than 0!")
-            request.duration = Duration(seconds=duration).to_msg()
-
-        response = await self.service_call_async(
-            srv_request=request, srv_client=self.set_reward_client
-        )
-        return cast(SetReward.Response, response)
-
-    @asyncio_task_decorator
-    async def reward_and_wait(self, duration: float):
-        """Start reward and wait for it to be active."""
-        await self.set_reward(activate=True, duration=duration)
-
-        spin_period = self.get_parameter_wrapper("teensy.spin_period")
-
-        await asyncio.sleep(spin_period)
-        assert self.last_teensy_sensor.is_reward_active, (
-            "Reward not active after 1 spin period"
-        )
-
-        timeout = duration + spin_period
-        try:
-            async with asyncio.timeout(timeout):
-                while self.last_teensy_sensor.is_reward_active:
-                    await asyncio.sleep(spin_period)
-                return True
-        except TimeoutError:
-            assert False, "Reward still active after duration"
-
-    def _smooth_pursuit_producer(
-        self,
-        feedback_msg: EyelinkSmoothPursuit.Impl.FeedbackMessage,
-        queue: asyncio.Queue[bool],
-    ):
-        """Callback for the eyelink smooth pursuit feedback."""
-        feedback = feedback_msg.feedback
-
-        self._loop.call_soon_threadsafe(
-            queue.put_nowait, feedback.is_smoothly_pursuing
-        )
-        self.log(
-            f"Monkey {'' if feedback.is_smoothly_pursuing else 'not '}smoothly pursuing",
-            severity="INFO",
-        )
-
-    async def _smooth_pursuit_consumer(self, queue: asyncio.Queue[bool]):
-        """Consumer for the eyelink smooth pursuit queue."""
-        duration = self.get_parameter_wrapper("smooth_pursuit.reward_duration")
-        interval = self.get_parameter_wrapper("smooth_pursuit.reward_interval")
-        reward_threshold = self.get_parameter_wrapper(
-            "smooth_pursuit.reward_threshold_ratio"
-        )
-
-        interval_start_time = self.ros_time()
-        last_smooth_pursuit = False
-        pursuit_count = 0
-        count = 0
-        try:
-            while True:
-                smooth_pursuit = await queue.get()
-                count += 1
-                if smooth_pursuit:
-                    pursuit_count += 1
-                    if not last_smooth_pursuit:
-                        self.log("Smooth pursuit started", severity="INFO")
-                        self.start_note(self._default_note)
-                elif last_smooth_pursuit:
-                    self.log("Smooth pursuit ended", severity="INFO")
-                    self.stop_note(self._default_note)
-
-                if self.ros_time() - interval_start_time >= interval:
-                    if pursuit_count / count >= reward_threshold:
-                        await self.set_reward(activate=True, duration=duration)
-
-                    interval_start_time = self.ros_time()
-                    pursuit_count = 0
-                    count = 0
-
-                last_smooth_pursuit = smooth_pursuit
-        finally:
-            self.stop_note(self._default_note)
-            try:
-                await self.set_reward(activate=False)
-            except Exception as e:
-                self.log(f"Error stopping reward: {e}", severity="WARN")
-
-    @asyncio_task_decorator
-    async def smooth_pursuit_and_reward(self):
-        """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
-        queue: asyncio.Queue[bool] = asyncio.Queue()
-        goal_handle = cast(
-            ClientGoalHandle,
-            await self.eyelink_smooth_pursuit_client.send_goal_async(
-                EyelinkSmoothPursuit.Goal(),
-                feedback_callback=lambda feedback: self._smooth_pursuit_producer(
-                    feedback, queue
-                ),
-            ),
-        )
-        if not goal_handle.accepted:
-            raise RuntimeError("goal not accepted")
-
-        try:
-            result_future = goal_handle.get_result_async()
-
-            consumer_task = asyncio.create_task(
-                self._smooth_pursuit_consumer(queue)
-            )
-            result_future.add_done_callback(
-                lambda _: self._loop.call_soon_threadsafe(consumer_task.cancel)
-            )
-            await consumer_task
-        finally:
-            goal_handle.cancel_goal_async()
-
-    ###########################################################################
-    ########## Sound ##########################################################
-    ###########################################################################
-
-    @asyncio_task_decorator
-    async def play_sound(
-        self,
-        note: Optional[Note | Mapping[str, Any]] = None,
-        duration: Optional[float] = None,
-    ):
-        """Play a sound for a given duration.
-
-        Args:
-            note: Note to play. If None, the default note is used.
-            instrument: Midi instrument to play, e.g. 62. If None, the default instrument is used.
-            duration: Duration of the sound in seconds. If None, the default duration is used.
-        """
-        if self.sound_enabled:
-            if note is None:
-                note = self._default_note
-            elif not isinstance(note, Note):
-                note = Note(**note)
-            note.channel = self._default_note.channel
-
-            if duration is None:
-                duration = self._default_duration
-
-            fluidsynth.play_Note(note)
-            await asyncio.sleep(duration)
-            fluidsynth.stop_Note(note)
 
     ###########################################################################
     ########## Planning scene #################################################
@@ -1211,7 +604,7 @@ class Commander(BaseNode):
         matrix_df = pd.DataFrame(matrix, columns=object_ids, index=object_ids)  # type: ignore
 
         # Reorder the matrix to put robot collision links first
-        robot_collision_links = self.get_parameter_wrapper(
+        robot_collision_links = self.node.get_parameter_wrapper(
             "planning_scene.robot_collision_links"
         )
         collision_object_ids = set(object_ids) - set(robot_collision_links)
@@ -1227,7 +620,7 @@ class Commander(BaseNode):
         Returns:
             The hash of the rig.
         """
-        config = self.get_parameter_wrapper("planning_scene")
+        config = self.node.get_parameter_wrapper("planning_scene")
 
         hash_algorithm = hashlib.md5()
 
@@ -1942,7 +1335,7 @@ class Commander(BaseNode):
     def add_manually_attached_collision_object(self, object_id: str):
         """Add a manually attached collision object to the planning scene."""
         self.log(f"Adding manually attached collision object: {object_id}")
-        mesh_dir = self.get_parameter_wrapper(
+        mesh_dir = self.node.get_parameter_wrapper(
             "planning_scene.object_meshes.path"
         )
         mesh_paths = glob.glob(os.path.join(mesh_dir, f"{object_id}.*"))
@@ -1960,7 +1353,9 @@ class Commander(BaseNode):
             object_id=object_id,
             path=mesh_path,
             pose_stamped=self.eef_pose_stamped(),
-            **self.get_parameter_wrapper("manually_attached_object_kwargs"),
+            **self.node.get_parameter_wrapper(
+                "manually_attached_object_kwargs"
+            ),
         )
         self.attach_collision_object(
             object_id, self.default_pose_link, touch_links=self.touch_links
@@ -1981,11 +1376,11 @@ class Commander(BaseNode):
     ) -> RobotState:
         """Get the named target state from the planning component."""
         if target_name == "idle":
-            target_name = self.get_parameter_wrapper(
+            target_name = self.node.get_parameter_wrapper(
                 "predefined_states.idle_state"
             )
         elif target_name == "pre_present":
-            target_name = self.get_parameter_wrapper(
+            target_name = self.node.get_parameter_wrapper(
                 "predefined_states.pre_present_state"
             )
 
@@ -2056,7 +1451,7 @@ class Commander(BaseNode):
     def object_grid_origin_pose_stamped(self) -> PoseStamped:
         """Get the origin pose of an object."""
         return self.create_pose_stamped(
-            **self.get_parameter_wrapper(
+            **self.node.get_parameter_wrapper(
                 "planning_scene.object_meshes.grid_origin"
             )
         )
@@ -2107,14 +1502,18 @@ class Commander(BaseNode):
         """Get the pre-fetch pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.get_parameter_wrapper("predefined_poses.pre_fetch_offset"),
+            self.node.get_parameter_wrapper(
+                "predefined_poses.pre_fetch_offset"
+            ),
         )
 
     def pre_attach_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the pre-attach pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.get_parameter_wrapper("predefined_poses.pre_attach_offset"),
+            self.node.get_parameter_wrapper(
+                "predefined_poses.pre_attach_offset"
+            ),
         )
 
     def attach_pose_stamped(self, object_id: str) -> PoseStamped:
@@ -2125,20 +1524,26 @@ class Commander(BaseNode):
         """Get the post-attach pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.get_parameter_wrapper("predefined_poses.post_attach_offset"),
+            self.node.get_parameter_wrapper(
+                "predefined_poses.post_attach_offset"
+            ),
         )
 
     def post_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the post-fetch pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.get_parameter_wrapper("predefined_poses.post_fetch_offset"),
+            self.node.get_parameter_wrapper(
+                "predefined_poses.post_fetch_offset"
+            ),
         )
 
     def pre_present_pose_stamped(self, _: str) -> PoseStamped:
         """Get the pre-present pose."""
         return self.create_pose_stamped(
-            **self.get_parameter_wrapper("predefined_poses.pre_present_pose")
+            **self.node.get_parameter_wrapper(
+                "predefined_poses.pre_present_pose"
+            )
         )
 
     # Return poses
@@ -2195,19 +1600,23 @@ class Commander(BaseNode):
         if position_tolerance is None:
             position_tolerance = cast(
                 float | list[float],
-                self.get_parameter_wrapper("planning.goal_position_tolerance"),
+                self.node.get_parameter_wrapper(
+                    "planning.goal_position_tolerance"
+                ),
             )
         if orientation_tolerance is None:
             orientation_tolerance = cast(
                 float | list[float],
-                self.get_parameter_wrapper(
+                self.node.get_parameter_wrapper(
                     "planning.goal_orientation_tolerance"
                 ),
             )
         if use_euler_tolerance is None:
             use_euler_tolerance = cast(
                 bool,
-                self.get_parameter_wrapper("planning.use_euler_tolerance"),
+                self.node.get_parameter_wrapper(
+                    "planning.use_euler_tolerance"
+                ),
             )
 
         if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
@@ -2233,7 +1642,7 @@ class Commander(BaseNode):
     ) -> bool:
         """Check if two robot states are all close."""
         if position_tolerance is None:
-            position_tolerance = self.get_parameter_wrapper(
+            position_tolerance = self.node.get_parameter_wrapper(
                 "trajectory_execution.allowed_start_tolerance"
             )
         assert position_tolerance is not None
@@ -2254,7 +1663,7 @@ class Commander(BaseNode):
 
     def get_default_plan_request(self) -> PlanRequest:
         """Get the default plan request."""
-        kwargs = self.get_parameter_wrapper("planning.defaults")
+        kwargs = self.node.get_parameter_wrapper("planning.defaults")
         return PlanRequest(
             goal=PoseStamped(), start_state=self.current_state, **kwargs
         )
@@ -2299,7 +1708,7 @@ class Commander(BaseNode):
 
     def get_default_execute_request(self) -> ExecuteRequest:
         """Get the default execute request."""
-        kwargs = self.get_parameter_wrapper("execution.defaults")
+        kwargs = self.node.get_parameter_wrapper("execution.defaults")
         return ExecuteRequest(trajectory=self.get_empty_trajectory(), **kwargs)
 
     def create_execute_request(
@@ -2705,6 +2114,7 @@ class Commander(BaseNode):
 
         return trajectory
 
+    #
     def _execute_impl(
         self,
         *args: Any,
@@ -2749,7 +2159,7 @@ class Commander(BaseNode):
             trajectory = request.trajectory
 
         # Check if the robot is safe to execute
-        if not self.safe_to_execute:
+        if not self._safe_to_execute_callback():
             raise NotSafeToExecuteError()
 
         # Execute the trajectory
@@ -2769,7 +2179,7 @@ class Commander(BaseNode):
         # an error based on the execution status and safe to execute flag
         if execution_status:
             return
-        elif not self.safe_to_execute:
+        elif not self._safe_to_execute_callback():
             raise NotSafeToExecuteError(execution_status)
         elif not self.all_close_robot_states(
             initial_state, self.current_state
@@ -2914,7 +2324,9 @@ class Commander(BaseNode):
         if max_attempts is None:
             max_attempts = cast(
                 int,
-                self.get_parameter_wrapper("plan_and_execute.max_attempts"),
+                self.node.get_parameter_wrapper(
+                    "plan_and_execute.max_attempts"
+                ),
             )
 
         if max_attempts < 1:
@@ -2961,739 +2373,742 @@ class Commander(BaseNode):
         else:
             return None
 
-    ###########################################################################
-    ########## Fetch, present, and return #####################################
-    ###########################################################################
 
-    def _get_phase_goal(
-        self,
-        phase: ObjectPhase,
-        object_id: str,
-        goal: PlanningGoalT | None = None,
-    ) -> PlanningGoalT:
-        """Get the goal for the given phase and object.
-
-        Args:
-            phase: The phase to get the goal for
-            object_id: The ID of the object to get the goal for
-            goal: The goal to use if the phase is present or unpresent
-
-        Returns:
-            The goal for the given phase and object.
-        """
-        match phase:
-            case ObjectPhase.PRESENT:
-                if goal is None:
-                    raise ValueError(
-                        "Goal is required for present and unpresent phases"
-                    )
-                return goal
-            case ObjectPhase.IDLE:
-                return self.get_target_state("idle")
-            case ObjectPhase.PRE_PRESENT:
-                try:
-                    return self.get_target_state("pre_present")
-                except ParameterNotDeclaredException:
-                    return self.pre_present_pose_stamped(object_id)
-            case _:
-                return getattr(self, f"{phase.name.lower()}_pose_stamped")(
-                    object_id
-                )
-
-    async def _object_phase(
-        self,
-        object_id: str,
-        phase: ObjectPhase,
-        goal: PlanningGoalT | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any] | None:
-        """Plan and execute a phase of the object manipulation process.
-
-        This is a helper function for the object manipulation process.
-
-        Args:
-            object_id: The ID of the object to manipulate
-            phase: The phase to manipulate the object in
-            cache_trajectory: Whether to cache the trajectory after a single
-                phase
-            **kwargs: Additional keyword arguments to pass to `_plan_and_execute_cached()`
-
-        Returns:
-            A dictionary containing the kwargs to cache the trajectory, or None
-            if the trajectory was found in the cache.
-        """
-        self.log(f"{phase.name} phase for object {object_id}")
-
-        goal = self._get_phase_goal(phase, object_id, goal)
-        extra_kwargs = {}
-        extra_kwargs["planning_pipeline"] = "linear"
-        extra_kwargs["use_cache"] = False
-
-        if phase in OBJECT_MOUNT_PHASES:
-            self.allow_collision(*zip(*self.allowed_object_mount_collisions))
-
-        if phase == ObjectPhase.DETACH:
-            extra_kwargs["velocity_scaling_factor"] = (
-                self.get_parameter_wrapper(
-                    "object_manipulation.detach_velocity_scaling_factor"
-                )
-            )
-
-        match phase:
-            case (
-                ObjectPhase.PRE_FETCH
-                | ObjectPhase.PRE_PRESENT
-                | ObjectPhase.PRE_RETURN
-                | ObjectPhase.IDLE
-            ):
-                del extra_kwargs["planning_pipeline"]
-                del extra_kwargs["use_cache"]
-            case (
-                ObjectPhase.PRE_ATTACH
-                | ObjectPhase.ATTACH
-                | ObjectPhase.POST_DETACH
-                | ObjectPhase.POST_RETURN
-            ):
-                self.allow_collision(object_id, self.touch_links)
-            case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
-                self.allow_collision(object_id, self.object_mount_ids)
-
-        self.log(f"{phase.name} goal: {goal}", severity="DEBUG")
-
-        to_cache_kwargs = None
-        try:
-            to_cache_kwargs = await self.plan_and_execute(
-                goal, **kwargs, **extra_kwargs
-            )
-        except PlanningError as e:
-            match phase:
-                case (
-                    ObjectPhase.POST_FETCH
-                    | ObjectPhase.PRESENT
-                    | ObjectPhase.UNPRESENT
-                    | ObjectPhase.PRE_DETACH
-                ):
-                    self.log(
-                        f"Error while planning for {phase.name} phase with linear pipeline: {e}",
-                        severity="WARN",
-                    )
-                    self.log(
-                        f"Attempting to plan and execute {phase.name} phase with default pipeline",
-                        severity="WARN",
-                    )
-                    await self.plan_and_execute(goal, **kwargs)
-                case _:
-                    raise
-        finally:
-            if phase in OBJECT_MOUNT_PHASES:
-                self.disallow_collision(
-                    *zip(*self.allowed_object_mount_collisions)
-                )
-            match phase:
-                case (
-                    ObjectPhase.PRE_ATTACH
-                    | ObjectPhase.ATTACH
-                    | ObjectPhase.POST_DETACH
-                    | ObjectPhase.POST_RETURN
-                ):
-                    self.disallow_collision(object_id, self.touch_links)
-                case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
-                    self.disallow_collision(object_id, self.object_mount_ids)
-
-        match phase:
-            case ObjectPhase.ATTACH:
-                self.attach_collision_object(
-                    object_id,
-                    self.default_pose_link,
-                    touch_links=self.touch_links,
-                )
-            case ObjectPhase.DETACH:
-                self.detach_collision_object(object_id)
-
-        return to_cache_kwargs
-
-    @asyncio_task_decorator
-    @object_manipulation_lock_decorator
-    async def fetch_object(
-        self, object_id: str, cache_trajectories: bool = True
-    ):
-        """Fetch an object from its mount.
-
-        The robot moves to the object's mount, attaches the object, and moves
-        to the object's post-fetch pose. It uses cached trajectories if
-        available and only caches the planned trajectories if the full fetch
-        process is successful. This addresses the issue of the robot getting
-        "stuck" in a state that it cannot complete the full fetch process and
-        caching trajectories that are unusable. If the fetch fails, the robot
-        attempts to return the object to its mount.
-
-        Args:
-            object_id: The ID of the object to fetch
-            cache_trajectories: Whether to cache the trajectories after fetching
-                the object
-
-        Raises:
-            ValueError: If the object ID is not a valid collision object
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        self.log(f"Fetching object {object_id}")
-
-        if len(self.attached_collision_object_ids) > 0:
-            raise ObjectManipulationError(
-                "Cannot fetch object while another object is attached"
-            )
-
-        # Check that the object ID is valid
-        if object_id not in self.collision_object_ids:
-            raise ValueError(f"{object_id} is not a valid collision object")
-
-        # Iterate through the fetch phases, returning the object to its mount
-        # if the fetch fails
-        to_cache_kwargs: list[dict[str, Any]] = []
-        try:
-            for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
-                kwargs = await self._object_phase(
-                    object_id, ObjectPhase(i), cache_trajectory=False
-                )
-                if kwargs is not None:
-                    to_cache_kwargs.append(kwargs)
-        except (PlanningError, ExecutionError) as e:
-            self.log(
-                f"Error while fetching object: {e}",
-                severity="ERROR",
-            )
-            self.log("Attempting to return object to mount", severity="WARN")
-            start_idx = ObjectPhase.IDLE - i  # type: ignore
-            for i in range(start_idx, ObjectPhase.IDLE + 1):
-                await self._object_phase(
-                    object_id, ObjectPhase(i), cache_trajectory=False
-                )
-            raise
-
-        # Cache all trajectories if requested
-        if cache_trajectories and len(to_cache_kwargs) > 0:
-            for kwargs in to_cache_kwargs:
-                self.cache_trajectory(**kwargs)
-            self.log(
-                f"Cached {len(to_cache_kwargs)} fetch trajectories successfully"
-            )
-
-    @asyncio_task_decorator
-    @object_manipulation_lock_decorator
-    async def present_object(self, goal: PlanningGoalT):
-        """Present an object at the specified end goal.
-
-        Args:
-            goal: The goal to present the object at
-        """
-        object_id = self.get_exactly_one_attached_object_id()
-        self.log(f"Presenting object {object_id}")
-
-        # Pre-present phase
-        await self._object_phase(object_id, ObjectPhase.PRE_PRESENT)
-
-        # Move to end goal
-        await self._object_phase(object_id, ObjectPhase.PRESENT, goal=goal)
-
-    @asyncio_task_decorator
-    @object_manipulation_lock_decorator
-    async def unpresent_object(self):
-        """Unpresent an object and move it to its pre-return pose."""
-        object_id = self.get_exactly_one_attached_object_id()
-        self.log(f"Unpresenting object {object_id}")
-
-        # Unpresent phase
-        await self._object_phase(object_id, ObjectPhase.UNPRESENT)
-
-        # Pre-return phase
-        self._pre_return_cache_kwargs = await self._object_phase(
-            object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
-        )
-
-    @asyncio_task_decorator
-    @object_manipulation_lock_decorator
-    async def return_object(self, cache_trajectories: bool = True):
-        """Return an object to its original position.
-
-        Args:
-            end_goal: The goal to move to after returning the object.
-            cache_trajectories: Whether to cache the trajectories after
-                returning the object
-
-        Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        object_id = self.get_exactly_one_attached_object_id()
-        if object_id not in self.grid_object_poses:
-            raise RuntimeError(
-                f"Object {object_id} is not in the grid, cannot return it"
-            )
-        self.log(f"Returning object {object_id}")
-
-        to_cache_kwargs: list[dict[str, Any]] = []
-
-        # Cache the unpresent trajectory if it exists
-        if not hasattr(self, "_pre_return_cache_kwargs"):
-            raise RuntimeError("Object was not unpresented before returning")
-
-        if self._pre_return_cache_kwargs is not None:
-            to_cache_kwargs.append(self._pre_return_cache_kwargs)
-            del self._pre_return_cache_kwargs
-
-        # Iterate through the unpresenting and returning phases
-        for i in range(ObjectPhase.PRE_DETACH, ObjectPhase.IDLE + 1):
-            kwargs = await self._object_phase(
-                object_id, ObjectPhase(i), cache_trajectory=False
-            )
-            if kwargs is not None:
-                to_cache_kwargs.append(kwargs)
-
-        # Cache all trajectories if requested
-        if cache_trajectories and len(to_cache_kwargs) > 0:
-            for kwargs in to_cache_kwargs:
-                self.cache_trajectory(**kwargs)
-            self.log(
-                f"Cached {len(to_cache_kwargs)} return trajectories successfully"
-            )
-
-    ###########################################################################
-    ########## Reset rig #####################################################
-    ###########################################################################
-
-    async def reset_dashboard(self, timeout: Optional[float] = None):
-        """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
-        self.log("Resetting dashboard")
-        config = self.get_parameter_wrapper("dashboard")
-        async with asyncio.timeout(timeout):
-            while True:
-                # Timeout included in wait_for_dashboard to stop the thread
-                # from waiting longer than timeout
-                await self.dashboard_trigger("/dashboard_client/close_popup")
-                await self.dashboard_trigger(
-                    "/dashboard_client/close_safety_popup"
-                )
-                await self.dashboard_trigger(
-                    "/dashboard_client/unlock_protective_stop"
-                )
-                await self.dashboard_load(
-                    "/dashboard_client/load_program", config["program"]
-                )
-                await self.dashboard_trigger("/dashboard_client/brake_release")
-                safety_mode = await self.dashboard_get_safety_mode()
-                robot_mode = await self.dashboard_get_robot_mode()
-                while (
-                    safety_mode.mode != SafetyMode.NORMAL
-                    or robot_mode.mode != RobotMode.RUNNING
-                ):
-                    self.log(
-                        f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
-                        severity="WARN",
-                    )
-                    await asyncio.sleep(config["play_retry_delay"])
-                    safety_mode = await self.dashboard_get_safety_mode()
-                    robot_mode = await self.dashboard_get_robot_mode()
-
-                for _ in range(config["play_retries"]):
-                    try:
-                        await self.dashboard_trigger("/dashboard_client/play")
-                        return
-                    except ServiceCallUnsuccessfulError:
-                        self.log(
-                            f"Failed attempt to play dashboard program, "
-                            f"retrying after {config['play_retry_delay']} seconds...",
-                            severity="WARN",
-                        )
-                        await asyncio.sleep(config["play_retry_delay"])
-
-    # async def reset_dashboard_2(
-    #     self, timeout: Optional[float] = None, init: bool = False
-    # ):
-    #     """Reset the UR Dashboard."""
-    #     self.log("Resetting dashboard")
-    #     async with asyncio.timeout(timeout):
-    #         if init:
-    #             await self.dashboard_load(
-    #                 "/dashboard_client/load_program",
-    #                 self.get_parameter_wrapper("dashboard.program"),
-    #             )
-
-    #         await self.dashboard_trigger("/dashboard_client/close_popup")
-    #         await self.dashboard_trigger(
-    #             "/dashboard_client/close_safety_popup"
-    #         )
-    #         await self.dashboard_trigger(
-    #             "/dashboard_client/unlock_protective_stop"
-    #         )
-    #         goal_handle = cast(
-    #             ClientGoalHandle,
-    #             await self.set_mode_client.send_goal_async(
-    #                 SetMode.Goal(
-    #                     target_robot_mode=RobotMode.RUNNING,
-    #                     stop_program=True,
-    #                     play_program=True,
-    #                 )
-    #             ),
-    #         )
-    #         if not goal_handle.accepted:
-    #             raise ActionCallUnsuccessfulError(
-    #                 "UR SetMode action goal not accepted"
-    #             )
-
-    #         try:
-    #             response = await goal_handle.get_result_async()
-    #         except asyncio.CancelledError:
-    #             goal_handle.cancel_goal_async()
-    #             raise
-
-    #         if (
-    #             response.status != GoalStatus.STATUS_SUCCEEDED
-    #             or not response.result.success
-    #         ):
-    #             raise ActionCallUnsuccessfulError("UR SetMode action failed")
-
-    async def _move_out_of_collision_simulation(
-        self, end_goal: Optional[PlanningGoalT] = None, **kwargs
-    ):
-        """Move the robot out of collision with the scene asynchronously.
-
-        To be used only in simulation. With the real robot, the user should
-        manually (via the teach pendant) move the robot away from the collision
-        objects.
-
-        Using this function will reset any attached collision objects
-        to their initial poses and move the robot to the target pose, ignoring
-        collisions.
-
-        Args:
-            end_goal: The goal to move to after moving out of collision.
-            **kwargs: Keyword arguments to pass to `plan_and_execute()`.
-        """
-        self.log("Moving out of collision")
-        if not self.simulate:
-            raise RuntimeError("This function is only available in simulation")
-
-        self.remove_all_collision_objects()
-        if end_goal is None:
-            end_goal = "idle"
-        await self.plan_and_execute(end_goal, **kwargs)
-        self.init_planning_scene()
-
-    async def reset_rig(self, end_goal: Optional[PlanningGoalT] = None):
-        """Move the robot out of collision if necessary and return any attached
-        objects to their original positions.
-        """
-        self.log("Resetting rig")
-        if self.is_state_colliding():
-            if self.simulate:
-                await self._move_out_of_collision_simulation(end_goal)
-            else:
-                raise RuntimeError(
-                    "Robot is in collision with the scene! "
-                    "Please move the robot away from the collision objects manually."
-                )
-        else:
-            try:
-                if len(self.attached_collision_object_ids) > 0:
-                    object_id = self.get_exactly_one_attached_object_id()
-                    if object_id in self.grid_object_poses:
-                        self._pre_return_cache_kwargs = (
-                            await self._object_phase(
-                                object_id, ObjectPhase.PRE_RETURN
-                            )
-                        )
-                        await self.return_object()
-                if end_goal is not None:
-                    await self.plan_and_execute(end_goal)
-            except (PlanningError, ExecutionError) as e:
-                if self.simulate:
-                    self.log(
-                        f"Error while resetting rig: {type(e).__name__}: {e}",
-                        severity="ERROR",
-                    )
-                    self.log(
-                        "Attempting to move out of collision",
-                        severity="WARN",
-                    )
-                    await self._move_out_of_collision_simulation(end_goal)
-                else:
-                    raise
-
-    async def reset_commander(
-        self,
-        timeout: Optional[float] = None,
-        end_goal: Optional[PlanningGoalT] = None,
-    ):
-        """Reset the dashboard and the robot until successful or timeout.
-
-        Args:
-            goal: Optional pose to move to after resetting the robot
-            timeout: Optional timeout for resetting the commander
-        """
-        self.log("Resetting commander")
-
-        async with asyncio.timeout(timeout):
-            while True:
-                try:
-                    if not self.safe_to_execute:
-                        self.log(
-                            "Cannot reset commander until safe to execute",
-                            severity="WARN",
-                        )
-                        await self._arm_lock_and_wait()
-                    await self.reset_dashboard(timeout)
-                    await self.reset_rig(end_goal)
-                    break
-                except (
-                    ServiceCallUnsuccessfulError,
-                    ActionCallUnsuccessfulError,
-                    CommanderRecoverableError,
-                ) as e:
-                    self.log(
-                        "Caught exception while resetting commander:",
-                        severity="WARN",
-                    )
-                    self.log(f"{type(e).__name__}: {e}", severity="WARN")
-                    self.log(
-                        f"Traceback: {traceback.format_exc()}",
-                        severity="DEBUG",
-                    )
-                    if isinstance(e, ExecutionError):
-                        sleep_time = 5
-                    else:
-                        sleep_time = 1
-                    self.log(
-                        f"Sleeping for {sleep_time} seconds before retrying",
-                        severity="WARN",
-                    )
-                    await asyncio.sleep(sleep_time)
-
-    ###########################################################################
-    ########## Context manager ################################################
-    ###########################################################################
-
-    async def __aenter__(self) -> Self:
-        """Enter the context manager."""
-        self.log("Entering commander context manager", severity="DEBUG")
-        self.trajectory_cache.__enter__()
-        await self.reset_commander()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
-    ) -> bool:
-        """Exit the context manager."""
-        self.log("Exiting commander context manager", severity="DEBUG")
-        try:
-            if exc_type is not None:
-                if isinstance(exc_value, CommanderRecoverableError):
-                    self.log(
-                        "Caught exception while running commander:",
-                        severity="ERROR",
-                    )
-                    self.log(
-                        f"{exc_type.__name__}: {exc_value}", severity="ERROR"
-                    )
-                    self.log(f"Traceback: {exc_tb}", severity="DEBUG")
-                    if exc_type is ExecutionError:
-                        self.log(
-                            "Sleeping for 5 seconds before resetting commander",
-                            severity="WARN",
-                        )
-                        await asyncio.sleep(5)
-                    await self.reset_commander(end_goal="idle")
-                    return True
-            return False
-        finally:
-            self.trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
-
-    ###########################################################################
-    ########## Asyncio schedule ###############################################
-    ###########################################################################
-
-    def set_loop(self, loop: asyncio.AbstractEventLoop):
-        """Set the event loop for the commander."""
-        self._loop = loop
-
-    def schedule(self, *coros: Coroutine) -> asyncio.Task | list[asyncio.Task]:
-        """Schedule coroutines to run.
-
-        Args:
-            *coros: Coroutines to schedule.
-
-        Returns:
-            List of scheduled tasks.
-        """
-        tasks = []
-        for coro in coros:
-            tasks.append(asyncio.create_task(coro))
-        return tasks[0] if len(tasks) == 1 else tasks
-
-    ###########################################################################
-    ########## Destroy ########################################################
-    ###########################################################################
-
-    def destroy_node(self):
-        if hasattr(self, "trajectory_cache"):
-            self.trajectory_cache.close()
-            del self.trajectory_cache
-        # if hasattr(self, "trajectory_execution_manager"):
-        #     self.trajectory_execution_manager.stop_execution()
-        if hasattr(self, "moveit_py"):
-            self.moveit_py.shutdown()
-        super().destroy_node()
-
-    def __del__(self):
-        self.destroy_node()
-
-
-async def debug_commander(commander: Commander, config: Optional[str] = None):
-    """Run the commander node interactively with a debugger.
-
-    Waits indefinitely
-    """
-    del config
-
-    commander.log("Running commander interactively")
-
-    debugpy.breakpoint()
-
-    grid_origin = commander.object_grid_origin_pose_stamped()
-    grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
-    position, euler = arrays_from_pose_msg(grid_origin.pose, euler=True)
-    commander.log(
-        f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
-    )
-
-    while True:
-        pose_stamped = commander.eef_pose_stamped()
-        old_frame_transform = commander.get_frame_transform(
-            pose_stamped.header.frame_id
-        )
-        rel_pose = change_reference_frame_pose(
-            old_pose=pose_stamped.pose,
-            old_frame_transform=old_frame_transform,
-            new_frame_transform=grid_origin_matrix,
-        )
-        position, euler = arrays_from_pose_msg(rel_pose, euler=True)
-        commander.log(
-            f"Eef relative position: {position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
-        )
-        await asyncio.sleep(1)
-
-
-async def asyncio_runner(
-    coro_fn: Callable[[Commander, Optional[str]], Coroutine],
-    commander: Commander,
-    config: str | None,
-    spin_future: concurrent.futures.Future,
-    max_workers: int,
-):
-    """Run a coroutine in an asyncio event loop.
-
-    This function sets the default executor for the asyncio event loop to the
-    thread pool executor provided. Used to run coroutines in a custom thread
-    pool executor for performance reasons (e.g. more workers).
-
-    Args:
-        coro: The coroutine to run.
-    """
-    tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
-    loop = asyncio.get_event_loop()
-    loop.set_default_executor(tpe)
-    commander.set_loop(loop)
-
-    task = asyncio.create_task(coro_fn(commander, config))
-    spin_future.add_done_callback(
-        lambda _: loop.call_soon_threadsafe(task.cancel)
-        if loop.is_running()
-        else None
-    )
-
-    try:
-        await task
-    finally:
-        try:
-            print("Shutting down commander")
-            commander.destroy_node()
-        except Exception as e:
-            print(f"Error while shutting down commander: {e}")
-
-
-def main(args=None):
-    rclpy.init(args=args)
-    try:
-        # Parse non-ROS arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--coroutine-module", type=str, default=None)
-        parser.add_argument("--coroutine-name", type=str, default=None)
-        parser.add_argument("--coroutine-config", type=str, default=None)
-        parser.add_argument("--max-workers", type=int, default=4)
-        parser.add_argument("--debug", action="store_true", default=False)
-
-        non_ros_args = rclpy.utilities.remove_ros_args(args)
-        args, _ = parser.parse_known_args(non_ros_args)
-
-        if (
-            args.coroutine_module is not None
-            or args.coroutine_name is not None
-        ):
-            if args.coroutine_name is None or args.coroutine_module is None:
-                raise ValueError(
-                    "Both coroutine_module and coroutine_name must be provided when one is provided"
-                )
-            print(
-                f"Loading coroutine {args.coroutine_name} from module {args.coroutine_module} "
-            )
-            coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-                importlib.import_module(args.coroutine_module),
-                args.coroutine_name,
-            )
-        else:
-            print(
-                "No coroutine module or name provided, running in debug mode"
-            )
-            coro_fn = debug_commander
-            args.coroutine_config = None
-            args.debug = True
-
-        if args.coroutine_config is not None:
-            print(f"Config file: {args.coroutine_config}")
-
-        if args.debug:
-            print("Debug mode enabled")
-            debugpy.listen(1300)
-            print("Waiting for debugger to attach")
-            debugpy.wait_for_client()
-            print("Debugger attached")
-
-        commander = Commander()
-        executor = TestExecutor()
-        executor.add_node(commander)
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
-            spin_future = tpe.submit(executor.spin)
-            try:
-                asyncio.run(
-                    asyncio_runner(
-                        coro_fn,
-                        commander,
-                        args.coroutine_config,
-                        spin_future,
-                        args.max_workers,
-                    )
-                )
-            finally:
-                print("Shutting down executor")
-                executor.shutdown()
-                spin_future.result()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("Shutting down rclpy")
-        rclpy.try_shutdown()  # type: ignore
+#
+#     ###########################################################################
+#     ########## Fetch, present, and return #####################################
+#     ###########################################################################
+#
+#     def _get_phase_goal(
+#         self,
+#         phase: ObjectPhase,
+#         object_id: str,
+#         goal: PlanningGoalT | None = None,
+#     ) -> PlanningGoalT:
+#         """Get the goal for the given phase and object.
+#
+#         Args:
+#             phase: The phase to get the goal for
+#             object_id: The ID of the object to get the goal for
+#             goal: The goal to use if the phase is present or unpresent
+#
+#         Returns:
+#             The goal for the given phase and object.
+#         """
+#         match phase:
+#             case ObjectPhase.PRESENT:
+#                 if goal is None:
+#                     raise ValueError(
+#                         "Goal is required for present and unpresent phases"
+#                     )
+#                 return goal
+#             case ObjectPhase.IDLE:
+#                 return self.get_target_state("idle")
+#             case ObjectPhase.PRE_PRESENT:
+#                 try:
+#                     return self.get_target_state("pre_present")
+#                 except ParameterNotDeclaredException:
+#                     return self.pre_present_pose_stamped(object_id)
+#             case _:
+#                 return getattr(self, f"{phase.name.lower()}_pose_stamped")(
+#                     object_id
+#                 )
+#
+#     async def _object_phase(
+#         self,
+#         object_id: str,
+#         phase: ObjectPhase,
+#         goal: PlanningGoalT | None = None,
+#         **kwargs: Any,
+#     ) -> dict[str, Any] | None:
+#         """Plan and execute a phase of the object manipulation process.
+#
+#         This is a helper function for the object manipulation process.
+#
+#         Args:
+#             object_id: The ID of the object to manipulate
+#             phase: The phase to manipulate the object in
+#             cache_trajectory: Whether to cache the trajectory after a single
+#                 phase
+#             **kwargs: Additional keyword arguments to pass to `_plan_and_execute_cached()`
+#
+#         Returns:
+#             A dictionary containing the kwargs to cache the trajectory, or None
+#             if the trajectory was found in the cache.
+#         """
+#         self.log(f"{phase.name} phase for object {object_id}")
+#
+#         goal = self._get_phase_goal(phase, object_id, goal)
+#         extra_kwargs = {}
+#         extra_kwargs["planning_pipeline"] = "linear"
+#         extra_kwargs["use_cache"] = False
+#
+#         if phase in OBJECT_MOUNT_PHASES:
+#             self.allow_collision(*zip(*self.allowed_object_mount_collisions))
+#
+#         if phase == ObjectPhase.DETACH:
+#             extra_kwargs["velocity_scaling_factor"] = (
+#                 self.node.get_parameter_wrapper(
+#                     "object_manipulation.detach_velocity_scaling_factor"
+#                 )
+#             )
+#
+#         match phase:
+#             case (
+#                 ObjectPhase.PRE_FETCH
+#                 | ObjectPhase.PRE_PRESENT
+#                 | ObjectPhase.PRE_RETURN
+#                 | ObjectPhase.IDLE
+#             ):
+#                 del extra_kwargs["planning_pipeline"]
+#                 del extra_kwargs["use_cache"]
+#             case (
+#                 ObjectPhase.PRE_ATTACH
+#                 | ObjectPhase.ATTACH
+#                 | ObjectPhase.POST_DETACH
+#                 | ObjectPhase.POST_RETURN
+#             ):
+#                 self.allow_collision(object_id, self.touch_links)
+#             case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
+#                 self.allow_collision(object_id, self.object_mount_ids)
+#
+#         self.log(f"{phase.name} goal: {goal}", severity="DEBUG")
+#
+#         to_cache_kwargs = None
+#         try:
+#             to_cache_kwargs = await self.plan_and_execute(
+#                 goal, **kwargs, **extra_kwargs
+#             )
+#         except PlanningError as e:
+#             match phase:
+#                 case (
+#                     ObjectPhase.POST_FETCH
+#                     | ObjectPhase.PRESENT
+#                     | ObjectPhase.UNPRESENT
+#                     | ObjectPhase.PRE_DETACH
+#                 ):
+#                     self.log(
+#                         f"Error while planning for {phase.name} phase with linear pipeline: {e}",
+#                         severity="WARN",
+#                     )
+#                     self.log(
+#                         f"Attempting to plan and execute {phase.name} phase with default pipeline",
+#                         severity="WARN",
+#                     )
+#                     await self.plan_and_execute(goal, **kwargs)
+#                 case _:
+#                     raise
+#         finally:
+#             if phase in OBJECT_MOUNT_PHASES:
+#                 self.disallow_collision(
+#                     *zip(*self.allowed_object_mount_collisions)
+#                 )
+#             match phase:
+#                 case (
+#                     ObjectPhase.PRE_ATTACH
+#                     | ObjectPhase.ATTACH
+#                     | ObjectPhase.POST_DETACH
+#                     | ObjectPhase.POST_RETURN
+#                 ):
+#                     self.disallow_collision(object_id, self.touch_links)
+#                 case ObjectPhase.POST_ATTACH | ObjectPhase.DETACH:
+#                     self.disallow_collision(object_id, self.object_mount_ids)
+#
+#         match phase:
+#             case ObjectPhase.ATTACH:
+#                 self.attach_collision_object(
+#                     object_id,
+#                     self.default_pose_link,
+#                     touch_links=self.touch_links,
+#                 )
+#             case ObjectPhase.DETACH:
+#                 self.detach_collision_object(object_id)
+#
+#         return to_cache_kwargs
+#
+#     @asyncio_task_decorator
+#     @object_manipulation_lock_decorator
+#     async def fetch_object(
+#         self, object_id: str, cache_trajectories: bool = True
+#     ):
+#         """Fetch an object from its mount.
+#
+#         The robot moves to the object's mount, attaches the object, and moves
+#         to the object's post-fetch pose. It uses cached trajectories if
+#         available and only caches the planned trajectories if the full fetch
+#         process is successful. This addresses the issue of the robot getting
+#         "stuck" in a state that it cannot complete the full fetch process and
+#         caching trajectories that are unusable. If the fetch fails, the robot
+#         attempts to return the object to its mount.
+#
+#         Args:
+#             object_id: The ID of the object to fetch
+#             cache_trajectories: Whether to cache the trajectories after fetching
+#                 the object
+#
+#         Raises:
+#             ValueError: If the object ID is not a valid collision object
+#             PlanningError: If the planning fails
+#             ExecutionError: If the execution fails
+#         """
+#         self.log(f"Fetching object {object_id}")
+#
+#         if len(self.attached_collision_object_ids) > 0:
+#             raise ObjectManipulationError(
+#                 "Cannot fetch object while another object is attached"
+#             )
+#
+#         # Check that the object ID is valid
+#         if object_id not in self.collision_object_ids:
+#             raise ValueError(f"{object_id} is not a valid collision object")
+#
+#         # Iterate through the fetch phases, returning the object to its mount
+#         # if the fetch fails
+#         to_cache_kwargs: list[dict[str, Any]] = []
+#         try:
+#             for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
+#                 kwargs = await self._object_phase(
+#                     object_id, ObjectPhase(i), cache_trajectory=False
+#                 )
+#                 if kwargs is not None:
+#                     to_cache_kwargs.append(kwargs)
+#         except (PlanningError, ExecutionError) as e:
+#             self.log(
+#                 f"Error while fetching object: {e}",
+#                 severity="ERROR",
+#             )
+#             self.log("Attempting to return object to mount", severity="WARN")
+#             start_idx = ObjectPhase.IDLE - i  # type: ignore
+#             for i in range(start_idx, ObjectPhase.IDLE + 1):
+#                 await self._object_phase(
+#                     object_id, ObjectPhase(i), cache_trajectory=False
+#                 )
+#             raise
+#
+#         # Cache all trajectories if requested
+#         if cache_trajectories and len(to_cache_kwargs) > 0:
+#             for kwargs in to_cache_kwargs:
+#                 self.cache_trajectory(**kwargs)
+#             self.log(
+#                 f"Cached {len(to_cache_kwargs)} fetch trajectories successfully"
+#             )
+#
+#     @asyncio_task_decorator
+#     @object_manipulation_lock_decorator
+#     async def present_object(self, goal: PlanningGoalT):
+#         """Present an object at the specified end goal.
+#
+#         Args:
+#             goal: The goal to present the object at
+#         """
+#         object_id = self.get_exactly_one_attached_object_id()
+#         self.log(f"Presenting object {object_id}")
+#
+#         # Pre-present phase
+#         await self._object_phase(object_id, ObjectPhase.PRE_PRESENT)
+#
+#         # Move to end goal
+#         await self._object_phase(object_id, ObjectPhase.PRESENT, goal=goal)
+#
+#     @asyncio_task_decorator
+#     @object_manipulation_lock_decorator
+#     async def unpresent_object(self):
+#         """Unpresent an object and move it to its pre-return pose."""
+#         object_id = self.get_exactly_one_attached_object_id()
+#         self.log(f"Unpresenting object {object_id}")
+#
+#         # Unpresent phase
+#         await self._object_phase(object_id, ObjectPhase.UNPRESENT)
+#
+#         # Pre-return phase
+#         self._pre_return_cache_kwargs = await self._object_phase(
+#             object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
+#         )
+#
+#     @asyncio_task_decorator
+#     @object_manipulation_lock_decorator
+#     async def return_object(self, cache_trajectories: bool = True):
+#         """Return an object to its original position.
+#
+#         Args:
+#             end_goal: The goal to move to after returning the object.
+#             cache_trajectories: Whether to cache the trajectories after
+#                 returning the object
+#
+#         Raises:
+#             RuntimeError: If exactly one object is not attached
+#             PlanningError: If the planning fails
+#             ExecutionError: If the execution fails
+#         """
+#         object_id = self.get_exactly_one_attached_object_id()
+#         if object_id not in self.grid_object_poses:
+#             raise RuntimeError(
+#                 f"Object {object_id} is not in the grid, cannot return it"
+#             )
+#         self.log(f"Returning object {object_id}")
+#
+#         to_cache_kwargs: list[dict[str, Any]] = []
+#
+#         # Cache the unpresent trajectory if it exists
+#         if not hasattr(self, "_pre_return_cache_kwargs"):
+#             raise RuntimeError("Object was not unpresented before returning")
+#
+#         if self._pre_return_cache_kwargs is not None:
+#             to_cache_kwargs.append(self._pre_return_cache_kwargs)
+#             del self._pre_return_cache_kwargs
+#
+#         # Iterate through the unpresenting and returning phases
+#         for i in range(ObjectPhase.PRE_DETACH, ObjectPhase.IDLE + 1):
+#             kwargs = await self._object_phase(
+#                 object_id, ObjectPhase(i), cache_trajectory=False
+#             )
+#             if kwargs is not None:
+#                 to_cache_kwargs.append(kwargs)
+#
+#         # Cache all trajectories if requested
+#         if cache_trajectories and len(to_cache_kwargs) > 0:
+#             for kwargs in to_cache_kwargs:
+#                 self.cache_trajectory(**kwargs)
+#             self.log(
+#                 f"Cached {len(to_cache_kwargs)} return trajectories successfully"
+#             )
+#
+#     ###########################################################################
+#     ########## Reset rig #####################################################
+#     ###########################################################################
+#
+#     async def reset_dashboard(self, timeout: Optional[float] = None):
+#         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
+#         self.log("Resetting dashboard")
+#         config = self.node.get_parameter_wrapper("dashboard")
+#         async with asyncio.timeout(timeout):
+#             while True:
+#                 # Timeout included in wait_for_dashboard to stop the thread
+#                 # from waiting longer than timeout
+#                 await self.dashboard_trigger("/dashboard_client/close_popup")
+#                 await self.dashboard_trigger(
+#                     "/dashboard_client/close_safety_popup"
+#                 )
+#                 await self.dashboard_trigger(
+#                     "/dashboard_client/unlock_protective_stop"
+#                 )
+#                 await self.dashboard_load(
+#                     "/dashboard_client/load_program", config["program"]
+#                 )
+#                 await self.dashboard_trigger("/dashboard_client/brake_release")
+#                 safety_mode = await self.dashboard_get_safety_mode()
+#                 robot_mode = await self.dashboard_get_robot_mode()
+#                 while (
+#                     safety_mode.mode != SafetyMode.NORMAL
+#                     or robot_mode.mode != RobotMode.RUNNING
+#                 ):
+#                     self.log(
+#                         f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
+#                         severity="WARN",
+#                     )
+#                     await asyncio.sleep(config["play_retry_delay"])
+#                     safety_mode = await self.dashboard_get_safety_mode()
+#                     robot_mode = await self.dashboard_get_robot_mode()
+#
+#                 for _ in range(config["play_retries"]):
+#                     try:
+#                         await self.dashboard_trigger("/dashboard_client/play")
+#                         return
+#                     except ServiceCallUnsuccessfulError:
+#                         self.log(
+#                             f"Failed attempt to play dashboard program, "
+#                             f"retrying after {config['play_retry_delay']} seconds...",
+#                             severity="WARN",
+#                         )
+#                         await asyncio.sleep(config["play_retry_delay"])
+#
+#     # async def reset_dashboard_2(
+#     #     self, timeout: Optional[float] = None, init: bool = False
+#     # ):
+#     #     """Reset the UR Dashboard."""
+#     #     self.log("Resetting dashboard")
+#     #     async with asyncio.timeout(timeout):
+#     #         if init:
+#     #             await self.dashboard_load(
+#     #                 "/dashboard_client/load_program",
+#     #                 self.node.get_parameter_wrapper("dashboard.program"),
+#     #             )
+#
+#     #         await self.dashboard_trigger("/dashboard_client/close_popup")
+#     #         await self.dashboard_trigger(
+#     #             "/dashboard_client/close_safety_popup"
+#     #         )
+#     #         await self.dashboard_trigger(
+#     #             "/dashboard_client/unlock_protective_stop"
+#     #         )
+#     #         goal_handle = cast(
+#     #             ClientGoalHandle,
+#     #             await self.set_mode_client.send_goal_async(
+#     #                 SetMode.Goal(
+#     #                     target_robot_mode=RobotMode.RUNNING,
+#     #                     stop_program=True,
+#     #                     play_program=True,
+#     #                 )
+#     #             ),
+#     #         )
+#     #         if not goal_handle.accepted:
+#     #             raise ActionCallUnsuccessfulError(
+#     #                 "UR SetMode action goal not accepted"
+#     #             )
+#
+#     #         try:
+#     #             response = await goal_handle.get_result_async()
+#     #         except asyncio.CancelledError:
+#     #             goal_handle.cancel_goal_async()
+#     #             raise
+#
+#     #         if (
+#     #             response.status != GoalStatus.STATUS_SUCCEEDED
+#     #             or not response.result.success
+#     #         ):
+#     #             raise ActionCallUnsuccessfulError("UR SetMode action failed")
+#
+#     async def _move_out_of_collision_simulation(
+#         self, end_goal: Optional[PlanningGoalT] = None, **kwargs
+#     ):
+#         """Move the robot out of collision with the scene asynchronously.
+#
+#         To be used only in simulation. With the real robot, the user should
+#         manually (via the teach pendant) move the robot away from the collision
+#         objects.
+#
+#         Using this function will reset any attached collision objects
+#         to their initial poses and move the robot to the target pose, ignoring
+#         collisions.
+#
+#         Args:
+#             end_goal: The goal to move to after moving out of collision.
+#             **kwargs: Keyword arguments to pass to `plan_and_execute()`.
+#         """
+#         self.log("Moving out of collision")
+#         if not self.simulate:
+#             raise RuntimeError("This function is only available in simulation")
+#
+#         self.remove_all_collision_objects()
+#         if end_goal is None:
+#             end_goal = "idle"
+#         await self.plan_and_execute(end_goal, **kwargs)
+#         self.init_planning_scene()
+#
+#     async def reset_rig(self, end_goal: Optional[PlanningGoalT] = None):
+#         """Move the robot out of collision if necessary and return any attached
+#         objects to their original positions.
+#         """
+#         self.log("Resetting rig")
+#         if self.is_state_colliding():
+#             if self.simulate:
+#                 await self._move_out_of_collision_simulation(end_goal)
+#             else:
+#                 raise RuntimeError(
+#                     "Robot is in collision with the scene! "
+#                     "Please move the robot away from the collision objects manually."
+#                 )
+#         else:
+#             try:
+#                 if len(self.attached_collision_object_ids) > 0:
+#                     object_id = self.get_exactly_one_attached_object_id()
+#                     if object_id in self.grid_object_poses:
+#                         self._pre_return_cache_kwargs = (
+#                             await self._object_phase(
+#                                 object_id, ObjectPhase.PRE_RETURN
+#                             )
+#                         )
+#                         await self.return_object()
+#                 if end_goal is not None:
+#                     await self.plan_and_execute(end_goal)
+#             except (PlanningError, ExecutionError) as e:
+#                 if self.simulate:
+#                     self.log(
+#                         f"Error while resetting rig: {type(e).__name__}: {e}",
+#                         severity="ERROR",
+#                     )
+#                     self.log(
+#                         "Attempting to move out of collision",
+#                         severity="WARN",
+#                     )
+#                     await self._move_out_of_collision_simulation(end_goal)
+#                 else:
+#                     raise
+#
+#     async def reset_commander(
+#         self,
+#         timeout: Optional[float] = None,
+#         end_goal: Optional[PlanningGoalT] = None,
+#     ):
+#         """Reset the dashboard and the robot until successful or timeout.
+#
+#         Args:
+#             goal: Optional pose to move to after resetting the robot
+#             timeout: Optional timeout for resetting the commander
+#         """
+#         self.log("Resetting commander")
+#
+#         async with asyncio.timeout(timeout):
+#             while True:
+#                 try:
+#                     if not self._safe_to_execute_callback():
+#                         self.log(
+#                             "Cannot reset commander until safe to execute",
+#                             severity="WARN",
+#                         )
+#                         await self._arm_lock_and_wait()
+#                     await self.reset_dashboard(timeout)
+#                     await self.reset_rig(end_goal)
+#                     break
+#                 except (
+#                     ServiceCallUnsuccessfulError,
+#                     ActionCallUnsuccessfulError,
+#                     CommanderRecoverableError,
+#                 ) as e:
+#                     self.log(
+#                         "Caught exception while resetting commander:",
+#                         severity="WARN",
+#                     )
+#                     self.log(f"{type(e).__name__}: {e}", severity="WARN")
+#                     self.log(
+#                         f"Traceback: {traceback.format_exc()}",
+#                         severity="DEBUG",
+#                     )
+#                     if isinstance(e, ExecutionError):
+#                         sleep_time = 5
+#                     else:
+#                         sleep_time = 1
+#                     self.log(
+#                         f"Sleeping for {sleep_time} seconds before retrying",
+#                         severity="WARN",
+#                     )
+#                     await asyncio.sleep(sleep_time)
+#
+#     ###########################################################################
+#     ########## Context manager ################################################
+#     ###########################################################################
+#
+#     async def __aenter__(self) -> Self:
+#         """Enter the context manager."""
+#         self.log("Entering commander context manager", severity="DEBUG")
+#         self.trajectory_cache.__enter__()
+#         await self.reset_commander()
+#         return self
+#
+#     async def __aexit__(
+#         self,
+#         exc_type: Optional[type[BaseException]],
+#         exc_value: Optional[BaseException],
+#         exc_tb: Optional[TracebackType],
+#     ) -> bool:
+#         """Exit the context manager."""
+#         self.log("Exiting commander context manager", severity="DEBUG")
+#         try:
+#             if exc_type is not None:
+#                 if isinstance(exc_value, CommanderRecoverableError):
+#                     self.log(
+#                         "Caught exception while running commander:",
+#                         severity="ERROR",
+#                     )
+#                     self.log(
+#                         f"{exc_type.__name__}: {exc_value}", severity="ERROR"
+#                     )
+#                     self.log(f"Traceback: {exc_tb}", severity="DEBUG")
+#                     if exc_type is ExecutionError:
+#                         self.log(
+#                             "Sleeping for 5 seconds before resetting commander",
+#                             severity="WARN",
+#                         )
+#                         await asyncio.sleep(5)
+#                     await self.reset_commander(end_goal="idle")
+#                     return True
+#             return False
+#         finally:
+#             self.trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
+#
+#     ###########################################################################
+#     ########## Asyncio schedule ###############################################
+#     ###########################################################################
+#
+#     def set_loop(self, loop: asyncio.AbstractEventLoop):
+#         """Set the event loop for the commander."""
+#         self._loop = loop
+#
+#     def schedule(self, *coros: Coroutine) -> asyncio.Task | list[asyncio.Task]:
+#         """Schedule coroutines to run.
+#
+#         Args:
+#             *coros: Coroutines to schedule.
+#
+#         Returns:
+#             List of scheduled tasks.
+#         """
+#         tasks = []
+#         for coro in coros:
+#             tasks.append(asyncio.create_task(coro))
+#         return tasks[0] if len(tasks) == 1 else tasks
+#
+#     ###########################################################################
+#     ########## Destroy ########################################################
+#     ###########################################################################
+#
+#     def destroy_node(self):
+#         if hasattr(self, "trajectory_cache"):
+#             self.trajectory_cache.close()
+#             del self.trajectory_cache
+#         # if hasattr(self, "trajectory_execution_manager"):
+#         #     self.trajectory_execution_manager.stop_execution()
+#         if hasattr(self, "moveit_py"):
+#             self.moveit_py.shutdown()
+#         super().destroy_node()
+#
+#     def __del__(self):
+#         self.destroy_node()
+#
+#
+# async def debug_commander(commander: Commander, config: Optional[str] = None):
+#     """Run the commander node interactively with a debugger.
+#
+#     Waits indefinitely
+#     """
+#     del config
+#
+#     commander.log("Running commander interactively")
+#
+#     debugpy.breakpoint()
+#
+#     grid_origin = commander.object_grid_origin_pose_stamped()
+#     grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
+#     position, euler = arrays_from_pose_msg(grid_origin.pose, euler=True)
+#     commander.log(
+#         f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
+#     )
+#
+#     while True:
+#         pose_stamped = commander.eef_pose_stamped()
+#         old_frame_transform = commander.get_frame_transform(
+#             pose_stamped.header.frame_id
+#         )
+#         rel_pose = change_reference_frame_pose(
+#             old_pose=pose_stamped.pose,
+#             old_frame_transform=old_frame_transform,
+#             new_frame_transform=grid_origin_matrix,
+#         )
+#         position, euler = arrays_from_pose_msg(rel_pose, euler=True)
+#         commander.log(
+#             f"Eef relative position: {position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
+#         )
+#         await asyncio.sleep(1)
+#
+#
+# async def asyncio_runner(
+#     coro_fn: Callable[[Commander, Optional[str]], Coroutine],
+#     commander: Commander,
+#     config: str | None,
+#     spin_future: concurrent.futures.Future,
+#     max_workers: int,
+# ):
+#     """Run a coroutine in an asyncio event loop.
+#
+#     This function sets the default executor for the asyncio event loop to the
+#     thread pool executor provided. Used to run coroutines in a custom thread
+#     pool executor for performance reasons (e.g. more workers).
+#
+#     Args:
+#         coro: The coroutine to run.
+#     """
+#     tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+#     loop = asyncio.get_event_loop()
+#     loop.set_default_executor(tpe)
+#     commander.set_loop(loop)
+#
+#     task = asyncio.create_task(coro_fn(commander, config))
+#     spin_future.add_done_callback(
+#         lambda _: loop.call_soon_threadsafe(task.cancel)
+#         if loop.is_running()
+#         else None
+#     )
+#
+#     try:
+#         await task
+#     finally:
+#         try:
+#             print("Shutting down commander")
+#             commander.destroy_node()
+#         except Exception as e:
+#             print(f"Error while shutting down commander: {e}")
+#
+#
+# def main(args=None):
+#     rclpy.init(args=args)
+#     try:
+#         # Parse non-ROS arguments
+#         parser = argparse.ArgumentParser()
+#         parser.add_argument("--coroutine-module", type=str, default=None)
+#         parser.add_argument("--coroutine-name", type=str, default=None)
+#         parser.add_argument("--coroutine-config", type=str, default=None)
+#         parser.add_argument("--max-workers", type=int, default=4)
+#         parser.add_argument("--debug", action="store_true", default=False)
+#
+#         non_ros_args = rclpy.utilities.remove_ros_args(args)
+#         args, _ = parser.parse_known_args(non_ros_args)
+#
+#         if (
+#             args.coroutine_module is not None
+#             or args.coroutine_name is not None
+#         ):
+#             if args.coroutine_name is None or args.coroutine_module is None:
+#                 raise ValueError(
+#                     "Both coroutine_module and coroutine_name must be provided when one is provided"
+#                 )
+#             print(
+#                 f"Loading coroutine {args.coroutine_name} from module {args.coroutine_module} "
+#             )
+#             coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
+#                 importlib.import_module(args.coroutine_module),
+#                 args.coroutine_name,
+#             )
+#         else:
+#             print(
+#                 "No coroutine module or name provided, running in debug mode"
+#             )
+#             coro_fn = debug_commander
+#             args.coroutine_config = None
+#             args.debug = True
+#
+#         if args.coroutine_config is not None:
+#             print(f"Config file: {args.coroutine_config}")
+#
+#         if args.debug:
+#             print("Debug mode enabled")
+#             debugpy.listen(1300)
+#             print("Waiting for debugger to attach")
+#             debugpy.wait_for_client()
+#             print("Debugger attached")
+#
+#         commander = Commander()
+#         executor = TestExecutor()
+#         executor.add_node(commander)
+#
+#         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
+#             spin_future = tpe.submit(executor.spin)
+#             try:
+#                 asyncio.run(
+#                     asyncio_runner(
+#                         coro_fn,
+#                         commander,
+#                         args.coroutine_config,
+#                         spin_future,
+#                         args.max_workers,
+#                     )
+#                 )
+#             finally:
+#                 print("Shutting down executor")
+#                 executor.shutdown()
+#                 spin_future.result()
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         print("Shutting down rclpy")
+#         rclpy.try_shutdown()  # type: ignore
+#

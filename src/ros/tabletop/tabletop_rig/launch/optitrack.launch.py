@@ -24,7 +24,7 @@ def declare_arguments():
             "config_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_rig"),
                     "config",
                     "optitrack.yaml",
                 ]

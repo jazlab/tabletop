@@ -5,8 +5,8 @@ organized as troubleshooting guide!).
 ## Docker
 
 1. If you have issues building the docker container (like this one time we
-    were trying to build the `server` container and even though all the `server`
-    containers extend `server_base`, they were all building independently,
+    were trying to build the `rig` container and even though all the `rig`
+    containers extend `rig_base`, they were all building independently,
     absolutely maddening), you should start first by stopping any running
     containers (`docker compose down` and/or `docker container stop $(docker container ls -q)`)
     and then call:
@@ -71,7 +71,7 @@ organized as troubleshooting guide!).
 
 2. If you want to run a demo with mock hardware, you can run:
     ```bash
-    ros2 launch tabletop_server server.launch.py robot_mode:=mock use_mock_teensy:=true simulate_flic:=true
+    ros2 launch tabletop_rig rig.launch.py robot_mode:=mock use_mock_teensy:=true simulate_flic:=true
     ```
 
 3. Don't try to use the `AIOExecutor` to run the `commander` node. You will be
@@ -95,7 +95,7 @@ This gets its own section because it's a pain in the ass.
     ```
     To stop it from restarting on boot, edit the `/etc/bluetooth/main.conf` file and set `AutoEnable=false`.
 
-2. Getting the `flicd` server running in the `tabletop_server` container is a
+2. Getting the `flicd` server running in the `rig` container is a
     bitch. Forget about it, don't try to do it again. It's not worth it. Just run
     it in its own container, that's hard enough as it is.
 
@@ -109,7 +109,7 @@ This gets its own section because it's a pain in the ass.
 
     Or
     ```bash
-    ros2 run tabletop_server <flic_connect|flic_delete> [--host 172.17.0.1] [--port 5551]
+    ros2 run tabletop_rig <flic_connect|flic_delete> [--host 172.17.0.1] [--port 5551]
     ```
     *Both `host` and `port` are optional and default to `172.17.0.1` and `5551` respectively.*
 

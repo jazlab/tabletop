@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 from moveit.core.robot_state import RobotState  # type: ignore
 from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
-from tabletop_server.nodes import Commander
-from tabletop_server.utils.ros import robot_trajectory_copy
+from tabletop_rig.nodes import Commander
+from tabletop_rig.utils.ros import robot_trajectory_copy
 
 from tabletop_tasks.tasks.base import BaseTask
 

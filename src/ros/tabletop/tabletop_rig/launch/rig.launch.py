@@ -214,9 +214,9 @@ def declare_arguments():
             "rviz_config_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("tabletop_server"),
+                    FindPackageShare("tabletop_rig"),
                     "rviz",
-                    "server.rviz",
+                    "rig.rviz",
                 ]
             ),
             description="RViz config file",
@@ -384,7 +384,7 @@ def generate_launch_description():
 
     # Mock Dashboard
     mock_dashboard = Node(
-        package="tabletop_server",
+        package="tabletop_rig",
         executable="mock_dashboard",
         output=LaunchConfiguration("mock_dashboard_output"),
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
@@ -409,7 +409,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "teensy.launch.py",
                             ]
@@ -439,7 +439,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "flic.launch.py",
                             ]
@@ -469,7 +469,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "optitrack.launch.py",
                             ]
@@ -500,7 +500,7 @@ def generate_launch_description():
                     [
                         PathJoinSubstitution(
                             [
-                                FindPackageShare("tabletop_server"),
+                                FindPackageShare("tabletop_rig"),
                                 "launch",
                                 "flir.launch.py",
                             ]
@@ -522,7 +522,7 @@ def generate_launch_description():
     # Eyelink
     eyelink = Node(
         name="eyelink",
-        package="tabletop_server",
+        package="tabletop_rig",
         executable="eyelink",
         output=LaunchConfiguration("eyelink_output"),
         parameters=[
@@ -593,7 +593,7 @@ def generate_launch_description():
 
     # Bag Recorder and Converter
     interfaces_config_file = os.path.join(
-        get_package_share_directory("tabletop_server"),
+        get_package_share_directory("tabletop_rig"),
         "config",
         "rosbag_interfaces.yaml",
     )
@@ -607,11 +607,11 @@ def generate_launch_description():
             args.extend(["--topics", *interfaces_config["topics"]])
         if "services" in interfaces_config:
             args.extend(["--services", *interfaces_config["services"]])
-    server_bag_dir = os.path.join(session_bag_dir, "server")
+    rig_bag_dir = os.path.join(session_bag_dir, "rig")
 
     bag_recorder = ExecuteProcess(
         name="rosbag_recorder",
-        cmd=["ros2", "bag", "record", "-o", server_bag_dir, *args],
+        cmd=["ros2", "bag", "record", "-o", rig_bag_dir, *args],
         output=LaunchConfiguration("rosbag_output"),
         condition=IfCondition(LaunchConfiguration("rosbag")),
         on_exit=[Shutdown()],
@@ -621,7 +621,7 @@ def generate_launch_description():
         cmd=[
             "ros2",
             "run",
-            "tabletop_server",
+            "tabletop_rig",
             "rosbag_to_csv",
             "-d",
             session_bag_dir,
@@ -655,7 +655,7 @@ def generate_launch_description():
 
 
 def main():
-    launch_config.log_dir = os.path.join(os.environ["ROS_LOG_DIR"], "server")
+    launch_config.log_dir = os.path.join(os.environ["ROS_LOG_DIR"], "rig")
     launch_config.level = logging.DEBUG
     ls = LaunchService()
     ld = generate_launch_description()

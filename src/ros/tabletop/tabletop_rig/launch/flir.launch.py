@@ -175,7 +175,7 @@ def generate_launch_description():
 
     # Load flir config
     flir_config_file = os.path.join(
-        get_package_share_directory("tabletop_server"), "config", "flir.yaml"
+        get_package_share_directory("tabletop_rig"), "config", "flir.yaml"
     )
     with open(flir_config_file, "r") as f:
         flir_config: dict = yaml.safe_load(f)
