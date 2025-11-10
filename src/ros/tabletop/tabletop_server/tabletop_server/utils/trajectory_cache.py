@@ -239,7 +239,7 @@ class FuzzyTrajectoryCacheValue:
         return self.path_length < other.path_length
 
 
-class FuzzyTrajectoryCache(Shelf):
+class FuzzyTrajectoryCache:
     """A persistent cache for fuzzy-matching trajectories.
 
     This cache is used to store RobotTrajectory objects. It is a subclass of
@@ -308,15 +308,17 @@ class FuzzyTrajectoryCache(Shelf):
                 "Cannot create a new cache file if path is not a directory"
             )
 
-        if os.path.isdir(path):
-            symlink_path = os.path.join(path, self._symlink_filename)
-
         new_path: str | None = None
         old_symlink_target: str | None = None
+        symlink_path: str | None = None
+
+        if os.path.isdir(path):
+            symlink_path = os.path.join(path, self._symlink_filename)
 
         try:
             if new_cache:
                 assert os.path.isdir(path)
+                assert symlink_path is not None
 
                 # Create a new, empty cache file with a timestamp
                 timestamp = datetime.datetime.now().strftime(
@@ -340,6 +342,7 @@ class FuzzyTrajectoryCache(Shelf):
                 os.symlink(filename, symlink_path)
                 self._db_path = symlink_path
             elif os.path.isdir(path):
+                assert symlink_path is not None
                 # Check that current symlink is valid
                 if not os.path.islink(symlink_path):
                     raise RuntimeError(
@@ -389,6 +392,7 @@ class FuzzyTrajectoryCache(Shelf):
         except Exception:
             # Clean up the cache file if there was an error while initializing
             if new_cache:
+                assert symlink_path is not None
                 if new_path is not None and os.path.exists(new_path):
                     os.remove(new_path)
                 if os.path.islink(symlink_path):
@@ -472,13 +476,13 @@ class FuzzyTrajectoryCache(Shelf):
         # If the database is empty, set the new values
         if len(self) == 0:
             for key, value in metadata.items():
-                super().__setitem__(key, value)
+                self.shelf.__setitem__(key, value)
             return
 
         # Check that the values have not changed and/or that the hash is the same
         for key, value in metadata.items():
             try:
-                old_value = super().__getitem__(key)
+                old_value = self.shelf.__getitem__(key)
             except KeyError as e:
                 raise KeyError(
                     f"Cache file is not empty, but key '{key}' is missing. "
@@ -491,13 +495,13 @@ class FuzzyTrajectoryCache(Shelf):
 
         # Set the values in the db anyway
         for key, value in metadata.items():
-            super().__setitem__(key, value)
+            self.shelf.__setitem__(key, value)
 
     @property
     def rig_hash(self) -> str:
         """Rig hash stored in the underlying database."""
         with self._lock:
-            return super().__getitem__("rig_hash")
+            return self.shelf.__getitem__("rig_hash")
 
     @property
     def robot_state_tolerance(self) -> RobotStateToleranceT:
@@ -654,6 +658,9 @@ class FuzzyTrajectoryCache(Shelf):
                     f"Trajectory end pose: {trajectory_end_pose}"
                 )
 
+    def __len__(self) -> int:
+        return len(self.shelf)
+
     def __setitem__(
         self, key: FuzzyTrajectoryCacheKey, value: FuzzyTrajectoryCacheValue
     ):
@@ -675,7 +682,7 @@ class FuzzyTrajectoryCache(Shelf):
             try:
                 values = cast(
                     list[FuzzyTrajectoryCacheValue],
-                    super().__getitem__(fuzzy_key),
+                    self.shelf.__getitem__(fuzzy_key),
                 )
             except KeyError:
                 values = []
@@ -686,7 +693,7 @@ class FuzzyTrajectoryCache(Shelf):
             if len(values) > self._max_trajectories:
                 values.pop()
 
-            super().__setitem__(fuzzy_key, values)
+            self.shelf.__setitem__(fuzzy_key, values)
 
     def cache_trajectory(
         self,
@@ -761,7 +768,7 @@ class FuzzyTrajectoryCache(Shelf):
         fuzzy_key = self.get_fuzzy_key(key)
         logger.debug(f"Getting values for key: {fuzzy_key}")
         with self._lock:
-            values = super().__getitem__(fuzzy_key)
+            values = self.shelf.__getitem__(fuzzy_key)
 
         self._validate_db_values(values)
         return values
@@ -836,7 +843,7 @@ class FuzzyTrajectoryCache(Shelf):
             True if the key is in the database, False otherwise.
         """
         with self._lock:
-            return super().__contains__(self.get_fuzzy_key(key))
+            return self.shelf.__contains__(self.get_fuzzy_key(key))
 
     def has_trajectory(self, request: PlanRequest) -> bool:
         """Check if a trajectory exists for a given key.
@@ -865,7 +872,7 @@ class FuzzyTrajectoryCache(Shelf):
             key: The key to delete.
         """
         with self._lock:
-            super().__delitem__(self.get_fuzzy_key(key))
+            self.shelf.__delitem__(self.get_fuzzy_key(key))
 
     def delete_trajectory(self, request: PlanRequest):
         """Delete all trajectories for a given key.
@@ -889,7 +896,7 @@ class FuzzyTrajectoryCache(Shelf):
         if not self._closed:
             raise RuntimeError("Database is already open")
         with self._lock:
-            super().__init__(dbm_sqlite3.open(self._db_path, flag=flag))
+            self.shelf = Shelf(dbm_sqlite3.open(self._db_path, flag=flag))
             self._closed = False
 
     def close(self):
@@ -897,7 +904,7 @@ class FuzzyTrajectoryCache(Shelf):
         if not self._closed:
             with self._lock:
                 try:
-                    super().close()
+                    self.shelf.close()
                 finally:
                     self._closed = True
 

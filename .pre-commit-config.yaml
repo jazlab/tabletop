@@ -39,5 +39,6 @@ repos:
       - id: mixed-line-ending
       - id: requirements-txt-fixer
       - id: pretty-format-json
+        args: [--autofix, --no-sort-keys]
       - id: end-of-file-fixer
       - id: trailing-whitespace

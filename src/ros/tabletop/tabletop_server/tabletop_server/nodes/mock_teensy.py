@@ -363,6 +363,7 @@ class MockTeensy(BaseNode):
             return response
 
         pin_state = HIGH if request.lock else LOW
+        message_arm = None
         if request.left_arm:
             digital_write(LEFT_ARM_LOCK_CONTROL_PIN, pin_state)
 
@@ -386,6 +387,8 @@ class MockTeensy(BaseNode):
 
         if request.left_arm and request.right_arm:
             message_arm = "Both arms"
+
+        assert message_arm is not None
 
         response.success = True
         response.message = (

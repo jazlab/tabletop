@@ -3,10 +3,14 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal, Optional, Protocol
+from typing import (
+    Any,
+    Literal,
+    Optional,
+    Protocol,
+)
 
 import numpy as np
-import rclpy
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -24,9 +28,6 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
-from rclpy.client import Client
-from rclpy.impl.logging_severity import LoggingSeverity
-from rclpy.impl.rcutils_logger import RcutilsLogger
 from rclpy.time import Time
 from shape_msgs.msg import Mesh as MeshMsg
 from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
@@ -94,58 +95,6 @@ SOLID_PRIMITIVE_TYPE_MAP = {
     "PRISM": SolidPrimitive.PRISM,
 }
 """Solid primitive type map from type name to solid primitive type."""
-
-# Logging utilities
-
-
-def ros_log(
-    logger: RcutilsLogger,
-    message: Any,
-    severity: str | LoggingSeverity = "INFO",
-    **kwargs,
-):
-    """Log a message with the given severity."""
-
-    if not isinstance(severity, LoggingSeverity):
-        severity = LoggingSeverity[severity]
-
-    if rclpy.ok():  # type: ignore
-        match severity:
-            case LoggingSeverity.DEBUG:
-                return logger.debug(message, **kwargs)
-            case LoggingSeverity.INFO:
-                return logger.info(message, **kwargs)
-            case LoggingSeverity.WARN:
-                return logger.warning(message, **kwargs)
-            case LoggingSeverity.ERROR:
-                return logger.error(message, **kwargs)
-            case LoggingSeverity.FATAL:
-                return logger.fatal(message, **kwargs)
-            case _:
-                raise ValueError(f"Invalid severity: {severity}")
-    elif severity >= logger.get_effective_level():
-        print(f"{severity.name}: {message}")
-        return True
-    else:
-        return False
-
-
-# ROS message utilities
-
-
-def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
-    """Convert a ROS message to a dictionary."""
-    if isinstance(msg, Mapping):
-        return {k: msg_to_dict(v) for k, v in msg.items()}
-    elif is_iterable(msg):
-        return [msg_to_dict(item) for item in msg]
-    elif hasattr(msg, "get_fields_and_field_types"):
-        return {
-            field: msg_to_dict(getattr(msg, field))
-            for field in msg.get_fields_and_field_types().keys()
-        }
-    else:
-        return msg
 
 
 # Protocol definitions
@@ -477,31 +426,6 @@ def load_yaml_from_package(package_name: str, file_path: str) -> Any:
 
     with open(absolute_file_path) as file:
         return yaml.safe_load(file)
-
-
-def validate_service_response(
-    response: SrvTypeResponse | None,
-    service_client: Client,
-) -> None:
-    """Validate the response from a service call.
-
-    Args:
-        response: The response from a service call.
-        service_client: The client that made the service call.
-
-    Returns:
-        The response from the service call.
-
-    Raises:
-        ServiceCallTimeoutError: If the service call timed out.
-        ServiceCallUnsuccessfulError: If the service call returned with a failure status.
-    """
-    if response is None:
-        error_msg = f"{service_client.service_name} service call timed out!"
-        raise ServiceCallTimeoutError(error_msg)
-    elif hasattr(response, "success") and not response.success:  # type: ignore
-        error_msg = f"{service_client.service_name} service call returned unsuccessfully with response: {msg_to_dict(response)}"
-        raise ServiceCallUnsuccessfulError(error_msg)
 
 
 # ROS2 time utilities

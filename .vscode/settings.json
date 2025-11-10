@@ -1,10 +1,11 @@
 {
-    "cmake.ignoreCMakeListsMissing": true,
-    "cursorpyright.analysis.typeCheckingMode": "basic",
-    "cursorpyright.analysis.useLibraryCodeForTypes": true,
-    "git.detectSubmodules": true,
-    "python.terminal.activateEnvironment": false,
-    "explorer.autoReveal": false,
-    "python.analysis.typeCheckingMode": "standard",
-    "yaml.schemaStore.enable": true,
+  "cursorpyright.analysis.typeCheckingMode": "basic",
+  "cursorpyright.analysis.useLibraryCodeForTypes": true,
+  "explorer.autoReveal": false,
+  "git.detectSubmodules": true,
+  "cmake.ignoreCMakeListsMissing": true,
+  "yaml.schemaStore.enable": true,
+  "python.terminal.activateEnvironment": false,
+  "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.autoImportCompletions": true
 }
