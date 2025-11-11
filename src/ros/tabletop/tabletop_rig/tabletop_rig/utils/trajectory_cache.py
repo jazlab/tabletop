@@ -265,7 +265,7 @@ class FuzzyTrajectoryCache:
         self,
         *,
         path: str,
-        rig_hash: str,
+        scene_hash: str,
         robot_state_tolerance: RobotStateToleranceT,
         goal_position_tolerance: PositionToleranceT,
         goal_orientation_tolerance: OrientationToleranceT,
@@ -276,7 +276,7 @@ class FuzzyTrajectoryCache:
         """
         Args:
             path: The path of the cache.
-            rig_hash: The hash of the rig.
+            scene_hash: The hash of the rig.
             robot_state_tolerance: The joint angle tolerance for the cache. If
                 a single float is provided, it is used for all 6 joints.
             goal_position_tolerance: The position tolerance for the cache. If a
@@ -380,7 +380,7 @@ class FuzzyTrajectoryCache:
                 self._use_euler_tolerance = use_euler_tolerance
 
                 # Validate the database
-                self._validate_db(rig_hash)
+                self._validate_db(scene_hash)
 
                 logger.info(
                     f"Initialized trajectory cache with goal orientation tolerance "
@@ -459,13 +459,13 @@ class FuzzyTrajectoryCache:
             goal_orientation_tolerance,
         )
 
-    def _validate_db(self, rig_hash: str):
+    def _validate_db(self, scene_hash: str):
         """Validate the database against the new values."""
         # Create a new dictionary with reserved keys and deepcopied values
         # This is done to avoid accidentally modifying these values in the
         # db after they are set.
         metadata = {
-            "rig_hash": rig_hash,
+            "scene_hash": scene_hash,
             "robot_state_tolerance": deepcopy(self._robot_state_tolerance),
             "goal_position_tolerance": self._goal_position_tolerance,
             "goal_orientation_tolerance": self._goal_orientation_tolerance,
@@ -498,10 +498,10 @@ class FuzzyTrajectoryCache:
             self.shelf.__setitem__(key, value)
 
     @property
-    def rig_hash(self) -> str:
+    def scene_hash(self) -> str:
         """Rig hash stored in the underlying database."""
         with self._lock:
-            return self.shelf.__getitem__("rig_hash")
+            return self.shelf.__getitem__("scene_hash")
 
     @property
     def robot_state_tolerance(self) -> RobotStateToleranceT:

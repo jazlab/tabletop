@@ -500,7 +500,7 @@ class Commander(BaseNode):
             "trajectory_cache.kwargs"
         )
         self.trajectory_cache = FuzzyTrajectoryCache(
-            rig_hash=self.rig_hash,
+            scene_hash=self.rig_hash,
             robot_state_tolerance=self.get_parameter_wrapper(
                 "trajectory_execution.allowed_start_tolerance"
             ),

@@ -18,6 +18,11 @@ from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
 
 
+def noop(msg: TeensySensor):
+    """Default additional_subscription_callback for teensy message topic (does nothing)"""
+    pass
+
+
 class TeensyInterface(BaseInterface):
     ###########################################################################
     ########## Initialization #################################################
@@ -30,11 +35,8 @@ class TeensyInterface(BaseInterface):
             Callable[[TeensySensor], None]
         ] = None,
     ):
-        """Initializes the Teensy
-
-        Sets up MoveItPy, trajectory execution manager, robot model, and planning scene monitor.
-        """
-        super().__init__(node, "moveit_interface")
+        """Initializes the TeensyInterface"""
+        super().__init__(node, "teensy_interface")
 
         # Subscribers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
@@ -54,10 +56,6 @@ class TeensyInterface(BaseInterface):
         self._teensy_sensor_lock = threading.Lock()
 
         if additional_subscription_callback is None:
-
-            def noop(msg: TeensySensor):
-                pass
-
             self._additional_subscription_callback = noop
         else:
             self._additional_subscription_callback = (
@@ -65,7 +63,6 @@ class TeensyInterface(BaseInterface):
             )
 
         # Service clients
-
         self.set_arm_lock_client = self.node.create_client(
             SetArmLock,
             "/teensy/set_arm_lock",
@@ -82,14 +79,13 @@ class TeensyInterface(BaseInterface):
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
-        # Wait for ROS services and action servers
-
+        # Wait for ROS services
         self.log("Waiting for teensy services")
         self.set_arm_lock_client.wait_for_service()
         self.set_reward_client.wait_for_service()
         self.set_smartglass_client.wait_for_service()
 
-        self.log("Teensy interface ready")
+        self.log("Teensy interface initialized")
 
     def register_subscription_callback(
         self, callback: Callable[[TeensySensor], None]
