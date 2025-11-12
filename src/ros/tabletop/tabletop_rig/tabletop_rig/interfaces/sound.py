@@ -53,15 +53,23 @@ class SoundInterface(BaseInterface):
     def init_sound(self):
         """Initialize sound."""
 
-    def start_note(self, note: Note):
+    def start_note(self, note: Optional[Note] = None):
         """Start a note."""
         if self.enabled:
+            if note is None:
+                note = self._default_note
             fluidsynth.play_Note(note)
 
-    def stop_note(self, note: Note):
+    def stop_note(self, note: Optional[Note] = None):
         """Stop a note."""
         if self.enabled:
+            if note is None:
+                note = self._default_note
             fluidsynth.stop_Note(note)
+
+    def stop_everything(self):
+        if self.enabled:
+            fluidsynth.stop_everything()
 
     async def play_sound(
         self,

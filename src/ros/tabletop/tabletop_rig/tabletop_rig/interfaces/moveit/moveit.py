@@ -1,7 +1,6 @@
 from collections.abc import (
     Callable,
 )
-from typing import Optional
 
 from tabletop_rig.interfaces.moveit.object_manipulation import (
     ObjectManipulationInterface,
@@ -15,11 +14,11 @@ class MoveItInterface(ObjectManipulationInterface):
     ###########################################################################
 
     def __init__(
-        self,
-        node: BaseNode,
-        safe_to_execute_callback: Optional[Callable[[], bool]] = None,
+        self, node: BaseNode, safe_to_execute_callback: Callable[[], bool]
     ):
         """Initializes the MoveItInterface"""
-        super().__init__(node, "moveit_interface", safe_to_execute_callback)
+        super().__init__(
+            node, safe_to_execute_callback, logger_name="moveit_interface"
+        )
 
         self.log("MoveIt interface initialized")

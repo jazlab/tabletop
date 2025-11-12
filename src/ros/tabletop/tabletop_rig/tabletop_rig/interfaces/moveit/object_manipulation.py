@@ -76,11 +76,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     def __init__(
         self,
         node: BaseNode,
+        safe_to_execute_callback: Callable[[], bool],
         logger_name: str = "moveit_plan_interface",
-        safe_to_execute_callback: Optional[Callable[[], bool]] = None,
     ):
         """Initializes the MoveItObjectInterface"""
-        super().__init__(node, logger_name, safe_to_execute_callback)
+        super().__init__(node, safe_to_execute_callback, logger_name)
 
         self.object_manipulation_lock = asyncio.Lock()
 

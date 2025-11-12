@@ -80,7 +80,7 @@ class DashboardInterface(BaseInterface):
     ########## Reset ##########################################################
     ###########################################################################
 
-    async def reset_dashboard(self, timeout: Optional[float] = None):
+    async def reset(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
         config = self.node.get_parameter_wrapper("dashboard")

@@ -5,7 +5,8 @@ from collections.abc import (
     Iterable,
 )
 from copy import deepcopy
-from typing import Any, Optional, cast
+from types import TracebackType
+from typing import Any, Optional, Self, cast
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
@@ -42,11 +43,6 @@ from tabletop_rig.utils.ros import (
 from tabletop_rig.utils.trajectory_cache import FuzzyTrajectoryCache
 
 
-def always_safe():
-    """Dummy callback to always return True"""
-    return True
-
-
 class PlanAndExecuteInterface(PlanningSceneInterface):
     ###########################################################################
     ########## Initialization #################################################
@@ -55,17 +51,19 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     def __init__(
         self,
         node: BaseNode,
+        safe_to_execute_callback: Callable[[], bool],
         logger_name: str = "moveit_plan_interface",
-        safe_to_execute_callback: Optional[Callable[[], bool]] = None,
     ):
-        """Initializes the MoveItPlanInterface"""
+        """Initializes the MoveItPlanInterface
+
+        Args:
+            safe_to_execute_callback: Function to evaluate before executing to
+                determine if it is safe to execute
+        """
         super().__init__(node, logger_name)
 
-        # Optional user callback that is checked before executing
-        if safe_to_execute_callback is None:
-            self._safe_to_execute_callback = always_safe
-        else:
-            self._safe_to_execute_callback = safe_to_execute_callback
+        # REQUIRED user callback that is checked before executing
+        self._safe_to_execute_callback = safe_to_execute_callback
 
         # Trajectory cache to store previously executed trajectories
         trajectory_cache_config = self.node.get_parameter_wrapper(
@@ -85,13 +83,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         self.log("MoveIt plan and execute interface initialized")
 
-    def register_safe_to_execute_callback(self, callback: Callable[[], bool]):
-        """Register additional callback for teensy sensor subscription
+    ###########################################################################
+    ########## Properties #####################################################
+    ###########################################################################
 
-        Args:
-            callback: Callable that takes TeensySensor message as argument and returns None
-        """
-        self._safe_to_execute_callback = callback
+    @property
+    def executing(self) -> bool:
+        return self.execution_lock.locked()
 
     ###########################################################################
     ########## Parameter Convenience Properties ###############################
@@ -101,16 +99,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     def simulate(self) -> bool:
         """Get the simulation flag."""
         return self.node.get_parameter_wrapper("simulate")
-
-    @property
-    def use_cached_trajectories(self) -> bool:
-        return self.node.get_parameter_wrapper(
-            "trajectory_cache.use_cached_trajectories"
-        )
-
-    @property
-    def freeze_trajectory_cache(self) -> bool:
-        return self.node.get_parameter_wrapper("trajectory_cache.freeze_cache")
 
     ###########################################################################
     ########## MoveIt Convenience Methods and Properties ######################
@@ -813,7 +801,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             trajectory: The trajectory to cache.
             **kwargs: Keyword arguments to pass to `FuzzyTrajectoryCache.cache_trajectory()`.
         """
-        if not self.freeze_trajectory_cache:
+        if not self.node.get_parameter_wrapper(
+            "trajectory_cache.freeze_cache"
+        ):
             self.trajectory_cache.cache_trajectory(trajectory, **kwargs)
             self.log("Cached trajectory successfully")
         else:
@@ -859,7 +849,12 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         )
 
         # Attempt to execute the cached trajectory, otherwise plan and execute normally
-        if self.use_cached_trajectories and use_cache:
+        if (
+            self.node.get_parameter_wrapper(
+                "trajectory_cache.use_cached_trajectories"
+            )
+            and use_cache
+        ):
             try:
                 # TODO: Refactor so caching happens in the plan() function
                 trajectories = self.trajectory_cache.get_trajectories(
@@ -913,8 +908,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return to_cache_kwargs
 
-    # TODO: Move retry logic to Commander
-
     ###########################################################################
     ########## Reset (simulation) #############################################
     ###########################################################################
@@ -945,6 +938,20 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             end_goal = "idle"
         await self.plan_and_execute(end_goal, **kwargs)
         self.init_planning_scene()
+
+    def __enter__(self) -> Self:
+        """Enter the context manager."""
+        self.trajectory_cache.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ):
+        """Exit the context manager."""
+        self.trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
     ########## Destroy ########################################################

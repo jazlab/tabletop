@@ -23,19 +23,19 @@ class FlicInterface(BaseInterface):
         super().__init__(node, "flic_interface")
 
         # Flic response time action client
-        self.flic_response_time_client = ActionClient(
-            self,
+        self.response_time_client = ActionClient(
+            self.node,
             FlicResponseTime,
             "/flic/response_time",
         )
 
         # Wait for action server
-        self.log("Waiting for flic response time server")
-        self.flic_response_time_client.wait_for_server()
+        self.log("Waiting for response time server")
+        self.response_time_client.wait_for_server()
 
         self.log("Flic interface initialized")
 
-    async def flic_response_time(
+    async def response_time(
         self, bd_addr: str, timeout: Optional[float] = None
     ) -> float | None:
         """Wait for flic button press, then return response time, or None if timeout is reached."""
@@ -44,7 +44,7 @@ class FlicInterface(BaseInterface):
             async with asyncio.timeout(timeout):
                 goal_handle = cast(
                     ClientGoalHandle,
-                    await self.flic_response_time_client.send_goal_async(
+                    await self.response_time_client.send_goal_async(
                         FlicResponseTime.Goal(bd_addr=bd_addr)
                     ),
                 )

@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import (
     Callable,
 )
-from typing import cast
+from typing import Any, Coroutine, cast
 
 from rclpy.action.client import ActionClient, ClientGoalHandle
 from tabletop_interfaces.action import EyelinkSmoothPursuit
@@ -25,7 +25,7 @@ class EyelinkInterface(BaseInterface):
 
         # Smooth pursuit action client
         self.eyelink_smooth_pursuit_client = ActionClient(
-            self, EyelinkSmoothPursuit, "/eyelink/smooth_pursuit"
+            self.node, EyelinkSmoothPursuit, "/eyelink/smooth_pursuit"
         )
 
         # Wait for action server
@@ -52,17 +52,30 @@ class EyelinkInterface(BaseInterface):
         )
 
     async def _smooth_pursuit_consumer(
-        self, queue: asyncio.Queue[bool], callback: Callable[[bool], None]
+        self,
+        queue: asyncio.Queue[bool],
+        callback: Callable[[bool], None]
+        | Callable[[bool], Coroutine[Any, Any, None]],
     ):
         """Consumer for the eyelink smooth pursuit queue."""
         while True:
-            callback(await queue.get())
+            if asyncio.iscoroutinefunction(callback):
+                await callback(await queue.get())
+            else:
+                callback(await queue.get())
 
-    async def smooth_pursuit(self, feedback_callback: Callable[[bool], None]):
+    async def smooth_pursuit(
+        self,
+        callback: Callable[[bool], None]
+        | Callable[[bool], Coroutine[Any, Any, None]],
+    ):
         """Start the smooth pursuit action
 
-        Receives smooth pursuit feedback
+        Receives smooth pursuit feedback and passes it to user-defined callback
+
         Args:
+            callback: Function or coroutine function that is called when smooth
+                pursuit feedback is received
         """
         queue: asyncio.Queue[bool] = asyncio.Queue()
         loop = asyncio.get_event_loop()
@@ -82,7 +95,7 @@ class EyelinkInterface(BaseInterface):
             result_future = goal_handle.get_result_async()
 
             consumer_task = asyncio.create_task(
-                self._smooth_pursuit_consumer(queue, feedback_callback)
+                self._smooth_pursuit_consumer(queue, callback)
             )
             result_future.add_done_callback(
                 lambda _: loop.call_soon_threadsafe(consumer_task.cancel)
