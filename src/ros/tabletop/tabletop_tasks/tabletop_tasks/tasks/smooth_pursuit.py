@@ -29,7 +29,7 @@ class SmoothPursuitTask(BaseTask):
         object_id: str,
         execute_request_params: Mapping[str, Any],
     ):
-        super().__init__(commander)
+        super().__init__(commander, logger_name="smooth_pursuit_task")
         self._center_pose = self.commander.create_pose_stamped(**center_pose)
         self._radius = radius
         self._length = length

@@ -11,7 +11,7 @@ class DummyTask(BaseTask):
     """Dummy task."""
 
     def __init__(self, commander: Commander) -> None:
-        self._commander = commander
+        super().__init__(commander, logger_name="dummy_task")
 
     async def run(self):
         async with self.commander:

@@ -912,10 +912,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ########## Reset (simulation) #############################################
     ###########################################################################
 
-    async def move_out_of_collision_simulation(
+    async def clear_scene_and_reset(
         self, end_goal: Optional[PlanningGoalT] = None, **kwargs
     ):
-        """Move the robot out of collision with the scene asynchronously.
+        """Ignore collisions and move robot to end_goal asynchronously.
 
         To be used only in simulation. With the real robot, the user should
         manually (via the teach pendant) move the robot away from the collision
@@ -929,9 +929,14 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             end_goal: The goal to move to after moving out of collision.
             **kwargs: Keyword arguments to pass to `plan_and_execute()`.
         """
-        self.log("Moving out of collision")
         if not self.simulate:
-            raise RuntimeError("This function is only available in simulation")
+            raise RuntimeError(
+                "Planning scene can only be cleared in simulation!"
+            )
+
+        self.log(
+            "Clearing planning scene and moving out of collision (simulation only)"
+        )
 
         self.remove_all_collision_objects()
         if end_goal is None:

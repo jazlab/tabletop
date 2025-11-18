@@ -6,10 +6,12 @@ import traceback
 from collections.abc import (
     Callable,
     Coroutine,
+    Mapping,
 )
 from types import TracebackType
 from typing import (
     Any,
+    Literal,
     Optional,
     Self,
 )
@@ -17,10 +19,11 @@ from typing import (
 import debugpy
 import rclpy
 import rclpy.utilities
-from tabletop_interfaces.action import EyelinkSmoothPursuit
+from geometry_msgs.msg import PoseStamped
+from mingus.containers import Note
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from tabletop_interfaces.msg import TeensySensor
 
-from tabletop_rig.executors import TestExecutor
 from tabletop_rig.interfaces.dashboard import DashboardInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
@@ -88,24 +91,21 @@ class Commander(BaseNode):
 
         self.sound = SoundInterface(self)
         self.teensy = TeensyInterface(
-            self, additional_subscription_callback=self.teensy_sensor_callback
+            self, additional_subscription_callback=self._teensy_sensor_callback
         )
         self.flic = FlicInterface(self)
-        self.dashboard = DashboardInterface(self)
         self.eyelink = EyelinkInterface(self)
+        self.dashboard = DashboardInterface(self)
         self.moveit = MoveItInterface(
             self, lambda: self.teensy.safe_to_execute
         )
 
         self.log("Commander initialized")
 
-    def teensy_sensor_callback(self, msg: TeensySensor):
+    def _teensy_sensor_callback(self, msg: TeensySensor):
         """Callback for the teensy sensor."""
         # If it is not safe to execute and the robot is executing, stop execution
-        if (
-            not self.teensy.safe_to_execute
-            and self.moveit.execution_lock.locked()
-        ):
+        if not self.teensy.safe_to_execute and self.moveit.executing:
             self.log(
                 "Not safe to execute, stopping execution",
                 severity="WARN",
@@ -113,58 +113,55 @@ class Commander(BaseNode):
             self.moveit.trajectory_execution_manager.stop_execution()
 
     ###########################################################################
-    ########## Public Methods #################################################
+    ########## User Interface #################################################
     ###########################################################################
 
-    # async def release_arm(self, arm: Literal["left", "right", "both"]):
-    #     """Release the arm lock."""
-    #     await self.teensy.set_arm_lock(arm, lock=False)
-
-    # async def lock_arms_and_wait(
-    #     self, timeout: Optional[float] = None
-    # ) -> bool:
-    #     """Lock arms and wait for safety laser to be unbroken"""
-    #     return await self.teensy.lock_arms_and_wait(timeout)
-
-    # async def reveal_smartglass(self):
-    #     """Reveal the smartglass."""
-    #     await self.teensy.set_smartglass(reveal=True)
-
-    # async def occlude_smartglass(self):
-    #     """Occlude the smartglass."""
-    #     await self.teensy.set_smartglass(reveal=False)
-
-    # async def stop_reward(self):
-    #     """Set the reward state."""
-    #     await self.teensy.set_reward(activate=False)
-
-    # async def start_reward_and_wait(self, duration: float):
-    #     """Start reward and wait for it to finish."""
-    #     await self.teensy.start_reward_and_wait(duration)
-
-    # async def flic_response_time(
-    #     self, timeout: Optional[float] = None
-    # ) -> float | None:
-    #     """Wait for flic button press, then return response time, or None if timeout is reached."""
-    #     object_id = self.get_exactly_one_attached_object_id()
-    #     bd_addr = self.get_parameter_wrapper(f"flic.bd_addrs.{object_id}")
-    #     return await self.flic.response_time(bd_addr, timeout)
-
-    def _smooth_pursuit_producer(
+    async def play_sound(
         self,
-        feedback_msg: EyelinkSmoothPursuit.Impl.FeedbackMessage,
-        queue: asyncio.Queue[bool],
+        note: Optional[Note | Mapping[str, Any]] = None,
+        duration: Optional[float] = None,
     ):
-        """Callback for the eyelink smooth pursuit feedback."""
-        feedback = feedback_msg.feedback
+        """Play a note for a given duration.
 
-        self._loop.call_soon_threadsafe(
-            queue.put_nowait, feedback.is_smoothly_pursuing
-        )
-        self.log(
-            f"Monkey {'' if feedback.is_smoothly_pursuing else 'not '}smoothly pursuing",
-            severity="INFO",
-        )
+        Args:
+            note: Note to play. If None, the default note is used.
+            duration: Duration of the sound in seconds. If None, the default duration is used.
+        """
+        await self.sound.play(note, duration)
+
+    async def release_arm(self, arm: Literal["left", "right", "both"]):
+        """Release the arm lock."""
+        await self.teensy.set_arm_lock(arm, lock=False)
+
+    async def lock_arms_and_wait(
+        self, timeout: Optional[float] = None
+    ) -> bool:
+        """Lock arms and wait for safety laser to be unbroken"""
+        return await self.teensy.lock_arms_and_wait(timeout)
+
+    async def reveal_smartglass(self):
+        """Reveal the smartglass."""
+        await self.teensy.set_smartglass(reveal=True)
+
+    async def occlude_smartglass(self):
+        """Occlude the smartglass."""
+        await self.teensy.set_smartglass(reveal=False)
+
+    async def stop_reward(self):
+        """Set the reward state."""
+        await self.teensy.set_reward(activate=False)
+
+    async def start_reward_and_wait(self, duration: float):
+        """Start reward and wait for it to finish."""
+        await self.teensy.start_reward_and_wait(duration)
+
+    async def flic_response_time(
+        self, timeout: Optional[float] = None
+    ) -> float | None:
+        """Wait for flic button press, then return response time, or None if timeout is reached."""
+        object_id = self.moveit.get_exactly_one_attached_object_id()
+        bd_addr = self.get_parameter_wrapper(f"flic.bd_addrs.{object_id}")
+        return await self.flic.response_time(bd_addr, timeout)
 
     async def smooth_pursuit_and_reward(self):
         """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
@@ -221,7 +218,64 @@ class Commander(BaseNode):
             try:
                 await self.teensy.set_reward(activate=False)
             except Exception as e:
-                self.log(f"Error stopping reward: {e}", severity="WARN")
+                self.log(f"Error stopping reward: {e}", severity="ERROR")
+
+    def create_pose_stamped(
+        self, *, frame_id: Optional[str] = None, **kwargs: Any
+    ) -> PoseStamped:
+        """Create a PoseStamped message from keyword arguments.
+
+        Uses planning frame as default frame id if not specified.
+        """
+        return self.moveit.create_pose_stamped(frame_id=frame_id, **kwargs)
+
+    async def plan_and_execute(self, *args, **kwargs):
+        """Plan and execute to a given goal
+
+        Args:
+            goal: The gaol to plan to
+        """
+        await self.moveit.plan_and_execute(*args, **kwargs)
+
+    async def fetch_object(self, object_id: str):
+        """Fetch an object from its mount.
+
+        The robot moves to the object's mount, attaches the object, and moves
+        to the object's post-fetch pose.
+
+        Args:
+            object_id: The ID of the object to fetch
+            cache_trajectories: Whether to cache the trajectories after fetching
+                the object
+
+        Raises:
+            ValueError: If the object ID is not a valid collision object
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self.moveit.fetch_object(object_id)
+
+    async def pre_present_object(self):
+        """Move to pre-present goal
+
+        Args:
+            goal: The goal at which to present the object
+        """
+        await self.moveit.pre_present_object()
+
+    async def unpresent_object(self):
+        """Unpresent the currently attached object"""
+        await self.moveit.unpresent_object()
+
+    async def return_object(self):
+        """Return an object to its original position.
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self.moveit.return_object()
 
     # async def plan_and_execute(
     #     self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
@@ -379,28 +433,6 @@ class Commander(BaseNode):
             self.moveit.__exit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
-    ########## Asyncio schedule ###############################################
-    ###########################################################################
-
-    def set_loop(self, loop: asyncio.AbstractEventLoop):
-        """Set the event loop for the commander."""
-        self._loop = loop
-
-    def schedule(self, *coros: Coroutine) -> asyncio.Task | list[asyncio.Task]:
-        """Schedule coroutines to run.
-
-        Args:
-            *coros: Coroutines to schedule.
-
-        Returns:
-            List of scheduled tasks.
-        """
-        tasks = []
-        for coro in coros:
-            tasks.append(asyncio.create_task(coro))
-        return tasks[0] if len(tasks) == 1 else tasks
-
-    ###########################################################################
     ########## Destroy ########################################################
     ###########################################################################
 
@@ -467,7 +499,6 @@ async def asyncio_runner(
     tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
     loop = asyncio.get_event_loop()
     loop.set_default_executor(tpe)
-    commander.set_loop(loop)
 
     task = asyncio.create_task(coro_fn(commander, config))
     spin_future.add_done_callback(
@@ -534,7 +565,9 @@ def main(args=None):
             print("Debugger attached")
 
         commander = Commander()
-        executor = TestExecutor()
+        executor: SingleThreadedExecutor | MultiThreadedExecutor = (
+            SingleThreadedExecutor()
+        )
         executor.add_node(commander)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:

@@ -1,15 +1,11 @@
-"""Foraging task."""
-
-from abc import abstractmethod
-from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple
+from abc import ABCMeta, abstractmethod
+from typing import Literal, NamedTuple
 
 import rclpy.logging
 from geometry_msgs.msg import PoseStamped
-from rclpy.impl.logging_severity import LoggingSeverity
+from rclpy.impl.rcutils_logger import RcutilsLogger
 from tabletop_rig.nodes import Commander
-
-logger = rclpy.logging.get_logger("trial_generator")
+from tabletop_rig.utils.logging import LoggerMixin
 
 
 class TrialSpec(NamedTuple):
@@ -21,72 +17,42 @@ class TrialSpec(NamedTuple):
     occlude: bool
 
 
-@dataclass(slots=True)
-class TrialFeedback:
+class TrialFeedback(NamedTuple):
     """Feedback for a Foraging task trial."""
 
-    reaction_time: float | None = None
-    timeout: bool | None = None
+    reaction_time: float | None
+    timeout: bool | None
 
 
-class BaseTrialGenerator:
+class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
+    """Abstract base class for trial generators.
+
+    Trial generators are Python generators that produce TrialSpecs and receive
+    TrialFeedback.
     """
-    Base class for trial generators.
 
-    Trial generators are generators that generate trial specs.
-    """
-
-    def __init__(self, commander: Commander):
+    def __init__(
+        self, commander: Commander, logger_name: str = "trial_generator"
+    ):
         self._commander = commander
+        self._logger = rclpy.logging.get_logger(logger_name)
+
+    def get_logger(self) -> RcutilsLogger:
+        """Get the logger instance"""
+        return self._logger
 
     @property
     def commander(self) -> Commander:
         """Get the commander instance."""
         return self._commander
 
-    @property
-    def log_level(self) -> LoggingSeverity:
-        """Get the log severity."""
-        return logger.get_effective_level()
-
-    def log(
-        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
-    ):
-        """
-        Log a message with the given severity.
-        """
-        if not isinstance(severity, LoggingSeverity):
-            severity = LoggingSeverity[severity]
-
-        if rclpy.ok():  # type: ignore
-            match severity:
-                case LoggingSeverity.DEBUG:
-                    return logger.debug(message, **kwargs)
-                case LoggingSeverity.INFO:
-                    return logger.info(message, **kwargs)
-                case LoggingSeverity.WARN:
-                    return logger.warning(message, **kwargs)
-                case LoggingSeverity.ERROR:
-                    return logger.error(message, **kwargs)
-                case LoggingSeverity.FATAL:
-                    return logger.fatal(message, **kwargs)
-                case _:
-                    raise ValueError(f"Invalid severity: {severity}")
-        elif severity >= self.log_level:
-            print(f"{severity.name}: {message}")
-            return True
-        else:
-            return False
-
     @abstractmethod
     def __next__(self) -> TrialSpec:
         """Generate a new trial."""
-        raise NotImplementedError
 
     @abstractmethod
     def send(self, feedback: TrialFeedback):
         """Get trial feedback."""
-        raise NotImplementedError
 
     def __iter__(self):
         return self

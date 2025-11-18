@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from typing import (
     Any,
@@ -32,49 +32,40 @@ def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
 # Logging utilities
 
 
-def ros_log(
-    logger: RcutilsLogger,
-    message: Any,
-    severity: str | LoggingSeverity = "INFO",
-    **kwargs,
-):
-    """Log a message with the given severity."""
-
-    if not isinstance(severity, LoggingSeverity):
-        severity = LoggingSeverity[severity]
-
-    if rclpy.ok():  # type: ignore
-        match severity:
-            case LoggingSeverity.DEBUG:
-                return logger.debug(message, **kwargs)
-            case LoggingSeverity.INFO:
-                return logger.info(message, **kwargs)
-            case LoggingSeverity.WARN:
-                return logger.warning(message, **kwargs)
-            case LoggingSeverity.ERROR:
-                return logger.error(message, **kwargs)
-            case LoggingSeverity.FATAL:
-                return logger.fatal(message, **kwargs)
-            case _:
-                raise ValueError(f"Invalid severity: {severity}")
-    elif severity >= logger.get_effective_level():
-        print(f"{severity.name}: {message}")
-        return True
-    else:
-        return False
-
-
-class LoggerMixin(ABC):
+class LoggerMixin(metaclass=ABCMeta):
     """Adds convenience functions to 'ROS-node-like' class"""
 
     @abstractmethod
     def get_logger(self) -> RcutilsLogger: ...
 
-    def log(self, *args: Any, **kwargs: Any):
+    def log(
+        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
+    ):
         """
         Log a message with the given severity.
         """
-        return ros_log(self.get_logger(), *args, **kwargs)
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if rclpy.ok():  # type: ignore
+            match severity:
+                case LoggingSeverity.DEBUG:
+                    return self.get_logger().debug(message, **kwargs)
+                case LoggingSeverity.INFO:
+                    return self.get_logger().info(message, **kwargs)
+                case LoggingSeverity.WARN:
+                    return self.get_logger().warning(message, **kwargs)
+                case LoggingSeverity.ERROR:
+                    return self.get_logger().error(message, **kwargs)
+                case LoggingSeverity.FATAL:
+                    return self.get_logger().fatal(message, **kwargs)
+                case _:
+                    raise ValueError(f"Invalid severity: {severity}")
+        elif severity >= self.get_logger().get_effective_level():
+            print(f"{severity.name}: {message}")
+            return True
+        else:
+            return False
 
     @property
     def log_level(self) -> LoggingSeverity:

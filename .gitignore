@@ -3,7 +3,8 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 .cache/
-/cache/
+browse.vc.db*
+cache/
 
 # Logs
 log/
@@ -34,3 +35,6 @@ icareaboutthesebags/
 
 # Saved models
 saved_weights/
+
+# VSCode
+.vscode/c_cpp_properties.json

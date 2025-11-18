@@ -2,7 +2,6 @@ import glob
 import hashlib
 import json
 import os
-import time
 from collections.abc import (
     Iterable,
     Mapping,
@@ -80,13 +79,13 @@ class PlanningSceneInterface(BaseInterface):
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=False)
 
-        self.init_collision_detector()
-
         self.init_planning_scene()
 
         self.init_attached_object()
 
         self.init_link_padding()
+
+        self.init_collision_detector()
 
         self.log("MoveIt scene interface initialized")
 
@@ -94,7 +93,6 @@ class PlanningSceneInterface(BaseInterface):
         """Initialize the collision detector."""
         with self.planning_scene_rw() as scene:
             scene.allocate_collision_detector("bullet")
-            time.sleep(2.0)
 
     def init_planning_scene(self):
         """Setup the planning scene
@@ -502,24 +500,30 @@ class PlanningSceneInterface(BaseInterface):
                     )
 
         # Plane collision objects
-        keys_to_hash = ["pose_stamped", "coef"]
-        for object_id, kwargs in config["planes"].items():
-            hash_algorithm.update(object_id.encode("utf-8"))
-            for key in keys_to_hash:
-                if key in kwargs:
-                    hash_algorithm.update(
-                        json.dumps(kwargs[key], sort_keys=True).encode("utf-8")
-                    )
+        if "planes" in config:
+            keys_to_hash = ["pose_stamped", "coef"]
+            for object_id, kwargs in config["planes"].items():
+                hash_algorithm.update(object_id.encode("utf-8"))
+                for key in keys_to_hash:
+                    if key in kwargs:
+                        hash_algorithm.update(
+                            json.dumps(kwargs[key], sort_keys=True).encode(
+                                "utf-8"
+                            )
+                        )
 
         # Primitive collision objects
-        keys_to_hash = ["pose_stamped", "type", "dimensions"]
-        for object_id, kwargs in config["primitives"].items():
-            hash_algorithm.update(object_id.encode("utf-8"))
-            for key in keys_to_hash:
-                if key in kwargs:
-                    hash_algorithm.update(
-                        json.dumps(kwargs[key], sort_keys=True).encode("utf-8")
-                    )
+        if "primitives" in config:
+            keys_to_hash = ["pose_stamped", "type", "dimensions"]
+            for object_id, kwargs in config["primitives"].items():
+                hash_algorithm.update(object_id.encode("utf-8"))
+                for key in keys_to_hash:
+                    if key in kwargs:
+                        hash_algorithm.update(
+                            json.dumps(kwargs[key], sort_keys=True).encode(
+                                "utf-8"
+                            )
+                        )
 
         # Dynamic collision objects
         hash_algorithm.update(
@@ -547,13 +551,15 @@ class PlanningSceneInterface(BaseInterface):
         """Save the planning scene to a file."""
         self.log(f"Saving planning scene to {path}")
         with self.planning_scene_ro() as scene:
-            scene.save_geometry_to_file(path)
+            if not scene.save_geometry_to_file(path):
+                raise RuntimeError("Could not save planning scene to file")
 
     def load_planning_scene(self, path: str):
         """Load the planning scene from a file."""
         self.log(f"Loading planning scene from {path}")
         with self.planning_scene_rw() as scene:
-            scene.load_geometry_from_file(path)
+            if not scene.load_geometry_from_file(path):
+                raise RuntimeError("Could not load planning scene from file")
             scene.current_state.update()
 
     def save_collision_matrix(self, path: str):

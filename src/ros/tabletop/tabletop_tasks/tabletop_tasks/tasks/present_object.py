@@ -2,7 +2,6 @@
 
 import asyncio
 import enum
-import importlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -32,27 +31,11 @@ class PresentObjectTask(BaseTask):
         stimulus_duration_sec: float = 0.5,
         delay_duration_sec: float = 0.5,
     ):
-        super().__init__(commander)
-
-        # Logging
-        self.log(
-            "PresentObjectTask(\n"
-            f"  trial_generator={trial_generator},\n"
-            f"  stimulus_duration_sec={stimulus_duration_sec},\n"
-            f"  delay_duration_sec={delay_duration_sec},\n"
-            ")"
+        super().__init__(
+            commander,
+            trial_generator,
         )
 
-        # Create trial_generator if necessary
-        if isinstance(trial_generator, Mapping):
-            trial_generator_tmp: BaseTrialGenerator = getattr(
-                importlib.import_module("tabletop_tasks.trial_generators"),
-                trial_generator["class"],
-            )(commander, **trial_generator["kwargs"])
-        else:
-            trial_generator_tmp = trial_generator
-
-        self._trial_generator = trial_generator_tmp
         self._stimulus_duration_sec = stimulus_duration_sec
         self._delay_duration_sec = delay_duration_sec
         self._state = PresentObjectState.IDLE

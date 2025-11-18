@@ -13,7 +13,6 @@ from tabletop_rig.interfaces.moveit.plan_and_execute import (
     PlanAndExecuteInterface,
 )
 from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.common import asyncio_task_decorator
 from tabletop_rig.utils.ros import (
     ExecutionError,
     ObjectManipulationError,
@@ -83,6 +82,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         super().__init__(node, safe_to_execute_callback, logger_name)
 
         self.object_manipulation_lock = asyncio.Lock()
+
+        self.object_phase = ObjectPhase.IDLE
 
         self.log("MoveIt object manipulation interface initialized")
 
@@ -344,7 +345,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         return to_cache_kwargs
 
-    @asyncio_task_decorator
     @object_manipulation_lock_decorator
     async def fetch_object(
         self, object_id: str, cache_trajectories: bool = True
@@ -356,8 +356,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         available and only caches the planned trajectories if the full fetch
         process is successful. This addresses the issue of the robot getting
         "stuck" in a state that it cannot complete the full fetch process and
-        caching trajectories that are unusable. If the fetch fails, the robot
-        attempts to return the object to its mount.
+        caching trajectories that are unusable.
 
         Args:
             object_id: The ID of the object to fetch
@@ -385,22 +384,24 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         to_cache_kwargs: list[dict[str, Any]] = []
         try:
             for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
+                # self.object_phase = ObjectPhase(i)
                 kwargs = await self._object_phase(
                     object_id, ObjectPhase(i), cache_trajectory=False
                 )
-                if kwargs is not None:
+                if kwargs is not None and cache_trajectories:
                     to_cache_kwargs.append(kwargs)
-        except (PlanningError, ExecutionError) as e:
-            self.log(
-                f"Error while fetching object: {e}",
-                severity="ERROR",
-            )
-            self.log("Attempting to return object to mount", severity="WARN")
-            start_idx = ObjectPhase.IDLE - i  # type: ignore
-            for i in range(start_idx, ObjectPhase.IDLE + 1):
-                await self._object_phase(
-                    object_id, ObjectPhase(i), cache_trajectory=False
-                )
+        except (PlanningError, ExecutionError):
+            # TODO: Move restart logic
+            # self.log(
+            #     f"Error while fetching object: {e}",
+            #     severity="ERROR",
+            # )
+            # self.log("Attempting to return object to mount", severity="WARN")
+            # start_idx = ObjectPhase.IDLE - i  # type: ignore
+            # for i in range(start_idx, ObjectPhase.IDLE + 1):
+            #     await self._object_phase(
+            #         object_id, ObjectPhase(i), cache_trajectory=False
+            #     )
             raise
 
         # Cache all trajectories if requested
@@ -411,27 +412,22 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 f"Cached {len(to_cache_kwargs)} fetch trajectories successfully"
             )
 
-    @asyncio_task_decorator
     @object_manipulation_lock_decorator
-    async def present_object(self, goal: PlanningGoalT):
-        """Present an object at the specified end goal.
+    async def pre_present_object(self):
+        """Present the currently attached object at the specified end goal.
 
         Args:
             goal: The goal to present the object at
         """
         object_id = self.get_exactly_one_attached_object_id()
-        self.log(f"Presenting object {object_id}")
+        self.log(f"Pre-presenting object {object_id}")
 
         # Pre-present phase
         await self._object_phase(object_id, ObjectPhase.PRE_PRESENT)
 
-        # Move to end goal
-        await self._object_phase(object_id, ObjectPhase.PRESENT, goal=goal)
-
-    @asyncio_task_decorator
     @object_manipulation_lock_decorator
     async def unpresent_object(self):
-        """Unpresent an object and move it to its pre-return pose."""
+        """Unpresent the currently attached object and move it to its pre-return pose."""
         object_id = self.get_exactly_one_attached_object_id()
         self.log(f"Unpresenting object {object_id}")
 
@@ -443,13 +439,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
         )
 
-    @asyncio_task_decorator
     @object_manipulation_lock_decorator
     async def return_object(self, cache_trajectories: bool = True):
         """Return an object to its original position.
 
         Args:
-            end_goal: The goal to move to after returning the object.
             cache_trajectories: Whether to cache the trajectories after
                 returning the object
 
@@ -500,37 +494,26 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         objects to their original positions.
         """
         self.log("Resetting rig")
-        if self.is_state_colliding():
+        try:
+            if len(self.attached_collision_object_ids) > 0:
+                object_id = self.get_exactly_one_attached_object_id()
+                if object_id in self.grid_object_poses:
+                    self._pre_return_cache_kwargs = await self._object_phase(
+                        object_id, ObjectPhase.PRE_RETURN
+                    )
+                    await self.return_object()
+            if end_goal is not None:
+                await self.plan_and_execute(end_goal)
+        except (PlanningError, ExecutionError) as e:
             if self.simulate:
-                await self.move_out_of_collision_simulation(end_goal)
-            else:
-                raise RuntimeError(
-                    "Robot is in collision with the scene! "
-                    "Please move the robot away from the collision objects manually."
+                self.log(
+                    f"Error while resetting rig: {type(e).__name__}: {e}",
+                    severity="ERROR",
                 )
-        else:
-            try:
-                if len(self.attached_collision_object_ids) > 0:
-                    object_id = self.get_exactly_one_attached_object_id()
-                    if object_id in self.grid_object_poses:
-                        self._pre_return_cache_kwargs = (
-                            await self._object_phase(
-                                object_id, ObjectPhase.PRE_RETURN
-                            )
-                        )
-                        await self.return_object()
-                if end_goal is not None:
-                    await self.plan_and_execute(end_goal)
-            except (PlanningError, ExecutionError) as e:
-                if self.simulate:
-                    self.log(
-                        f"Error while resetting rig: {type(e).__name__}: {e}",
-                        severity="ERROR",
-                    )
-                    self.log(
-                        "Attempting to move out of collision",
-                        severity="WARN",
-                    )
-                    await self.move_out_of_collision_simulation(end_goal)
-                else:
-                    raise
+                self.log(
+                    "Clearing planning scene and moving out of collision (simulation only)",
+                    severity="WARN",
+                )
+                await self.clear_scene_and_reset(end_goal)
+            else:
+                raise

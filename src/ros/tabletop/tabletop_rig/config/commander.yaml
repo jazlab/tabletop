@@ -156,28 +156,28 @@
         - wrist_3_link
         - eef_link
         - eef_sphere
-      use_saved_scene: false
-      planes:
-        floor:
-          coef: [0.0, 0.0, 1.0, 0.0]
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
-        front_wall:
-          coef: [0.0, 1.0, 0.0, 0.0635]
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
-        back_wall:
-          coef: [0.0, 1.0, 0.0, 1.8923]
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
-        left_wall:
-          coef: [1.0, 0.0, 0.0, 0.0381]
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
-        right_wall:
-          coef: [1.0, 0.0, 0.0, 1.8669]
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
+      use_saved_scene: true
+      # planes:
+      #   floor:
+      #     coef: [0.0, 0.0, 1.0, 0.0]
+      #     pose_stamped:
+      #       position: [0.0, 0.0, 0.0]
+      #   front_wall:
+      #     coef: [0.0, 1.0, 0.0, 0.0635]
+      #     pose_stamped:
+      #       position: [0.0, 0.0, 0.0]
+      #   back_wall:
+      #     coef: [0.0, 1.0, 0.0, 1.8923]
+      #     pose_stamped:
+      #       position: [0.0, 0.0, 0.0]
+      #   left_wall:
+      #     coef: [1.0, 0.0, 0.0, 0.0381]
+      #     pose_stamped:
+      #       position: [0.0, 0.0, 0.0]
+      #   right_wall:
+      #     coef: [1.0, 0.0, 0.0, 1.8669]
+      #     pose_stamped:
+      #       position: [0.0, 0.0, 0.0]
       primitives:
         left_robot_box:
           type: BOX
@@ -199,6 +199,36 @@
           pose_stamped:
             position: [1.655, 0.2, 0.9906]
           color: [1.0, 0.0, 0.0, 0.2]
+        floor:
+          type: BOX
+          dimensions: [2.0, 2.0, 0.0]
+          pose_stamped:
+            position: [1.0, 1.0, 0.0]
+          color: [1.0, 1.0, 1.0, 0.1]
+        front_wall:
+          type: BOX
+          dimensions: [2.0, 0.0, 2.0]
+          pose_stamped:
+            position: [1.0, 0.0635, 1.0]
+          color: [1.0, 1.0, 1.0, 0.1]
+        back_wall:
+          type: BOX
+          dimensions: [2.0, 0.0, 2.0]
+          pose_stamped:
+            position: [1.0, 1.8923, 1.0]
+          color: [1.0, 1.0, 1.0, 0.1]
+        left_wall:
+          type: BOX
+          dimensions: [0.0, 2.0, 2.0]
+          pose_stamped:
+            position: [0.0381, 1.0, 1.0]
+          color: [1.0, 1.0, 1.0, 0.1]
+        right_wall:
+          type: BOX
+          dimensions: [0.0, 2.0, 2.0]
+          pose_stamped:
+            position: [1.8669, 1.0, 1.0]
+          color: [1.0, 1.0, 1.0, 0.1]
       rig_meshes:
         rig:
           pose_stamped:

@@ -150,7 +150,8 @@ fi
 if [[ $clang = true ]]; then
     mixins+=("clang")
 fi
-mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
+# mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
+mixins+=("compile-commands" "build-testing-off")
 
 # Set parallel workers
 if [[ -n $workers ]]; then

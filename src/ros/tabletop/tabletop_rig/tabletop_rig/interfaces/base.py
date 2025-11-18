@@ -5,10 +5,21 @@ from tabletop_rig.utils.logging import LoggerMixin
 
 
 class BaseInterface(LoggerMixin):
-    def __init__(self, node: BaseNode, logger_name: str):
-        self.node = node
-        self.logger_name = logger_name
+    def __init__(self, node: BaseNode, logger_name: str = "interface"):
+        """Initializes the Node Interface
+
+        Args:
+            node: Parent ROS node
+            logger_name: Name to give logger
+        """
+        self._node = node
+        self._logger = self._node.get_logger().get_child(logger_name)
 
     def get_logger(self) -> RcutilsLogger:
-        """Gets child logger of parent node"""
-        return self.node.get_logger().get_child(self.logger_name)
+        """Get the logger instance"""
+        return self._logger
+
+    @property
+    def node(self) -> BaseNode:
+        """Get the parent node instance"""
+        return self._node

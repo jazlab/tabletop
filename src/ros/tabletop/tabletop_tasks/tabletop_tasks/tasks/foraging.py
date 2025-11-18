@@ -3,12 +3,14 @@
 import asyncio
 import enum
 from collections.abc import Mapping
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
+from geometry_msgs.msg import PoseStamped
 from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks import BaseTask
-from tabletop_tasks.trial_generators import BaseTrialGenerator, TrialFeedback
+from tabletop_tasks.trial_generators import BaseTrialGenerator
+from tabletop_tasks.trial_generators.base import TrialFeedback, TrialSpec
 
 
 class ForagingState(enum.Enum):
@@ -43,10 +45,9 @@ class ForagingTask(BaseTask):
         play_sound: bool,
         sound_kwargs: Optional[Mapping[str, Any]] = None,
     ):
-        super().__init__(commander, trial_generator)
-
-        # Whether to generate a new trial spec
-        self._next_trial = True
+        super().__init__(
+            commander, trial_generator, logger_name="foraging_task"
+        )
 
         self._fixation_duration = fixation_duration
         self._stimulus_duration = stimulus_duration
@@ -62,54 +63,32 @@ class ForagingTask(BaseTask):
     # Phases
     ############################################################
 
-    def _next_trial_spec(self) -> bool:
-        """Get next trial spec."""
-        self.log("Next trial spec phase")
-
-        if self._next_trial:
-            try:
-                self._trial_spec = next(self._trial_generator)
-            except StopIteration:
-                self.log("Trial generator finished")
-                return False
-
-        self.log(f"Next trial spec: {self._trial_spec}")
-        self._trial_feedback = TrialFeedback()
-        self._next_trial = False
-        return True
-
-    async def _fetch(self):
-        """Fetch object for trial."""
-        self.log("Fetch phase")
-        await self.commander.smartglass_occlude()
-        await self.commander.fetch_object(
-            object_id=self._trial_spec.object_id,
-        )
-
-    async def _present(self):
+    async def present(self, pose: PoseStamped):
         """Present object."""
         self.log("Present phase")
-        await self.commander.present_object(goal=self._trial_spec.object_pose)
+        await self.commander.plan_and_execute(
+            goal=pose, planning_pipeline="linear"
+        )
 
-    async def _stimulus(self):
+    async def stimulus(self):
         """Present stimulus."""
         self.log("Stimulus phase")
-        # Stimulus has started, so we cannot retry this trial anymore if something fails
-        self._next_trial = True
-        await self.commander.smartglass_reveal()
+        await self.commander.reveal_smartglass()
         await asyncio.sleep(self._stimulus_duration)
 
-    async def _delay(self):
+    async def delay(self, occlude: bool):
         """Delay phase."""
         self.log("Delay phase")
-        if self._trial_spec.occlude:
-            await self.commander.smartglass_occlude()
+        if occlude:
+            await self.commander.occlude_smartglass()
         await asyncio.sleep(self._delay_duration)
 
-    async def _response(self) -> bool:
+    async def response(
+        self, arm: Literal["left", "right", "both"]
+    ) -> TrialFeedback:
         """Response phase."""
         self.log("Response phase")
-        await self.commander.arm_release(self._trial_spec.arm)
+        await self.commander.release_arm(arm)
 
         # Wait for response
         # Use the ROS2 clock to measure reaction time (for consistency with
@@ -120,90 +99,49 @@ class ForagingTask(BaseTask):
             # Response received
             sound_task = None
             if self._play_sound:
-                sound_task = self.commander.play_sound(**self._sound_kwargs)
-            self._trial_feedback.reaction_time = reaction_time
-            self.log(f"Reaction time: {self._trial_feedback.reaction_time}")
-            reward_task = self.commander.reward_and_wait(self._reward_duration)
-            if self._play_sound:
-                assert sound_task is not None
+                sound_task = asyncio.create_task(
+                    self.commander.play_sound(**self._sound_kwargs)
+                )
+            reward_task = asyncio.create_task(
+                self.commander.start_reward_and_wait(self._reward_duration)
+            )
+            self.log(f"Reaction time: {reaction_time}")
+            if sound_task is not None:
                 await sound_task
             await reward_task
-            return True
+            return TrialFeedback(reaction_time=reaction_time, timeout=False)
         else:
             # Response not received
             self.log("Response timeout")
-            self._trial_feedback.timeout = True
-            return False
+            return TrialFeedback(reaction_time=None, timeout=True)
 
-    async def _reveal(self):
+    async def reveal(self):
         """Reveal object."""
         self.log("Reveal phase")
-        await self.commander.smartglass_reveal()
+        await self.commander.reveal_smartglass()
         await asyncio.sleep(self._reveal_duration)
 
-    async def _send_feedback(self):
-        """Send feedback."""
-        self.log("Send feedback phase")
-        self._trial_generator.send(self._trial_feedback)
-
-    async def _unpresent(self):
+    async def unpresent(self):
         """Unpresent object."""
         self.log("Unpresent phase")
-        arm_lock_task = self.commander.arm_lock_and_wait()
-        smartglass_task = self.commander.smartglass_occlude()
+        arm_lock_task = self.commander.lock_arms_and_wait()
+        smartglass_task = self.commander.occlude_smartglass()
 
         await arm_lock_task
         await smartglass_task
 
         await self.commander.unpresent_object()
 
-    async def _return(self):
-        """Return object."""
-        self.log("Return phase")
-        self.return_task = self.commander.return_object()
-
-    async def run(self):
+    async def run_trial(self, trial_spec: TrialSpec | None) -> TrialFeedback:
         """Run a trial."""
-        self.log("Starting foraging task")
-        while True:
-            async with self.commander:
-                self._state = ForagingState.NEXT_TRIAL_SPEC
-                while True:
-                    match self._state:
-                        case ForagingState.NEXT_TRIAL_SPEC:
-                            if self._next_trial_spec():
-                                self._state = ForagingState.FETCH
-                            else:
-                                self._state = ForagingState.FINISHED
-                        case ForagingState.FETCH:
-                            await self._fetch()
-                            self._state = ForagingState.PRESENT
-                        case ForagingState.PRESENT:
-                            await self._present()
-                            self._state = ForagingState.STIMULUS
-                        case ForagingState.STIMULUS:
-                            await self._stimulus()
-                            self._state = ForagingState.DELAY
-                        case ForagingState.DELAY:
-                            await self._delay()
-                            self._state = ForagingState.RESPONSE
-                        case ForagingState.RESPONSE:
-                            if await self._response():
-                                self._state = ForagingState.REVEAL
-                            else:
-                                self._state = ForagingState.SEND_FEEDBACK
-                        case ForagingState.REVEAL:
-                            await self._reveal()
-                            self._state = ForagingState.SEND_FEEDBACK
-                        case ForagingState.SEND_FEEDBACK:
-                            await self._send_feedback()
-                            self._state = ForagingState.UNPRESENT
-                        case ForagingState.UNPRESENT:
-                            await self._unpresent()
-                            self._state = ForagingState.RETURN
-                        case ForagingState.RETURN:
-                            await self._return()
-                            self._state = ForagingState.NEXT_TRIAL_SPEC
-                        case ForagingState.FINISHED:
-                            self.log("Foraging task finished")
-                            return
+        if trial_spec is None:
+            raise ValueError("trial_spec should not be None for foraging task")
+
+        self.log(f"Foraging task trial spec: {trial_spec}")
+        await self.present(trial_spec.object_pose)
+        await self.stimulus()
+        await self.delay(trial_spec.occlude)
+        feedback = await self.response(trial_spec.arm)
+        if not feedback.timeout:
+            await self.reveal()
+        return feedback

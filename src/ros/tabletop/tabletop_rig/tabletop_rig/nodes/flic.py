@@ -26,8 +26,8 @@ from tabletop_rig.nodes.base import BaseNode
 class Flic(BaseNode):
     default_params = BaseNode.default_params | {
         "simulate": False,
-        "simulate_min_delay": 3.0,
-        "simulate_max_delay": 6.0,
+        "simulate_min_delay": 1.0,
+        "simulate_max_delay": 3.0,
         "server_ip": "localhost",
         # "server_ip": "172.17.0.1",
         "server_port": 5551,

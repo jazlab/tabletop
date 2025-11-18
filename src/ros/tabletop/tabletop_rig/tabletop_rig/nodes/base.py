@@ -48,7 +48,7 @@ class BaseNode(Node, LoggerMixin):
         *args,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        Node.__init__(self, *args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
         # self.log_parameters(severity="DEBUG")

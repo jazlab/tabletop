@@ -7,7 +7,11 @@ from typing import Any
 import numpy as np
 from tabletop_rig.nodes import Commander
 
-from tabletop_tasks.trial_generators.base import BaseTrialGenerator, TrialSpec
+from tabletop_tasks.trial_generators import (
+    BaseTrialGenerator,
+    TrialFeedback,
+    TrialSpec,
+)
 
 
 class BlockedCupDrawer(BaseTrialGenerator):
@@ -31,20 +35,18 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         # Setup poses. Each trial, a random pose will be sampled from these.
         self._poses = [
-            self._commander.create_pose_stamped(**pose) for pose in poses
+            self.commander.create_pose_stamped(**pose) for pose in poses
         ]
 
         # Initialize generator
         self._num_correct = 0
         self._block_index = randrange(len(self._block_keys))
 
-    def send(
-        self, broke_fixation: bool, timeout: bool, **unused_kwargs: dict
-    ) -> None:
+    def send(self, feedback: TrialFeedback) -> None:
         """Update generator based on feedback."""
 
         # Increment number of correct trials if necessary
-        if not broke_fixation and not timeout:
+        if feedback.timeout:
             self._num_correct += 1
 
         # Update block index if necessary
@@ -65,6 +67,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
         trial_spec = TrialSpec(
             object_id=object_id,
             object_pose=object_pose,
+            arm="both",
             occlude=True,
         )
 

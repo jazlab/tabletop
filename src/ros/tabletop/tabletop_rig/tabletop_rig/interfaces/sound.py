@@ -71,16 +71,15 @@ class SoundInterface(BaseInterface):
         if self.enabled:
             fluidsynth.stop_everything()
 
-    async def play_sound(
+    async def play(
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
         duration: Optional[float] = None,
     ):
-        """Play a sound for a given duration.
+        """Play a note for a given duration.
 
         Args:
             note: Note to play. If None, the default note is used.
-            instrument: Midi instrument to play, e.g. 62. If None, the default instrument is used.
             duration: Duration of the sound in seconds. If None, the default duration is used.
         """
         if self.enabled:
