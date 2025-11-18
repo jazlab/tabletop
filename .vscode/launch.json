@@ -21,20 +21,7 @@
       "justMyCode": false
     },
     {
-      "name": "Python Debugger: Launch run_tasks",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
-      "console": "integratedTerminal",
-      "args": [
-        "launch_rig:=false",
-        "task_config:=foraging_ordered.yaml"
-      ],
-      "cwd": "${workspaceFolder}",
-      "justMyCode": false
-    },
-    {
-      "name": "Python Debugger: Attach to commander",
+      "name": "Python Debugger: Attach to debugpy",
       "type": "debugpy",
       "request": "attach",
       "connect": {
@@ -42,50 +29,6 @@
         "port": 1300
       },
       "justMyCode": false
-    },
-    {
-      "name": "Python Debugger: Attach to flic",
-      "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "localhost",
-        "port": 1301
-      },
-      "justMyCode": false
-    },
-    {
-      "name": "Python Debugger: Attach to mock teensy",
-      "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "localhost",
-        "port": 1302
-      },
-      "justMyCode": false
-    },
-    {
-      "name": "Python Debugger: Attach to eyelink",
-      "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "localhost",
-        "port": 1303
-      },
-      "justMyCode": false
-    }
-  ],
-  "inputs": [
-    {
-      "id": "task_config",
-      "type": "pickString",
-      "default": "foraging_ordered.yaml",
-      "description": "Task configuration file",
-      "options": [
-        "task_config:=foraging_ordered.yaml",
-        "task_config:=foraging_random.yaml",
-        "task_config:=smooth_pursuit.yaml",
-        "task_config:=dummy.yaml"
-      ]
     }
   ]
 }

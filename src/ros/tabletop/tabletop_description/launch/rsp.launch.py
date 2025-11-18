@@ -201,13 +201,15 @@ def generate_launch_description():
     )
 
     def urdf_save(context):
-        print(robot_description_content)
         urdf_str = robot_description_content.perform(context)
-        urdf_path = os.path.join(
-            os.environ["TABLETOP_DIR"], "cache", "tabletop.urdf"
-        )
+
+        urdf_dir = os.environ["TABLETOP_CACHE_DIR"]
+        os.makedirs(urdf_dir, exist_ok=True)
+
+        urdf_path = os.path.join(urdf_dir, "tabletop.urdf")
         if os.path.exists(urdf_path):
             os.remove(urdf_path)
+
         with open(urdf_path, "x") as f:
             f.write(urdf_str)
 

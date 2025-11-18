@@ -3,12 +3,14 @@ import asyncio
 import random
 import time
 from copy import copy
+from typing import Any
 
 import debugpy
 import rclpy
 import rclpy.logging
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
+from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
@@ -301,11 +303,19 @@ class MockTeensy(BaseNode):
 
         self.log("MockTeensy initialized")
 
-    def log(self, message: str, severity: str = "INFO"):
-        logged = super().log(message, severity)
-        if logged and hasattr(self, "log_pub"):
+    def log(
+        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
+    ):
+        success = super().log(message, severity, **kwargs)
+
+        if isinstance(severity, LoggingSeverity):
+            severity = severity.name
+        message = f"{severity.capitalize()}: {message}"
+
+        if success and hasattr(self, "log_pub"):
             self.log_pub.publish(String(data=str(message)))
-        return logged
+
+        return success
 
     def sync_pulse_end_timer_callback(self):
         assert self.sync_pulse_control_pin_state

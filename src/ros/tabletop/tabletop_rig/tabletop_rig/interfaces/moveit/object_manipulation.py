@@ -1,23 +1,22 @@
 import asyncio
-from collections.abc import (
-    Callable,
-    Coroutine,
-)
+from collections.abc import Callable, Coroutine
 from enum import IntEnum
 from typing import Any, Optional
 
 from geometry_msgs.msg import PoseStamped
 from rclpy.exceptions import ParameterNotDeclaredException
 
-from tabletop_rig.interfaces.moveit.plan_and_execute import (
-    PlanAndExecuteInterface,
-)
-from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.ros import (
+from tabletop_rig.exceptions import (
     ExecutionError,
     ObjectManipulationError,
     PlanningError,
-    PlanningGoalT,
+)
+from tabletop_rig.interfaces.moveit.plan_and_execute import (
+    PlanAndExecuteInterface,
+)
+from tabletop_rig.interfaces.moveit.requests import PlanningGoalT
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import (
     change_reference_frame_pose_stamped,
     matrix_from_pose_msg,
     pose_stamped_msg,
@@ -68,10 +67,6 @@ def object_manipulation_lock_decorator(
 
 
 class ObjectManipulationInterface(PlanAndExecuteInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(
         self,
         node: BaseNode,

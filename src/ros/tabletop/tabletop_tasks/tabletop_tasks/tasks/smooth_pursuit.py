@@ -5,8 +5,12 @@ from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-from moveit.core.robot_state import RobotState  # type: ignore
-from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
+from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
+    RobotState,
+)
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
+)
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import robot_trajectory_copy
 
@@ -40,7 +44,7 @@ class SmoothPursuitTask(BaseTask):
         self._reward_duration = reward_duration
         self._execute_request_params = execute_request_params
 
-        self.commander.add_manually_attached_collision_object(object_id)
+        self.commander.attach_object_manually(object_id)
 
     async def generate_trajectory(self) -> RobotTrajectory:
         """Generate spiral trajectory

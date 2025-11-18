@@ -20,8 +20,8 @@ class TrialSpec(NamedTuple):
 class TrialFeedback(NamedTuple):
     """Feedback for a Foraging task trial."""
 
-    reaction_time: float | None
-    timeout: bool | None
+    reaction_time: float | None = None
+    timeout: bool | None = None
 
 
 class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):

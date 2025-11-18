@@ -13,10 +13,6 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class SoundInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(self, node: BaseNode):
         """Initializes the DashboardInterface"""
         super().__init__(node, "sound_interface")

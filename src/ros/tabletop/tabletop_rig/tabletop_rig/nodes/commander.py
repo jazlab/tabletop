@@ -3,18 +3,9 @@ import asyncio
 import concurrent.futures
 import importlib
 import traceback
-from collections.abc import (
-    Callable,
-    Coroutine,
-    Mapping,
-)
+from collections.abc import Callable, Coroutine, Mapping
 from types import TracebackType
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Self,
-)
+from typing import Any, Literal, Optional, Self
 
 import debugpy
 import rclpy
@@ -24,20 +15,20 @@ from mingus.containers import Note
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from tabletop_interfaces.msg import TeensySensor
 
+from tabletop_rig.exceptions import (
+    ActionCallUnsuccessfulError,
+    CommanderRecoverableError,
+    ExecutionError,
+    ServiceCallUnsuccessfulError,
+)
 from tabletop_rig.interfaces.dashboard import DashboardInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
+from tabletop_rig.interfaces.moveit.requests import PlanningGoalT
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.ros import (
-    ActionCallUnsuccessfulError,
-    CommanderRecoverableError,
-    ExecutionError,
-    PlanningGoalT,
-    ServiceCallUnsuccessfulError,
-)
 
 
 class Commander(BaseNode):
@@ -276,6 +267,10 @@ class Commander(BaseNode):
             ExecutionError: If the execution fails
         """
         await self.moveit.return_object()
+
+    def attach_object_manually(self, object_id: str):
+        """Add a manually attached collision object to the end effector"""
+        self.moveit.add_manually_attached_collision_object(object_id)
 
     # async def plan_and_execute(
     #     self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any

@@ -3,47 +3,6 @@
   "tasks": [
     {
       "type": "shell",
-      "label": "build_debug",
-      "command": "tt-build --build-debug",
-      "problemMatcher": [
-        "$catkin-gcc"
-      ],
-      "group": {
-        "kind": "build",
-        "isDefault": false
-      }
-    },
-    {
-      "type": "shell",
-      "label": "build_release",
-      "command": "tt-build",
-      "problemMatcher": [
-        "$catkin-gcc"
-      ],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-    {
-      "type": "shell",
-      "label": "mesh_view",
-      "command": "${workspaceFolder}/scripts/mesh_view.py",
-      "args": [
-        "${file}"
-      ],
-      "problemMatcher": [],
-      "group": "none"
-    },
-    {
-      "type": "shell",
-      "label": "kill_ros",
-      "command": "tt-kill_ros",
-      "problemMatcher": [],
-      "group": "none"
-    },
-    {
-      "type": "shell",
       "label": "debug_tasks",
       "command": "ros2 launch tabletop_tasks tasks.launch.py clear_cache:=true debug_commander:=true",
       "problemMatcher": [],
@@ -61,39 +20,6 @@
         "kind": "test",
         "isDefault": true
       }
-    },
-    {
-      "type": "shell",
-      "label": "launch_rig",
-      "command": "ros2 launch tabletop_rig rig.launch.py",
-      "problemMatcher": [],
-      "group": "none"
-    }
-  ],
-  "inputs": [
-    {
-      "id": "simplification",
-      "default": "null",
-      "description": "Simplification method to apply to the mesh",
-      "type": "promptString"
-    },
-    {
-      "id": "scale",
-      "default": "null",
-      "description": "Scale factor",
-      "type": "promptString"
-    },
-    {
-      "id": "rpy",
-      "default": "null",
-      "description": "Roll, pitch, yaw of the mesh",
-      "type": "promptString"
-    },
-    {
-      "id": "translation",
-      "default": "null",
-      "description": "Translation of the mesh",
-      "type": "promptString"
     }
   ]
 }

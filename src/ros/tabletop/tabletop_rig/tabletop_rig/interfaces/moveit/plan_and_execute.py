@@ -1,19 +1,27 @@
 import asyncio
 import threading
-from collections.abc import (
-    Callable,
-    Iterable,
-)
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from types import TracebackType
 from typing import Any, Optional, Self, cast
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
-from moveit.core.planning_scene import PlanningScene  # type: ignore
-from moveit.core.robot_model import RobotModel  # type: ignore
-from moveit.core.robot_state import RobotState  # type: ignore
-from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
+from moveit.core.controller_manager import (  # type: ignore[reportMissingModuleSource]
+    ExecutionStatus,
+)
+from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
+    PlanningScene,
+)
+from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
+    RobotModel,
+)
+from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
+    RobotState,
+)
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
+)
 from moveit.planning import (
     MultiPipelinePlanRequestParameters,
     PlanningComponent,
@@ -21,33 +29,35 @@ from moveit.planning import (
     TrajectoryExecutionManager,
 )
 
-from tabletop_rig.interfaces.moveit.planning_scene import (
-    PlanningSceneInterface,
-)
-from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.ros import (
-    ExecuteRequest,
+from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
     ExecutionRejectedError,
     MaxPlanningAttemptsReachedError,
     NotSafeToExecuteError,
-    PlanningGoalT,
     PlanOnceError,
-    PlanRequest,
     TrajectoryError,
     TrajectoryErrorCodes,
+)
+from tabletop_rig.interfaces.moveit.planning_scene import (
+    PlanningSceneInterface,
+)
+from tabletop_rig.interfaces.moveit.requests import (
+    ExecuteRequest,
+    PlanningGoalT,
+    PlanRequest,
+)
+from tabletop_rig.interfaces.moveit.trajectory_cache import (
+    FuzzyTrajectoryCache,
+)
+from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import (
     all_close_poses_stamped,
     all_close_robot_states,
     robot_trajectory_copy,
 )
-from tabletop_rig.utils.trajectory_cache import FuzzyTrajectoryCache
 
 
 class PlanAndExecuteInterface(PlanningSceneInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(
         self,
         node: BaseNode,
@@ -762,10 +772,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         assert not self.execution_lock.locked()
         with self.execution_lock:
-            execution_status = (
+            execution_status: ExecutionStatus = (
                 self.trajectory_execution_manager.execute_and_wait()
             )
-        print("Execution status:", execution_status)
 
         # Return the trajectory if the execution was successful, otherwise raise
         # an error based on the execution status and safe to execute flag
@@ -942,7 +951,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if end_goal is None:
             end_goal = "idle"
         await self.plan_and_execute(end_goal, **kwargs)
-        self.init_planning_scene()
+        self._init_planning_scene()
 
     def __enter__(self) -> Self:
         """Enter the context manager."""

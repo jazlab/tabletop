@@ -12,10 +12,6 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class EyelinkInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(self, node: BaseNode):
         """Initializes the Eyelink Interface
 

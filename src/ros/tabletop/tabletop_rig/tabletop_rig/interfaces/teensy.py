@@ -24,10 +24,6 @@ def noop(msg: TeensySensor):
 
 
 class TeensyInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(
         self,
         node: BaseNode,
@@ -86,10 +82,6 @@ class TeensyInterface(BaseInterface):
         self._set_smartglass_client.wait_for_service()
 
         self.log("Teensy interface initialized")
-
-    ###########################################################################
-    ########## ROS Interface ##################################################
-    ###########################################################################
 
     # Properties
 

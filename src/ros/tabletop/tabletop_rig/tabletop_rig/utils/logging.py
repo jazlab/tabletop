@@ -1,9 +1,6 @@
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
-from typing import (
-    Any,
-    Optional,
-)
+from typing import Any, Optional
 
 import rclpy
 from rclpy.impl.logging_severity import LoggingSeverity

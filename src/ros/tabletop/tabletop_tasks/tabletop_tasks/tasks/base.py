@@ -23,6 +23,23 @@ DEFAULT_NOTE = {
 }
 
 
+class NullTrialGenerator:
+    def __init__(self):
+        self.returned = False
+
+    def __next__(self) -> None:
+        """Generate a new trial."""
+        if self.returned:
+            raise StopIteration
+
+        self.returned = True
+        return None
+
+    def send(self, *args, **kwargs):
+        """Get trial feedback."""
+        pass
+
+
 class BaseTask(LoggerMixin, metaclass=ABCMeta):
     """Abstract base class for all TableTop tasks.
 

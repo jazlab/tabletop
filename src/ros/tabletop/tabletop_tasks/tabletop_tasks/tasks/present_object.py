@@ -1,26 +1,17 @@
 """Present object task."""
 
-import asyncio
-import enum
 from collections.abc import Mapping
 from typing import Any
 
+from geometry_msgs.msg import PoseStamped
 from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks.base import BaseTask
-from tabletop_tasks.trial_generators import BaseTrialGenerator
-
-
-class PresentObjectState(enum.Enum):
-    """PresentObject state."""
-
-    IDLE = 0
-    NEXT_TRIAL_SPEC = 1
-    FETCH = 2
-    STIMULUS = 3
-    RETURN = 4
-    DELAY = 5
-    FINISHED = 6
+from tabletop_tasks.trial_generators.base import (
+    BaseTrialGenerator,
+    TrialFeedback,
+    TrialSpec,
+)
 
 
 class PresentObjectTask(BaseTask):
@@ -28,94 +19,27 @@ class PresentObjectTask(BaseTask):
         self,
         commander: Commander,
         trial_generator: BaseTrialGenerator | Mapping[str, Any],
-        stimulus_duration_sec: float = 0.5,
-        delay_duration_sec: float = 0.5,
     ):
         super().__init__(
-            commander,
-            trial_generator,
+            commander, trial_generator, logger_name="present_task"
         )
 
-        self._stimulus_duration_sec = stimulus_duration_sec
-        self._delay_duration_sec = delay_duration_sec
-        self._state = PresentObjectState.IDLE
+    ############################################################
+    # Phases
+    ############################################################
 
-    def _next_trial_spec(self):
-        """Get next trial spec."""
-        try:
-            self._trial_spec = next(self._trial_generator)
-        except StopIteration:
-            self.log("Trial generator finished")
-            self._state = PresentObjectState.FINISHED
-        else:
-            self._state = PresentObjectState.FETCH
+    async def present(self, pose: PoseStamped):
+        """Present object."""
+        self.log("Present phase")
+        await self.commander.plan_and_execute(
+            goal=pose, planning_pipeline="linear"
+        )
 
-    async def _fetch(self):
-        """Fetch object for trial."""
-        self.log("Fetching object")
-
-        # Fetch object
-        object_id = self._trial_spec.object_id
-        object_pose = self._trial_spec.object_pose
-        await self.commander.fetch_and_present_object(object_id, object_pose)
-
-        self._state = PresentObjectState.STIMULUS
-
-    async def _stimulus(self):
-        """Present stimulus."""
-        self.log("Presenting stimulus")
-
-        await asyncio.sleep(self._stimulus_duration_sec)
-
-        self._state = PresentObjectState.DELAY
-
-    async def _delay(self):
-        """Delay phase."""
-        self.log("Delay phase")
-
-        await asyncio.sleep(self._delay_duration_sec)
-
-        self._state = PresentObjectState.RETURN
-
-    async def _return(self):
-        """Return object."""
-        self.log("Returning object")
-
-        # Return object
-        await self.commander.unpresent_and_return_object()
-
-        # Transition to fetch state
-        self._state = PresentObjectState.NEXT_TRIAL_SPEC
-
-    async def run(self):
+    async def run_trial(self, trial_spec: TrialSpec | None) -> TrialFeedback:
         """Run a trial."""
-        while True:
-            async with self.commander.context_manager():
-                try:
-                    while True:
-                        match self._state:
-                            case PresentObjectState.IDLE:
-                                self._state = (
-                                    PresentObjectState.NEXT_TRIAL_SPEC
-                                )
-                            case PresentObjectState.NEXT_TRIAL_SPEC:
-                                self._next_trial_spec()
-                            case PresentObjectState.FETCH:
-                                await self._fetch()
-                            case PresentObjectState.STIMULUS:
-                                await self._stimulus()
-                            case PresentObjectState.DELAY:
-                                await self._delay()
-                            case PresentObjectState.RETURN:
-                                await self._return()
-                            case PresentObjectState.FINISHED:
-                                self.log("PresentObjectTask finished")
-                                return
-                            case _:
-                                raise ValueError(
-                                    f"Invalid state: {self._state}"
-                                )
-                finally:
-                    # If an error occurs, reset to the fetch state so the next
-                    # attempt will continue for the same trial
-                    self._state = PresentObjectState.FETCH
+        if trial_spec is None:
+            raise ValueError("trial_spec should not be None for foraging task")
+
+        self.log(f"Foraging task trial spec: {trial_spec}")
+        await self.present(trial_spec.object_pose)
+        return TrialFeedback()

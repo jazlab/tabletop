@@ -1,14 +1,7 @@
 import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
-from enum import Enum
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Protocol,
-)
+from typing import Any, Literal, Optional, Protocol
 
 import numpy as np
 import trimesh
@@ -16,15 +9,15 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
-from moveit.core.controller_manager import ExecutionStatus  # type: ignore
-from moveit.core.planning_scene import PlanningScene  # type: ignore
-from moveit.core.robot_state import RobotState  # type: ignore
-from moveit.core.robot_trajectory import RobotTrajectory  # type: ignore
+from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
+    RobotState,
+)
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
+)
 from moveit_msgs.msg import (
     AttachedCollisionObject,
     CollisionObject,
-    Constraints,
-    MoveItErrorCodes,
     ObjectColor,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
@@ -46,14 +39,6 @@ from transformations import (
 from tabletop_py.utils.common import is_iterable
 
 # Constants
-
-MOVEIT_ERROR_CODE_MAP = {
-    v: k
-    for k, v in type(
-        MoveItErrorCodes
-    )._Metaclass_MoveItErrorCodes__constants.items()  # type: ignore
-}
-"""MoveIt error code map from error code to string, for logging."""
 
 
 COLOR_MAP = {
@@ -115,297 +100,6 @@ class SrvType(Protocol):
 
     Request: Any
     Response: Any
-
-
-# Enums
-
-
-class TrajectoryErrorCodes(Enum):
-    """Trajectory error codes."""
-
-    TOTG_FAILED = -1
-    SMOOTHING_FAILED = -2
-    INVALID_TRAJECTORY = -3
-
-
-# Exception definitions
-
-
-class ROSSleepError(Exception):
-    """Error while sleeping in a ROS node."""
-
-
-class ServiceCallTimeoutError(Exception):
-    """Service call timed out."""
-
-
-class ServiceCallUnsuccessfulError(Exception):
-    """Service call returned with a failure status."""
-
-
-class ActionCallUnsuccessfulError(Exception):
-    """Action call failed."""
-
-
-class CommanderRecoverableError(Exception):
-    """Recoverable error that can be retried."""
-
-
-class PlanningError(CommanderRecoverableError):
-    """Planning error."""
-
-
-class PlanOnceError(PlanningError):
-    """Planning error."""
-
-    def __init__(self, error_code: MoveItErrorCodes):
-        self.error_code = error_code
-        super().__init__(
-            f"Plan once error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}"
-        )
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, PlanOnceError):
-            return self.error_code.val == other.error_code.val
-        return False
-
-
-class MaxPlanningAttemptsReachedError(PlanningError):
-    """Maximum number of planning attempts reached."""
-
-    def __init__(self, errors: list[PlanOnceError]):
-        self.errors = errors
-        if all(e == errors[0] for e in errors):
-            error_code_str = f"same error: {errors[0]}"
-        else:
-            error_code_strs = [str(e) for e in errors]
-            error_code_str = f"different errors: {error_code_strs}"
-        super().__init__(
-            f"Max planning attempts ({len(errors)}) reached with {error_code_str}"
-        )
-
-
-class ExecutionError(CommanderRecoverableError):
-    """Execution error."""
-
-
-class TrajectoryError(ExecutionError):
-    """Trajectory error."""
-
-    def __init__(self, error_code: TrajectoryErrorCodes):
-        self.error_code = error_code
-        super().__init__(f"Trajectory error: {error_code}")
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, TrajectoryError):
-            return self.error_code == other.error_code
-        return False
-
-
-class ExecutionRejectedError(ExecutionError):
-    """Execution rejected (robot did not move)."""
-
-    def __init__(self, execution_status: ExecutionStatus):
-        self.execution_status = execution_status
-        super().__init__(f"Execution rejected: {execution_status.status}")
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, ExecutionRejectedError):
-            return (
-                self.execution_status.status == other.execution_status.status
-            )
-        return False
-
-
-class ExecutionInterruptedError(ExecutionError):
-    """Execution interrupted (robot moved but not to the goal)."""
-
-    def __init__(self, execution_status: ExecutionStatus):
-        self.execution_status = execution_status
-        super().__init__(f"Execution interrupted: {execution_status.status}")
-
-
-class NotSafeToExecuteError(ExecutionError):
-    """Not safe to execute."""
-
-    def __init__(self, execution_status: Optional[ExecutionStatus] = None):
-        self.execution_status = execution_status
-        msg = "Not safe to execute"
-        if execution_status is not None:
-            msg += f": {execution_status.status}"
-        super().__init__(msg)
-
-
-class ObjectManipulationError(CommanderRecoverableError):
-    """Error while manipulating object."""
-
-
-# Type aliases
-
-
-PlanningGoalT = RobotState | PoseStamped | str
-
-
-# Request definitions
-
-
-@dataclass(slots=True, kw_only=True)
-class PlanRequest:
-    """Request for a plan."""
-
-    goal: RobotState | PoseStamped
-    start_state: RobotState
-    pose_link: str
-    group_name: str
-    planning_pipeline: str
-    path_constraints: Constraints | None
-    planning_scene: PlanningScene | None
-    max_plan_attempts: int
-
-    def __post_init__(self):
-        """Type check the request."""
-        for name in PlanRequest.__slots__:
-            self._validate_attribute(name, getattr(self, name))
-
-    def _validate_attribute(self, name: str, value: Any):
-        """Check the types of the request."""
-        if name not in PlanRequest.__slots__:
-            raise AttributeError(f"Invalid attribute: {name}")
-
-        match name:
-            case "goal":
-                if not isinstance(value, (RobotState, PoseStamped)):
-                    raise ValueError(f"Invalid goal type: {type(value)}")
-            case "start_state":
-                if not isinstance(value, RobotState):
-                    raise ValueError(
-                        f"Invalid start state type: {type(value)}"
-                    )
-            case "pose_link":
-                if not isinstance(value, str):
-                    raise ValueError(f"Invalid pose link type: {type(value)}")
-            case "group_name":
-                if not isinstance(value, str):
-                    raise ValueError(f"Invalid group name type: {type(value)}")
-            case "planning_pipeline":
-                if not isinstance(value, str):
-                    raise ValueError(
-                        f"Invalid planning pipeline type: {type(value)}"
-                    )
-            case "path_constraints":
-                if value is not None and not isinstance(value, Constraints):
-                    raise ValueError(
-                        f"Invalid path constraints type: {type(value)}"
-                    )
-            case "planning_scene":
-                if value is not None and not isinstance(value, PlanningScene):
-                    raise ValueError(
-                        f"Invalid planning scene type: {type(value)}"
-                    )
-            case "max_plan_attempts":
-                if not isinstance(value, int):
-                    raise ValueError(
-                        f"Invalid max plan attempts type: {type(value)}"
-                    )
-            case _:
-                raise ValueError(f"Invalid attribute: {name}")
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Set an attribute."""
-        self._validate_attribute(name, value)
-        object.__setattr__(self, name, value)
-
-
-@dataclass(slots=True)
-class ExecuteRequest:
-    """Request for an execute."""
-
-    trajectory: RobotTrajectory
-    validate_trajectory: bool
-    apply_totg: bool
-    apply_smoothing: bool
-    velocity_scaling_factor: float
-    acceleration_scaling_factor: float
-    path_tolerance: float
-    resample_dt: float
-    min_angle_change: float
-    mitigate_overshoot: bool
-    overshoot_threshold: float
-
-    def __post_init__(self):
-        """Type check the request."""
-        for name in ExecuteRequest.__slots__:
-            self._validate_attribute(name, getattr(self, name))
-
-    def _validate_attribute(self, name: str, value: Any):
-        """Check the types of the request."""
-        if name not in ExecuteRequest.__slots__:
-            raise AttributeError(f"Invalid attribute: {name}")
-
-        match name:
-            case "trajectory":
-                if not isinstance(value, RobotTrajectory):
-                    raise ValueError(f"Invalid trajectory type: {type(value)}")
-            case "validate_trajectory":
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid validate trajectory type: {type(value)}"
-                    )
-            case "apply_totg":
-                if not isinstance(value, bool):
-                    raise ValueError(f"Invalid apply totg type: {type(value)}")
-            case "apply_smoothing":
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid apply smoothing type: {type(value)}"
-                    )
-            case "velocity_scaling_factor":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid velocity scaling factor type: {type(value)}"
-                    )
-            case "acceleration_scaling_factor":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid acceleration scaling factor type: {type(value)}"
-                    )
-            case "path_tolerance":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid path tolerance type: {type(value)}"
-                    )
-            case "resample_dt":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid resample dt type: {type(value)}"
-                    )
-            case "min_angle_change":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid min angle change type: {type(value)}"
-                    )
-            case "mitigate_overshoot":
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid mitigate overshoot type: {type(value)}"
-                    )
-            case "overshoot_threshold":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid overshoot threshold type: {type(value)}"
-                    )
-            case "max_execution_attempts":
-                if not isinstance(value, int):
-                    raise ValueError(
-                        f"Invalid max execution attempts type: {type(value)}"
-                    )
-            case _:
-                raise ValueError(f"Invalid attribute: {name}")
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Set an attribute."""
-        self._validate_attribute(name, value)
-        object.__setattr__(self, name, value)
 
 
 # Generic ROS2 utilities

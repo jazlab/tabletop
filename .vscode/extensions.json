@@ -1,23 +1,22 @@
 {
-    "recommendations": [
-        "ms-azuretools.vscode-docker",
-        "ms-azuretools.vscode-containers",
-        "anysphere.cursorpyright",
-        "ms-python.python",
-        "ms-python.debugpy",
-        "ms-toolsai.jupyter",
-        "anysphere.cpptools",
-        "mechatroner.rainbow-csv",
-        "charliermarsh.ruff",
-        "tamasfe.even-better-toml",
-        "redhat.vscode-yaml",
-        "redhat.vscode-xml",
-        "bierner.markdown-mermaid",
-        "ms-vscode.cpptools-extension-pack",
-        "ms-vscode.cpptools-themes",
-        "ms-vscode.cmake-tools",
-        "mads-hartmann.bash-ide-vscode",
-        "christian-kohler.npm-intellisense",
-        "docker.docker",
-    ]
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.debugpy",
+    "mechatroner.rainbow-csv",
+    "charliermarsh.ruff",
+    "tamasfe.even-better-toml",
+    "redhat.vscode-yaml",
+    "ms-azuretools.vscode-docker",
+    "redhat.vscode-xml",
+    "bierner.markdown-mermaid",
+    "ms-vscode.cpptools-extension-pack",
+    "ms-vscode.cpptools-themes",
+    "ms-vscode.cmake-tools",
+    "ms-toolsai.jupyter",
+    "anysphere.cpptools",
+    "mads-hartmann.bash-ide-vscode",
+    "christian-kohler.npm-intellisense",
+    "docker.docker",
+    "Ranch-Hand-Robotics.rde-pack"
+  ]
 }

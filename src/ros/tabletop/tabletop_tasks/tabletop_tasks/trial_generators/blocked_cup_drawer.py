@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 from tabletop_rig.nodes import Commander
 
-from tabletop_tasks.trial_generators import (
+from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
     TrialFeedback,
     TrialSpec,

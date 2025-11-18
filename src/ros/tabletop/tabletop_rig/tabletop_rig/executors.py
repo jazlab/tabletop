@@ -1,3 +1,5 @@
+# pyright: reportIncompatibleMethodOverride=false
+
 import asyncio
 import inspect
 from collections.abc import AsyncGenerator, Callable
@@ -256,16 +258,16 @@ class AIOExecutor(Executor):
                     waitable.add_to_wait_set(wait_set)
 
                 # Wait for something to become ready
+                future = None
                 try:
                     future = self._tpe.submit(wait_set.wait, timeout_nsec)
                     await asyncio.wrap_future(future)
-                except BaseException:
+                except asyncio.CancelledError:
                     # Wake the executor to join the thread
                     self.wake()
-                    try:
-                        future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
-                    except BaseException:
-                        pass
+                    if future is not None:
+                        if not future.cancel():
+                            future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
                     raise
 
                 if self._is_shutdown:

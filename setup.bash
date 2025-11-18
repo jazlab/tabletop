@@ -1,7 +1,9 @@
 # Set environment variables
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
+export TABLETOP_CACHE_DIR=$TABLETOP_DIR/.cache/tabletop
 export COLCON_WS=$TABLETOP_DIR
 export COLCON_LOG_DIR=$COLCON_WS/log/colcon
+export CCACHE_DIR=$TABLETOP_DIR/.cache/ccache
 export ROS_LOG_DIR=$TABLETOP_DIR/log/ros
 export ROS_BAG_DIR=$TABLETOP_DIR/bags
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp

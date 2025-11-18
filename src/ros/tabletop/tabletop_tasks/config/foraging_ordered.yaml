@@ -32,13 +32,11 @@ tasks:
           occlude:
             - false
           num_trials: 100000
-      fixation_timeout: 0.5
-      fixation_duration: 0.5
       stimulus_duration: 0.5
       delay_duration: 0.5
       response_timeout: 2.5
       reward_duration: 2.0
       reveal_duration: 0.5
-      play_sound: true
+      reward_sound: true
       sound_kwargs:
         duration: 0.5

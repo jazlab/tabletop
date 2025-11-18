@@ -2,10 +2,7 @@ import glob
 import hashlib
 import json
 import os
-from collections.abc import (
-    Iterable,
-    Mapping,
-)
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from typing import Any, ContextManager, Literal, Optional
 
@@ -13,16 +10,15 @@ import numpy as np
 import pandas as pd
 import yaml
 from geometry_msgs.msg import Pose, PoseStamped
-from moveit.core.collision_detection import (  # type: ignore
+from moveit.core.collision_detection import (  # type: ignore[reportMissingModuleSource]
     AllowedCollisionMatrix,
     CollisionRequest,
     CollisionResult,
 )
-from moveit.core.planning_scene import PlanningScene  # type: ignore
-from moveit.planning import (
-    MoveItPy,
-    PlanningSceneMonitor,
+from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
+    PlanningScene,
 )
+from moveit.planning import MoveItPy, PlanningSceneMonitor
 from moveit_msgs.msg import AllowedCollisionMatrix as AllowedCollisionMatrixMsg
 from moveit_msgs.msg import (
     AttachedCollisionObject,
@@ -60,10 +56,6 @@ from tabletop_rig.utils.ros import (
 
 
 class PlanningSceneInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(
         self, node: BaseNode, logger_name: str = "moveit_scene_interface"
     ):
@@ -79,22 +71,17 @@ class PlanningSceneInterface(BaseInterface):
 
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=False)
 
-        self.init_planning_scene()
+        self._init_planning_scene()
 
-        self.init_attached_object()
+        self._init_attached_object()
 
-        self.init_link_padding()
+        self._init_link_padding()
 
-        self.init_collision_detector()
+        self._init_collision_detector()
 
         self.log("MoveIt scene interface initialized")
 
-    def init_collision_detector(self):
-        """Initialize the collision detector."""
-        with self.planning_scene_rw() as scene:
-            scene.allocate_collision_detector("bullet")
-
-    def init_planning_scene(self):
+    def _init_planning_scene(self):
         """Setup the planning scene
 
         Adds plane, primitive, and mesh collision objects from the planning
@@ -189,7 +176,7 @@ class PlanningSceneInterface(BaseInterface):
         with open(config_path, "w") as f:
             yaml.dump(orig_config, f)
 
-    def init_attached_object(self):
+    def _init_attached_object(self):
         """Initialize the attached object."""
         object_id = None
         idx = None
@@ -238,7 +225,7 @@ class PlanningSceneInterface(BaseInterface):
             object_id, self.default_pose_link, touch_links=self.touch_links
         )
 
-    def init_link_padding(self):
+    def _init_link_padding(self):
         """Set the link padding for the planning scene."""
         config: dict[str, Any] = self.node.get_parameter_wrapper(
             "link_padding"
@@ -253,6 +240,11 @@ class PlanningSceneInterface(BaseInterface):
             )
             if not scene.set_planning_scene_diff_msg(msg):
                 raise RuntimeError("Failed to set link padding")
+
+    def _init_collision_detector(self):
+        """Initialize the collision detector."""
+        with self.planning_scene_rw() as scene:
+            scene.allocate_collision_detector("bullet")
 
     ###########################################################################
     ########## Parameter Convenience Properties ###############################

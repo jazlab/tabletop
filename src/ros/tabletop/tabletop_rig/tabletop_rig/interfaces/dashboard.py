@@ -6,18 +6,12 @@ from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
 from ur_dashboard_msgs.srv import Load as DashboardLoad
 
+from tabletop_rig.exceptions import ServiceCallUnsuccessfulError
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.ros import (
-    ServiceCallUnsuccessfulError,
-)
 
 
 class DashboardInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(self, node: BaseNode):
         """Initializes the DashboardInterface"""
         super().__init__(node, "dashboard_interface")
@@ -75,10 +69,6 @@ class DashboardInterface(BaseInterface):
             ),
         )
         return response.robot_mode
-
-    ###########################################################################
-    ########## Reset ##########################################################
-    ###########################################################################
 
     async def reset(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""

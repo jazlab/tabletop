@@ -1,9 +1,5 @@
 import asyncio
-from typing import (
-    Any,
-    Optional,
-    cast,
-)
+from typing import Any, Optional, cast
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
@@ -16,15 +12,13 @@ from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 
 from tabletop_py.utils.common import yaml_dump_string
-from tabletop_rig.utils.logging import LoggerMixin, msg_to_dict
-from tabletop_rig.utils.ros import (
+from tabletop_rig.exceptions import (
     ROSSleepError,
     ServiceCallTimeoutError,
     ServiceCallUnsuccessfulError,
-    SrvType,
-    SrvTypeRequest,
-    SrvTypeResponse,
 )
+from tabletop_rig.utils.logging import LoggerMixin, msg_to_dict
+from tabletop_rig.utils.ros import SrvType, SrvTypeRequest, SrvTypeResponse
 
 
 class BaseNode(Node, LoggerMixin):

@@ -11,10 +11,6 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class FlicInterface(BaseInterface):
-    ###########################################################################
-    ########## Initialization #################################################
-    ###########################################################################
-
     def __init__(self, node: BaseNode):
         """Initializes the Eyelink Interface
 
