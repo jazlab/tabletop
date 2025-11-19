@@ -41,7 +41,7 @@ def declare_arguments():
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
-            description="Using or not time from simulation",
+            description="Use simulated time",
         ),
     ]
 
@@ -52,7 +52,7 @@ def generate_launch_description():
 
     # Optitrack driver
     driver = LifecycleNode(
-        name="mocap4r2_optitrack_driver_node",
+        name="optitrack_driver",
         namespace="",
         package="mocap4r2_optitrack_driver",
         output="both",
@@ -117,7 +117,7 @@ def generate_launch_description():
 
     # Rviz visualizer for optitrack markers
     marker_viz = Node(
-        name="mocap4r2_maker_viz",
+        name="optitrack_marker_viz",
         package="mocap4r2_marker_viz",
         executable="mocap4r2_marker_viz",
         output="both",

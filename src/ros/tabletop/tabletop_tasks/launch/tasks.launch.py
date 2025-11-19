@@ -20,6 +20,17 @@ from launch_ros.substitutions import FindPackageShare
 def declare_arguments():
     return [
         DeclareLaunchArgument(
+            "robot_name",
+            default_value="ur5e",
+            description="Robot name for SRDF",
+        ),
+        DeclareLaunchArgument(
+            "robot_mode",
+            default_value="mock",
+            choices=["mock", "ursim", "real"],
+            description="Whether to use the mock robot, URSim, or real robot",
+        ),
+        DeclareLaunchArgument(
             "launch_rig",
             default_value="true",
             description="Launch rig?",
@@ -75,6 +86,10 @@ def generate_launch_description():
                         ]
                     ),
                 ),
+                launch_arguments={
+                    "robot_name": LaunchConfiguration("robot_name"),
+                    "robot_mode": LaunchConfiguration("robot_mode"),
+                }.items(),
             ),
         ],
         condition=IfCondition(launch_rig),
@@ -98,6 +113,8 @@ def generate_launch_description():
                     ]
                 ),
                 launch_arguments={
+                    "robot_name": LaunchConfiguration("robot_name"),
+                    "robot_mode": LaunchConfiguration("robot_mode"),
                     "coroutine_module": coroutine_module,
                     "coroutine_name": coroutine_name,
                     "coroutine_config": coroutine_config,

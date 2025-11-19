@@ -57,7 +57,7 @@ def declare_arguments():
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
-            description="Use published simulated time",
+            description="Use simulated time",
         ),
     ]
 

@@ -15,8 +15,14 @@ case $1 in
     foxglove)
         LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
         ;;
+    rviz)
+        LAUNCH="tabletop_rig rviz.launch.py"
+        ;;
     flir)
         LAUNCH="tabletop_rig flir.launch.py"
+        ;;
+    ur)
+        LAUNCH="tabletop_rig ur.launch.py"
         ;;
     flir_calibrate)
         LAUNCH="tabletop_rig flir_calibrate.launch.py"

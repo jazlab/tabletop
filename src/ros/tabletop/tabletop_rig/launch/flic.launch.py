@@ -28,7 +28,7 @@ def declare_arguments():
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
-            description="Using or not time from simulation",
+            description="Use simulated time",
         ),
     ]
 
@@ -37,14 +37,13 @@ def generate_launch_description():
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     flic = Node(
-        name="flic",
         package="tabletop_rig",
         executable="flic",
         output="both",
         parameters=[
             {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "simulate": LaunchConfiguration("simulate"),
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
             },
         ],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],

@@ -798,10 +798,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         try:
             return await asyncio.to_thread(self._execute_impl, *args, **kwargs)
         finally:
-            print("Stopping execution")
             if self.execution_lock.locked():
                 self.trajectory_execution_manager.stop_execution()
-            print("Execution stopped")
 
     def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
         """Cache the given trajectory.

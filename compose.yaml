@@ -135,6 +135,25 @@ services:
     restart: unless-stopped
     command: tt-launch foxglove
 
+  rviz:
+    extends: ros-base
+    # profiles: !reset []
+    container_name: tabletop-rviz
+    environment:
+      - DISPLAY=:20.0
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: tt-launch rviz
+
+  ur:
+    extends: ros-base
+    container_name: tabletop-ur
+    # profiles: !reset []
+    restart: unless-stopped
+    command: tt-launch ur
+
   optitrack:
     extends: ros-base
     # profiles: !reset []

@@ -31,20 +31,9 @@ def save_yaml(file_path, data, sort_keys=False):
 def declare_arguments():
     return [
         DeclareLaunchArgument(
-            "ur_type",
+            "robot_name",
             default_value="ur5e",
-            description="Type/series of used UR robot.",
-            choices=[
-                "ur3",
-                "ur3e",
-                "ur5",
-                "ur5e",
-                "ur10",
-                "ur10e",
-                "ur16e",
-                "ur20",
-                "ur30",
-            ],
+            description="Robot name for MoveIt SRDF",
         ),
         DeclareLaunchArgument(
             "robot_mode",
@@ -145,7 +134,7 @@ def declare_arguments():
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
-            description="Using or not time from simulation",
+            description="Use simulated time",
         ),
     ]
 
@@ -237,7 +226,7 @@ def generate_launch_description():
         )
         .robot_description_semantic(
             file_path="srdf/tabletop.srdf.xacro",
-            mappings={"name": LaunchConfiguration("ur_type")},
+            mappings={"name": LaunchConfiguration("robot_name")},
         )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",

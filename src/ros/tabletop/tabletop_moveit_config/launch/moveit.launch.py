@@ -80,7 +80,7 @@ def declare_arguments():
             DeclareLaunchArgument(
                 "use_sim_time",
                 default_value="false",
-                description="Using or not time from simulation",
+                description="Use simulated time",
             ),
             DeclareLaunchArgument(
                 "publish_robot_description_semantic",
