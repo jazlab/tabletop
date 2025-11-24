@@ -39,7 +39,7 @@ def declare_arguments():
         # UR Driver
         DeclareLaunchArgument(
             "ur_launch",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Launch UR Driver?",
         ),
@@ -177,7 +177,7 @@ def declare_arguments():
         # RViz
         DeclareLaunchArgument(
             "rviz_launch",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Launch RViz?",
         ),

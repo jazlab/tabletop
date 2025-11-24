@@ -1,14 +1,5 @@
 /commander:
   ros__parameters:
-    simulate: true
-    max_workers: 8
-
-    dashboard:
-      installation: default.installation
-      program: external_control.urp
-      play_retries: 3
-      play_retry_delay: 1.0
-
     sound:
       enable: true
       soundfont_path: $(find-pkg-share tabletop_rig)/soundfonts/moog.sf2
@@ -66,77 +57,8 @@
         small_object_28: 90:88:a9:50:66:09
         small_object_29: 90:88:a9:50:5f:68
 
-    planning:
-      defaults:
-        pose_link: eef
-        group_name: manipulator
-        planning_pipeline: ompl_aps_rrt_star
-        # planning_pipeline: cumotion
-        planning_scene: null
-        path_constraints: null
-        max_plan_attempts: 5
-      goal_position_tolerance: 0.01
-      goal_orientation_tolerance: 0.02
-      use_euler_tolerance: true
-
-    trajectory_cache:
-      use_cached_trajectories: true
-      freeze_cache: false
-      kwargs:
-        path: $TABLETOP_CACHE_DIR/trajectories
-        goal_position_tolerance: 0.03 # meters
-        goal_orientation_tolerance: 0.05 # radians
-        use_euler_tolerance: true
-        max_trajectories: 5
-        new_cache: false
-
-    execution:
-      robot_moved_tolerance: 0.02 # radians
-      defaults:
-        validate_trajectory: true
-        apply_totg: true
-        apply_smoothing: false
-        velocity_scaling_factor: 1.0
-        acceleration_scaling_factor: 1.0
-        path_tolerance: 0.001
-        resample_dt: 0.05
-        min_angle_change: 0.001
-        mitigate_overshoot: false
-        overshoot_threshold: 0.002
-
-    plan_and_execute:
-      max_attempts: 3
-
-    predefined_states:
-      idle_state: ready_for_action
-      pre_present_state: pre_present
-
-    predefined_poses:
-      pre_fetch_offset: [-0.03, 0.0, -0.05] # relative to object init pose
-      pre_attach_offset: [-0.03, 0.0, 0.0] # relative to object init pose
-      post_attach_offset: [0.077, 0.0, 0.0] # relative to object init pose
-      post_fetch_offset: [0.077, 0.0, -0.15] # relative to object init pose
-      pre_present_pose:
-        position: [0.9525, 0.4, 0.6]
-        rpy: [0.0, 0.0, -1.5707]
-
     object_manipulation:
       detach_velocity_scaling_factor: 1.0
-      allowed_collisions:
-        eef_sphere: rig
-      touch_links:
-        - eef_link
-      mount_ids:
-        - rig
-
-    link_padding:
-      base_link_inertia: 0.03
-      shoulder_link: 0.03
-      upper_arm_link: 0.03
-      forearm_link: 0.03
-      wrist_1_link: 0.03
-      wrist_2_link: 0.03
-      wrist_3_link: 0.01
 
     manually_attached_object_kwargs:
       allowed_collision_ids:

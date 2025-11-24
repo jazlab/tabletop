@@ -34,7 +34,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "config_file",
             default_value=PathJoinSubstitution(
-                [FindPackageShare("tabletop_rig"), "rviz", "rig.rviz"]
+                [FindPackageShare("tabletop_rig"), "config", "rig.rviz"]
             ),
             description="RViz config file",
         ),

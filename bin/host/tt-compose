@@ -10,22 +10,26 @@ builtin cd $TABLETOP_DIR
 source docker/env.bash
 
 ARGS=()
-export COMPOSE_PROFILES="*"
+# export COMPOSE_PROFILES="*"
 while [[ $# -gt 0 ]]; do
     case $1 in
         build)
             ARGS+=("$1")
             # ARGS+=("--builder" "tabletop_builder")
+            export COMPOSE_PROFILES="*"
             export BUILDKIT_PROGRESS=plain
             ;;
-        # down)
-        #     ARGS+=("$1")
-        #     ARGS+=("--volumes")
+        # up)
+        #     unset COMPOSE_PROFILES
         #     ;;
         ps)
             ARGS+=("$1")
             ARGS+=("--all")
             ;;
+        # down)
+        #     ARGS+=("$1")
+        #     ARGS+=("--volumes")
+        #     ;;
         *)
             ARGS+=("$1")
             ;;

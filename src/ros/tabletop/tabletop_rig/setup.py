@@ -5,6 +5,20 @@ from setuptools import find_packages, setup
 
 package_name = "tabletop_rig"
 
+
+def nested_data_files(share_path: str, dir: str):
+    data_files = []
+
+    for path, _, files in os.walk(dir):
+        list_entry = (
+            os.path.join(share_path, path),
+            [os.path.join(path, f) for f in files if not f.startswith(".")],
+        )
+        data_files.append(list_entry)
+
+    return data_files
+
+
 setup(
     name=package_name,
     version="0.0.0",
@@ -24,9 +38,10 @@ setup(
             glob(os.path.join("config", "*.*")),
         ),
         (
-            os.path.join("share", package_name, "rviz"),
-            glob(os.path.join("rviz", "*.*")),
+            os.path.join("share", package_name, "soundfonts"),
+            glob(os.path.join("soundfonts", "*.*")),
         ),
+        *nested_data_files(os.path.join("share", package_name), "meshes"),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
