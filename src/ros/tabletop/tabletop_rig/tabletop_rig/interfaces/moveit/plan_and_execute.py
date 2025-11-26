@@ -1,7 +1,7 @@
 import asyncio
 import threading
 from collections.abc import Callable, Iterable
-from copy import deepcopy
+from copy import copy, deepcopy
 from types import TracebackType
 from typing import Any, Optional, Self, cast
 
@@ -41,11 +41,7 @@ from tabletop_rig.exceptions import (
 from tabletop_rig.interfaces.moveit.planning_scene import (
     PlanningSceneInterface,
 )
-from tabletop_rig.interfaces.moveit.requests import (
-    ExecuteRequest,
-    PlanningGoalT,
-    PlanRequest,
-)
+from tabletop_rig.interfaces.moveit.requests import PlanningGoalT, PlanRequest
 from tabletop_rig.interfaces.moveit.trajectory_cache import (
     FuzzyTrajectoryCache,
 )
@@ -261,16 +257,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         robot_state.update()
         return robot_state
 
-    def get_default_plan_request(self) -> PlanRequest:
-        """Get the default plan request."""
-        kwargs = self.node.get_parameter_wrapper("planning.defaults")
-        return PlanRequest(
-            goal=PoseStamped(), start_state=self.current_state, **kwargs
-        )
-
     def create_plan_request(
         self, goal: PlanningGoalT, **kwargs: Any
-    ) -> tuple[PlanRequest, dict[str, Any]]:
+    ) -> PlanRequest:
         """Parse the planning kwargs.
 
         Args:
@@ -281,30 +270,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
         """
-        self.log("Parsing plan args", severity="DEBUG")
-
-        request = self.get_default_plan_request()
-
-        # TODO: Implement pose_link functionality
-        if "pose_link" in kwargs and kwargs["pose_link"] != request.pose_link:
-            raise NotImplementedError(
-                "pose_link functionality is not implemented"
-            )
-
-        # Override the default kwargs with the provided kwargs
-        for key in request.__slots__:
-            if key in kwargs:
-                setattr(request, key, kwargs.pop(key))
-
-        # Set the goal to the target state if the goal is a configuration name
-        if isinstance(goal, str):
-            goal = self.get_target_state(goal, request.group_name)
-        elif isinstance(goal, PoseStamped):
-            if goal.header.frame_id != self.planning_frame:
-                goal = self.change_reference_frame(goal, self.planning_frame)
-        request.goal = goal
-
-        return request, kwargs
+        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
+        kwargs = default_kwargs | kwargs
+        return PlanRequest(goal=goal, **kwargs)
 
     def _pre_plan(
         self, request: PlanRequest
@@ -339,10 +307,20 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             raise ValueError(f"Invalid start state: {request.start_state}")
 
         # Check that pose_link is the planning link
-        if request.pose_link != self.default_pose_link:
+        # TODO: Implement pose_link functionality
+        if (
+            request.pose_link is not None
+            and request.pose_link != self.default_pose_link
+        ):
             raise NotImplementedError(
                 "pose_link functionality is not implemented"
             )
+
+        # Verify goal has already been transformed correctly
+        if isinstance(request.goal, PoseStamped):
+            assert request.goal.header.frame_id == self.planning_frame
+        else:
+            assert not isinstance(request.goal, str)
 
         # Set goal state
         goal_kwargs = {}
@@ -371,171 +349,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             )
 
         return planning_component, request_params
-
-    def _plan_once_impl(
-        self,
-        planning_component: PlanningComponent,
-        request_params: PlanRequestParameters
-        | MultiPipelinePlanRequestParameters,
-        planning_scene: Optional[PlanningScene] = None,
-    ) -> RobotTrajectory:
-        """Plan a trajectory to the given waypoint once.
-
-        Args:
-            planning_component: The planning component to use.
-            request_params: The request parameters to use.
-            planning_scene: The planning scene to use.
-
-        Returns:
-            The planned trajectory.
-
-        Raises:
-            PlanOnceError: If the planning fails.
-        """
-        self.log(
-            f"Planning once with request params {request_params} and planning scene {planning_scene}",
-            severity="DEBUG",
-        )
-        if isinstance(request_params, MultiPipelinePlanRequestParameters):
-            plan_response = planning_component.plan(
-                self.moveit_py,
-                multi_plan_parameters=request_params,
-                planning_scene=planning_scene,
-            )
-        else:
-            plan_response = planning_component.plan(
-                self.moveit_py,
-                single_plan_parameters=request_params,
-                planning_scene=planning_scene,
-            )
-
-        if not plan_response:
-            raise PlanOnceError(plan_response.error_code)
-
-        return plan_response.trajectory
-
-    def _plan_impl(
-        self,
-        *args: Any,
-        request: Optional[PlanRequest] = None,
-        cancel_event: Optional[threading.Event] = None,
-        **kwargs: Any,
-    ) -> RobotTrajectory | None:
-        """
-        Plan a trajectory to the given waypoint, retrying up to max_plan_attempts
-        times until successful.
-
-        Args:
-            *args: Arguments to pass to `create_plan_request()`.
-            request: The request to plan for. If not provided, the request is
-                created from args and kwargs.
-            cancel_event: An event that can be used to cancel planning.
-            **kwargs: Keyword arguments to pass to `create_plan_request()`.
-
-        Returns:
-            The planned trajectory, or None if the goal is already reached.
-
-        Raises:
-            ValueError: If the request or arguments are invalid.
-            MaxPlanningAttemptsReachedError: If the maximum number of planning
-                attempts is reached.
-            asyncio.CancelledError: If the planning is cancelled by the cancel_event.
-
-        See Also:
-            `create_plan_request()`: For parameter details
-        """
-        # Parse the planning args if requested
-        if request is None:
-            request, unused_kwargs = self.create_plan_request(*args, **kwargs)
-            if len(unused_kwargs) > 0:
-                raise ValueError(f"Unused kwargs: {unused_kwargs}")
-        elif len(args) > 0 or len(kwargs) > 0:
-            raise ValueError(
-                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if plan_request is provided"
-            )
-
-        # Check if the goal is already reached
-        if isinstance(request.goal, PoseStamped):
-            if self.all_close_poses_stamped(
-                request.goal, self.eef_pose_stamped()
-            ):
-                self.log("Already at goal, skipping planning")
-                return None
-        elif self.all_close_robot_states(request.goal, self.current_state):
-            self.log("Already at start state, skipping planning")
-            return None
-
-        # Get the planning component and request parameters
-        planning_component, request_params = self._pre_plan(request)
-
-        # Plan until successful or max attempts reached
-        errors: list[PlanOnceError] = []
-        for i in range(request.max_plan_attempts):
-            if cancel_event is not None and cancel_event.is_set():
-                raise asyncio.CancelledError("Plan cancelled")
-            try:
-                trajectory = self._plan_once_impl(
-                    planning_component, request_params, request.planning_scene
-                )
-                self.log(
-                    f"Planning attempt {i + 1}/{request.max_plan_attempts} succeeded",
-                    severity="DEBUG",
-                )
-                return trajectory
-            except PlanOnceError as e:
-                self.log(
-                    f"Planning attempt {i + 1}/{request.max_plan_attempts} failed: {e}",
-                    severity="WARN",
-                )
-                errors.append(e)
-        else:
-            raise MaxPlanningAttemptsReachedError(errors)
-
-    async def plan(self, *args: Any, **kwargs: Any) -> RobotTrajectory | None:
-        """Asynchronously calls `_plan_impl()` method in a separate thread.
-
-        See Also:
-            `_plan_impl()`: For parameter and implementation details.
-        """
-        cancel_event = threading.Event()
-        try:
-            return await asyncio.to_thread(
-                self._plan_impl, *args, cancel_event=cancel_event, **kwargs
-            )
-        finally:
-            cancel_event.set()
-
-    def get_empty_trajectory(self) -> RobotTrajectory:
-        return RobotTrajectory(self.robot_model)
-
-    def get_default_execute_request(self) -> ExecuteRequest:
-        """Get the default execute request."""
-        kwargs = self.node.get_parameter_wrapper("execution.defaults")
-        return ExecuteRequest(trajectory=self.get_empty_trajectory(), **kwargs)
-
-    def create_execute_request(
-        self, trajectory: RobotTrajectory, **kwargs: Any
-    ) -> tuple[ExecuteRequest, dict[str, Any]]:
-        """Create an execute request.
-
-        Args:
-            trajectory: The robot trajectory to execute.
-            **kwargs: Additional keyword arguments to override the default
-                execute request.
-
-        Returns:
-            An execute request.
-        """
-        request = self.get_default_execute_request()
-
-        request.trajectory = trajectory
-
-        # Override the default kwargs with the provided kwargs
-        for key in request.__slots__:
-            if key in kwargs:
-                setattr(request, key, kwargs.pop(key))
-
-        return request, kwargs
 
     def _apply_totg(
         self,
@@ -679,8 +492,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             ):
                 raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
 
-    def preprocess_trajectory(
-        self, request: ExecuteRequest
+    def post_process_trajectory(
+        self, trajectory: RobotTrajectory, request: PlanRequest
     ) -> RobotTrajectory:
         """Preprocess the trajectory using the given request.
 
@@ -691,7 +504,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             The preprocessed trajectory.
         """
         # Apply time parameterization and smoothing to the trajectory
-        trajectory = request.trajectory
         if request.apply_totg:
             trajectory = self._apply_totg(
                 trajectory,
@@ -711,67 +523,184 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 overshoot_threshold=request.overshoot_threshold,
             )
 
-        # Validate the trajectory
-        if request.validate_trajectory:
-            self._validate_trajectory(trajectory)
-
         return trajectory
 
-    def _execute_impl(
+    def _plan_once_impl(
         self,
-        *args: Any,
-        request: Optional[ExecuteRequest] = None,
-        preprocess_trajectory: bool = True,
-        **kwargs: Any,
-    ):
-        """Execute the given robot trajectory.
+        planning_component: PlanningComponent,
+        request_params: PlanRequestParameters
+        | MultiPipelinePlanRequestParameters,
+        planning_scene: Optional[PlanningScene] = None,
+    ) -> RobotTrajectory:
+        """Plan a trajectory to the given waypoint once.
 
         Args:
-            *args: Arguments to pass to `create_execute_request()`.
-            request: The request to execute. If not provided, the request is
-                created from args and kwargs.
-            **kwargs: Keyword arguments to pass to `create_execute_request()`.
+            planning_component: The planning component to use.
+            request_params: The request parameters to use.
+            planning_scene: The planning scene to use.
+
+        Returns:
+            The planned trajectory.
 
         Raises:
-            ValueError: If the request or arguments are invalid.
-            NotSafeToExecuteError: If the robot is not safe to execute.
-            ExecutionInterruptedError: If the robot moved but not to the goal.
-            ExecutionRejectedError: If the trajectory was rejected by the robot.
-            TrajectoryError: If the trajectory processing fails or the
-                trajectory is invalid.
-
-        See Also:
-            `create_execute_request()`: For parameter details
+            PlanOnceError: If the planning fails.
         """
-
-        if request is None:
-            request, unused_kwargs = self.create_execute_request(
-                *args, **kwargs
+        self.log(
+            f"Planning once with request params {request_params} and planning scene {planning_scene}",
+            severity="DEBUG",
+        )
+        if isinstance(request_params, MultiPipelinePlanRequestParameters):
+            plan_response = planning_component.plan(
+                self.moveit_py,
+                multi_plan_parameters=request_params,
+                planning_scene=planning_scene,
             )
-            if len(unused_kwargs) > 0:
-                raise ValueError(f"Unused kwargs: {unused_kwargs}")
+        else:
+            plan_response = planning_component.plan(
+                self.moveit_py,
+                single_plan_parameters=request_params,
+                planning_scene=planning_scene,
+            )
+
+        if not plan_response:
+            raise PlanOnceError(plan_response.error_code)
+
+        return plan_response.trajectory
+
+    def _plan_impl(
+        self,
+        *args: Any,
+        request: Optional[PlanRequest] = None,
+        cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
+    ) -> tuple[RobotTrajectory, PlanRequest] | None:
+        """Retrieve trajectory from cache or plan a trajectory"""
+        # Parse the planning args if requested
+        if request is None:
+            request = self.create_plan_request(*args, **kwargs)
         elif len(args) > 0 or len(kwargs) > 0:
             raise ValueError(
-                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if request is provided"
+                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if plan_request is provided"
+            )
+        else:
+            request = copy(request)
+
+        # Set start state if None
+        if request.start_state is None:
+            request.start_state = self.current_state
+
+        # Transform goal to world frame or valid robot state
+        if isinstance(request.goal, PoseStamped):
+            if request.goal.header.frame_id != self.planning_frame:
+                request.goal = self.change_reference_frame(
+                    request.goal, self.planning_frame
+                )
+        elif isinstance(request.goal, str):
+            request.goal = self.get_target_state(
+                request.goal, request.group_name
             )
 
-        if preprocess_trajectory:
-            trajectory = self.preprocess_trajectory(request)
-        else:
-            trajectory = request.trajectory
+        # Check if the goal is already reached
+        if isinstance(request.goal, PoseStamped):
+            if self.all_close_poses_stamped(
+                request.goal, self.eef_pose_stamped()
+            ):
+                self.log("Already at goal, skipping planning")
+                return None
+        elif self.all_close_robot_states(request.goal, self.current_state):
+            self.log("Already at start state, skipping planning")
+            return None
 
+        # Attempt to validate cached trajectories
+        if (
+            self.node.get_parameter_wrapper(
+                "trajectory_cache.use_cached_trajectories"
+            )
+            and request.use_cache
+        ):
+            try:
+                # TODO: Refactor so caching happens in the plan() function
+                trajectories = self.trajectory_cache.get_trajectories(request)
+            except KeyError:
+                self.log(
+                    "No cached trajectory found, planning and executing normally"
+                )
+            else:
+                self.log(
+                    "Cached trajectories found, validating in order of path length"
+                )
+                for trajectory in trajectories:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise asyncio.CancelledError("Plan cancelled")
+
+                    try:
+                        trajectory = self.post_process_trajectory(
+                            trajectory, request
+                        )
+                        self._validate_trajectory(trajectory)
+                        return trajectory, request
+                    except TrajectoryError as e:
+                        self.log(
+                            f"Error attempting to use cached trajectory: {e}",
+                            severity="WARN",
+                        )
+                self.log("All cached trajectories failed, planning normally")
+        else:
+            self.log(
+                "Not using cached trajectories, planning and executing normally"
+            )
+
+        # Otherwise, plan normally
+
+        # Get the planning component and request parameters
+        planning_component, request_params = self._pre_plan(request)
+
+        # Plan until successful or max attempts reached
+        errors: list[PlanOnceError] = []
+        for i in range(request.max_plan_attempts):
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Plan cancelled")
+
+            try:
+                trajectory = self._plan_once_impl(
+                    planning_component, request_params, request.planning_scene
+                )
+                self.log(
+                    f"Planning attempt {i + 1}/{request.max_plan_attempts} succeeded",
+                    severity="DEBUG",
+                )
+                break
+            except PlanOnceError as e:
+                self.log(
+                    f"Planning attempt {i + 1}/{request.max_plan_attempts} failed: {e}",
+                    severity="WARN",
+                )
+                errors.append(e)
+        else:
+            raise MaxPlanningAttemptsReachedError(errors)
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError("Plan cancelled")
+
+        trajectory = self.post_process_trajectory(trajectory, request)
+        # TODO: Maybe revalidate
+        # self._validate_trajectory(trajectory)
+
+        return trajectory, request
+
+    def _execute_impl(self, trajectory: RobotTrajectory):
+        """Trajectory execution synchronous implementation"""
         # Check if the robot is safe to execute
         if not self._safe_to_execute_callback():
             raise NotSafeToExecuteError()
 
-        # Execute the trajectory
-        initial_state = self.current_state
-        self.trajectory_execution_manager.push(
-            trajectory.get_robot_trajectory_msg()
-        )
-
         assert not self.execution_lock.locked()
         with self.execution_lock:
+            # Execute the trajectory
+            initial_state = self.current_state
+            self.trajectory_execution_manager.push(
+                trajectory.get_robot_trajectory_msg()
+            )
             execution_status: ExecutionStatus = (
                 self.trajectory_execution_manager.execute_and_wait()
             )
@@ -789,17 +718,68 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         else:
             raise ExecutionRejectedError(execution_status)
 
-    async def execute(self, *args: Any, **kwargs: Any):
-        """Asynchronously calls `_execute_impl()` method in a separate thread.
+    async def plan(
+        self, *args: Any, request: Optional[PlanRequest] = None, **kwargs: Any
+    ) -> tuple[RobotTrajectory, PlanRequest] | None:
+        """Retrieve from cache or plan a trajectory to the given waypoint,
+        retrying up to max_plan_attempts times until successful.
+
+        Args:
+            *args: Arguments to pass to `create_plan_request()`.
+            request: The request to plan for. If not provided, the request is
+                created from args and kwargs.
+            cancel_event: An event that can be used to cancel planning.
+            **kwargs: Keyword arguments to pass to `create_plan_request()`.
+
+        Returns:
+            The planned trajectory, or None if the goal is already reached.
+
+        Raises:
+            ValueError: If the request or arguments are invalid.
+            MaxPlanningAttemptsReachedError: If the maximum number of planning
+                attempts is reached.
+            asyncio.CancelledError: If the planning is cancelled by the cancel_event.
 
         See Also:
-            `_execute_impl()`: For parameter and implementation details.
+            `create_plan_request()`: For parameter details
+
+        See Also:
+            `_plan_impl()`: For parameter and implementation details.
+        """
+        cancel_event = threading.Event()
+        try:
+            return await asyncio.to_thread(
+                self._plan_impl,
+                *args,
+                request=request,
+                cancel_event=cancel_event,
+                **kwargs,
+            )
+        finally:
+            cancel_event.set()
+
+    def stop_execution(self):
+        """Stop execution of the trajectory, if currently executing"""
+        if self.execution_lock.locked():
+            self.trajectory_execution_manager.stop_execution()
+
+    async def execute(self, trajectory: RobotTrajectory):
+        """Execute the given robot trajectory.
+
+        Args:
+            trajectory: Trajectory to execute
+
+        Raises:
+            NotSafeToExecuteError: If the robot is not safe to execute.
+            ExecutionInterruptedError: If the robot moved but not to the goal.
+            ExecutionRejectedError: If the trajectory was rejected by the robot.
         """
         try:
-            return await asyncio.to_thread(self._execute_impl, *args, **kwargs)
-        finally:
+            return await asyncio.to_thread(self._execute_impl, trajectory)
+        except asyncio.CancelledError:
             if self.execution_lock.locked():
                 self.trajectory_execution_manager.stop_execution()
+            raise
 
     def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
         """Cache the given trajectory.
@@ -819,8 +799,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     async def plan_and_execute(
         self,
         *args: Any,
+        request: Optional[PlanRequest] = None,
         cache_trajectory: bool = True,
-        use_cache: bool = True,
         **kwargs: Any,
     ) -> dict[str, Any] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
@@ -845,71 +825,26 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             "Planning and executing trajectory (with cache)", severity="DEBUG"
         )
 
-        if "start_state" in kwargs:
+        if (
+            request is not None and request.start_state is not None
+        ) or "start_state" in kwargs:
             raise ValueError("start_state is not allowed in plan_and_execute")
 
-        start_state = self.current_state
+        # Plan and return immediately if already at goal
+        response = await self.plan(*args, request=request, **kwargs)
+        if response is None:
+            return None
+        trajectory, parsed_request = response
 
-        # Parse the planning kwargs
-        plan_request, execute_kwargs = self.create_plan_request(
-            *args, start_state=start_state, **kwargs
-        )
-
-        # Attempt to execute the cached trajectory, otherwise plan and execute normally
-        if (
-            self.node.get_parameter_wrapper(
-                "trajectory_cache.use_cached_trajectories"
-            )
-            and use_cache
-        ):
-            try:
-                # TODO: Refactor so caching happens in the plan() function
-                trajectories = self.trajectory_cache.get_trajectories(
-                    plan_request
-                )
-            except KeyError:
-                self.log(
-                    "No cached trajectory found, planning and executing normally"
-                )
-            else:
-                self.log(
-                    "Cached trajectories found, trying to execute in order of path length"
-                )
-                for trajectory in trajectories:
-                    try:
-                        await self.execute(trajectory, **execute_kwargs)
-                        return
-                    except (ExecutionRejectedError, TrajectoryError) as e:
-                        self.log(
-                            f"Error attempting to execute cached trajectory: {e}",
-                            severity="WARN",
-                        )
-                self.log(
-                    "All cached trajectories failed, planning and executing normally"
-                )
-        else:
-            self.log(
-                "Not using cached trajectories, planning and executing normally"
-            )
-
-        # Reset the start state to the current state
-        plan_request.start_state = self.current_state
-
-        # Plan and execute normally
-        trajectory = await self.plan(request=plan_request)
-        if trajectory is None:
-            return
-        await self.execute(
-            trajectory, validate_trajectory=False, **execute_kwargs
-        )
-
-        to_cache_kwargs = {
-            "trajectory": trajectory,
-            "request": plan_request,
-            "true_end_state": self.current_state,
-        }
+        # Execute desired request
+        await self.execute(trajectory)
 
         # Cache the trajectory if requested
+        to_cache_kwargs = {
+            "trajectory": trajectory,
+            "request": parsed_request,
+            "true_end_state": self.current_state,
+        }
         if cache_trajectory:
             self.cache_trajectory(**to_cache_kwargs)
 

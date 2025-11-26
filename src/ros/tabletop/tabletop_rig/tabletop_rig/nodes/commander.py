@@ -13,6 +13,7 @@ import rclpy.utilities
 from geometry_msgs.msg import PoseStamped
 from mingus.containers import Note
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
+from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
 
 from tabletop_rig.exceptions import (
@@ -43,7 +44,6 @@ class Commander(BaseNode):
         "planning.goal_position_tolerance",
         "planning.goal_orientation_tolerance",
         "planning.use_euler_tolerance",
-        "execution.defaults",
         "predefined_states.idle_state",
         "predefined_poses.pre_fetch_offset",
         "predefined_poses.pre_attach_offset",
@@ -94,14 +94,17 @@ class Commander(BaseNode):
         self.log("Commander initialized")
 
     def _teensy_sensor_callback(self, msg: TeensySensor):
-        """Callback for the teensy sensor."""
-        # If it is not safe to execute and the robot is executing, stop execution
+        """Additional callback for the Teensy sensor subscription.
+
+        If Teensy sensor message indicates it is not safe to execute and the
+        MoveIt inteface is executing, stop execution
+        """
         if not self.teensy.safe_to_execute and self.moveit.executing:
             self.log(
                 "Not safe to execute, stopping execution",
                 severity="WARN",
             )
-            self.moveit.trajectory_execution_manager.stop_execution()
+            self.moveit.stop_execution()
 
     ###########################################################################
     ########## User Interface #################################################
@@ -502,18 +505,19 @@ async def asyncio_runner(
         else None
     )
 
-    try:
-        await task
-    finally:
-        try:
-            print("Shutting down commander")
-            commander.destroy_node()
-        except Exception as e:
-            print(f"Error while shutting down commander: {e}")
+    await task
+    # try:
+    #     await task
+    # finally:
+    #     try:
+    #         print("Shutting down commander")
+    #         commander.destroy_node()
+    #     except Exception as e:
+    #         print(f"Error while shutting down commander: {e}")
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     try:
         # Parse non-ROS arguments
         parser = argparse.ArgumentParser()
@@ -559,10 +563,10 @@ def main(args=None):
             debugpy.wait_for_client()
             print("Debugger attached")
 
-        commander = Commander()
         executor: SingleThreadedExecutor | MultiThreadedExecutor = (
             SingleThreadedExecutor()
         )
+        commander = Commander()
         executor.add_node(commander)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
@@ -578,9 +582,10 @@ def main(args=None):
                     )
                 )
             finally:
+                print("Shutting down commander")
+                commander.destroy_node()
                 print("Shutting down executor")
                 executor.shutdown()
-                spin_future.result()
     except KeyboardInterrupt:
         pass
     finally:

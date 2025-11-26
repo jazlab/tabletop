@@ -22,6 +22,7 @@ from rclpy.action.server import (
     ServerGoalHandle,
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.serialization import serialize_message
 from rclpy.time import Time
@@ -379,7 +380,7 @@ class Eyelink(BaseNode):
             self.sample_retrieval_loop
         )
         self.sample_retrieval_future.add_done_callback(
-            lambda _: self.executor.wake()  # type: ignore
+            lambda _: self._wake_executor()
         )
 
     def stop_sample_retrieval(self):
@@ -631,7 +632,7 @@ class Eyelink(BaseNode):
                     self.ros_sleep(0.9 * sleep_time)
                 else:
                     self.ros_sleep(sleep_time)
-        except ROSSleepError as e:
+        except (ROSSleepError, NotInitializedException) as e:
             if rclpy.ok():  # type: ignore
                 raise RuntimeError("ROS2 is still running") from e
 

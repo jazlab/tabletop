@@ -120,7 +120,11 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         Args:
             trial_spec: Trial specification for current trial. If no trial
                 generator was provided at instantiation, trial_spec will
-                be None"""
+                be None
+
+        Returns:
+            TrialFeedback for the trial
+        """
 
     async def run(self) -> None:
         """Run the task."""

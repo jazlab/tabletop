@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from geometry_msgs.msg import PoseStamped
 from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
@@ -7,9 +7,6 @@ from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSour
 )
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
     RobotState,
-)
-from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
-    RobotTrajectory,
 )
 from moveit_msgs.msg import Constraints
 
@@ -20,14 +17,24 @@ PlanningGoalT = RobotState | PoseStamped | str
 class PlanRequest:
     """Request for a plan."""
 
-    goal: RobotState | PoseStamped
-    start_state: RobotState
-    pose_link: str
-    group_name: str
-    planning_pipeline: str
-    path_constraints: Constraints | None
-    planning_scene: PlanningScene | None
-    max_plan_attempts: int
+    goal: PlanningGoalT
+    start_state: Optional[RobotState] = None
+    pose_link: Optional[str] = None
+    group_name: Optional[str] = None
+    planning_pipeline: Optional[str] = None
+    path_constraints: Optional[Constraints] = None
+    planning_scene: Optional[PlanningScene] = None
+    max_plan_attempts: int = 1
+    use_cache: bool = True
+    apply_totg: bool = True
+    apply_smoothing: bool = False
+    velocity_scaling_factor: float = 1.0
+    acceleration_scaling_factor: float = 1.0
+    path_tolerance: float = 0.001
+    resample_dt: float = 0.05
+    min_angle_change: float = 0.001
+    mitigate_overshoot: bool = False
+    overshoot_threshold: float = 0.002
 
     def __post_init__(self):
         """Type check the request."""
@@ -41,21 +48,21 @@ class PlanRequest:
 
         match name:
             case "goal":
-                if not isinstance(value, (RobotState, PoseStamped)):
+                if not isinstance(value, (RobotState, PoseStamped, str)):
                     raise ValueError(f"Invalid goal type: {type(value)}")
             case "start_state":
-                if not isinstance(value, RobotState):
+                if value is not None and not isinstance(value, RobotState):
                     raise ValueError(
                         f"Invalid start state type: {type(value)}"
                     )
             case "pose_link":
-                if not isinstance(value, str):
+                if value is not None and not isinstance(value, str):
                     raise ValueError(f"Invalid pose link type: {type(value)}")
             case "group_name":
-                if not isinstance(value, str):
+                if value is not None and not isinstance(value, str):
                     raise ValueError(f"Invalid group name type: {type(value)}")
             case "planning_pipeline":
-                if not isinstance(value, str):
+                if value is not None and not isinstance(value, str):
                     raise ValueError(
                         f"Invalid planning pipeline type: {type(value)}"
                     )
@@ -69,55 +76,9 @@ class PlanRequest:
                     raise ValueError(
                         f"Invalid planning scene type: {type(value)}"
                     )
-            case "max_plan_attempts":
-                if not isinstance(value, int):
-                    raise ValueError(
-                        f"Invalid max plan attempts type: {type(value)}"
-                    )
-            case _:
-                raise ValueError(f"Invalid attribute: {name}")
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Set an attribute."""
-        self._validate_attribute(name, value)
-        object.__setattr__(self, name, value)
-
-
-@dataclass(slots=True, kw_only=True)
-class ExecuteRequest:
-    """Request for an execute."""
-
-    trajectory: RobotTrajectory
-    validate_trajectory: bool
-    apply_totg: bool
-    apply_smoothing: bool
-    velocity_scaling_factor: float
-    acceleration_scaling_factor: float
-    path_tolerance: float
-    resample_dt: float
-    min_angle_change: float
-    mitigate_overshoot: bool
-    overshoot_threshold: float
-
-    def __post_init__(self):
-        """Type check the request."""
-        for name in ExecuteRequest.__slots__:
-            self._validate_attribute(name, getattr(self, name))
-
-    def _validate_attribute(self, name: str, value: Any):
-        """Check the types of the request."""
-        if name not in ExecuteRequest.__slots__:
-            raise AttributeError(f"Invalid attribute: {name}")
-
-        match name:
-            case "trajectory":
-                if not isinstance(value, RobotTrajectory):
-                    raise ValueError(f"Invalid trajectory type: {type(value)}")
-            case "validate_trajectory":
+            case "use_cache":
                 if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid validate trajectory type: {type(value)}"
-                    )
+                    raise ValueError(f"Invalid use cache type: {type(value)}")
             case "apply_totg":
                 if not isinstance(value, bool):
                     raise ValueError(f"Invalid apply totg type: {type(value)}")
@@ -161,10 +122,10 @@ class ExecuteRequest:
                     raise ValueError(
                         f"Invalid overshoot threshold type: {type(value)}"
                     )
-            case "max_execution_attempts":
+            case "max_plan_attempts":
                 if not isinstance(value, int):
                     raise ValueError(
-                        f"Invalid max execution attempts type: {type(value)}"
+                        f"Invalid max plan attempts type: {type(value)}"
                     )
             case _:
                 raise ValueError(f"Invalid attribute: {name}")

@@ -71,10 +71,16 @@
         pose_link: eef
         group_name: manipulator
         planning_pipeline: ompl_aps_rrt_star
-        # planning_pipeline: cumotion
-        planning_scene: null
-        path_constraints: null
         max_plan_attempts: 5
+        # apply_totg: true
+        # apply_smoothing: false
+        # velocity_scaling_factor: 1.0
+        # acceleration_scaling_factor: 1.0
+        # path_tolerance: 0.001
+        # resample_dt: 0.05
+        # min_angle_change: 0.001
+        # mitigate_overshoot: false
+        # overshoot_threshold: 0.002
       goal_position_tolerance: 0.01
       goal_orientation_tolerance: 0.02
       use_euler_tolerance: true
@@ -89,20 +95,6 @@
         use_euler_tolerance: true
         max_trajectories: 5
         new_cache: false
-
-    execution:
-      robot_moved_tolerance: 0.02 # radians
-      defaults:
-        validate_trajectory: true
-        apply_totg: true
-        apply_smoothing: false
-        velocity_scaling_factor: 1.0
-        acceleration_scaling_factor: 1.0
-        path_tolerance: 0.001
-        resample_dt: 0.05
-        min_angle_change: 0.001
-        mitigate_overshoot: false
-        overshoot_threshold: 0.002
 
     plan_and_execute:
       max_attempts: 3

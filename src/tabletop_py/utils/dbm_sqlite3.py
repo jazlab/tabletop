@@ -36,7 +36,7 @@ def _normalize_uri(path):
 
 
 class _Database(MutableMapping):
-    def __init__(self, path, /, *, flag, mode):
+    def __init__(self, path, /, *, flag, mode, **connect_kwargs):
         if hasattr(self, "_cx"):
             raise error(_ERR_REINIT)
 
@@ -63,7 +63,9 @@ class _Database(MutableMapping):
         uri = f"{uri}?mode={flag}"
 
         try:
-            self._cx = sqlite3.connect(uri, autocommit=True, uri=True)
+            self._cx = sqlite3.connect(
+                uri, autocommit=True, uri=True, **connect_kwargs
+            )
         except sqlite3.Error as exc:
             raise error(str(exc))
 
@@ -125,7 +127,7 @@ class _Database(MutableMapping):
         self.close()
 
 
-def open(filename, /, flag="r", mode=0o666):
+def open(filename, /, flag="r", mode=0o666, **connect_kwargs):
     """Open a dbm.sqlite3 database and return the dbm object.
 
     The 'filename' parameter is the name of the database file.
@@ -138,5 +140,7 @@ def open(filename, /, flag="r", mode=0o666):
 
     The optional 'mode' parameter is the Unix file access mode of the database;
     only used when creating a new database. Default: 0o666.
+
+    Any additional kwargs are passed to the 'sqlite3.connect' function
     """
-    return _Database(filename, flag=flag, mode=mode)
+    return _Database(filename, flag=flag, mode=mode, **connect_kwargs)
