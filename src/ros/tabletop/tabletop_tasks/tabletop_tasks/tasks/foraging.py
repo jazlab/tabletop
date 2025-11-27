@@ -102,7 +102,9 @@ class ForagingTask(BaseTask):
         await self.commander.reveal_smartglass()
         await asyncio.sleep(self.reveal_duration)
 
-    async def run_trial(self, trial_spec: TrialSpec | None) -> TrialFeedback:
+    async def run_trial(
+        self, trial_spec: TrialSpec | None
+    ) -> TrialFeedback | None:
         """Run a trial."""
         if trial_spec is None:
             raise ValueError("trial_spec should not be None for foraging task")

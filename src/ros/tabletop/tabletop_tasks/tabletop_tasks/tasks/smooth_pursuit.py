@@ -1,20 +1,17 @@
 """SmoothPursuit task."""
 
-import asyncio
 from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
-    RobotState,
-)
+from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
 from tabletop_rig.nodes import Commander
-from tabletop_rig.utils.ros import robot_trajectory_copy
 
 from tabletop_tasks.tasks.base import BaseTask
+from tabletop_tasks.trial_generators.base import TrialFeedback, TrialSpec
 
 
 class SmoothPursuitTask(BaseTask):
@@ -46,7 +43,7 @@ class SmoothPursuitTask(BaseTask):
 
         self.commander.attach_object_manually(object_id)
 
-    async def generate_trajectory(self) -> RobotTrajectory:
+    def generate_goals(self) -> list[PoseStamped]:
         """Generate spiral trajectory
 
         Returns:
@@ -55,7 +52,7 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log(f"Generating {self._num_revolutions} revolutions")
 
-        last_waypoint: RobotState | None = None
+        goals: list[PoseStamped] = []
         for i in range(self._num_segments + 1):
             # Calculate x and z coordinates of spiral (circular motion)
             theta_xz = (
@@ -72,90 +69,64 @@ class SmoothPursuitTask(BaseTask):
             y = self._center_pose.pose.position.y - (
                 self._length / 2
             ) * np.cos(theta_y)
-            waypoint_pose_stamped = self.commander.create_pose_stamped(
+            goal = self.commander.create_pose_stamped(
                 position=[x, y, z],
                 orientation=self._center_pose.pose.orientation,
             )
+            goals.append(goal)
 
-            try:
-                if i == 0:
-                    # Plan to start of spiral
-                    trajectory = await self.commander.plan(
-                        goal=waypoint_pose_stamped
-                    )
-                    if trajectory is None:
-                        self.log(
-                            "Initial robot pose close enough to first waypoint, skipping planning",
-                            severity="INFO",
-                        )
-                        last_waypoint = self.commander.current_state
-                        continue
-                else:
-                    # Plan segment of spiral
-                    trajectory = await self.commander.plan(
-                        goal=waypoint_pose_stamped,
-                        start_state=last_waypoint,
-                        planning_pipeline="linear",
-                    )
-                    if trajectory is None:
-                        self.log(
-                            "Waypoints may be too close, skipping segment",
-                            severity="WARN",
-                        )
-                        continue
+        return goals
 
-                    if i == 1:
-                        spiral_trajectory = trajectory
-                    else:
-                        spiral_trajectory.append(
-                            trajectory, dt=0.01, start_index=1
-                        )
-            except Exception:
-                self.log(f"Error generating segment {i}", severity="ERROR")
-                raise
+    async def execute_loop(self, trajectory: RobotTrajectory):
+        for _ in range(self._num_cycles):
+            await self.commander.execute(trajectory)
 
-            last_waypoint = trajectory[len(trajectory) - 1]
-
-        request, unused_kwargs = self.commander.create_execute_request(
-            spiral_trajectory, **self._execute_request_params
-        )
-        if unused_kwargs:
-            raise ValueError(
-                f"Smooth pursuit execute request has unused kwargs: {unused_kwargs}"
+    async def plan_and_execute_loop(self, goals: list[PoseStamped]):
+        for _ in range(self._num_cycles):
+            await self.commander.plan_and_execute(
+                goals=goals,
+                use_cache=False,
+                cache_trajectory=False,
+                post_process_after_concat=True,
             )
-        spiral_trajectory = self.commander.preprocess_trajectory(request)
 
-        full_trajectory = robot_trajectory_copy(spiral_trajectory)
-        for i in range(self._num_cycles):
-            full_trajectory.append(spiral_trajectory, dt=0.0001, start_index=1)
+    async def run_trial(
+        self, trial_spec: TrialSpec | None
+    ) -> TrialFeedback | None:
+        pass
 
-        return full_trajectory
-
-    async def run(self) -> None:
+    async def run(self):
         self.log("Starting smooth pursuit task")
         async with self.commander:
             # await self.commander.smooth_pursuit_and_reward()
-            trajectory = await self.generate_trajectory()
+            goals = self.generate_goals()
 
-            self.log("Moving to start of spiral")
-            await self.commander.plan_and_execute(trajectory[0])
-
-            self.log(
-                f"Executing spiral trajectory for {trajectory.duration} seconds"
-            )
-
-            smooth_pursuit_task = self.commander.smooth_pursuit_and_reward()
-            execution_task = asyncio.create_task(
-                self.commander.execute(trajectory, preprocess_trajectory=False)
-            )
-
-            done, pending = await asyncio.wait(
-                [smooth_pursuit_task, execution_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            for task in pending:
-                task.cancel()
-
-            for task in done:
-                task.result()
+            await self.plan_and_execute_loop(goals=goals)
+            # await self.commander.plan_and_execute(goals[0])
+            #
+            # trajectory = await self.commander.plan(
+            #     goals=goals[1:],
+            #     use_cache=False,
+            #     post_process_after_concat=True,
+            # )
+            #
+            # assert trajectory is not None
+            # execution_task = asyncio.create_task(self.execute_loop(trajectory))
+            # await execution_task
+            #
+            # smooth_pursuit_task = asyncio.create_task(
+            #     self.commander.smooth_pursuit_and_reward()
+            # )
+            # execution_task = asyncio.create_task(self.execute_loop(trajectory))
+            #
+            # done, pending = await asyncio.wait(
+            #     [smooth_pursuit_task, execution_task],
+            #     return_when=asyncio.FIRST_COMPLETED,
+            # )
+            #
+            # for task in pending:
+            #     task.cancel()
+            #
+            # for task in done:
+            #     task.result()
+            #

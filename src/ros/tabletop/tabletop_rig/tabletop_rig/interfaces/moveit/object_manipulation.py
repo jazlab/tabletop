@@ -14,7 +14,7 @@ from tabletop_rig.exceptions import (
 from tabletop_rig.interfaces.moveit.plan_and_execute import (
     PlanAndExecuteInterface,
 )
-from tabletop_rig.interfaces.moveit.requests import PlanningGoalT
+from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import (
     change_reference_frame_pose_stamped,
@@ -197,8 +197,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self,
         phase: ObjectPhase,
         object_id: str,
-        goal: PlanningGoalT | None = None,
-    ) -> PlanningGoalT:
+        goal: PlanGoalT | None = None,
+    ) -> PlanGoalT:
         """Get the goal for the given phase and object.
 
         Args:
@@ -232,9 +232,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self,
         object_id: str,
         phase: ObjectPhase,
-        goal: PlanningGoalT | None = None,
+        goal: PlanGoalT | None = None,
         **kwargs: Any,
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]] | None:
         """Plan and execute a phase of the object manipulation process.
 
         This is a helper function for the object manipulation process.
@@ -288,9 +288,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         self.log(f"{phase.name} goal: {goal}", severity="DEBUG")
 
-        to_cache_kwargs = None
+        cache_kwargs = None
         try:
-            to_cache_kwargs = await self.plan_and_execute(
+            cache_kwargs = await self.plan_and_execute(
                 goal, **kwargs, **extra_kwargs
             )
         except PlanningError as e:
@@ -338,7 +338,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             case ObjectPhase.DETACH:
                 self.detach_collision_object(object_id)
 
-        return to_cache_kwargs
+        return cache_kwargs
 
     @object_manipulation_lock_decorator
     async def fetch_object(
@@ -376,7 +376,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         # Iterate through the fetch phases, returning the object to its mount
         # if the fetch fails
-        to_cache_kwargs: list[dict[str, Any]] = []
+        cache_kwargs: list[dict[str, Any]] = []
         try:
             for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
                 # self.object_phase = ObjectPhase(i)
@@ -384,7 +384,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     object_id, ObjectPhase(i), cache_trajectory=False
                 )
                 if kwargs is not None and cache_trajectories:
-                    to_cache_kwargs.append(kwargs)
+                    cache_kwargs.extend(kwargs)
         except (PlanningError, ExecutionError):
             # TODO: Move restart logic
             # self.log(
@@ -400,12 +400,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             raise
 
         # Cache all trajectories if requested
-        if cache_trajectories and len(to_cache_kwargs) > 0:
-            for kwargs in to_cache_kwargs:
-                self.cache_trajectory(**kwargs)
-            self.log(
-                f"Cached {len(to_cache_kwargs)} fetch trajectories successfully"
-            )
+        if cache_trajectories and len(cache_kwargs) > 0:
+            self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_lock_decorator
     async def pre_present_object(self):
@@ -454,14 +450,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         self.log(f"Returning object {object_id}")
 
-        to_cache_kwargs: list[dict[str, Any]] = []
+        cache_kwargs: list[dict[str, Any]] = []
 
         # Cache the unpresent trajectory if it exists
         if not hasattr(self, "_pre_return_cache_kwargs"):
             raise RuntimeError("Object was not unpresented before returning")
 
         if self._pre_return_cache_kwargs is not None:
-            to_cache_kwargs.append(self._pre_return_cache_kwargs)
+            cache_kwargs.extend(self._pre_return_cache_kwargs)
             del self._pre_return_cache_kwargs
 
         # Iterate through the unpresenting and returning phases
@@ -470,21 +466,17 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 object_id, ObjectPhase(i), cache_trajectory=False
             )
             if kwargs is not None:
-                to_cache_kwargs.append(kwargs)
+                cache_kwargs.extend(kwargs)
 
         # Cache all trajectories if requested
-        if cache_trajectories and len(to_cache_kwargs) > 0:
-            for kwargs in to_cache_kwargs:
-                self.cache_trajectory(**kwargs)
-            self.log(
-                f"Cached {len(to_cache_kwargs)} return trajectories successfully"
-            )
+        if cache_trajectories and len(cache_kwargs) > 0:
+            self.cache_trajectories(cache_kwargs)
 
     ###########################################################################
     ########## Reset ##########################################################
     ###########################################################################
 
-    async def reset_rig(self, end_goal: Optional[PlanningGoalT] = None):
+    async def reset_rig(self, end_goal: Optional[PlanGoalT] = None):
         """Move the robot out of collision if necessary and return any attached
         objects to their original positions.
         """

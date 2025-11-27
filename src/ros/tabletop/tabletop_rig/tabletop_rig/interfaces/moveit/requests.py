@@ -1,3 +1,4 @@
+from copy import copy
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -8,23 +9,31 @@ from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSour
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
     RobotState,
 )
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
+)
 from moveit_msgs.msg import Constraints
 
-PlanningGoalT = RobotState | PoseStamped | str
+PlanGoalT = RobotState | PoseStamped | str
 
 
-@dataclass(slots=True, kw_only=True)
-class PlanRequest:
-    """Request for a plan."""
+def is_real_number(x: Any) -> bool:
+    if isinstance(x, (float, int)) and not isinstance(x, bool):
+        return True
+    return False
 
-    goal: PlanningGoalT
+
+@dataclass(kw_only=True)
+class BasePlanRequest:
+    """Request to plan a trajectory"""
+
     start_state: Optional[RobotState] = None
     pose_link: Optional[str] = None
     group_name: Optional[str] = None
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
-    max_plan_attempts: int = 1
+    max_attempts: int = 1
     use_cache: bool = True
     apply_totg: bool = True
     apply_smoothing: bool = False
@@ -38,99 +47,209 @@ class PlanRequest:
 
     def __post_init__(self):
         """Type check the request."""
-        for name in PlanRequest.__slots__:
+        for name in self.__dataclass_fields__:
             self._validate_attribute(name, getattr(self, name))
-
-    def _validate_attribute(self, name: str, value: Any):
-        """Check the types of the request."""
-        if name not in PlanRequest.__slots__:
-            raise AttributeError(f"Invalid attribute: {name}")
-
-        match name:
-            case "goal":
-                if not isinstance(value, (RobotState, PoseStamped, str)):
-                    raise ValueError(f"Invalid goal type: {type(value)}")
-            case "start_state":
-                if value is not None and not isinstance(value, RobotState):
-                    raise ValueError(
-                        f"Invalid start state type: {type(value)}"
-                    )
-            case "pose_link":
-                if value is not None and not isinstance(value, str):
-                    raise ValueError(f"Invalid pose link type: {type(value)}")
-            case "group_name":
-                if value is not None and not isinstance(value, str):
-                    raise ValueError(f"Invalid group name type: {type(value)}")
-            case "planning_pipeline":
-                if value is not None and not isinstance(value, str):
-                    raise ValueError(
-                        f"Invalid planning pipeline type: {type(value)}"
-                    )
-            case "path_constraints":
-                if value is not None and not isinstance(value, Constraints):
-                    raise ValueError(
-                        f"Invalid path constraints type: {type(value)}"
-                    )
-            case "planning_scene":
-                if value is not None and not isinstance(value, PlanningScene):
-                    raise ValueError(
-                        f"Invalid planning scene type: {type(value)}"
-                    )
-            case "use_cache":
-                if not isinstance(value, bool):
-                    raise ValueError(f"Invalid use cache type: {type(value)}")
-            case "apply_totg":
-                if not isinstance(value, bool):
-                    raise ValueError(f"Invalid apply totg type: {type(value)}")
-            case "apply_smoothing":
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid apply smoothing type: {type(value)}"
-                    )
-            case "velocity_scaling_factor":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid velocity scaling factor type: {type(value)}"
-                    )
-            case "acceleration_scaling_factor":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid acceleration scaling factor type: {type(value)}"
-                    )
-            case "path_tolerance":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid path tolerance type: {type(value)}"
-                    )
-            case "resample_dt":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid resample dt type: {type(value)}"
-                    )
-            case "min_angle_change":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid min angle change type: {type(value)}"
-                    )
-            case "mitigate_overshoot":
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Invalid mitigate overshoot type: {type(value)}"
-                    )
-            case "overshoot_threshold":
-                if not isinstance(value, (float, int)):
-                    raise ValueError(
-                        f"Invalid overshoot threshold type: {type(value)}"
-                    )
-            case "max_plan_attempts":
-                if not isinstance(value, int):
-                    raise ValueError(
-                        f"Invalid max plan attempts type: {type(value)}"
-                    )
-            case _:
-                raise ValueError(f"Invalid attribute: {name}")
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Set an attribute."""
+        if name not in self.__dataclass_fields__:
+            raise AttributeError(f"Invalid attribute: {name}")
         self._validate_attribute(name, value)
         object.__setattr__(self, name, value)
+
+    def _validate_attribute(self, name: str, value: Any):
+        """Check the types of the request."""
+        type_error = False
+        match name:
+            case "start_state":
+                if value is not None and not isinstance(value, RobotState):
+                    type_error = True
+            case "pose_link":
+                if value is not None and not isinstance(value, str):
+                    type_error = True
+            case "group_name":
+                if value is not None and not isinstance(value, str):
+                    type_error = True
+            case "planning_pipeline":
+                if value is not None and not isinstance(value, str):
+                    type_error = True
+            case "path_constraints":
+                if value is not None and not isinstance(value, Constraints):
+                    type_error = True
+            case "planning_scene":
+                if value is not None and not isinstance(value, PlanningScene):
+                    type_error = True
+            case "use_cache":
+                if not isinstance(value, bool):
+                    type_error = True
+            case "apply_totg":
+                if not isinstance(value, bool):
+                    type_error = True
+            case "apply_smoothing":
+                if not isinstance(value, bool):
+                    type_error = True
+            case "velocity_scaling_factor":
+                if not is_real_number(value):
+                    type_error = True
+            case "acceleration_scaling_factor":
+                if not is_real_number(value):
+                    type_error = True
+            case "path_tolerance":
+                if not is_real_number(value):
+                    type_error = True
+            case "resample_dt":
+                if not is_real_number(value):
+                    type_error = True
+            case "min_angle_change":
+                if not is_real_number(value):
+                    type_error = True
+            case "mitigate_overshoot":
+                if not isinstance(value, bool):
+                    type_error = True
+            case "overshoot_threshold":
+                if not is_real_number(value):
+                    type_error = True
+            case "max_attempts":
+                if not isinstance(value, int):
+                    type_error = True
+            case _:
+                raise AssertionError(f"Invalid attribute: {name}")
+
+        if type_error:
+            raise ValueError(f"Invalid {name} type: {type(value)}")
+
+
+@dataclass(kw_only=True)
+class PlanRequest(BasePlanRequest):
+    """Request to plan a trajectory"""
+
+    goal: PlanGoalT
+
+    def _validate_attribute(self, name: str, value: Any):
+        """Check the types of the request."""
+        type_error = False
+        match name:
+            case "goal":
+                if not isinstance(value, (RobotState, PoseStamped, str)):
+                    type_error = True
+            case _:
+                super()._validate_attribute(name, value)
+
+        if type_error:
+            raise ValueError(f"Invalid {name} type: {type(value)}")
+
+
+@dataclass(init=False)
+class ConcatPlanRequest(BasePlanRequest):
+    """Request to plan a series of trajectories and concatenate them"""
+
+    requests: list[PlanRequest]
+    dts: list[float]
+    post_process_after_concat: bool
+
+    def __init__(
+        self,
+        *,
+        goals: Optional[list[PlanGoalT]] = None,
+        requests: Optional[list[PlanRequest]] = None,
+        request_kwargs: Optional[list[dict[str, Any]]] = None,
+        dts: Optional[list[float]] = None,
+        post_process_after_concat: bool = False,
+        **kwargs: Any,
+    ):
+        if requests is not None:
+            if goals is not None or request_kwargs is not None:
+                raise ValueError(
+                    "Neither 'goals' nor 'request_kwargs' cannot be provided if 'requests' is provided"
+                )
+            requests = [copy(request) for request in requests]
+        elif goals is not None:
+            if request_kwargs is None:
+                request_kwargs = [{}] * len(goals)
+            elif len(request_kwargs) != len(goals):
+                raise ValueError(
+                    "request_kwargs must be the same length as goals"
+                )
+
+            common_kwargs = kwargs.copy()
+            if "start_state" in common_kwargs:
+                del common_kwargs["start_state"]
+            common_kwargs["apply_totg"] = False
+            common_kwargs["apply_smoothing"] = False
+
+            requests = []
+            for goal, req_kwargs in zip(goals, request_kwargs):
+                req_kwargs = common_kwargs | req_kwargs
+                requests.append(PlanRequest(goal=goal, **req_kwargs))
+        else:
+            raise ValueError(
+                "Either 'goals' and 'request_kwargs', or 'requests', must be provided"
+            )
+
+        if len(requests) < 1:
+            raise ValueError("At least one goal must be provided")
+
+        if any(request.start_state is not None for request in requests):
+            raise ValueError(
+                "'start_state' cannot be provided for any request in 'requests'"
+            )
+
+        if post_process_after_concat:
+            if dts is not None:
+                raise ValueError(
+                    "'dts' cannot be provided if 'post_process_after_concat' is True"
+                )
+            if any(
+                request.apply_totg or request.apply_smoothing
+                for request in requests
+            ):
+                raise ValueError(
+                    "'apply_totg' and 'apply_smoothing' cannot be True for any "
+                    "request in 'requests' if 'post_process_after_concat' is True"
+                )
+
+        if dts is None:
+            dts = [1e-4] * (len(requests) - 1)
+        elif len(dts) != len(requests) - 1:
+            raise ValueError("dts must be the same length as goals")
+
+        self.requests = requests
+        self.post_process_after_concat = post_process_after_concat
+        self.dts = dts
+
+        for key, value in kwargs.items():
+            self.__setattr__(key, value)
+
+    def _validate_attribute(self, name: str, value: Any):
+        """Check the types of the request."""
+        type_error = False
+        match name:
+            case "requests":
+                if not isinstance(value, list):
+                    type_error = True
+                else:
+                    for i, request in enumerate(value):
+                        if not isinstance(request, PlanRequest):
+                            raise ValueError(
+                                f"Invalid requests[{i}] type: {type(request)}"
+                            )
+            case "dts":
+                if not isinstance(value, list):
+                    type_error = True
+                else:
+                    for i, dt in enumerate(value):
+                        if not is_real_number(dt):
+                            raise ValueError(
+                                f"Invalid dts[{i}] type: {type(dt)}"
+                            )
+            case "post_process_after_concat":
+                if not isinstance(value, bool):
+                    type_error = True
+            case _:
+                super()._validate_attribute(name, value)
+
+        if type_error:
+            raise ValueError(f"Invalid {name} type: {type(value)}")
+
+
+PlanResponseT = tuple[RobotTrajectory | None, list[dict[str, Any]]]

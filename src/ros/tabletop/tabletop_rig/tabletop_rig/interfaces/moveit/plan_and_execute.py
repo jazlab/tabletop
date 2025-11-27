@@ -1,17 +1,13 @@
 import asyncio
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from copy import copy, deepcopy
 from types import TracebackType
-from typing import Any, Optional, Self, cast
+from typing import Any, Optional, Self
 
-import numpy as np
 from geometry_msgs.msg import PoseStamped
 from moveit.core.controller_manager import (  # type: ignore[reportMissingModuleSource]
     ExecutionStatus,
-)
-from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
-    PlanningScene,
 )
 from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
     RobotModel,
@@ -34,6 +30,7 @@ from tabletop_rig.exceptions import (
     ExecutionRejectedError,
     MaxPlanningAttemptsReachedError,
     NotSafeToExecuteError,
+    PlanningError,
     PlanOnceError,
     TrajectoryError,
     TrajectoryErrorCodes,
@@ -41,7 +38,13 @@ from tabletop_rig.exceptions import (
 from tabletop_rig.interfaces.moveit.planning_scene import (
     PlanningSceneInterface,
 )
-from tabletop_rig.interfaces.moveit.requests import PlanningGoalT, PlanRequest
+from tabletop_rig.interfaces.moveit.requests import (
+    BasePlanRequest,
+    ConcatPlanRequest,
+    PlanGoalT,
+    PlanRequest,
+    PlanResponseT,
+)
 from tabletop_rig.interfaces.moveit.trajectory_cache import (
     FuzzyTrajectoryCache,
 )
@@ -147,208 +150,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         return self.get_planning_component(group_name).named_target_states()
 
     ###########################################################################
-    ########## Robot States ###################################################
+    ########## Trajectory processing and validation ###########################
     ###########################################################################
-
-    def all_close_poses_stamped(
-        self,
-        pose_stamped1: PoseStamped,
-        pose_stamped2: PoseStamped,
-        position_tolerance: Optional[
-            float | Iterable[float] | np.ndarray
-        ] = None,
-        orientation_tolerance: Optional[
-            float | Iterable[float] | np.ndarray
-        ] = None,
-        use_euler_tolerance: Optional[bool] = None,
-    ) -> bool:
-        """Check if two pose stamped messages are all close.
-
-        Performs a reference frame change if necessary.
-
-        Args:
-            pose_stamped1: The first pose stamped message.
-            pose_stamped2: The second pose stamped message.
-            position_tolerance: The tolerance for the position.
-            orientation_tolerance: The tolerance for the orientation.
-            use_euler_tolerance: Whether to use euler tolerance.
-        Returns:
-            True if the two pose stamped messages are all close, False otherwise.
-        """
-        if position_tolerance is None:
-            position_tolerance = cast(
-                float | list[float],
-                self.node.get_parameter_wrapper(
-                    "planning.goal_position_tolerance"
-                ),
-            )
-        if orientation_tolerance is None:
-            orientation_tolerance = cast(
-                float | list[float],
-                self.node.get_parameter_wrapper(
-                    "planning.goal_orientation_tolerance"
-                ),
-            )
-        if use_euler_tolerance is None:
-            use_euler_tolerance = cast(
-                bool,
-                self.node.get_parameter_wrapper(
-                    "planning.use_euler_tolerance"
-                ),
-            )
-
-        if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
-            pose_stamped2 = self.change_reference_frame(
-                pose_stamped2, pose_stamped1.header.frame_id
-            )
-
-        return all_close_poses_stamped(
-            pose_stamped1,
-            pose_stamped2,
-            position_tolerance,
-            orientation_tolerance,
-            use_euler_tolerance,
-        )
-
-    def all_close_robot_states(
-        self,
-        robot_state1: RobotState,
-        robot_state2: RobotState,
-        position_tolerance: Optional[float | dict[str, float]] = None,
-        velocity_tolerance: Optional[float | dict[str, float]] = None,
-        acceleration_tolerance: Optional[float | dict[str, float]] = None,
-    ) -> bool:
-        """Check if two robot states are all close."""
-        if position_tolerance is None:
-            position_tolerance = self.node.get_parameter_wrapper(
-                "trajectory_execution.allowed_start_tolerance"
-            )
-        assert position_tolerance is not None
-        return all_close_robot_states(
-            robot_state1,
-            robot_state2,
-            position_tolerance,
-            velocity_tolerance,
-            acceleration_tolerance,
-        )
-
-    ###########################################################################
-    ########## Planning and execution #########################################
-    ###########################################################################
-
-    def get_target_state(
-        self, target_name: str, group_name: Optional[str] = None
-    ) -> RobotState:
-        """Get the named target state from the planning component."""
-        if target_name == "idle":
-            target_name = self.node.get_parameter_wrapper(
-                "predefined_states.idle_state"
-            )
-        elif target_name == "pre_present":
-            target_name = self.node.get_parameter_wrapper(
-                "predefined_states.pre_present_state"
-            )
-
-        joint_state_dict = self.get_planning_component(
-            group_name
-        ).get_named_target_state_values(target_name)
-        robot_state = self.current_state
-        robot_state.joint_positions = joint_state_dict
-        robot_state.update()
-        return robot_state
-
-    def create_plan_request(
-        self, goal: PlanningGoalT, **kwargs: Any
-    ) -> PlanRequest:
-        """Parse the planning kwargs.
-
-        Args:
-            goal: The goal to plan for.
-            **kwargs: Additional keyword arguments to override the default plan
-                request.
-
-        Returns:
-            A tuple of the parsed kwargs and any unused kwargs.
-        """
-        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
-        kwargs = default_kwargs | kwargs
-        return PlanRequest(goal=goal, **kwargs)
-
-    def _pre_plan(
-        self, request: PlanRequest
-    ) -> tuple[
-        PlanningComponent,
-        PlanRequestParameters | MultiPipelinePlanRequestParameters,
-    ]:
-        """Get the planning component and request parameters for the given kwargs.
-
-        Args:
-            request: The request to plan for.
-
-        Returns:
-            A tuple of the planning component and request parameters.
-        """
-        self.log(
-            f"Preparing planning component and request parameters with request {request}",
-            severity="DEBUG",
-        )
-
-        planning_component = self.get_planning_component(request.group_name)
-
-        # Set workspace
-        planning_component.set_workspace(
-            min_x=0.0, min_y=0.0, min_z=0.0, max_x=2.0, max_y=2.0, max_z=2.0
-        )
-
-        # Set start state
-        if not planning_component.set_start_state(
-            robot_state=request.start_state
-        ):
-            raise ValueError(f"Invalid start state: {request.start_state}")
-
-        # Check that pose_link is the planning link
-        # TODO: Implement pose_link functionality
-        if (
-            request.pose_link is not None
-            and request.pose_link != self.default_pose_link
-        ):
-            raise NotImplementedError(
-                "pose_link functionality is not implemented"
-            )
-
-        # Verify goal has already been transformed correctly
-        if isinstance(request.goal, PoseStamped):
-            assert request.goal.header.frame_id == self.planning_frame
-        else:
-            assert not isinstance(request.goal, str)
-
-        # Set goal state
-        goal_kwargs = {}
-        if isinstance(request.goal, PoseStamped):
-            goal_kwargs["pose_stamped_msg"] = request.goal
-            goal_kwargs["pose_link"] = request.pose_link
-        else:
-            goal_kwargs["robot_state"] = request.goal
-
-        if not planning_component.set_goal_state(**goal_kwargs):
-            raise ValueError(f"Invalid goal: {request.goal}")
-
-        # Set path constraints
-        if request.path_constraints is not None:
-            planning_component.set_path_constraints(request.path_constraints)
-
-        # Create request parameters
-        if isinstance(request.planning_pipeline, str):
-            request_params = PlanRequestParameters(
-                self.moveit_py, request.planning_pipeline
-            )
-        else:
-            assert isinstance(request.planning_pipeline, (list, tuple))
-            request_params = MultiPipelinePlanRequestParameters(
-                self.moveit_py, request.planning_pipeline
-            )
-
-        return planning_component, request_params
 
     def _apply_totg(
         self,
@@ -492,8 +295,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             ):
                 raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
 
-    def post_process_trajectory(
-        self, trajectory: RobotTrajectory, request: PlanRequest
+    def _post_process_trajectory(
+        self, trajectory: RobotTrajectory, request: BasePlanRequest
     ) -> RobotTrajectory:
         """Preprocess the trajectory using the given request.
 
@@ -503,7 +306,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             The preprocessed trajectory.
         """
-        # Apply time parameterization and smoothing to the trajectory
         if request.apply_totg:
             trajectory = self._apply_totg(
                 trajectory,
@@ -525,65 +327,222 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return trajectory
 
-    def _plan_once_impl(
-        self,
-        planning_component: PlanningComponent,
-        request_params: PlanRequestParameters
-        | MultiPipelinePlanRequestParameters,
-        planning_scene: Optional[PlanningScene] = None,
-    ) -> RobotTrajectory:
-        """Plan a trajectory to the given waypoint once.
+    ###########################################################################
+    ########## Planning and execution #########################################
+    ###########################################################################
+
+    def get_target_state(
+        self, target_name: str, group_name: Optional[str] = None
+    ) -> RobotState:
+        """Get the named target state from the planning component."""
+        if target_name == "idle":
+            target_name = self.node.get_parameter_wrapper(
+                "predefined_states.idle_state"
+            )
+        elif target_name == "pre_present":
+            target_name = self.node.get_parameter_wrapper(
+                "predefined_states.pre_present_state"
+            )
+
+        joint_state_dict = self.get_planning_component(
+            group_name
+        ).get_named_target_state_values(target_name)
+        robot_state = self.current_state
+        robot_state.joint_positions = joint_state_dict
+        robot_state.update()
+        return robot_state
+
+    def create_plan_request(
+        self, goal: PlanGoalT, **kwargs: Any
+    ) -> PlanRequest:
+        """Parse the planning kwargs.
 
         Args:
-            planning_component: The planning component to use.
-            request_params: The request parameters to use.
-            planning_scene: The planning scene to use.
+            goal: The goal to plan for.
+            **kwargs: Additional keyword arguments to override the default plan
+                request.
 
         Returns:
-            The planned trajectory.
+            A tuple of the parsed kwargs and any unused kwargs.
+        """
+        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
+        kwargs = default_kwargs | kwargs
+        return PlanRequest(goal=goal, **kwargs)
 
-        Raises:
-            PlanOnceError: If the planning fails.
+    def create_concat_plan_request(
+        self, goals: list[PlanGoalT], **kwargs: Any
+    ) -> ConcatPlanRequest:
+        """Parse the planning kwargs.
+
+        Args:
+            goal: The goal to plan for.
+            **kwargs: Additional keyword arguments to override the default plan
+                request.
+
+        Returns:
+            A tuple of the parsed kwargs and any unused kwargs.
+        """
+        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
+        kwargs = default_kwargs | kwargs
+        return ConcatPlanRequest(goals=goals, **kwargs)
+
+    def _get_cached_trajectory(
+        self,
+        request: PlanRequest,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> RobotTrajectory | None:
+        """Attempt to retrieve and validate all cached trajectories"""
+        self.log("Attempting to retrieve cached trajectories")
+        try:
+            trajectories = self.trajectory_cache.get_trajectories(request)
+        except KeyError:
+            self.log("No cached trajectory found, planning normally")
+            return None
+
+        self.log(
+            "Cached trajectories found, validating in order of path length"
+        )
+        for trajectory in trajectories:
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Plan cancelled")
+
+            try:
+                trajectory = self._post_process_trajectory(trajectory, request)
+                self._validate_trajectory(trajectory)
+                return trajectory
+            except TrajectoryError as e:
+                self.log(
+                    f"Error attempting to use cached trajectory: {e}",
+                    severity="WARN",
+                )
+
+        self.log("All cached trajectories invalid, planning normally")
+        return None
+
+    def _prepare_planning_component(
+        self, request: PlanRequest
+    ) -> tuple[
+        PlanningComponent,
+        PlanRequestParameters | MultiPipelinePlanRequestParameters,
+    ]:
+        """Get the planning component and request parameters for the given kwargs.
+
+        Args:
+            request: The request to plan for.
+
+        Returns:
+            A tuple of the planning component and request parameters.
         """
         self.log(
-            f"Planning once with request params {request_params} and planning scene {planning_scene}",
+            f"Preparing planning component and request parameters with request {request}",
             severity="DEBUG",
         )
-        if isinstance(request_params, MultiPipelinePlanRequestParameters):
-            plan_response = planning_component.plan(
-                self.moveit_py,
-                multi_plan_parameters=request_params,
-                planning_scene=planning_scene,
+
+        planning_component = self.get_planning_component(request.group_name)
+
+        # Set workspace
+        planning_component.set_workspace(
+            min_x=0.0, min_y=0.0, min_z=0.0, max_x=2.0, max_y=2.0, max_z=2.0
+        )
+
+        # Set start state
+        if not planning_component.set_start_state(
+            robot_state=request.start_state
+        ):
+            raise ValueError(f"Invalid start state: {request.start_state}")
+
+        # Check that pose_link is the planning link
+        # TODO: Implement pose_link functionality
+        if (
+            request.pose_link is not None
+            and request.pose_link != self.default_pose_link
+        ):
+            raise NotImplementedError(
+                "pose_link functionality is not implemented"
+            )
+
+        # Verify goal has already been transformed correctly
+        if isinstance(request.goal, PoseStamped):
+            assert request.goal.header.frame_id == self.planning_frame
+        else:
+            assert not isinstance(request.goal, str)
+
+        # Set goal state
+        goal_kwargs = {}
+        if isinstance(request.goal, PoseStamped):
+            goal_kwargs["pose_stamped_msg"] = request.goal
+            goal_kwargs["pose_link"] = request.pose_link
+        else:
+            goal_kwargs["robot_state"] = request.goal
+
+        if not planning_component.set_goal_state(**goal_kwargs):
+            raise ValueError(f"Invalid goal: {request.goal}")
+
+        # Set path constraints
+        if request.path_constraints is not None:
+            planning_component.set_path_constraints(request.path_constraints)
+
+        # Create request parameters
+        if isinstance(request.planning_pipeline, str):
+            request_params = PlanRequestParameters(
+                self.moveit_py, request.planning_pipeline
             )
         else:
-            plan_response = planning_component.plan(
-                self.moveit_py,
-                single_plan_parameters=request_params,
-                planning_scene=planning_scene,
+            assert isinstance(request.planning_pipeline, (list, tuple))
+            request_params = MultiPipelinePlanRequestParameters(
+                self.moveit_py, request.planning_pipeline
             )
 
-        if not plan_response:
-            raise PlanOnceError(plan_response.error_code)
+        return planning_component, request_params
 
-        return plan_response.trajectory
-
-    def _plan_impl(
+    def _plan_trajectory(
         self,
-        *args: Any,
-        request: Optional[PlanRequest] = None,
+        request: PlanRequest,
         cancel_event: Optional[threading.Event] = None,
-        **kwargs: Any,
-    ) -> tuple[RobotTrajectory, PlanRequest] | None:
-        """Retrieve trajectory from cache or plan a trajectory"""
-        # Parse the planning args if requested
-        if request is None:
-            request = self.create_plan_request(*args, **kwargs)
-        elif len(args) > 0 or len(kwargs) > 0:
-            raise ValueError(
-                f"Additional arguments ({args}) or kwargs ({kwargs}) cannot be provided if plan_request is provided"
-            )
+    ) -> RobotTrajectory:
+        # Get the planning component and request parameters
+        planning_component, request_params = self._prepare_planning_component(
+            request
+        )
+
+        # Plan until successful or max attempts reached
+        errors: list[PlanOnceError] = []
+        for i in range(request.max_attempts):
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError("Plan cancelled")
+
+            if isinstance(request_params, MultiPipelinePlanRequestParameters):
+                plan_response = planning_component.plan(
+                    self.moveit_py,
+                    multi_plan_parameters=request_params,
+                    planning_scene=request.planning_scene,
+                )
+            else:
+                plan_response = planning_component.plan(
+                    self.moveit_py,
+                    single_plan_parameters=request_params,
+                    planning_scene=request.planning_scene,
+                )
+
+            if plan_response:
+                return plan_response.trajectory
+            else:
+                error = PlanOnceError(plan_response.error_code)
+                self.log(
+                    f"Planning attempt {i + 1}/{request.max_attempts} failed: {error}",
+                    severity="WARN",
+                )
+                errors.append(error)
         else:
-            request = copy(request)
+            raise MaxPlanningAttemptsReachedError(errors)
+
+    def _plan_single_impl(
+        self,
+        request: PlanRequest,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> PlanResponseT:
+        """Retrieve trajectory from cache or plan a trajectory"""
 
         # Set start state if None
         if request.start_state is None:
@@ -602,91 +561,140 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Check if the goal is already reached
         if isinstance(request.goal, PoseStamped):
-            if self.all_close_poses_stamped(
-                request.goal, self.eef_pose_stamped()
+            tolerance_kwargs = self.node.get_parameter_wrapper(
+                "planning.pose_tolerance"
+            )
+            if all_close_poses_stamped(
+                request.goal, self.eef_pose_stamped(), **tolerance_kwargs
             ):
                 self.log("Already at goal, skipping planning")
-                return None
-        elif self.all_close_robot_states(request.goal, self.current_state):
-            self.log("Already at start state, skipping planning")
-            return None
+                return None, []
+        else:
+            tolerance = self.node.get_parameter_wrapper(
+                "trajectory_execution.allowed_start_tolerance"
+            )
+            if all_close_robot_states(
+                request.goal, self.current_state, position_tolerance=tolerance
+            ):
+                self.log("Already at start state, skipping planning")
+                return None, []
 
-        # Attempt to validate cached trajectories
+        # Attempt to retrieve cached trajectories for this request
         if (
             self.node.get_parameter_wrapper(
                 "trajectory_cache.use_cached_trajectories"
             )
             and request.use_cache
         ):
-            try:
-                # TODO: Refactor so caching happens in the plan() function
-                trajectories = self.trajectory_cache.get_trajectories(request)
-            except KeyError:
-                self.log(
-                    "No cached trajectory found, planning and executing normally"
-                )
-            else:
-                self.log(
-                    "Cached trajectories found, validating in order of path length"
-                )
-                for trajectory in trajectories:
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise asyncio.CancelledError("Plan cancelled")
-
-                    try:
-                        trajectory = self.post_process_trajectory(
-                            trajectory, request
-                        )
-                        self._validate_trajectory(trajectory)
-                        return trajectory, request
-                    except TrajectoryError as e:
-                        self.log(
-                            f"Error attempting to use cached trajectory: {e}",
-                            severity="WARN",
-                        )
-                self.log("All cached trajectories failed, planning normally")
+            trajectory = self._get_cached_trajectory(request, cancel_event)
+            if trajectory is not None:
+                return trajectory, []
         else:
             self.log(
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        # Otherwise, plan normally
+        fast = self.node.get_parameter_wrapper("planning.fast_pipeline")
+        fallback = self.node.get_parameter_wrapper(
+            "planning.fallback_pipeline"
+        )
+        pipelines: list[str]
+        attempts: list[int]
+        if request.planning_pipeline is None:
+            pipelines = [fallback]
+            attempts = [request.max_attempts]
 
-        # Get the planning component and request parameters
-        planning_component, request_params = self._pre_plan(request)
-
-        # Plan until successful or max attempts reached
-        errors: list[PlanOnceError] = []
-        for i in range(request.max_plan_attempts):
-            if cancel_event is not None and cancel_event.is_set():
-                raise asyncio.CancelledError("Plan cancelled")
-
-            try:
-                trajectory = self._plan_once_impl(
-                    planning_component, request_params, request.planning_scene
-                )
-                self.log(
-                    f"Planning attempt {i + 1}/{request.max_plan_attempts} succeeded",
-                    severity="DEBUG",
-                )
-                break
-            except PlanOnceError as e:
-                self.log(
-                    f"Planning attempt {i + 1}/{request.max_plan_attempts} failed: {e}",
-                    severity="WARN",
-                )
-                errors.append(e)
+            if isinstance(request.goal, PoseStamped):
+                pipelines.insert(0, fast)
+                attempts.insert(0, 1)
+        elif request.planning_pipeline == "linear" and not isinstance(
+            request.goal, PoseStamped
+        ):
+            raise ValueError(
+                "The `linear` planning pipeline cannot be used with RobotState goals"
+            )
         else:
-            raise MaxPlanningAttemptsReachedError(errors)
+            pipelines = [request.planning_pipeline]
+            attempts = [request.max_attempts]
+
+        trajectory = None
+        for i, (pipeline, attempt) in enumerate(zip(pipelines, attempts)):
+            request.planning_pipeline = pipeline
+            request.max_attempts = attempt
+            try:
+                trajectory = self._plan_trajectory(request, cancel_event)
+                break
+            except PlanningError as e:
+                if i < len(pipelines) - 1:
+                    self.log(
+                        f"Could not plan with pipeline {pipeline}, falling back to {pipelines[i + 1]}"
+                    )
+                else:
+                    raise e
 
         if cancel_event is not None and cancel_event.is_set():
             raise asyncio.CancelledError("Plan cancelled")
 
-        trajectory = self.post_process_trajectory(trajectory, request)
+        assert trajectory is not None
+        trajectory = self._post_process_trajectory(trajectory, request)
         # TODO: Maybe revalidate
         # self._validate_trajectory(trajectory)
+        cache_kwargs = {"trajectory": trajectory, "request": request}
 
-        return trajectory, request
+        return trajectory, [cache_kwargs]
+
+    def _plan_concat_impl(
+        self,
+        request: ConcatPlanRequest,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> PlanResponseT:
+        """Plan a series of trajectories and concatenate them"""
+        print_request = deepcopy(request)
+        print_request.requests.clear()
+        print_request.dts.clear()
+        self.log(
+            f"Planning concatenated trajectory with request: {print_request}"
+        )
+
+        # Initialize the start state and goal states
+        start_state = request.start_state
+        trajectories: list[RobotTrajectory] = []
+        cache_kwargs: list[dict[str, Any]] = []
+        for i, plan_request in enumerate(request.requests):
+            self.log(
+                f"Planning trajectory segment {i}/{len(request.requests)}",
+            )
+            try:
+                plan_request.start_state = start_state
+                plan_request.apply_totg = False
+                plan_request.apply_smoothing = False
+
+                trajectory, single_cache_kwargs = self._plan_single_impl(
+                    request=plan_request, cancel_event=cancel_event
+                )
+
+                if trajectory is not None:
+                    trajectories.append(trajectory)
+                    start_state = trajectory[len(trajectory) - 1]
+                    cache_kwargs.extend(single_cache_kwargs)
+            except Exception:
+                self.log(
+                    f"Error generating segment {i}/{len(request.requests)}",
+                    severity="ERROR",
+                )
+                raise
+
+        concat_trajectory = trajectories[0]
+        for trajectory, dt in zip(trajectories[1:], request.dts):
+            concat_trajectory.append(trajectory, dt=dt, start_index=0)
+
+        if request.post_process_after_concat:
+            concat_trajectory = self._post_process_trajectory(
+                concat_trajectory, request
+            )
+
+        return concat_trajectory, cache_kwargs
 
     def _execute_impl(self, trajectory: RobotTrajectory):
         """Trajectory execution synchronous implementation"""
@@ -711,28 +719,44 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             return
         elif not self._safe_to_execute_callback():
             raise NotSafeToExecuteError(execution_status)
-        elif not self.all_close_robot_states(
-            initial_state, self.current_state
-        ):
-            raise ExecutionInterruptedError(execution_status)
         else:
-            raise ExecutionRejectedError(execution_status)
+            tolerance = self.node.get_parameter_wrapper(
+                "trajectory_execution.allowed_start_tolerance"
+            )
+            if not all_close_robot_states(
+                initial_state, self.current_state, position_tolerance=tolerance
+            ):
+                raise ExecutionInterruptedError(execution_status)
+            else:
+                raise ExecutionRejectedError(execution_status)
 
     async def plan(
-        self, *args: Any, request: Optional[PlanRequest] = None, **kwargs: Any
-    ) -> tuple[RobotTrajectory, PlanRequest] | None:
-        """Retrieve from cache or plan a trajectory to the given waypoint,
-        retrying up to max_plan_attempts times until successful.
+        self,
+        goal: Optional[PlanGoalT] = None,
+        *,
+        goals: Optional[list[PlanGoalT]] = None,
+        request: Optional[PlanRequest | ConcatPlanRequest] = None,
+        cancel_event: Optional[threading.Event] = None,
+        **kwargs: Any,
+    ) -> PlanResponseT:
+        """Plan a trajectory to a goal or series of goals
 
         Args:
-            *args: Arguments to pass to `create_plan_request()`.
+            goal: The goal to plan towards. If not provided, 'goals' or
+                'request' must be provided
+            goals: The goals to plan towards. If not provided, 'goals' or
+                'request' must be provided
             request: The request to plan for. If not provided, the request is
-                created from args and kwargs.
+                created from goal and kwargs.
             cancel_event: An event that can be used to cancel planning.
             **kwargs: Keyword arguments to pass to `create_plan_request()`.
 
         Returns:
-            The planned trajectory, or None if the goal is already reached.
+            A tuple containing:
+                The planned trajectory, or None if already at the goal
+                The parsed plan request for caching, or None if already at goal
+                    a cached trajectory was used
+
 
         Raises:
             ValueError: If the request or arguments are invalid.
@@ -747,14 +771,38 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             `_plan_impl()`: For parameter and implementation details.
         """
         cancel_event = threading.Event()
-        try:
-            return await asyncio.to_thread(
-                self._plan_impl,
-                *args,
-                request=request,
-                cancel_event=cancel_event,
-                **kwargs,
+        if request is not None:
+            if goal is not None or goals is not None or len(kwargs) > 0:
+                raise ValueError(
+                    "None of 'goal', 'goals', or additional kwargs may be provided if 'request' is provided"
+                )
+        elif goal is not None:
+            if goals is not None:
+                raise ValueError("Both 'goal' and 'goals' cannot be provided")
+
+            request = self.create_plan_request(goal, **kwargs)
+            request = copy(request)
+        elif goals is not None:
+            request = self.create_concat_plan_request(goals, **kwargs)
+            request = copy(request)
+            for i, plan_request in enumerate(request.requests):
+                request.requests[i] = copy(plan_request)
+        else:
+            raise ValueError(
+                "One of 'goal', 'goals', or 'request' must be provided"
             )
+
+        cancel_event = threading.Event()
+        try:
+            if isinstance(request, PlanRequest):
+                coro = asyncio.to_thread(
+                    self._plan_single_impl, request, cancel_event=cancel_event
+                )
+            elif isinstance(request, ConcatPlanRequest):
+                coro = asyncio.to_thread(
+                    self._plan_concat_impl, request, cancel_event=cancel_event
+                )
+            return await coro
         finally:
             cancel_event.set()
 
@@ -777,11 +825,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         try:
             return await asyncio.to_thread(self._execute_impl, trajectory)
         except asyncio.CancelledError:
-            if self.execution_lock.locked():
-                self.trajectory_execution_manager.stop_execution()
+            self.stop_execution()
             raise
 
-    def cache_trajectory(self, trajectory: RobotTrajectory, **kwargs: Any):
+    def cache_trajectories(self, cache_kwargs: list[dict[str, Any]]):
         """Cache the given trajectory.
 
         Args:
@@ -791,18 +838,19 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if not self.node.get_parameter_wrapper(
             "trajectory_cache.freeze_cache"
         ):
-            self.trajectory_cache.cache_trajectory(trajectory, **kwargs)
-            self.log("Cached trajectory successfully")
+            for kwargs in cache_kwargs:
+                self.trajectory_cache.cache_trajectory(**kwargs)
+            self.log(f"Cached {len(cache_kwargs)} trajectories successfully")
         else:
             self.log("Cache is frozen, skipping cache")
 
     async def plan_and_execute(
         self,
         *args: Any,
-        request: Optional[PlanRequest] = None,
+        request: Optional[PlanRequest | ConcatPlanRequest] = None,
         cache_trajectory: bool = True,
         **kwargs: Any,
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
@@ -831,31 +879,33 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             raise ValueError("start_state is not allowed in plan_and_execute")
 
         # Plan and return immediately if already at goal
-        response = await self.plan(*args, request=request, **kwargs)
-        if response is None:
+        trajectory, cache_kwargs = await self.plan(
+            *args, request=request, **kwargs
+        )
+        if trajectory is None:
             return None
-        trajectory, parsed_request = response
 
         # Execute desired request
         await self.execute(trajectory)
 
-        # Cache the trajectory if requested
-        to_cache_kwargs = {
-            "trajectory": trajectory,
-            "request": parsed_request,
-            "true_end_state": self.current_state,
-        }
-        if cache_trajectory:
-            self.cache_trajectory(**to_cache_kwargs)
+        # Nothing to cache
+        if len(cache_kwargs) == 0:
+            return None
 
-        return to_cache_kwargs
+        # Cache the trajectory if requested
+        if cache_trajectory:
+            cache_kwargs[-1]["true_end_state"] = self.current_state
+            self.cache_trajectories(cache_kwargs)
+            return None
+
+        return cache_kwargs
 
     ###########################################################################
     ########## Reset (simulation) #############################################
     ###########################################################################
 
     async def clear_scene_and_reset(
-        self, end_goal: Optional[PlanningGoalT] = None, **kwargs
+        self, end_goal: Optional[PlanGoalT] = None, **kwargs
     ):
         """Ignore collisions and move robot to end_goal asynchronously.
 

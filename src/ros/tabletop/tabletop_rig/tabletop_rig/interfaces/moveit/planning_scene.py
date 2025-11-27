@@ -69,7 +69,7 @@ class PlanningSceneInterface(BaseInterface):
         """
         super().__init__(node, logger_name)
 
-        self.moveit_py = MoveItPy("moveit_py", provide_planning_service=False)
+        self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
         self._init_planning_scene()
 

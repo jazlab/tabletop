@@ -1,4 +1,4 @@
 from .moveit import MoveItInterface
-from .requests import PlanningGoalT, PlanRequest
+from .requests import PlanGoalT, PlanRequest
 
-__all__ = ["MoveItInterface", "PlanningGoalT", "PlanRequest"]
+__all__ = ["MoveItInterface", "PlanGoalT", "PlanRequest"]

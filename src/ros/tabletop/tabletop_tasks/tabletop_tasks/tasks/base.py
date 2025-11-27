@@ -114,7 +114,9 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         await self.commander.return_object()
 
     @abstractmethod
-    async def run_trial(self, trial_spec: TrialSpec | None) -> TrialFeedback:
+    async def run_trial(
+        self, trial_spec: TrialSpec | None
+    ) -> TrialFeedback | None:
         """Run one trial
 
         Args:
@@ -138,7 +140,8 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
                     # Run trial and send feedback to trial generator
                     feedback = await self.run_trial(trial_spec)
-                    self._trial_generator.send(feedback)
+                    if feedback is not None:
+                        self._trial_generator.send(feedback)
 
                     # Occlude smartglass and lock arms before moving
                     await self._occlude_and_lock()

@@ -396,7 +396,9 @@ def all_close_quaternions(
     """Check if two quaternions are close to each other."""
     q1_array = array_from_quaternion_msg(q1)
     q2_array = array_from_quaternion_msg(q2)
-    return all_close_iterables(q1_array, q2_array, tolerance)
+    return all_close_iterables(
+        q1_array, q2_array, tolerance
+    ) or all_close_iterables(q1_array, -q2_array, tolerance)
 
 
 def all_close_poses(
@@ -404,7 +406,6 @@ def all_close_poses(
     pose2: Pose,
     position_tolerance: float | Iterable[float] | np.ndarray,
     orientation_tolerance: float | Iterable[float] | np.ndarray,
-    use_euler_tolerance: bool = False,
 ) -> bool:
     """Check if two poses are close to each other.
 
@@ -413,22 +414,13 @@ def all_close_poses(
         pose2: The second pose.
         position_tolerance: The tolerance for the position.
         orientation_tolerance: The quaternion or euler angle tolerance for the orientation.
-        use_euler_tolerance: Whether to use euler tolerance instead of quaternion tolerance.
     """
     all_close_positions = all_close_points(
         pose1.position, pose2.position, position_tolerance
     )
-
-    if use_euler_tolerance:
-        euler_angles1 = euler_array_from_quaternion_msg(pose1.orientation)
-        euler_angles2 = euler_array_from_quaternion_msg(pose2.orientation)
-        all_close_orientations = all_close_iterables(
-            euler_angles1, euler_angles2, orientation_tolerance
-        )
-    else:
-        all_close_orientations = all_close_quaternions(
-            pose1.orientation, pose2.orientation, orientation_tolerance
-        )
+    all_close_orientations = all_close_quaternions(
+        pose1.orientation, pose2.orientation, orientation_tolerance
+    )
 
     return all_close_positions and all_close_orientations
 
@@ -438,16 +430,14 @@ def all_close_poses_stamped(
     pose_stamped2: PoseStamped,
     position_tolerance: float | Iterable[float] | np.ndarray,
     orientation_tolerance: float | Iterable[float] | np.ndarray,
-    use_euler_tolerance: bool = False,
 ) -> bool:
     """Check if two poses are close to each other.
 
     Args:
         pose_stamped1: The first pose.
         pose_stamped2: The second pose.
-        *args: Arguments to pass to all_close_poses.
-        **kwargs: Keyword arguments to pass to all_close_poses.
-
+        position_tolerance: The tolerance for the position.
+        orientation_tolerance: The quaternion or euler angle tolerance for the orientation.
     Returns:
         True if the poses are close to each other, False otherwise.
     """
@@ -458,7 +448,6 @@ def all_close_poses_stamped(
         pose_stamped2.pose,
         position_tolerance,
         orientation_tolerance,
-        use_euler_tolerance,
     )
 
 

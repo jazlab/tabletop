@@ -201,7 +201,7 @@ def declare_arguments():
         # Bag
         DeclareLaunchArgument(
             "rosbag",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Record rosbag?",
         ),

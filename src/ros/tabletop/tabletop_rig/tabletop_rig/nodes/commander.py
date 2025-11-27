@@ -12,6 +12,9 @@ import rclpy
 import rclpy.utilities
 from geometry_msgs.msg import PoseStamped
 from mingus.containers import Note
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
+)
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
@@ -26,7 +29,7 @@ from tabletop_rig.interfaces.dashboard import DashboardInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
-from tabletop_rig.interfaces.moveit.requests import PlanningGoalT
+from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.nodes.base import BaseNode
@@ -41,9 +44,8 @@ class Commander(BaseNode):
         "dashboard.program",
         "teensy.spin_period",
         "planning.defaults",
-        "planning.goal_position_tolerance",
-        "planning.goal_orientation_tolerance",
-        "planning.use_euler_tolerance",
+        "planning.pose_tolerance.position_tolerance",
+        "planning.pose_tolerance.orientation_tolerance",
         "predefined_states.idle_state",
         "predefined_poses.pre_fetch_offset",
         "predefined_poses.pre_attach_offset",
@@ -96,7 +98,7 @@ class Commander(BaseNode):
     def _teensy_sensor_callback(self, msg: TeensySensor):
         """Additional callback for the Teensy sensor subscription.
 
-        If Teensy sensor message indicates it is not safe to execute and the
+        If Teensy interface indicates it is not safe to execute and the
         MoveIt inteface is executing, stop execution
         """
         if not self.teensy.safe_to_execute and self.moveit.executing:
@@ -223,6 +225,23 @@ class Commander(BaseNode):
         """
         return self.moveit.create_pose_stamped(frame_id=frame_id, **kwargs)
 
+    async def plan(self, *args, **kwargs) -> RobotTrajectory | None:
+        """Plan to a given goal
+
+        Args:
+            goal: The gaol to plan to
+        """
+        trajectory, _ = await self.moveit.plan(*args, **kwargs)
+        return trajectory
+
+    async def execute(self, *args, **kwargs):
+        """Plan to a given goal
+
+        Args:
+            goal: The gaol to plan to
+        """
+        await self.moveit.execute(*args, **kwargs)
+
     async def plan_and_execute(self, *args, **kwargs):
         """Plan and execute to a given goal
 
@@ -342,7 +361,7 @@ class Commander(BaseNode):
     async def reset_commander(
         self,
         timeout: Optional[float] = None,
-        end_goal: Optional[PlanningGoalT] = None,
+        end_goal: Optional[PlanGoalT] = None,
     ):
         """Reset the dashboard and the robot until successful or timeout.
 
@@ -506,14 +525,6 @@ async def asyncio_runner(
     )
 
     await task
-    # try:
-    #     await task
-    # finally:
-    #     try:
-    #         print("Shutting down commander")
-    #         commander.destroy_node()
-    #     except Exception as e:
-    #         print(f"Error while shutting down commander: {e}")
 
 
 def main(args=None):
