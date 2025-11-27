@@ -1,6 +1,11 @@
 ARG ROS_DISTRO=jazzy
-ARG INSTALL_CUDA=
-ARG CUDA_VERSION=129
+ARG INSTALL_CUDA
+ARG CUDA_VERSION=128
+ARG UV_EXTRA
+ARG USER_NAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+ARG USER_GROUPS
 
 # Nvidia and non-nvidia build stages
 FROM ros:$ROS_DISTRO AS ros
@@ -12,9 +17,9 @@ ENV PATH=/usr/local/cuda/bin:$PATH
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 
 
-FROM ros:$ROS_DISTRO AS ros-nvidia-129
+FROM ros:$ROS_DISTRO AS ros-nvidia-130
 
-COPY --from=nvidia/cuda:12.9.1-devel-ubuntu24.04 \
+COPY --from=nvidia/cuda:13.0.2-devel-ubuntu24.04 \
     /usr/local/cuda /usr/local/cuda
 ENV PATH=/usr/local/cuda/bin:$PATH
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
@@ -23,7 +28,7 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia
 
 # Choose stage based on INSTALL_CUDA arg
-FROM ros${INSTALL_CUDA:+-nvidia}
+FROM ros${INSTALL_CUDA:+-nvidia-${CUDA_VERSION}}
 
 SHELL ["/bin/bash", "-c"]
 
@@ -72,7 +77,7 @@ EOT
 ARG USER_NAME
 ARG USER_UID
 ARG USER_GID
-ARG USER_GROUPS=
+ARG USER_GROUPS
 
 RUN <<EOT
 set -ex
@@ -83,6 +88,10 @@ fi
 if [[ -z $USER_UID || -z $USER_GID || $USER_UID = 0 || $USER_GID = 0 ]] ; then
     echo "USER_UID and USER_GID must be set and cannot be 0"
     exit 1
+fi
+if id -un $USER_NAME >/dev/null 2>&1; then
+    echo "Username $USER_NAME already exists, deleting..."
+    userdel -r $USER_NAME
 fi
 if id -u $USER_UID >/dev/null 2>&1; then
     echo "User ID $USER_UID already exists, deleting..."
@@ -104,6 +113,7 @@ USER $USER_NAME
 
 # Install ROS dependencies from src/ros directory
 ARG ROS_DISTRO
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=bind,source=src/ros,target=/tmp/src <<EOT

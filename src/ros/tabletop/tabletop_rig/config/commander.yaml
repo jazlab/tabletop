@@ -81,18 +81,17 @@
         # min_angle_change: 0.001
         # mitigate_overshoot: false
         # overshoot_threshold: 0.002
-      goal_position_tolerance: 0.01
-      goal_orientation_tolerance: 0.02
-      use_euler_tolerance: true
+      pose_tolerance:
+        position_tolerance: 0.01
+        orientation_tolerance: 0.02
 
     trajectory_cache:
       use_cached_trajectories: true
       freeze_cache: false
       kwargs:
         path: $TABLETOP_CACHE_DIR/trajectories
-        goal_position_tolerance: 0.03 # meters
-        goal_orientation_tolerance: 0.05 # radians
-        use_euler_tolerance: true
+        position_tolerance: 0.03 # meters
+        orientation_tolerance: 0.05 # radians
         max_trajectories: 5
         new_cache: false
 

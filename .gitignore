@@ -13,6 +13,9 @@ log/
 # Temporary files
 *.tmp
 
+# .env file
+.env
+
 # Build artifacts
 /build/
 /install/

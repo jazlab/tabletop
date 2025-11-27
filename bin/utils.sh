@@ -1,3 +1,18 @@
+dotenv_set_if_empty() {
+    # Check if the correct number of arguments are provided
+    if [ $# -ne 2 ]; then
+        print_error "Usage: set_if_empty KEY VALUE"
+        return 1
+    fi
+
+    local key=$1
+    local value=$2
+
+    if ! dotenv get $key >/dev/null 2>&1; then
+        dotenv set $key $value
+    fi
+}
+
 get_parent_dir() {
     # Check if the correct number of arguments are provided
     if [ $# -ne 2 ]; then

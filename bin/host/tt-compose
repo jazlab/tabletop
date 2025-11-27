@@ -7,7 +7,9 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 builtin cd $TABLETOP_DIR
-source docker/env.bash
+
+export COMPOSE_BAKE=true
+export COMPOSE_REMOVE_ORPHANS=true
 
 ARGS=()
 # export COMPOSE_PROFILES="*"

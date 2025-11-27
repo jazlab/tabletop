@@ -144,5 +144,9 @@
     "/tabletop/install/micro_ros_msgs/lib/python3.12/site-packages",
     "/tabletop/install/flir_camera_msgs/lib/python3.12/site-packages",
     "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ],
+  "yaml.customTags": [
+    "!merge sequence",
+    "!override sequence"
   ]
 }

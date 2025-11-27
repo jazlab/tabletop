@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+QUOTE_STYLE=never
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+builtin cd $TABLETOP_DIR
+
+# Get value of key from environment file and error if not set
+dotenv_get_required() {
+    if [[ $# == 1 ]]; then
+        local file=.env
+    elif [[ $# == 2 ]]; then
+        local file=$1
+        shift
+    else
+        print_error "Usage: dotenv_get_required [file] KEY VALUE"
+        return 1
+    fi
+
+    declare -n key=$1
+    key=$(dotenv --file $file get "${!key}")
+
+    if [[ -z "${!key}" ]]; then
+        print_error "Required key '$1' not set or empty in $file"
+        return 1
+    fi
+}
+
+# Set key to value in environment file
+dotenv_set() {
+    if [[ $# == 2 ]]; then
+        local file=.env
+    elif [[ $# == 3 ]]; then
+        local file=$1
+        shift
+    else
+        print_error "Usage: dotenv_set [file] KEY VALUE"
+        return 1
+    fi
+
+    local key=$1
+    local value=$2
+
+    dotenv --file $file --quote $QUOTE_STYLE set -- "$key" "$value"
+}
+
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--clean)
+            clean=true
+            ;;
+        *)
+            print_error "Unkown argument: $1"
+            echo "Usage: $0 [-c|--clean]"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# Create .env file if it does not exist
+if [[ $clean || ! -s .env ]]; then
+    rm -f .env
+    cp .env.example .env
+fi
+
+# Verify that all required variables are set and non-empty
+dotenv_get_required USER_NAME
+dotenv_get_required USER_UID
+dotenv_get_required USER_GID
+dotenv_get_required NOVNC_DISPLAY
+dotenv_get_required CUDA_VERSION
+dotenv_get_required BIND_CONSISTENCY
+dotenv_get_required FLIR_MAX_DEVS
+
+# Set NVIDIA build args and runtime variables if available
+if command -v nvidia-smi >/dev/null 2>&1; then
+    dotenv_set COMMANDER_RUNTIME nvidia
+    dotenv_set UV_EXTRA "--extra cu$CUDA_VERSION"
+    dotenv_set NVIDIA_VISIBLE_DEVICES all
+    dotenv_set NVIDIA_DRIVER_CAPABILITIES all
+    # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
+else
+    dotenv_set COMMANDER_RUNTIME runc
+    dotenv_set UV_EXTRA ""
+    dotenv_set NVIDIA_VISIBLE_DEVICES ""
+    dotenv_set NVIDIA_DRIVER_CAPABILITIES ""
+    # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
+fi
+
+# Dynamically locate Flir device absolute paths
+# Set $FLIR_DEV_<i> to this path for all i in [0, n),
+# where n is the number of available flir devices
+i=0
+if [ -d /dev/flir ]; then
+    while IFS= read -r -d '' LINK; do
+        if [ -L "$LINK" ]; then
+            TARGET=$(readlink -f "$LINK" 2>/dev/null)
+            if [ -n "$TARGET" ]; then
+                dotenv_set FLIR_DEV_$i $TARGET
+                (( i+=1 ))
+            fi
+        fi
+    done < <(find /dev/flir -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
+fi
+
+# Check if FLIR_MAX_CAMERAS constant was exceed
+# If so, the constant must be increased and the compose.yaml file must be
+# modified to allow for more devices
+if (( i > FLIR_MAX_DEVS )); then
+    print_error "You have more cameras connected than FLIR_MAX_DEVS"
+    print_error "To remedy, increase the number of FLIR_DEV_* devices in the compose.yaml file"
+    print_error "Then, increase FLIR_MAX_DEVS your .env file"
+    exit 1
+fi
+
+while (( i < FLIR_MAX_CAMERAS )); do
+    dotenv_set FLIR_DEV_$i /dev/null
+    (( i+=1 ))
+done
+
+
+# Set Teensy device path if available
+if [ -e /dev/ttyACM0 ]; then
+    dotenv_set TEENSY_DEV /dev/ttyACM0
+else
+    dotenv_set TEENSY_DEV /dev/null
+fi
+
+# Mount pulse audio socket if available
+if command -v pactl >/dev/null 2>&1; then
+    PULSE_SERVER_HOST=$(pactl --format=json info | jq -r '.server_string')
+    if [[ ! -S $PULSE_SERVER_HOST ]]; then
+        unset PULSE_SERVER_HOST
+    fi
+elif [ -S "$XDG_RUNTIME_DIR/pulse/native" ]; then
+    PULSE_SERVER_HOST=$XDG_RUNTIME_DIR/pulse/native
+fi
+
+if [[ -n $PULSE_SERVER_HOST ]]; then
+    dotenv_set PULSE_SERVER_MNT $PULSE_SERVER_HOST:/tmp/pulseaudio.socket
+    dotenv_set PULSE_COOKIE_MNT ~/.config/pulse/cookie:/home/$USER_NAME/.config/pulse/cookie
+    dotenv_set PULSE_SERVER_CONTAINER unix:/tmp/pulseaudio.socket
+else
+    dotenv_set PULSE_SERVER_MNT /dev/null:/dev/null
+    dotenv_set PULSE_COOKIE_MNT /dev/null:/dev/null
+    dotenv_set PULSE_SERVER_CONTAINER /dev/null:/dev/null
+fi
+
+# Mount kitty socket if available
+if [[ $KITTY_LISTEN_ON = unix* ]]; then
+    dotenv_set KITTY_LISTEN_ON_MNT ${KITTY_LISTEN_ON#unix:}:/tmp/kitty
+    dotenv_set KITTY_LISTEN_ON_CONTAINER unix:/tmp/kitty
+elif [[ $KITTY_LISTEN_ON = tcp* ]]; then
+    dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
+    dotenv_set KITTY_LISTEN_ON_CONTAINER $KITTY_LISTEN_ON
+else
+    dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
+    dotenv_set KITTY_LISTEN_ON_CONTAINER ""
+fi

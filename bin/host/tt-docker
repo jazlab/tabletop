@@ -5,7 +5,9 @@ set -eo pipefail
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
 
-cd $TABLETOP_DIR
-source docker/env.bash
+builtin cd $TABLETOP_DIR
+
+export COMPOSE_BAKE=true
+export COMPOSE_REMOVE_ORPHANS=true
 
 docker "$@"

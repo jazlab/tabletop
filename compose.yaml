@@ -28,7 +28,7 @@ services:
       autoheal-tabletop: true
     environment:
       - PORT=8080
-      - DISPLAY=:20.0
+      - DISPLAY=$NOVNC_DISPLAY
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080
       - WINDOW_MANAGER=dwm
@@ -47,7 +47,7 @@ services:
       - ./ur_robot/programs:/ursim/programs
       - ./docker/ursim/entrypoint.sh:/entrypoint.sh
     environment:
-      - DISPLAY=:20.0
+      - DISPLAY=$NOVNC_DISPLAY
       - ROBOT_MODEL=ur5e
     depends_on:
       novnc:
@@ -106,7 +106,7 @@ services:
       - type: bind
         source: .
         target: /tabletop
-        consistency: cached
+        consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
       - colcon-build:/tabletop/build
       - colcon-install:/tabletop/install
@@ -132,7 +132,7 @@ services:
       - rig
       - sim
     environment:
-      - DISPLAY=:20.0
+      - DISPLAY=$NOVNC_DISPLAY
     depends_on:
       novnc:
         condition: service_healthy
@@ -213,10 +213,10 @@ services:
     extends: ros-base
     runtime: $COMMANDER_RUNTIME
     volumes:
-      - ${PULSE_SERVER_MNT:-/dev/null}
-      - ${PULSE_COOKIE_MNT:-/dev/null}
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
     environment:
-      - DISPLAY=:20.0
+      - DISPLAY=$NOVNC_DISPLAY
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
@@ -244,24 +244,23 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
-      - $TEENSY_DEV
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
         target: /tabletop
-        consistency: cached
+        consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
       - colcon-build:/tabletop/build
       - colcon-install:/tabletop/install
-      - ${PULSE_SERVER_MNT:-/dev/null}
-      - ${PULSE_COOKIE_MNT:-/dev/null}
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
+      - $KITTY_LISTEN_ON_MNT
       - ~/.vimrc:/home/$USER_NAME/.vimrc
       - ~/.config/nvim:/home/$USER_NAME/.config/nvim
       - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
-      - ${KITTY_LISTEN_ON_MNT:-/dev/null}
     environment:
-      - DISPLAY=:20.0
+      - DISPLAY=$NOVNC_DISPLAY
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
