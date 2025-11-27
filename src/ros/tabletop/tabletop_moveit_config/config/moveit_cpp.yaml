@@ -15,68 +15,6 @@ planning_pipelines:
     # - chomp
     # - stomp
 
-ompl_aps_rrtc:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTConnect
-    planning_time: 0.3
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-ompl_aps_rrt_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTstar
-    planning_time: 0.5
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-ompl_aps_rrtc_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTConnectstar
-    planning_time: 3.0
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-ompl_aps_persistent:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSPersistent
-    planning_time: 3.0
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-ompl_rrt_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: RRTstar
-    planning_time: 0.5
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-ompl_persistent_lazy_prm_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: SemiPersistentLazyPRMstar
-    planning_time: 3.0
-    max_velocity_scaling_factor: 1.0
-
-ompl_persistent_lazy_prm:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: PersistentLazyPRM
-    planning_time: 3.0
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
 linear:
   plan_request_params:
     planning_attempts: 1
@@ -86,14 +24,75 @@ linear:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
-pilz_ptp:
+rrt_star:
   plan_request_params:
     planning_attempts: 1
-    planning_pipeline: pilz_industrial_motion_planner
-    planner_id: PTP
-    planning_time: 0.1
-    max_velocity_scaling_factor: 0.5
-    max_acceleration_scaling_factor: 0.5
+    planning_pipeline: ompl
+    planner_id: APSRRTstar
+    planning_time: 0.5
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+# ompl_aps_rrtc:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: APSRRTConnect
+#     planning_time: 0.3
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# ompl_aps_rrtc_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: APSRRTConnectstar
+#     planning_time: 3.0
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# ompl_aps_persistent:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: APSPersistent
+#     planning_time: 3.0
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# ompl_rrt_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: RRTstar
+#     planning_time: 0.5
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# ompl_persistent_lazy_prm_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: SemiPersistentLazyPRMstar
+#     planning_time: 3.0
+#     max_velocity_scaling_factor: 1.0
+#
+# ompl_persistent_lazy_prm:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: PersistentLazyPRM
+#     planning_time: 3.0
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# pilz_ptp:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: pilz_industrial_motion_planner
+#     planner_id: PTP
+#     planning_time: 0.1
+#     max_velocity_scaling_factor: 0.5
+#     max_acceleration_scaling_factor: 0.5
 # cumotion:
 #   plan_request_params:
 #     planning_attempts: 1

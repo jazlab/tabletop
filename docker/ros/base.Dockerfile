@@ -146,6 +146,8 @@ RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
 set -ex
 export UV_CACHE_DIR=/tmp/uv.cache
 uv sync --locked --no-install-project $UV_EXTRA
+mkdir -p ~/.cache
+cp -r $UV_CACHE_DIR ~/.cache/uv
 EOT
 
 # Install colcon mixins
@@ -183,9 +185,8 @@ else
     source "/opt/ros/$ROS_DISTRO/setup.bash" --
 fi
 EOF
-mkdir -p build install
 mkdir -p ~/.config
 EOT
 
-# Convenience variable to indicate the
+# Convenience variable to indicate we're in a container
 ENV TABLETOP_CONTAINER=true

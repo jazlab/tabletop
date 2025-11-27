@@ -6,6 +6,8 @@
     "dev"
   ],
   "workspaceFolder": "/tabletop",
+  "containerUser": "mules",
+  "remoteUser": "mules",
   "customizations": {
     "vscode": {
       "extensions": [

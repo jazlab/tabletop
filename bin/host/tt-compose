@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
             ARGS+=("$1")
             # ARGS+=("--builder" "tabletop_builder")
             export COMPOSE_PROFILES="*"
-            export BUILDKIT_PROGRESS=plain
+            # export BUILDKIT_PROGRESS=plain
             ;;
         # up)
         #     unset COMPOSE_PROFILES
@@ -28,10 +28,10 @@ while [[ $# -gt 0 ]]; do
             ARGS+=("$1")
             ARGS+=("--all")
             ;;
-        # down)
-        #     ARGS+=("$1")
-        #     ARGS+=("--volumes")
-        #     ;;
+        down)
+            ARGS+=("$1")
+            ARGS+=("--volumes")
+            ;;
         *)
             ARGS+=("$1")
             ;;

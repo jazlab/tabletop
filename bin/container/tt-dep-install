@@ -7,12 +7,12 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    print_error "Usage: $0 [-t|--type <type>] [--skip-uv] [--skip-apt]"
+    print_error "Usage: $0 [-t|--type <type>] [--skip-uv] [--apt-upgrade]"
     print_error "-t|--type can be 'build', 'exec', or 'both (default)'"
     print_error "   If set to 'build', existing moveit apt packages will be removed"
     print_error "--from-paths will set the from paths for the dependency installation (default: src/ros)"
     print_error "--skip-uv will skip the Python dependency installation using uv"
-    print_error "--skip-apt will skip the apt package installation"
+    print_error "--apt-upgrade will upgrade and update apt packages"
     print_error "--skip-moveit-apt-removal will skip the removal of existing moveit apt packages if -t|--type is set to 'build'"
 }
 
@@ -50,8 +50,8 @@ while [[ $# -gt 0 ]]; do
         --skip-moveit-apt-removal)
             skip_moveit_apt_removal=true
             ;;
-        --skip-apt)
-            skip_apt=true
+        --apt-upgrade)
+            apt_upgrade=true
             ;;
         --skip-uv)
             skip_uv=true
@@ -68,14 +68,18 @@ if [[ ${#from_paths[@]} -eq 0 ]]; then
     from_paths=("src/ros")
 fi
 
+# Update apt
+sudo apt update -q
+
 # Upgrade apt packages
-if [[ $skip_apt != true ]]; then
+if [[ $apt_upgrade == true ]]; then
     print_status "Upgrading apt packages"
-    sudo apt update -q
     sudo apt upgrade -q -y
     sudo apt dist-upgrade -q -y
-    rosdep update -q
 fi
+
+# Update rosdep
+rosdep update -q
 
 # Install Python dependencies
 if [[ $skip_uv != true ]]; then
@@ -90,7 +94,7 @@ if [[ $type = build && $skip_moveit_apt_removal != true ]]; then
 fi
 
 # Source ROS environment again after rosdep update
-if [[ $skip_apt != true || $skip_uv != true ]]; then
+if [[ $apt_upgrade == true || $skip_uv != true ]]; then
     source $TABLETOP_DIR/setup.bash
 fi
 

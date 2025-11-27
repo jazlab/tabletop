@@ -51,8 +51,8 @@ while [[ $# -gt 0 ]]; do
         --skip-uv)
             skip_uv=--skip-uv
             ;;
-        --skip-apt)
-            skip_apt=true
+        --apt-upgrade)
+            apt_upgrade=--apt-upgrade
             ;;
         --build-debug)
             build_debug=true
@@ -132,9 +132,13 @@ elif [[ $clean = true ]]; then
 fi
 
 # Install ROS 2 build dependencies
-if [[ $skip_apt != true ]]; then
-    tt-dep-install --type build $skip_moveit_apt_removal $skip_uv $from_paths
-fi
+tt-dep-install --type build $skip_moveit_apt_removal $apt_upgrade $skip_uv $from_paths
+
+# Install tabletop_py python project
+print_status "Building/installing tabletop_py"
+uv sync --only-install-project --inexact
+
+# Build colon workspace
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
@@ -182,4 +186,4 @@ print_status "Successfully built ROS 2 packages!"
 source install/setup.bash
 
 # Install ROS 2 runtime dependencies
-tt-dep-install --type exec $from_paths --skip-uv --skip-apt
+tt-dep-install --type exec $from_paths --skip-uv
