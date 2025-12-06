@@ -122,6 +122,9 @@
       mount_ids:
         - rig
 
+    safe_execution:
+      max_retries: 3
+
     link_padding:
       base_link_inertia: 0.03
       shoulder_link: 0.03

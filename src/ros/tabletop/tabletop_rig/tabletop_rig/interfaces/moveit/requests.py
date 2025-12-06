@@ -145,6 +145,7 @@ class ConcatPlanRequest(BasePlanRequest):
 
     requests: list[PlanRequest]
     dts: list[float]
+    loop: bool
     post_process_after_concat: bool
 
     def __init__(
@@ -154,6 +155,7 @@ class ConcatPlanRequest(BasePlanRequest):
         requests: Optional[list[PlanRequest]] = None,
         request_kwargs: Optional[list[dict[str, Any]]] = None,
         dts: Optional[list[float]] = None,
+        loop: bool = False,
         post_process_after_concat: bool = False,
         **kwargs: Any,
     ):
@@ -208,14 +210,18 @@ class ConcatPlanRequest(BasePlanRequest):
                     "request in 'requests' if 'post_process_after_concat' is True"
                 )
 
+        num_dts = len(requests)
+        if loop:
+            num_dts += 1
         if dts is None:
-            dts = [1e-4] * (len(requests) - 1)
-        elif len(dts) != len(requests) - 1:
+            dts = [1e-4] * num_dts
+        elif len(dts) != num_dts:
             raise ValueError("dts must be the same length as goals")
 
         self.requests = requests
-        self.post_process_after_concat = post_process_after_concat
+        self.loop = loop
         self.dts = dts
+        self.post_process_after_concat = post_process_after_concat
 
         for key, value in kwargs.items():
             self.__setattr__(key, value)
@@ -242,6 +248,9 @@ class ConcatPlanRequest(BasePlanRequest):
                             raise ValueError(
                                 f"Invalid dts[{i}] type: {type(dt)}"
                             )
+            case "loop":
+                if not isinstance(value, bool):
+                    type_error = True
             case "post_process_after_concat":
                 if not isinstance(value, bool):
                     type_error = True

@@ -50,7 +50,6 @@ from tabletop_rig.interfaces.moveit.trajectory_cache import (
 )
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import (
-    all_close_poses_stamped,
     all_close_robot_states,
     robot_trajectory_copy,
 )
@@ -204,7 +203,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         ):
             raise TrajectoryError(TrajectoryErrorCodes.TOTG_FAILED)
 
-        assert len(trajectory) > 1
+        # assert len(trajectory) > 1
 
         self.log(
             "Time parameterization applied successfully with: "
@@ -543,6 +542,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Retrieve trajectory from cache or plan a trajectory"""
+        request = copy(request)
 
         # Set start state if None
         if request.start_state is None:
@@ -559,25 +559,25 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 request.goal, request.group_name
             )
 
-        # Check if the goal is already reached
-        if isinstance(request.goal, PoseStamped):
-            tolerance_kwargs = self.node.get_parameter_wrapper(
-                "planning.pose_tolerance"
-            )
-            if all_close_poses_stamped(
-                request.goal, self.eef_pose_stamped(), **tolerance_kwargs
-            ):
-                self.log("Already at goal, skipping planning")
-                return None, []
-        else:
-            tolerance = self.node.get_parameter_wrapper(
-                "trajectory_execution.allowed_start_tolerance"
-            )
-            if all_close_robot_states(
-                request.goal, self.current_state, position_tolerance=tolerance
-            ):
-                self.log("Already at start state, skipping planning")
-                return None, []
+        # Check if the goal is already reached (this is wrong)
+        # if isinstance(request.goal, PoseStamped):
+        #     tolerance_kwargs = self.node.get_parameter_wrapper(
+        #         "planning.pose_tolerance"
+        #     )
+        #     if all_close_poses_stamped(
+        #         request.goal, self.eef_pose_stamped(), **tolerance_kwargs
+        #     ):
+        #         self.log("Already at goal pose, skipping planning")
+        #         return None, []
+        # else:
+        #     tolerance = self.node.get_parameter_wrapper(
+        #         "trajectory_execution.allowed_start_tolerance"
+        #     )
+        #     if all_close_robot_states(
+        #         request.goal, self.current_state, position_tolerance=tolerance
+        #     ):
+        #         self.log("Already at goal state, skipping planning")
+        #         return None, []
 
         # Attempt to retrieve cached trajectories for this request
         if (
@@ -650,17 +650,30 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
-        print_request = deepcopy(request)
-        print_request.requests.clear()
-        print_request.dts.clear()
-        self.log(
-            f"Planning concatenated trajectory with request: {print_request}"
-        )
+        request = copy(request)
+        for i, plan_request in enumerate(request.requests):
+            request.requests[i] = copy(plan_request)
 
-        # Initialize the start state and goal states
+        # Set start state if None
+        if request.start_state is None:
+            request.start_state = self.current_state
+
+        # If loop is requested, we add the requested start state as a final
+        # goal to plan to, so that subsequent calls to execute for the same
+        # request don't fail because the last state is too far from the
+        # start state
+        if request.loop:
+            request.requests.append(
+                self.create_plan_request(goal=request.start_state)
+            )
+
+        # Initialize start state for each trajectory segment
         start_state = request.start_state
         trajectories: list[RobotTrajectory] = []
         cache_kwargs: list[dict[str, Any]] = []
+        dts: list[float] = []
+
+        # Loop over individual plan requests,
         for i, plan_request in enumerate(request.requests):
             self.log(
                 f"Planning trajectory segment {i}/{len(request.requests)}",
@@ -676,8 +689,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
                 if trajectory is not None:
                     trajectories.append(trajectory)
-                    start_state = trajectory[len(trajectory) - 1]
                     cache_kwargs.extend(single_cache_kwargs)
+                    dts.append(request.dts[i])
+                    start_state = trajectory[len(trajectory) - 1]
             except Exception:
                 self.log(
                     f"Error generating segment {i}/{len(request.requests)}",
@@ -685,8 +699,12 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 )
                 raise
 
-        concat_trajectory = trajectories[0]
-        for trajectory, dt in zip(trajectories[1:], request.dts):
+        concat_trajectory = RobotTrajectory(self.robot_model)
+        concat_trajectory.joint_model_group_name = trajectories[
+            0
+        ].joint_model_group_name
+        # concat_trajectory = trajectories[0]
+        for trajectory, dt in zip(trajectories, dts):
             concat_trajectory.append(trajectory, dt=dt, start_index=0)
 
         if request.post_process_after_concat:
@@ -696,19 +714,27 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return concat_trajectory, cache_kwargs
 
-    def _execute_impl(self, trajectory: RobotTrajectory):
+    def _execute_impl(
+        self, trajectory: RobotTrajectory | list[RobotTrajectory]
+    ):
         """Trajectory execution synchronous implementation"""
         # Check if the robot is safe to execute
         if not self._safe_to_execute_callback():
             raise NotSafeToExecuteError()
 
+        if isinstance(trajectory, RobotTrajectory):
+            trajectory = [trajectory]
+
         assert not self.execution_lock.locked()
         with self.execution_lock:
-            # Execute the trajectory
             initial_state = self.current_state
-            self.trajectory_execution_manager.push(
-                trajectory.get_robot_trajectory_msg()
-            )
+
+            # Push all trajectories to TEM
+            for traj in trajectory:
+                self.trajectory_execution_manager.push(
+                    traj.get_robot_trajectory_msg()
+                )
+
             execution_status: ExecutionStatus = (
                 self.trajectory_execution_manager.execute_and_wait()
             )
@@ -781,12 +807,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 raise ValueError("Both 'goal' and 'goals' cannot be provided")
 
             request = self.create_plan_request(goal, **kwargs)
-            request = copy(request)
         elif goals is not None:
             request = self.create_concat_plan_request(goals, **kwargs)
-            request = copy(request)
-            for i, plan_request in enumerate(request.requests):
-                request.requests[i] = copy(plan_request)
         else:
             raise ValueError(
                 "One of 'goal', 'goals', or 'request' must be provided"
@@ -795,14 +817,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event = threading.Event()
         try:
             if isinstance(request, PlanRequest):
-                coro = asyncio.to_thread(
+                return await asyncio.to_thread(
                     self._plan_single_impl, request, cancel_event=cancel_event
                 )
             elif isinstance(request, ConcatPlanRequest):
-                coro = asyncio.to_thread(
+                return await asyncio.to_thread(
                     self._plan_concat_impl, request, cancel_event=cancel_event
                 )
-            return await coro
         finally:
             cancel_event.set()
 
@@ -811,7 +832,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if self.execution_lock.locked():
             self.trajectory_execution_manager.stop_execution()
 
-    async def execute(self, trajectory: RobotTrajectory):
+    async def execute(
+        self, trajectory: RobotTrajectory | list[RobotTrajectory]
+    ):
         """Execute the given robot trajectory.
 
         Args:

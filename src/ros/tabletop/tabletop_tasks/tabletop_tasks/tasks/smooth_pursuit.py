@@ -1,5 +1,4 @@
-"""SmoothPursuit task."""
-
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -8,6 +7,7 @@ from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
+from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks.base import BaseTask
@@ -81,14 +81,9 @@ class SmoothPursuitTask(BaseTask):
         for _ in range(self._num_cycles):
             await self.commander.execute(trajectory)
 
-    async def plan_and_execute_loop(self, goals: list[PoseStamped]):
+    async def execute_multiple(self, trajectories: list[RobotTrajectory]):
         for _ in range(self._num_cycles):
-            await self.commander.plan_and_execute(
-                goals=goals,
-                use_cache=False,
-                cache_trajectory=False,
-                post_process_after_concat=True,
-            )
+            await self.commander.execute(trajectories)
 
     async def run_trial(
         self, trial_spec: TrialSpec | None
@@ -99,34 +94,31 @@ class SmoothPursuitTask(BaseTask):
         self.log("Starting smooth pursuit task")
         async with self.commander:
             # await self.commander.smooth_pursuit_and_reward()
-            goals = self.generate_goals()
+            goals: list[PlanGoalT] = []
+            goals.extend(self.generate_goals())
 
-            await self.plan_and_execute_loop(goals=goals)
-            # await self.commander.plan_and_execute(goals[0])
-            #
-            # trajectory = await self.commander.plan(
-            #     goals=goals[1:],
-            #     use_cache=False,
-            #     post_process_after_concat=True,
-            # )
-            #
-            # assert trajectory is not None
-            # execution_task = asyncio.create_task(self.execute_loop(trajectory))
-            # await execution_task
-            #
-            # smooth_pursuit_task = asyncio.create_task(
-            #     self.commander.smooth_pursuit_and_reward()
-            # )
-            # execution_task = asyncio.create_task(self.execute_loop(trajectory))
-            #
-            # done, pending = await asyncio.wait(
-            #     [smooth_pursuit_task, execution_task],
-            #     return_when=asyncio.FIRST_COMPLETED,
-            # )
-            #
-            # for task in pending:
-            #     task.cancel()
-            #
-            # for task in done:
-            #     task.result()
-            #
+            start = goals.pop(0)
+            await self.commander.plan_and_execute(start)
+
+            # Concat
+            trajectory = await self.commander.plan(
+                goals=goals, loop=True, post_process_after_concat=True
+            )
+            assert trajectory is not None
+
+            smooth_pursuit_task = asyncio.create_task(
+                self.commander.smooth_pursuit_and_reward()
+            )
+
+            execution_task = asyncio.create_task(self.execute_loop(trajectory))
+
+            done, pending = await asyncio.wait(
+                [smooth_pursuit_task, execution_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for task in pending:
+                task.cancel()
+
+            for task in done:
+                task.result()

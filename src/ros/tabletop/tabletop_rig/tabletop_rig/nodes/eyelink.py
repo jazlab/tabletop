@@ -119,6 +119,10 @@ class Eyelink(BaseNode):
         "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
         "gaze_estimation_frequency": 100,  # Hz
         "simulate": False,
+        "simulate_radius": 1000,
+        "simulate_rotations_per_second": 1.0,
+        "simulate_missing_prob": 1e-3,
+        "simulate_saccate_prob": 1e-4,
     }
 
     ###########################################################################
@@ -247,7 +251,6 @@ class Eyelink(BaseNode):
         the eyelink status and a series of services to control the tracker.
         """
         # Services
-
         self.eyelink_start_recording_service = self.create_service(
             Trigger,
             "/eyelink/start_recording",
@@ -258,19 +261,8 @@ class Eyelink(BaseNode):
             "/eyelink/stop_recording",
             self.stop_recording_callback,
         )
-        self.eyelink_open_data_file_service = self.create_service(
-            Trigger,
-            "/eyelink/open_data_file",
-            self.open_data_file_callback,
-        )
-        self.eyelink_close_data_file_service = self.create_service(
-            Trigger,
-            "/eyelink/close_data_file",
-            self.close_data_file_callback,
-        )
 
         # Action servers
-
         self.eyelink_smooth_pursuit_server = ActionServer(
             self,
             EyelinkSmoothPursuit,
@@ -284,7 +276,6 @@ class Eyelink(BaseNode):
         self.goal_ongoing = False
 
         # Publishers
-
         if hasattr(self, "gaze_estimation_model"):
             self.gaze_estimation_publisher = self.create_publisher(
                 Markers,
@@ -324,20 +315,13 @@ class Eyelink(BaseNode):
             self.tracker.exitCalibration()
         self.log("Eyelink PC tracker setup complete")
 
-    def open_data_file(self):
+    def _open_data_file(self):
         """Opens a data file on the EyeLink PC.
 
         This function will open a data file on the EyeLink PC.
         This file will be named "last.edf" and will store the data from the
         current recording session.
         """
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping data file opening",
-                severity="WARN",
-            )
-            return
-
         self.log("Opening data file")
         edf_file_name = "last.edf"
         self.tracker.openDataFile(edf_file_name)
@@ -359,104 +343,13 @@ class Eyelink(BaseNode):
             if value is not None:
                 self.tracker.sendCommand(f"{key} = {value}")
 
-    def start_sample_retrieval(self):
-        """Start the sample retrieval loop."""
-        self.log("Starting sample retrieval")
-        assert self.stop_sample_retrieval_event.is_set()
-        assert self.sample_retrieval_future.done(), (
-            "Sample retrieval already running, may be in the process of stopping"
-        )
-
-        self.message_queue.clear()
-
-        self.stop_sample_retrieval_event.clear()
-        # self.sample_retrieval_future = self.tpe.submit(
-        #     self.sample_retrieval_loop,
-        #     stop_event=self.stop_sample_retrieval_event,
-        # )
-        if self.executor is None:
-            raise RuntimeError("Executor for Eyelink node is not set")
-        self.sample_retrieval_future = self.executor.create_task(
-            self.sample_retrieval_loop
-        )
-        self.sample_retrieval_future.add_done_callback(
-            lambda _: self._wake_executor()
-        )
-
-    def stop_sample_retrieval(self):
-        """Stop the sample retrieval loop."""
-        self.log("Stopping sample retrieval")
-        self.stop_sample_retrieval_event.set()
-        try:
-            self.sample_retrieval_future.result()
-        except Exception as e:
-            self.log(
-                f"Error stopping sample retrieval: {type(e).__name__}: {e}",
-                severity="ERROR",
-            )
-
-    def start_recording(self):
-        """Start the tracker recording and sample retrieval."""
-
-        if self.recording:
-            self.log("Already recording, skipping start", severity="WARN")
-            return
-
-        self.start_sample_retrieval()
-
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping recording start", severity="WARN"
-            )
-        else:
-            self.log("Starting recording")
-            self.tracker.setOfflineMode()
-            self.tracker.startRecording(1, 0, 1, 0)
-            # pylink.endRealTimeMode()
-            self.tracker.sendMessage("SYNCTIME")
-            eye_available = self.eye_available()
-            if eye_available != EyeAvailable.BINOCULAR:
-                self.stop_sample_retrieval()
-                raise RuntimeError(
-                    f"Only binocular mode is supported, got {eye_available}"
-                )
-
-        self.recording = True
-
-    def stop_recording(self):
-        """Stop the recording."""
-        if not self.recording:
-            self.log("Not recording, skipping stop", severity="WARN")
-            return
-
-        self.stop_sample_retrieval()
-
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping recording stop", severity="WARN"
-            )
-        else:
-            self.log("Stopping recording")
-            self.tracker.stopRecording()
-
-        self.recording = False
-
-    def close_data_file(self):
+    def _close_data_file(self):
         """Closes the data file and transfers it to the local machine.
 
         This function will stop the recording (if it is running), close the
         data file on the EyeLink PC and transfer it to the local machine. It
         will then convert the EDF file to ASC format.
         """
-        self.stop_recording()
-
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping data file closing",
-                severity="WARN",
-            )
-            return
-
         self.log("Closing data file")
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
@@ -484,6 +377,96 @@ class Eyelink(BaseNode):
             raise DataFileConversionError("Error converting EDF to CSV") from e
 
         self.log(f"Converted EDF to CSV: {csv_file_name}")
+
+    def _start_sample_retrieval(self):
+        """Start the sample retrieval loop."""
+        self.log("Starting sample retrieval")
+        assert self.stop_sample_retrieval_event.is_set()
+        assert self.sample_retrieval_future.done(), (
+            "Sample retrieval already running, may be in the process of stopping"
+        )
+
+        self.message_queue.clear()
+
+        self.stop_sample_retrieval_event.clear()
+        # self.sample_retrieval_future = self.tpe.submit(
+        #     self.sample_retrieval_loop,
+        #     stop_event=self.stop_sample_retrieval_event,
+        # )
+        if self.executor is None:
+            raise RuntimeError("Executor for Eyelink node is not set")
+        self.sample_retrieval_future = self.executor.create_task(
+            self.sample_retrieval_loop
+        )
+        self.sample_retrieval_future.add_done_callback(
+            lambda _: self._wake_executor()
+        )
+
+    def _stop_sample_retrieval(self):
+        """Stop the sample retrieval loop."""
+        self.log("Stopping sample retrieval")
+        try:
+            self.stop_sample_retrieval_event.set()
+            self.sample_retrieval_future.result()
+        except Exception as e:
+            self.log(
+                f"Error stopping sample retrieval: {type(e).__name__}: {e}",
+                severity="ERROR",
+            )
+
+    def start_recording(self):
+        """Start the tracker recording and sample retrieval."""
+
+        if self.recording:
+            raise RuntimeError("Can't start recording, already recording")
+
+        # Data file must be opened before starting recording
+        if not self.simulate:
+            self._open_data_file()
+
+        # Start sample retrieval loop in separate thread
+        self._start_sample_retrieval()
+
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping recording start", severity="WARN"
+            )
+        else:
+            self.log("Starting recording")
+            self.tracker.setOfflineMode()
+            self.tracker.startRecording(1, 0, 1, 0)
+            # pylink.endRealTimeMode()
+            self.tracker.sendMessage("SYNCTIME")
+            eye_available = self.eye_available()
+            if eye_available != EyeAvailable.BINOCULAR:
+                self._stop_sample_retrieval()
+                self._close_data_file()
+                raise RuntimeError(
+                    f"Only binocular mode is supported, got {eye_available}"
+                )
+
+        self.recording = True
+
+    def stop_recording(self):
+        """Stop the recording."""
+        if not self.recording:
+            self.log("Not recording, skipping stop", severity="WARN")
+            return
+
+        self._stop_sample_retrieval()
+
+        try:
+            if self.simulate:
+                self.log(
+                    "Simulating eyelink, skipping recording stop",
+                    severity="WARN",
+                )
+            else:
+                self.log("Stopping recording")
+                self.tracker.stopRecording()
+                self._close_data_file()
+        finally:
+            self.recording = False
 
     def eye_available(self) -> EyeAvailable:
         """Get the eye available from the tracker.
@@ -547,17 +530,42 @@ class Eyelink(BaseNode):
     ) -> EyelinkMsg:
         msg = EyelinkMsg()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.eyelink_time_ms = int(self.ros_time() / 1e3)
-        data = np.random.randint(int(min_pos), int(max_pos), size=4)
-        p = 1e-3
-        prob = [p, 1 - p]
-        msg.left_x = np.random.choice([MISSING_DATA, data[0]], p=prob)
-        msg.left_y = np.random.choice([MISSING_DATA, data[1]], p=prob)
-        msg.left_pupil = np.random.choice([MISSING_DATA, 5000], p=prob)
-        msg.right_x = np.random.choice([MISSING_DATA, data[2]], p=prob)
-        msg.right_y = np.random.choice([MISSING_DATA, data[3]], p=prob)
-        msg.right_pupil = np.random.choice([MISSING_DATA, 5000], p=prob)
+        t = self.ros_time()
+        msg.eyelink_time_ms = int(t * 1e3)
+
+        center = np.mean([min_pos, max_pos])
+        radius = self.get_parameter_wrapper("simulate_radius")
+        rps = self.get_parameter_wrapper("simulate_rotations_per_second")
+        t = np.array([t] * 4)
+        phi = np.array([0, np.pi / 2, 0, np.pi / 2])
+        pos = np.sin(2 * np.pi * t * rps + phi) * radius + center
+        pos = np.round(np.clip(pos, min_pos, max_pos))
+
+        p_missing = self.get_parameter_wrapper("simulate_missing_prob")
+        p_saccate = self.get_parameter_wrapper("simulate_saccate_prob")
+        p_normal = 1 - (p_missing + p_saccate)
+
+        mask = np.random.choice(
+            [0, 1, 2], size=4, p=[p_normal, p_missing, p_saccate]
+        )
+        masked_pos = (
+            (mask == 0) * pos
+            + (mask == 1) * MISSING_DATA
+            + (mask == 2) * min_pos
+        )
+
+        msg.left_x = masked_pos[0]
+        msg.left_y = masked_pos[1]
+        msg.left_pupil = np.random.choice(
+            [5000, MISSING_DATA], p=[p_normal + p_saccate, p_missing]
+        )
+        msg.right_x = masked_pos[2]
+        msg.right_y = masked_pos[3]
+        msg.right_pupil = np.random.choice(
+            [5000, MISSING_DATA], p=[p_normal + p_saccate, p_missing]
+        )
         msg.input = int(np.random.choice([255, 247]))
+
         return msg
 
     def sample_retrieval_loop(self):
@@ -776,53 +784,40 @@ class Eyelink(BaseNode):
     # ROS callbacks
     ###########################################################################
 
-    def open_data_file_callback(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
-        """Service to open a data file on the EyeLink PC."""
-        try:
-            self.open_data_file()
-        except RuntimeError as e:
-            response.success = False
-            response.message = f"Error opening data file: {e}"
-            self.log(response.message, severity="ERROR")
-            return response
-
-        response.success = True
-        response.message = "Data file opened"
-        return response
-
-    def close_data_file_callback(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
-        """Service to close the data file on the EyeLink PC."""
-        try:
-            self.close_data_file()
-        except Exception as e:
-            response.success = False
-            response.message = (
-                f"Error closing data file: {type(e).__name__}: {e}"
-            )
-            self.log(response.message, severity="ERROR")
-            return response
-
-        response.success = True
-        response.message = (
-            "Data file closed, transferred, and converted to ASC"
-        )
-        return response
+    # def open_data_file_callback(
+    #     self, request: Trigger.Request, response: Trigger.Response
+    # ) -> Trigger.Response:
+    #     """Service to open a data file on the EyeLink PC."""
+    #     self.open_data_file()
+    #     response.success = True
+    #     response.message = "Data file opened"
+    #     return response
+    #
+    # def close_data_file_callback(
+    #     self, request: Trigger.Request, response: Trigger.Response
+    # ) -> Trigger.Response:
+    #     """Service to close the data file on the EyeLink PC."""
+    #     try:
+    #         self.close_data_file()
+    #     except Exception as e:
+    #         response.success = False
+    #         response.message = (
+    #             f"Error closing data file: {type(e).__name__}: {e}"
+    #         )
+    #         self.log(response.message, severity="ERROR")
+    #         return response
+    #
+    #     response.success = True
+    #     response.message = (
+    #         "Data file closed, transferred, and converted to ASC"
+    #     )
+    #     return response
 
     def start_recording_callback(
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
         """Start the recording."""
-        try:
-            self.start_recording()
-        except RuntimeError as e:
-            response.success = False
-            response.message = f"Error starting recording: {e}"
-            self.log(response.message, severity="ERROR")
-            return response
+        self.start_recording()
 
         response.success = True
         response.message = "Recording started"
@@ -832,13 +827,7 @@ class Eyelink(BaseNode):
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
         """Stop the recording."""
-        try:
-            self.stop_recording()
-        except RuntimeError as e:
-            response.success = False
-            response.message = f"Error stopping recording: {e}"
-            self.log(response.message, severity="ERROR")
-            return response
+        self.stop_recording()
 
         response.success = True
         response.message = "Recording stopped"
@@ -966,7 +955,7 @@ class Eyelink(BaseNode):
 
         try:
             self.log("Closing data file")
-            self.close_data_file()
+            self.stop_recording()
         except Exception as e:
             self.log(
                 f"Error closing data file: {type(e).__name__}: {e}",
@@ -1021,7 +1010,6 @@ def main(args=None):
         executor.add_node(eyelink)
 
         try:
-            eyelink.open_data_file()
             eyelink.start_recording()
             print("Spinning")
             executor.spin()

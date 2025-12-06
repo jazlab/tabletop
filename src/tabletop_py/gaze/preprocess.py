@@ -1,7 +1,7 @@
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ def reindex_and_interpolate(
     new_idx: np.ndarray | pd.Series,
     on: str,
     *,
-    direction: str = "backward",
+    direction: Literal["backward", "forward", "nearest"] = "backward",
     tolerance: Optional[float] = None,
 ) -> pd.DataFrame:
     """
@@ -77,7 +77,7 @@ def reindex_and_interpolate_steady_time(
     *,
     freq: float,
     on: str,
-    direction: str = "backward",
+    direction: Literal["backward", "forward", "nearest"] = "backward",
     tolerance: Optional[float] = None,
 ) -> pd.DataFrame:
     """

@@ -5,7 +5,7 @@ import importlib
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
 from types import TracebackType
-from typing import Any, Literal, Optional, Self
+from typing import Any, Literal, Optional, Self, TypeVar
 
 import debugpy
 import rclpy
@@ -23,6 +23,8 @@ from tabletop_rig.exceptions import (
     ActionCallUnsuccessfulError,
     CommanderRecoverableError,
     ExecutionError,
+    ExecutionInterruptedError,
+    NotSafeToExecuteError,
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.interfaces.dashboard import DashboardInterface
@@ -34,6 +36,47 @@ from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.nodes.base import BaseNode
 
+T = TypeVar("T", bound=Callable[..., Coroutine])
+
+
+def safe_execution(coro_fn: T) -> T:
+    """Decorator for methods that should be run with the object manipulation lock."""
+
+    async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
+        max_retries = self.get_parameter_wrapper("safe_execution.max_retries")
+        for i in range(max_retries):
+            try:
+                return await coro_fn(self, *args, **kwargs)
+            except NotSafeToExecuteError as e:
+                if i == max_retries - 1:
+                    raise
+
+                self.log(
+                    f"Error while planning and executing: {e}. Locking arms and waiting for safety before retrying",
+                    severity="WARN",
+                )
+                await self.teensy.lock_arms_and_wait()
+                self.log(
+                    "Arms locked and safe to execute, retrying plan_and_execute",
+                    severity="WARN",
+                )
+            except ExecutionInterruptedError as e:
+                if i == max_retries - 1:
+                    raise
+
+                self.log(
+                    f"Error while planning and executing: {e}. Resetting dashboard before retrying",
+                    severity="WARN",
+                )
+                await asyncio.sleep(2)
+                await self.dashboard.reset()
+                self.log(
+                    "Dashboard reset, retrying plan_and_execute",
+                    severity="WARN",
+                )
+
+    return wrapper  # type: ignore[reportReturnType]
+
 
 class Commander(BaseNode):
     default_params: dict[str, Any] = BaseNode.default_params | {}
@@ -43,6 +86,11 @@ class Commander(BaseNode):
         "dashboard.installation",
         "dashboard.program",
         "teensy.spin_period",
+        "link_padding",
+        "planning_scene.dir",
+        "planning_scene.use_saved_scene",
+        "planning_scene.object_meshes",
+        "planning_scene.rig_meshes",
         "planning.defaults",
         "planning.pose_tolerance.position_tolerance",
         "planning.pose_tolerance.orientation_tolerance",
@@ -59,14 +107,10 @@ class Commander(BaseNode):
         "object_manipulation.allowed_collisions",
         "object_manipulation.touch_links",
         "object_manipulation.mount_ids",
-        "link_padding",
-        "planning_scene.dir",
-        "planning_scene.use_saved_scene",
-        "planning_scene.object_meshes",
-        "planning_scene.rig_meshes",
         "smooth_pursuit.reward_duration",
         "smooth_pursuit.reward_interval",
         "smooth_pursuit.reward_threshold_ratio",
+        "safe_execution.max_retries",
     }
 
     ###########################################################################
@@ -166,7 +210,7 @@ class Commander(BaseNode):
         pursuit_count = 0
         count = 0
 
-        async def callback(self: "Commander", smooth_pursuit: bool):
+        async def callback(smooth_pursuit: bool):
             """Consumer for the eyelink smooth pursuit queue."""
             nonlocal interval_start_time
             nonlocal count
@@ -208,7 +252,7 @@ class Commander(BaseNode):
             last_smooth_pursuit = smooth_pursuit
 
         try:
-            await self.eyelink.smooth_pursuit(lambda x: callback(self, x))
+            await self.eyelink.smooth_pursuit(callback)
         finally:
             self.sound.stop_everything()
             try:
@@ -234,6 +278,7 @@ class Commander(BaseNode):
         trajectory, _ = await self.moveit.plan(*args, **kwargs)
         return trajectory
 
+    @safe_execution
     async def execute(self, *args, **kwargs):
         """Plan to a given goal
 
@@ -242,6 +287,7 @@ class Commander(BaseNode):
         """
         await self.moveit.execute(*args, **kwargs)
 
+    @safe_execution
     async def plan_and_execute(self, *args, **kwargs):
         """Plan and execute to a given goal
 
@@ -250,6 +296,7 @@ class Commander(BaseNode):
         """
         await self.moveit.plan_and_execute(*args, **kwargs)
 
+    @safe_execution
     async def fetch_object(self, object_id: str):
         """Fetch an object from its mount.
 
@@ -268,6 +315,7 @@ class Commander(BaseNode):
         """
         await self.moveit.fetch_object(object_id)
 
+    @safe_execution
     async def pre_present_object(self):
         """Move to pre-present goal
 
@@ -276,10 +324,12 @@ class Commander(BaseNode):
         """
         await self.moveit.pre_present_object()
 
+    @safe_execution
     async def unpresent_object(self):
         """Unpresent the currently attached object"""
         await self.moveit.unpresent_object()
 
+    @safe_execution
     async def return_object(self):
         """Return an object to its original position.
 
