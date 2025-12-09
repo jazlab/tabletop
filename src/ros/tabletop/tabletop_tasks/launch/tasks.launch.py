@@ -20,6 +20,11 @@ from launch_ros.substitutions import FindPackageShare
 def declare_arguments():
     return [
         DeclareLaunchArgument(
+            "task",
+            default_value="foraging_ordered",
+            description="Task configuration file",
+        ),
+        DeclareLaunchArgument(
             "robot_name",
             default_value="ur5e",
             description="Robot name for SRDF",
@@ -36,36 +41,31 @@ def declare_arguments():
             description="Launch rig?",
             choices=["true", "false"],
         ),
-        DeclareLaunchArgument(
-            "task_config",
-            default_value="foraging_ordered.yaml",
-            description="Task configuration file",
-        ),
     ]
 
 
 def generate_launch_description():
     launch_rig = LaunchConfiguration("launch_rig")
-    task_config = LaunchConfiguration("task_config")
+    task = LaunchConfiguration("task")
 
-    coroutine_config = IfElseSubstitution(
-        EqualsSubstitution(task_config, "null"),
+    coro_config = IfElseSubstitution(
+        EqualsSubstitution(task, "null"),
         if_value="null",
         else_value=PathJoinSubstitution(
             [
                 FindPackageShare("tabletop_tasks"),
                 "config",
-                task_config,
+                [task, ".yaml"],
             ]
         ),
     )
-    coroutine_module = IfElseSubstitution(
-        EqualsSubstitution(task_config, "null"),
+    coro_module = IfElseSubstitution(
+        EqualsSubstitution(task, "null"),
         if_value="null",
         else_value="tabletop_tasks",
     )
-    coroutine_name = IfElseSubstitution(
-        EqualsSubstitution(task_config, "null"),
+    coro_name = IfElseSubstitution(
+        EqualsSubstitution(task, "null"),
         if_value="null",
         else_value="run_tasks",
     )
@@ -89,6 +89,9 @@ def generate_launch_description():
                 launch_arguments={
                     "robot_name": LaunchConfiguration("robot_name"),
                     "robot_mode": LaunchConfiguration("robot_mode"),
+                    "coro_module": coro_module,
+                    "coro_name": coro_name,
+                    "coro_config": coro_config,
                 }.items(),
             ),
         ],
@@ -97,34 +100,34 @@ def generate_launch_description():
         forwarding=True,
     )
 
-    # Commander
-    commander = GroupAction(
-        [
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    [
-                        PathJoinSubstitution(
-                            [
-                                FindPackageShare("tabletop_rig"),
-                                "launch",
-                                "commander.launch.py",
-                            ]
-                        )
-                    ]
-                ),
-                launch_arguments={
-                    "robot_name": LaunchConfiguration("robot_name"),
-                    "robot_mode": LaunchConfiguration("robot_mode"),
-                    "coroutine_module": coroutine_module,
-                    "coroutine_name": coroutine_name,
-                    "coroutine_config": coroutine_config,
-                }.items(),
-            ),
-        ],
-        scoped=True,
-        forwarding=True,
-    )
+    # # Commander
+    # commander = GroupAction(
+    #     [
+    #         IncludeLaunchDescription(
+    #             PythonLaunchDescriptionSource(
+    #                 [
+    #                     PathJoinSubstitution(
+    #                         [
+    #                             FindPackageShare("tabletop_rig"),
+    #                             "launch",
+    #                             "commander.launch.py",
+    #                         ]
+    #                     )
+    #                 ]
+    #             ),
+    #             launch_arguments={
+    #                 "robot_name": LaunchConfiguration("robot_name"),
+    #                 "robot_mode": LaunchConfiguration("robot_mode"),
+    #                 "coro_module": coro_module,
+    #                 "coro_name": coro_name,
+    #                 "coro_config": coro_config,
+    #             }.items(),
+    #         ),
+    #     ],
+    #     scoped=True,
+    #     forwarding=True,
+    # )
 
-    launch_actions = [set_ros_log_dir, rig, commander]
+    launch_actions = [set_ros_log_dir, rig]
 
     return LaunchDescription(declare_arguments() + launch_actions)

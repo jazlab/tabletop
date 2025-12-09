@@ -582,40 +582,37 @@ def main(args=None):
     try:
         # Parse non-ROS arguments
         parser = argparse.ArgumentParser()
-        parser.add_argument("--coroutine-module", type=str, default=None)
-        parser.add_argument("--coroutine-name", type=str, default=None)
-        parser.add_argument("--coroutine-config", type=str, default=None)
+        parser.add_argument("--coro-module", type=str, default=None)
+        parser.add_argument("--coro-name", type=str, default=None)
+        parser.add_argument("--coro-config", type=str, default=None)
         parser.add_argument("--max-workers", type=int, default=4)
         parser.add_argument("--debug", action="store_true", default=False)
 
         non_ros_args = rclpy.utilities.remove_ros_args(args)
         args, _ = parser.parse_known_args(non_ros_args)
 
-        if (
-            args.coroutine_module is not None
-            or args.coroutine_name is not None
-        ):
-            if args.coroutine_name is None or args.coroutine_module is None:
+        if args.coro_module is not None or args.coro_name is not None:
+            if args.coro_name is None or args.coro_module is None:
                 raise ValueError(
-                    "Both coroutine_module and coroutine_name must be provided when one is provided"
+                    "Both coro_module and coro_name must be provided when one is provided"
                 )
             print(
-                f"Loading coroutine {args.coroutine_name} from module {args.coroutine_module} "
+                f"Loading coroutine {args.coro_name} from module {args.coro_module} "
             )
             coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-                importlib.import_module(args.coroutine_module),
-                args.coroutine_name,
+                importlib.import_module(args.coro_module),
+                args.coro_name,
             )
         else:
             print(
                 "No coroutine module or name provided, running in debug mode"
             )
             coro_fn = debug_commander
-            args.coroutine_config = None
+            args.coro_config = None
             args.debug = True
 
-        if args.coroutine_config is not None:
-            print(f"Config file: {args.coroutine_config}")
+        if args.coro_config is not None:
+            print(f"Config file: {args.coro_config}")
 
         if args.debug:
             print("Debug mode enabled")
@@ -637,7 +634,7 @@ def main(args=None):
                     asyncio_runner(
                         coro_fn,
                         commander,
-                        args.coroutine_config,
+                        args.coro_config,
                         spin_future,
                         args.max_workers,
                     )

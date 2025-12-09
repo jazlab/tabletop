@@ -535,7 +535,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         else:
             raise MaxPlanningAttemptsReachedError(errors)
 
-    def _plan_single_impl(
+    def _plan_impl(
         self,
         request: PlanRequest,
         *,
@@ -651,46 +651,77 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
         request = copy(request)
-        for i, plan_request in enumerate(request.requests):
-            request.requests[i] = copy(plan_request)
+        for i, req in enumerate(request.requests):
+            request.requests[i] = copy(req)
 
-        # Set start state if None
+        # Validate request
+        if len(request.requests) < 1:
+            raise ValueError("At least one goal/plan request must be provided")
+        if any(req.start_state is not None for req in request.requests):
+            raise ValueError(
+                "'start_state' cannot be provided for any segment PlanRequest in 'request.requests'"
+            )
+        if request.post_process_after_concat:
+            if request.dts is not None:
+                raise ValueError(
+                    "'dts' cannot be provided if 'post_process_after_concat' is True"
+                )
+            if any(
+                req.apply_totg or req.apply_smoothing
+                for req in request.requests
+            ):
+                raise ValueError(
+                    "'apply_totg' and 'apply_smoothing' cannot be True for any segment"
+                    "PlanRequest in 'request.requests' if 'post_process_after_concat' is True"
+                )
+
+        # Set initial start state if None
         if request.start_state is None:
-            request.start_state = self.current_state
+            start_state = self.current_state
+        else:
+            start_state = request.start_state
 
         # If loop is requested, we add the requested start state as a final
         # goal to plan to, so that subsequent calls to execute for the same
         # request don't fail because the last state is too far from the
         # start state
         if request.loop:
-            request.requests.append(
-                self.create_plan_request(goal=request.start_state)
-            )
+            request.requests.append(self.create_plan_request(goal=start_state))
 
-        # Initialize start state for each trajectory segment
-        start_state = request.start_state
+        # Validate or create list of dts
+        if request.dts is None:
+            dts = [1e-4] * len(request.requests)
+        elif len(request.dts) == len(request.requests):
+            dts = request.dts
+        else:
+            raise ValueError("dts must be the same length as goals")
+
+        # Loop over individual plan requests
         trajectories: list[RobotTrajectory] = []
         cache_kwargs: list[dict[str, Any]] = []
-        dts: list[float] = []
-
-        # Loop over individual plan requests,
-        for i, plan_request in enumerate(request.requests):
+        new_dts: list[float] = []
+        running_dt: float = 0.0
+        for i, req in enumerate(request.requests):
             self.log(
                 f"Planning trajectory segment {i}/{len(request.requests)}",
             )
             try:
-                plan_request.start_state = start_state
-                plan_request.apply_totg = False
-                plan_request.apply_smoothing = False
+                req.start_state = start_state
 
-                trajectory, single_cache_kwargs = self._plan_single_impl(
-                    request=plan_request, cancel_event=cancel_event
+                trajectory, single_cache_kwargs = self._plan_impl(
+                    request=req, cancel_event=cancel_event
                 )
 
+                if trajectory is None:
+                    # Increment running dt so intentional pauses aren't missed
+                    running_dt += dts[i]
                 if trajectory is not None:
                     trajectories.append(trajectory)
                     cache_kwargs.extend(single_cache_kwargs)
-                    dts.append(request.dts[i])
+                    new_dts.append(dts[i] + running_dt)
+
+                    # Reset running dt and set start state to end of last trajectory
+                    running_dt = 0.0
                     start_state = trajectory[len(trajectory) - 1]
             except Exception:
                 self.log(
@@ -699,14 +730,15 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 )
                 raise
 
+        # Concatenate all trajectories with given dt
         concat_trajectory = RobotTrajectory(self.robot_model)
         concat_trajectory.joint_model_group_name = trajectories[
             0
         ].joint_model_group_name
-        # concat_trajectory = trajectories[0]
-        for trajectory, dt in zip(trajectories, dts):
+        for dt, trajectory in zip(new_dts, trajectories):
             concat_trajectory.append(trajectory, dt=dt, start_index=0)
 
+        # Post process after concatenation if requested
         if request.post_process_after_concat:
             concat_trajectory = self._post_process_trajectory(
                 concat_trajectory, request
@@ -818,7 +850,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         try:
             if isinstance(request, PlanRequest):
                 return await asyncio.to_thread(
-                    self._plan_single_impl, request, cancel_event=cancel_event
+                    self._plan_impl, request, cancel_event=cancel_event
                 )
             elif isinstance(request, ConcatPlanRequest):
                 return await asyncio.to_thread(

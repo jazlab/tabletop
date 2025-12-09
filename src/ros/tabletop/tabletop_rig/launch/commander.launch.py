@@ -53,17 +53,17 @@ def declare_arguments():
             description="Commander config file",
         ),
         DeclareLaunchArgument(
-            "coroutine_module",
+            "coro_module",
             default_value="null",
             description="Coroutine module",
         ),
         DeclareLaunchArgument(
-            "coroutine_name",
+            "coro_name",
             default_value="null",
             description="Coroutine name",
         ),
         DeclareLaunchArgument(
-            "coroutine_config",
+            "coro_config",
             default_value="null",
             description="Coroutine config",
         ),
@@ -89,6 +89,12 @@ def declare_arguments():
             default_value="null",
             description="Whether to enable sound from the commander",
             choices=["true", "false", "null"],
+        ),
+        DeclareLaunchArgument(
+            "debug_commander",
+            default_value="false",
+            description="Whether to debug the commander",
+            choices=["true", "false"],
         ),
         DeclareLaunchArgument(
             "optimize_python",
@@ -124,12 +130,7 @@ def declare_arguments():
             description="ROS log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
-        DeclareLaunchArgument(
-            "debug_commander",
-            default_value="false",
-            description="Whether to debug the commander",
-            choices=["true", "false"],
-        ),
+        # Sim time
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
@@ -286,28 +287,28 @@ def generate_launch_description():
         arguments=[
             IfElseSubstitution(
                 NotEqualsSubstitution(
-                    LaunchConfiguration("coroutine_module"), "null"
+                    LaunchConfiguration("coro_module"), "null"
                 ),
-                if_value="--coroutine-module",
+                if_value="--coro-module",
                 else_value="",
             ),
-            LaunchConfiguration("coroutine_module"),
+            LaunchConfiguration("coro_module"),
             IfElseSubstitution(
                 NotEqualsSubstitution(
-                    LaunchConfiguration("coroutine_name"), "null"
+                    LaunchConfiguration("coro_name"), "null"
                 ),
-                if_value="--coroutine-name",
+                if_value="--coro-name",
                 else_value="",
             ),
-            LaunchConfiguration("coroutine_name"),
+            LaunchConfiguration("coro_name"),
             IfElseSubstitution(
                 NotEqualsSubstitution(
-                    LaunchConfiguration("coroutine_config"), "null"
+                    LaunchConfiguration("coro_config"), "null"
                 ),
-                if_value="--coroutine-config",
+                if_value="--coro-config",
                 else_value="",
             ),
-            LaunchConfiguration("coroutine_config"),
+            LaunchConfiguration("coro_config"),
             IfElseSubstitution(
                 EqualsSubstitution(
                     LaunchConfiguration("debug_commander"), "true"

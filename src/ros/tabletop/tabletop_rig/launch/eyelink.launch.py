@@ -10,6 +10,7 @@ from launch.substitutions import (
     LaunchLogDir,
 )
 from launch_ros.actions import Node, SetROSLogDir
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def declare_arguments():
@@ -50,7 +51,9 @@ def generate_launch_description():
         parameters=[
             {
                 "simulate": LaunchConfiguration("simulate"),
-                "session_bag_dir": LaunchConfiguration("initial_bag_dir"),
+                "session_bag_dir": ParameterValue(
+                    LaunchConfiguration("initial_bag_dir"), value_type=str
+                ),
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
             },
         ],

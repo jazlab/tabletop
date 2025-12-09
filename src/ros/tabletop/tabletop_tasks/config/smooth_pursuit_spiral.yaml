@@ -1,0 +1,15 @@
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: spiral
+      motion_kwargs:
+        center_pose_kwargs:
+          position: [0.9525, 0.5, 0.7]
+          rpy: [1.5707, 1.5707, 0.0]
+        radius: 0.1
+        length: 0.2
+        num_revolutions: 10
+        num_segments: 800
+      num_repetitions: 3
+      object_id: small_object_30
+      velocity_scaling_factor: 0.1

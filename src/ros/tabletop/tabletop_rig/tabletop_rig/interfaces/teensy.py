@@ -216,7 +216,7 @@ class TeensyInterface(BaseInterface):
             request.duration = Duration(seconds=duration).to_msg()
             self.log(f"Starting reward for {duration}s")
         else:
-            if duration is not None or duration != 0:
+            if duration is not None and duration != 0:
                 raise ValueError(
                     "If not activating, reward duration must be None or 0"
                 )

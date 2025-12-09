@@ -29,25 +29,55 @@ from launch.substitutions import (
     LaunchLogDir,
     PathJoinSubstitution,
 )
-from launch_ros.actions import Node, SetROSLogDir
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.actions import SetROSLogDir
 from launch_ros.substitutions import FindPackageShare
 
 
 def declare_arguments():
     return [
-        # UR Driver
+        # Common
         DeclareLaunchArgument(
-            "ur_launch",
-            default_value="false",
-            choices=["true", "false"],
-            description="Launch UR Driver?",
+            "robot_name",
+            default_value="ur5e",
+            description="Robot name for SRDF",
         ),
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Use simulated time",
+        ),
+        # Commander
+        DeclareLaunchArgument(
+            "commander_launch",
+            default_value="true",
+            choices=["true", "false"],
+            description="Launch Commander?",
+        ),
+        DeclareLaunchArgument(
+            "commander_log_level",
+            default_value="INFO",
+            description="Commander log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
+            "commander_output",
+            default_value="both",
+            description="Commander output",
+            choices=["log", "both", "screen", "own_log"],
+        ),
+        # UR Driver
+        DeclareLaunchArgument(
+            "ur_launch",
+            default_value="false",
+            choices=["true", "false"],
+            description="Launch UR Driver?",
         ),
         DeclareLaunchArgument(
             "ur_log_level",
@@ -182,11 +212,6 @@ def declare_arguments():
             description="Launch RViz?",
         ),
         DeclareLaunchArgument(
-            "robot_name",
-            default_value="ur5e",
-            description="Robot name for MoveIt SRDF",
-        ),
-        DeclareLaunchArgument(
             "rviz_log_level",
             default_value="INFO",
             description="RViz log level",
@@ -210,13 +235,6 @@ def declare_arguments():
             default_value="both",
             description="Bag output",
             choices=["log", "both", "screen", "own_log"],
-        ),
-        # Sim time
-        DeclareLaunchArgument(
-            "use_sim_time",
-            default_value="false",
-            choices=["true", "false"],
-            description="Use simulated time",
         ),
     ]
 
@@ -289,6 +307,41 @@ def generate_launch_description():
     create_session_bag_dir = OpaqueFunction(
         function=_create_session_bag_dir,
         condition=IfCondition(LaunchConfiguration("rosbag")),
+    )
+
+    # Launch Files
+
+    commander = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("commander_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_rig"),
+                                "launch",
+                                "commander.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "robot_name": LaunchConfiguration("robot_name"),
+                    "robot_mode": LaunchConfiguration("robot_mode"),
+                    "commander_log_level": LaunchConfiguration(
+                        "commander_log_level"
+                    ),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
+        ],
+        scoped=True,
+        forwarding=True,
+        condition=IfCondition(LaunchConfiguration("commander_launch")),
     )
 
     ur = GroupAction(
@@ -471,31 +524,39 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("rviz_launch")),
     )
 
-    # Eyelink
-    eyelink = Node(
-        package="tabletop_rig",
-        executable="eyelink",
-        output=LaunchConfiguration("eyelink_output"),
-        parameters=[
-            {
-                "simulate": LaunchConfiguration("eyelink_simulate"),
-                "session_bag_dir": ParameterValue(
-                    IfElseSubstitution(
+    eyelink = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("eyelink_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_rig"),
+                                "launch",
+                                "eyelink.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "simulate": LaunchConfiguration("eyelink_simulate"),
+                    "initial_bag_dir": IfElseSubstitution(
                         LaunchConfiguration("rosbag"),
                         session_bag_dir,
                         "null",
                     ),
-                    value_type=str,
-                ),
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-            },
+                    "log_level": LaunchConfiguration("eyelink_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
         ],
-        ros_arguments=[
-            "--log-level",
-            ["eyelink:=", LaunchConfiguration("eyelink_log_level")],
-        ],
+        scoped=True,
+        forwarding=True,
         condition=IfCondition(LaunchConfiguration("eyelink_launch")),
-        on_exit=[Shutdown()],
     )
 
     # Bag Recorder and Converter
@@ -545,6 +606,7 @@ def generate_launch_description():
         *declare_arguments(),
         set_ros_log_dir,
         create_session_bag_dir,
+        commander,
         ur,
         teensy,
         flic,

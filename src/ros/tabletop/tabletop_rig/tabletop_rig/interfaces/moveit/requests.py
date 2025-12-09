@@ -1,4 +1,3 @@
-from copy import copy
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -144,7 +143,7 @@ class ConcatPlanRequest(BasePlanRequest):
     """Request to plan a series of trajectories and concatenate them"""
 
     requests: list[PlanRequest]
-    dts: list[float]
+    dts: Optional[list[float]]
     loop: bool
     post_process_after_concat: bool
 
@@ -164,7 +163,7 @@ class ConcatPlanRequest(BasePlanRequest):
                 raise ValueError(
                     "Neither 'goals' nor 'request_kwargs' cannot be provided if 'requests' is provided"
                 )
-            requests = [copy(request) for request in requests]
+            # requests = [copy(request) for request in requests]
         elif goals is not None:
             if request_kwargs is None:
                 request_kwargs = [{}] * len(goals)
@@ -176,8 +175,10 @@ class ConcatPlanRequest(BasePlanRequest):
             common_kwargs = kwargs.copy()
             if "start_state" in common_kwargs:
                 del common_kwargs["start_state"]
-            common_kwargs["apply_totg"] = False
-            common_kwargs["apply_smoothing"] = False
+
+            if post_process_after_concat:
+                common_kwargs["apply_totg"] = False
+                common_kwargs["apply_smoothing"] = False
 
             requests = []
             for goal, req_kwargs in zip(goals, request_kwargs):
@@ -188,39 +189,9 @@ class ConcatPlanRequest(BasePlanRequest):
                 "Either 'goals' and 'request_kwargs', or 'requests', must be provided"
             )
 
-        if len(requests) < 1:
-            raise ValueError("At least one goal must be provided")
-
-        if any(request.start_state is not None for request in requests):
-            raise ValueError(
-                "'start_state' cannot be provided for any request in 'requests'"
-            )
-
-        if post_process_after_concat:
-            if dts is not None:
-                raise ValueError(
-                    "'dts' cannot be provided if 'post_process_after_concat' is True"
-                )
-            if any(
-                request.apply_totg or request.apply_smoothing
-                for request in requests
-            ):
-                raise ValueError(
-                    "'apply_totg' and 'apply_smoothing' cannot be True for any "
-                    "request in 'requests' if 'post_process_after_concat' is True"
-                )
-
-        num_dts = len(requests)
-        if loop:
-            num_dts += 1
-        if dts is None:
-            dts = [1e-4] * num_dts
-        elif len(dts) != num_dts:
-            raise ValueError("dts must be the same length as goals")
-
         self.requests = requests
-        self.loop = loop
         self.dts = dts
+        self.loop = loop
         self.post_process_after_concat = post_process_after_concat
 
         for key, value in kwargs.items():
@@ -240,14 +211,15 @@ class ConcatPlanRequest(BasePlanRequest):
                                 f"Invalid requests[{i}] type: {type(request)}"
                             )
             case "dts":
-                if not isinstance(value, list):
-                    type_error = True
-                else:
-                    for i, dt in enumerate(value):
-                        if not is_real_number(dt):
-                            raise ValueError(
-                                f"Invalid dts[{i}] type: {type(dt)}"
-                            )
+                if value is not None:
+                    if not isinstance(value, list):
+                        type_error = True
+                    else:
+                        for i, dt in enumerate(value):
+                            if not is_real_number(dt):
+                                raise ValueError(
+                                    f"Invalid dts[{i}] type: {type(dt)}"
+                                )
             case "loop":
                 if not isinstance(value, bool):
                     type_error = True
