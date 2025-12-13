@@ -62,7 +62,7 @@ class BaseNode(Node, LoggerMixin):
         # Check for required parameters
         for name in self.required_params:
             try:
-                self.get_parameter_wrapper(name)
+                self.param(name)
             except ParameterNotDeclaredException:
                 msg = f"Required parameter {name} not declared for {self.get_name()} node"
                 self.log(msg, severity="ERROR")
@@ -96,9 +96,7 @@ class BaseNode(Node, LoggerMixin):
 
         if severity >= self.log_level:
             params = self.get_nested_parameters(prefix)
-            string = yaml_dump_string(
-                params, width=self.get_parameter_wrapper("yaml_width")
-            )
+            string = yaml_dump_string(params, width=self.param("yaml_width"))
             if prefix:
                 string = f"Parameters with prefix {prefix}:\n{string}"
             success = self.log(string, severity=severity, **kwargs)
@@ -132,7 +130,7 @@ class BaseNode(Node, LoggerMixin):
 
         return nested_params
 
-    def get_parameter_wrapper(self, name: str) -> Any:
+    def param(self, name: str) -> Any:
         """Get a parameter from the node."""
         try:
             value = self.get_parameter(name).value
@@ -234,7 +232,7 @@ class BaseNode(Node, LoggerMixin):
         timeout = (
             timeout
             if timeout is not None
-            else self.get_parameter_wrapper("default_service_wait_timeout")
+            else self.param("default_service_wait_timeout")
         )
 
         # If the service client is not provided, create a new one and destroy
@@ -295,7 +293,7 @@ class BaseNode(Node, LoggerMixin):
         timeout = (
             timeout
             if timeout is not None
-            else self.get_parameter_wrapper("default_service_call_timeout")
+            else self.param("default_service_call_timeout")
         )
 
         # If the service client is not provided, create a new one and destroy
@@ -357,7 +355,7 @@ class BaseNode(Node, LoggerMixin):
         timeout = (
             timeout
             if timeout is not None
-            else self.get_parameter_wrapper("default_service_call_timeout")
+            else self.param("default_service_call_timeout")
         )
 
         # If the service client is not provided, create a new one and

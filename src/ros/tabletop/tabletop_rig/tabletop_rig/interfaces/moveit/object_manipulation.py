@@ -89,7 +89,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     @property
     def object_mount_ids(self) -> list[str]:
         """Get the object mount ids from the parameter server."""
-        return self.node.get_parameter_wrapper("object_manipulation.mount_ids")
+        return self.node.param("object_manipulation.mount_ids")
 
     ###########################################################################
     ########## Object Manipulation Convenience Methods ########################
@@ -121,18 +121,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         """Get the pre-fetch pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.node.get_parameter_wrapper(
-                "predefined_poses.pre_fetch_offset"
-            ),
+            self.node.param("predefined_poses.pre_fetch_offset"),
         )
 
     def pre_attach_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the pre-attach pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.node.get_parameter_wrapper(
-                "predefined_poses.pre_attach_offset"
-            ),
+            self.node.param("predefined_poses.pre_attach_offset"),
         )
 
     def attach_pose_stamped(self, object_id: str) -> PoseStamped:
@@ -143,26 +139,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         """Get the post-attach pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.node.get_parameter_wrapper(
-                "predefined_poses.post_attach_offset"
-            ),
+            self.node.param("predefined_poses.post_attach_offset"),
         )
 
     def post_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
         """Get the post-fetch pose of an object."""
         return self._object_init_pose_stamped_with_offset(
             object_id,
-            self.node.get_parameter_wrapper(
-                "predefined_poses.post_fetch_offset"
-            ),
+            self.node.param("predefined_poses.post_fetch_offset"),
         )
 
     def pre_present_pose_stamped(self, _: str) -> PoseStamped:
         """Get the pre-present pose."""
         return self.create_pose_stamped(
-            **self.node.get_parameter_wrapper(
-                "predefined_poses.pre_present_pose"
-            )
+            **self.node.param("predefined_poses.pre_present_pose")
         )
 
     def unpresent_pose_stamped(self, object_id: str) -> PoseStamped:
@@ -261,10 +251,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             self.allow_collision(*zip(*self.allowed_object_mount_collisions))
 
         if phase == ObjectPhase.DETACH:
-            extra_kwargs["velocity_scaling_factor"] = (
-                self.node.get_parameter_wrapper(
-                    "object_manipulation.detach_velocity_scaling_factor"
-                )
+            extra_kwargs["velocity_scaling_factor"] = self.node.param(
+                "object_manipulation.detach_velocity_scaling_factor"
             )
 
         match phase:

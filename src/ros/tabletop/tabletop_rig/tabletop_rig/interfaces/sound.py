@@ -17,7 +17,7 @@ class SoundInterface(BaseInterface):
         """Initializes the DashboardInterface"""
         super().__init__(node, "sound_interface")
 
-        config: dict[str, Any] = self.node.get_parameter_wrapper("sound")
+        config: dict[str, Any] = self.node.param("sound")
 
         self.enabled = config["enable"]
         if not self.enabled:

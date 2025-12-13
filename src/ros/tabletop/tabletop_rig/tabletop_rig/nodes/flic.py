@@ -39,7 +39,7 @@ class Flic(BaseNode):
         # Initialize base node
         super().__init__("flic")
 
-        self.simulate = self.get_parameter_wrapper("simulate")
+        self.simulate = self.param("simulate")
 
         # Services
         # qos = copy(QoSPresetProfiles.SERVICES_DEFAULT.value)
@@ -109,16 +109,14 @@ class Flic(BaseNode):
 
             # Button task to wait for the (potentially simulated) button to be pressed
             if self.simulate:
-                min_delay = self.get_parameter_wrapper("simulate_min_delay")
-                max_delay = self.get_parameter_wrapper("simulate_max_delay")
+                min_delay = self.param("simulate_min_delay")
+                max_delay = self.param("simulate_max_delay")
                 button_task = asyncio.create_task(
                     asyncio.sleep(random.uniform(min_delay, max_delay))
                 )
             else:
                 # Connect to the button
-                auto_disconnect_time = self.get_parameter_wrapper(
-                    "auto_disconnect_time"
-                )
+                auto_disconnect_time = self.param("auto_disconnect_time")
                 async with asyncio.timeout(1):
                     cc = await self.flic_client.connect(
                         goal_handle.request.bd_addr,
@@ -169,9 +167,9 @@ class Flic(BaseNode):
             self.log("Simulating flic client, no client started")
         else:
             self.log("Initializing flic client")
-            max_connections = self.get_parameter_wrapper("max_connections")
-            host = self.get_parameter_wrapper("server_ip")
-            port = self.get_parameter_wrapper("server_port")
+            max_connections = self.param("max_connections")
+            host = self.param("server_ip")
+            port = self.param("server_port")
             loop = asyncio.get_event_loop()
             _, self.flic_client = await loop.create_connection(
                 lambda: FlicClient(

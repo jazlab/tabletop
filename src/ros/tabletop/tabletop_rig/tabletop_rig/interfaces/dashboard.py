@@ -73,7 +73,7 @@ class DashboardInterface(BaseInterface):
     async def reset(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
-        config = self.node.get_parameter_wrapper("dashboard")
+        config = self.node.param("dashboard")
         async with asyncio.timeout(timeout):
             while True:
                 # Timeout included in wait_for_dashboard to stop the thread
@@ -124,7 +124,7 @@ class DashboardInterface(BaseInterface):
     #         if init:
     #             await self.dashboard_load(
     #                 "/dashboard_client/load_program",
-    #                 self.get_parameter_wrapper("dashboard.program"),
+    #                 self.param("dashboard.program"),
     #             )
 
     #         await self.dashboard_trigger("/dashboard_client/close_popup")

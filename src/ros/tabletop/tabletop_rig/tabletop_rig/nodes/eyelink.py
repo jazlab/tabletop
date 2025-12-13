@@ -132,7 +132,7 @@ class Eyelink(BaseNode):
     def __init__(self):
         super().__init__("eyelink")
 
-        self.simulate = self.get_parameter_wrapper("simulate")
+        self.simulate = self.param("simulate")
 
         if not self.simulate:
             if not PYLINK_AVAILABLE:
@@ -142,7 +142,7 @@ class Eyelink(BaseNode):
                 )
             self.log("Pylink available, connecting to Eyelink machine")
             self.tracker = EyeLinkTracker(  # type: ignore
-                self.get_parameter_wrapper("tracker_address")
+                self.param("tracker_address")
             )
         else:
             self.log("Simulating eyelink data...")
@@ -161,10 +161,8 @@ class Eyelink(BaseNode):
         This function will setup the sample queue and thread pool, as well as
         the stop event and sample retrieval loop future.
         """
-        sample_rate = self.get_parameter_wrapper("sample_rate")
-        self.smooth_pursuit_window = self.get_parameter_wrapper(
-            "smooth_pursuit.window"
-        )
+        sample_rate = self.param("sample_rate")
+        self.smooth_pursuit_window = self.param("smooth_pursuit.window")
         self.message_queue = EyelinkMessageQueue(
             maxlen=int(sample_rate * self.smooth_pursuit_window)
         )
@@ -181,7 +179,7 @@ class Eyelink(BaseNode):
         This function will setup the bag writer if the session bag directory is
         set.
         """
-        self.session_bag_dir = self.get_parameter_wrapper("session_bag_dir")
+        self.session_bag_dir = self.param("session_bag_dir")
         if self.session_bag_dir is None:
             self.log(
                 "No session bag directory provided, skipping bag writer",
@@ -212,13 +210,11 @@ class Eyelink(BaseNode):
 
     def init_gaze_estimation(self):
         """Setup the gaze estimation model."""
-        path = os.path.expandvars(
-            self.get_parameter_wrapper("gaze_estimation_config")
-        )
+        path = os.path.expandvars(self.param("gaze_estimation_config"))
         with open(path, "r") as f:
             self.gaze_estimation_config = yaml.safe_load(f)
 
-        sample_rate = self.get_parameter_wrapper("sample_rate")
+        sample_rate = self.param("sample_rate")
         eyelink_freq = self.gaze_estimation_config["eyelink_freq"]
         if sample_rate != eyelink_freq:
             raise ValueError(
@@ -227,18 +223,16 @@ class Eyelink(BaseNode):
 
         self.preprocess_config = self.gaze_estimation_config["preprocess"]
         self.preprocess_config["clean_eyelink"].update(
-            self.get_parameter_wrapper("smooth_pursuit.clean")
+            self.param("smooth_pursuit.clean")
         )
         self.preprocess_config["reindex_and_interpolate_eyelink"].update(
-            self.get_parameter_wrapper(
-                "smooth_pursuit.reindex_and_interpolate"
-            )
+            self.param("smooth_pursuit.reindex_and_interpolate")
         )
         self.preprocess_config["smooth_eyelink"].update(
-            self.get_parameter_wrapper("smooth_pursuit.smooth")
+            self.param("smooth_pursuit.smooth")
         )
 
-        if self.get_parameter_wrapper("live_gaze_estimation"):
+        if self.param("live_gaze_estimation"):
             self.gaze_estimation_model = init_model(
                 **self.gaze_estimation_config["model"]
             )
@@ -284,7 +278,7 @@ class Eyelink(BaseNode):
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
             self.gaze_estimation_timer = self.create_timer(
-                1 / self.get_parameter_wrapper("gaze_estimation_frequency"),
+                1 / self.param("gaze_estimation_frequency"),
                 self.gaze_estimation_callback,
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
@@ -339,7 +333,7 @@ class Eyelink(BaseNode):
             "file_event_data",
             "link_event_data",
         ]:
-            value = self.get_parameter_wrapper(key)
+            value = self.param(key)
             if value is not None:
                 self.tracker.sendCommand(f"{key} = {value}")
 
@@ -534,15 +528,15 @@ class Eyelink(BaseNode):
         msg.eyelink_time_ms = int(t * 1e3)
 
         center = np.mean([min_pos, max_pos])
-        radius = self.get_parameter_wrapper("simulate_radius")
-        rps = self.get_parameter_wrapper("simulate_rotations_per_second")
+        radius = self.param("simulate_radius")
+        rps = self.param("simulate_rotations_per_second")
         t = np.array([t] * 4)
         phi = np.array([0, np.pi / 2, 0, np.pi / 2])
         pos = np.sin(2 * np.pi * t * rps + phi) * radius + center
         pos = np.round(np.clip(pos, min_pos, max_pos))
 
-        p_missing = self.get_parameter_wrapper("simulate_missing_prob")
-        p_saccate = self.get_parameter_wrapper("simulate_saccate_prob")
+        p_missing = self.param("simulate_missing_prob")
+        p_saccate = self.param("simulate_saccate_prob")
         p_normal = 1 - (p_missing + p_saccate)
 
         mask = np.random.choice(
@@ -582,9 +576,9 @@ class Eyelink(BaseNode):
         """
         self.log("Starting sample retrieval loop")
         wait_for_data_timeout_ms = int(
-            self.get_parameter_wrapper("wait_for_data_timeout") * 1e3
+            self.param("wait_for_data_timeout") * 1e3
         )
-        period = 1 / self.get_parameter_wrapper("sample_rate")
+        period = 1 / self.param("sample_rate")
         config = self.preprocess_config["clean_eyelink"]
         min_pos = config["min_eye_pos"]
         max_pos = config["max_eye_pos"]
@@ -681,11 +675,11 @@ class Eyelink(BaseNode):
         Returns:
             True if the monkey is smoothly pursuing, False otherwise.
         """
-        window = self.get_parameter_wrapper("smooth_pursuit.window")
-        max_speed = self.get_parameter_wrapper("smooth_pursuit.max_speed")
-        min_speed = self.get_parameter_wrapper("smooth_pursuit.min_speed")
-        min_samples = self.get_parameter_wrapper("smooth_pursuit.min_samples")
-        freq = self.get_parameter_wrapper("sample_rate")
+        window = self.param("smooth_pursuit.window")
+        max_speed = self.param("smooth_pursuit.max_speed")
+        min_speed = self.param("smooth_pursuit.min_speed")
+        min_samples = self.param("smooth_pursuit.min_samples")
+        freq = self.param("sample_rate")
 
         msgs = self.message_queue.to_list()
         start_time = self.ros_time()
@@ -864,7 +858,7 @@ class Eyelink(BaseNode):
         """Flic response time action callback."""
         try:
             self.log("Starting smooth pursuit")
-            window = self.get_parameter_wrapper("smooth_pursuit.window")
+            window = self.param("smooth_pursuit.window")
             last_smooth_pursuit = False
 
             while not goal_handle.is_cancel_requested:

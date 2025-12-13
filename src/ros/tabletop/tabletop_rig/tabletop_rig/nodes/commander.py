@@ -43,7 +43,7 @@ def safe_execution(coro_fn: T) -> T:
     """Decorator for methods that should be run with the object manipulation lock."""
 
     async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
-        max_retries = self.get_parameter_wrapper("safe_execution.max_retries")
+        max_retries = self.param("safe_execution.max_retries")
         for i in range(max_retries):
             try:
                 return await coro_fn(self, *args, **kwargs)
@@ -200,7 +200,7 @@ class Commander(BaseNode):
     ) -> float | None:
         """Wait for flic button press, then return response time, or None if timeout is reached."""
         object_id = self.moveit.get_exactly_one_attached_object_id()
-        bd_addr = self.get_parameter_wrapper(f"flic.bd_addrs.{object_id}")
+        bd_addr = self.param(f"flic.bd_addrs.{object_id}")
         return await self.flic.response_time(bd_addr, timeout)
 
     async def smooth_pursuit_and_reward(self):
@@ -217,13 +217,9 @@ class Commander(BaseNode):
             nonlocal pursuit_count
             nonlocal last_smooth_pursuit
 
-            duration = self.get_parameter_wrapper(
-                "smooth_pursuit.reward_duration"
-            )
-            interval = self.get_parameter_wrapper(
-                "smooth_pursuit.reward_interval"
-            )
-            reward_threshold = self.get_parameter_wrapper(
+            duration = self.param("smooth_pursuit.reward_duration")
+            interval = self.param("smooth_pursuit.reward_interval")
+            reward_threshold = self.param(
                 "smooth_pursuit.reward_threshold_ratio"
             )
 
@@ -359,7 +355,7 @@ class Commander(BaseNode):
     #     if max_attempts is None:
     #         max_attempts = cast(
     #             int,
-    #             self.get_parameter_wrapper("plan_and_execute.max_attempts"),
+    #             self.param("plan_and_execute.max_attempts"),
     #         )
     #
     #     if max_attempts < 1:

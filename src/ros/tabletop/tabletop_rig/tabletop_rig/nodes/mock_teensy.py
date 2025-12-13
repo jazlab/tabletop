@@ -227,7 +227,7 @@ class MockTeensy(BaseNode):
         self.log_pub = self.create_publisher(String, "/teensy/log", 10)
 
         # Monkey loop
-        monkey_loop_kwargs = self.get_parameter_wrapper("monkey_loop")
+        monkey_loop_kwargs = self.param("monkey_loop")
         self.monkey_loop = asyncio.create_task(
             monkey_loop(**monkey_loop_kwargs)
         )

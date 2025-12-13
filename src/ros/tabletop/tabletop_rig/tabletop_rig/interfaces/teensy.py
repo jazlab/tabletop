@@ -94,7 +94,7 @@ class TeensyInterface(BaseInterface):
     @property
     def safe_to_execute(self) -> bool:
         """Get the is safe to execute state."""
-        max_sensor_delay = self.node.get_parameter_wrapper(
+        max_sensor_delay = self.node.param(
             "teensy.safe_to_execute.max_sensor_delay"
         )
 
@@ -122,9 +122,7 @@ class TeensyInterface(BaseInterface):
 
     def _teensy_sensor_callback(self, msg: TeensySensor):
         """Callback for the teensy sensor."""
-        required_time = self.node.get_parameter_wrapper(
-            "teensy.safe_to_execute.required_time"
-        )
+        required_time = self.node.param("teensy.safe_to_execute.required_time")
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
@@ -186,7 +184,7 @@ class TeensyInterface(BaseInterface):
         self.log("Locking arms and waiting until safe to execute")
         await self.set_arm_lock("both", lock=True)
 
-        spin_period = self.node.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.node.param("teensy.spin_period")
         try:
             async with asyncio.timeout(timeout):
                 while not self.safe_to_execute:
@@ -230,7 +228,7 @@ class TeensyInterface(BaseInterface):
         """Start reward and wait for it to finish."""
         await self.set_reward(activate=True, duration=duration)
 
-        spin_period = self.node.get_parameter_wrapper("teensy.spin_period")
+        spin_period = self.node.param("teensy.spin_period")
 
         await asyncio.sleep(spin_period)
         assert self.last_teensy_sensor.is_reward_active, (

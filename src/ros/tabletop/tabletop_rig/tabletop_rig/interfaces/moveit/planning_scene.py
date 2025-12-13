@@ -91,9 +91,7 @@ class PlanningSceneInterface(BaseInterface):
 
         self.remove_all_collision_objects()
 
-        config: dict[str, Any] = self.node.get_parameter_wrapper(
-            "planning_scene"
-        )
+        config: dict[str, Any] = self.node.param("planning_scene")
 
         cache_dir = os.path.expandvars(os.path.expanduser(config["dir"]))
         if not os.path.isabs(cache_dir):
@@ -182,16 +180,12 @@ class PlanningSceneInterface(BaseInterface):
         idx = None
 
         try:
-            object_id = self.node.get_parameter_wrapper(
-                "initial_attached_object"
-            )
+            object_id = self.node.param("initial_attached_object")
         except ParameterNotDeclaredException:
             pass
 
         try:
-            idx = self.node.get_parameter_wrapper(
-                "initial_attached_object_idx"
-            )
+            idx = self.node.param("initial_attached_object_idx")
         except ParameterNotDeclaredException:
             pass
 
@@ -227,9 +221,7 @@ class PlanningSceneInterface(BaseInterface):
 
     def _init_link_padding(self):
         """Set the link padding for the planning scene."""
-        config: dict[str, Any] = self.node.get_parameter_wrapper(
-            "link_padding"
-        )
+        config: dict[str, Any] = self.node.param("link_padding")
         with self.planning_scene_rw() as scene:
             msg = PlanningSceneMsg(
                 is_diff=True,
@@ -253,19 +245,19 @@ class PlanningSceneInterface(BaseInterface):
     @property
     def default_group_name(self) -> str:
         """Get the planning group name from the parameter server."""
-        return self.node.get_parameter_wrapper("planning.defaults.group_name")
+        return self.node.param("planning.defaults.group_name")
 
     @property
     def default_pose_link(self) -> str:
         """Get the planning link from the parameter server."""
-        return self.node.get_parameter_wrapper("planning.defaults.pose_link")
+        return self.node.param("planning.defaults.pose_link")
 
     @property
     def allowed_object_mount_collisions(self) -> list[tuple[str, str]]:
         """Get the allowed object mount collisions from the parameter server."""
         return [
             (id_0, id_1)
-            for id_0, id_1 in self.node.get_parameter_wrapper(
+            for id_0, id_1 in self.node.param(
                 "object_manipulation.allowed_collisions"
             ).items()
         ]
@@ -273,14 +265,12 @@ class PlanningSceneInterface(BaseInterface):
     @property
     def touch_links(self) -> list[str]:
         """Get the touch links from the parameter server."""
-        return self.node.get_parameter_wrapper(
-            "object_manipulation.touch_links"
-        )
+        return self.node.param("object_manipulation.touch_links")
 
     @property
     def object_grid(self) -> np.ndarray:
         """Get the object grid config from the parameters."""
-        object_kwargs = self.node.get_parameter_wrapper(
+        object_kwargs = self.node.param(
             "planning_scene.object_meshes.object_kwargs"
         )
 
@@ -376,7 +366,7 @@ class PlanningSceneInterface(BaseInterface):
         matrix_df = pd.DataFrame(matrix, columns=object_ids, index=object_ids)  # type: ignore
 
         # Reorder the matrix to put robot collision links first
-        robot_collision_links = self.node.get_parameter_wrapper(
+        robot_collision_links = self.node.param(
             "planning_scene.robot_collision_links"
         )
         collision_object_ids = set(object_ids) - set(robot_collision_links)
@@ -474,7 +464,7 @@ class PlanningSceneInterface(BaseInterface):
         Returns:
             The hash of the rig.
         """
-        config = self.node.get_parameter_wrapper("planning_scene")
+        config = self.node.param("planning_scene")
 
         hash_algorithm = hashlib.md5()
 
@@ -1197,9 +1187,7 @@ class PlanningSceneInterface(BaseInterface):
     def add_manually_attached_collision_object(self, object_id: str):
         """Add a manually attached collision object to the planning scene."""
         self.log(f"Adding manually attached collision object: {object_id}")
-        mesh_dir = self.node.get_parameter_wrapper(
-            "planning_scene.object_meshes.path"
-        )
+        mesh_dir = self.node.param("planning_scene.object_meshes.path")
         mesh_paths = glob.glob(os.path.join(mesh_dir, f"{object_id}.*"))
         if not mesh_paths:
             raise FileNotFoundError(
@@ -1215,9 +1203,7 @@ class PlanningSceneInterface(BaseInterface):
             object_id=object_id,
             path=mesh_path,
             pose_stamped=self.eef_pose_stamped(),
-            **self.node.get_parameter_wrapper(
-                "manually_attached_object_kwargs"
-            ),
+            **self.node.param("manually_attached_object_kwargs"),
         )
         self.attach_collision_object(
             object_id, self.default_pose_link, touch_links=self.touch_links

@@ -74,10 +74,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self._safe_to_execute_callback = safe_to_execute_callback
 
         # Trajectory cache to store previously executed trajectories
-        trajectory_cache_config = self.node.get_parameter_wrapper(
-            "trajectory_cache.kwargs"
-        )
-        allowed_start_tolerance = self.node.get_parameter_wrapper(
+        trajectory_cache_config = self.node.param("trajectory_cache.kwargs")
+        allowed_start_tolerance = self.node.param(
             "trajectory_execution.allowed_start_tolerance"
         )
         self.trajectory_cache = FuzzyTrajectoryCache(
@@ -106,7 +104,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     @property
     def simulate(self) -> bool:
         """Get the simulation flag."""
-        return self.node.get_parameter_wrapper("simulate")
+        return self.node.param("simulate")
 
     ###########################################################################
     ########## MoveIt Convenience Methods and Properties ######################
@@ -335,11 +333,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ) -> RobotState:
         """Get the named target state from the planning component."""
         if target_name == "idle":
-            target_name = self.node.get_parameter_wrapper(
-                "predefined_states.idle_state"
-            )
+            target_name = self.node.param("predefined_states.idle_state")
         elif target_name == "pre_present":
-            target_name = self.node.get_parameter_wrapper(
+            target_name = self.node.param(
                 "predefined_states.pre_present_state"
             )
 
@@ -364,7 +360,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
         """
-        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
+        default_kwargs = self.node.param("planning.defaults")
         kwargs = default_kwargs | kwargs
         return PlanRequest(goal=goal, **kwargs)
 
@@ -381,7 +377,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             A tuple of the parsed kwargs and any unused kwargs.
         """
-        default_kwargs = self.node.get_parameter_wrapper("planning.defaults")
+        default_kwargs = self.node.param("planning.defaults")
         kwargs = default_kwargs | kwargs
         return ConcatPlanRequest(goals=goals, **kwargs)
 
@@ -561,7 +557,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Check if the goal is already reached (this is wrong)
         # if isinstance(request.goal, PoseStamped):
-        #     tolerance_kwargs = self.node.get_parameter_wrapper(
+        #     tolerance_kwargs = self.node.param(
         #         "planning.pose_tolerance"
         #     )
         #     if all_close_poses_stamped(
@@ -570,7 +566,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         #         self.log("Already at goal pose, skipping planning")
         #         return None, []
         # else:
-        #     tolerance = self.node.get_parameter_wrapper(
+        #     tolerance = self.node.param(
         #         "trajectory_execution.allowed_start_tolerance"
         #     )
         #     if all_close_robot_states(
@@ -581,9 +577,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Attempt to retrieve cached trajectories for this request
         if (
-            self.node.get_parameter_wrapper(
-                "trajectory_cache.use_cached_trajectories"
-            )
+            self.node.param("trajectory_cache.use_cached_trajectories")
             and request.use_cache
         ):
             trajectory = self._get_cached_trajectory(request, cancel_event)
@@ -594,10 +588,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        fast = self.node.get_parameter_wrapper("planning.fast_pipeline")
-        fallback = self.node.get_parameter_wrapper(
-            "planning.fallback_pipeline"
-        )
+        fast = self.node.param("planning.fast_pipeline")
+        fallback = self.node.param("planning.fallback_pipeline")
         pipelines: list[str]
         attempts: list[int]
         if request.planning_pipeline is None:
@@ -778,7 +770,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         elif not self._safe_to_execute_callback():
             raise NotSafeToExecuteError(execution_status)
         else:
-            tolerance = self.node.get_parameter_wrapper(
+            tolerance = self.node.param(
                 "trajectory_execution.allowed_start_tolerance"
             )
             if not all_close_robot_states(
@@ -890,9 +882,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             trajectory: The trajectory to cache.
             **kwargs: Keyword arguments to pass to `FuzzyTrajectoryCache.cache_trajectory()`.
         """
-        if not self.node.get_parameter_wrapper(
-            "trajectory_cache.freeze_cache"
-        ):
+        if not self.node.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:
                 self.trajectory_cache.cache_trajectory(**kwargs)
             self.log(f"Cached {len(cache_kwargs)} trajectories successfully")
