@@ -91,22 +91,23 @@ class Commander(BaseNode):
         "planning_scene.use_saved_scene",
         "planning_scene.object_meshes",
         "planning_scene.rig_meshes",
-        "planning.defaults",
+        # "planning.defaults", TODO
         "planning.pose_tolerance.position_tolerance",
         "planning.pose_tolerance.orientation_tolerance",
-        "predefined_states.idle_state",
-        "predefined_poses.pre_fetch_offset",
-        "predefined_poses.pre_attach_offset",
-        "predefined_poses.post_attach_offset",
-        "predefined_poses.post_fetch_offset",
-        "predefined_poses.pre_present_pose",
+        # "predefined_states.idle_state",
         "trajectory_cache.use_cached_trajectories",
         "trajectory_cache.freeze_cache",
         "trajectory_cache.kwargs",
-        "object_manipulation.detach_velocity_scaling_factor",
-        "object_manipulation.allowed_collisions",
         "object_manipulation.touch_links",
         "object_manipulation.mount_ids",
+        "object_manipulation.detach_allowed_collisions",
+        "object_manipulation.detach_velocity_scaling_factor",
+        "object_manipulation.phase_offsets.pre_fetch",
+        "object_manipulation.phase_offsets.pre_attach",
+        "object_manipulation.phase_offsets.attach",
+        "object_manipulation.phase_offsets.post_attach",
+        "object_manipulation.phase_offsets.post_fetch",
+        "object_manipulation.unpresent_pose_stamped",
         "smooth_pursuit.reward_duration",
         "smooth_pursuit.reward_interval",
         "smooth_pursuit.reward_threshold_ratio",
@@ -134,7 +135,7 @@ class Commander(BaseNode):
         self.eyelink = EyelinkInterface(self)
         self.dashboard = DashboardInterface(self)
         self.moveit = MoveItInterface(
-            self, lambda: self.teensy.safe_to_execute
+            self, safe_to_execute_callback=lambda: self.teensy.safe_to_execute
         )
 
         self.log("Commander initialized")
@@ -265,6 +266,10 @@ class Commander(BaseNode):
         """
         return self.moveit.create_pose_stamped(frame_id=frame_id, **kwargs)
 
+    def attach_object_manually(self, object_id: str):
+        """Add a manually attached collision object to the end effector"""
+        self.moveit.add_manually_attached_collision_object(object_id)
+
     async def plan(self, *args, **kwargs) -> RobotTrajectory | None:
         """Plan to a given goal
 
@@ -301,8 +306,6 @@ class Commander(BaseNode):
 
         Args:
             object_id: The ID of the object to fetch
-            cache_trajectories: Whether to cache the trajectories after fetching
-                the object
 
         Raises:
             ValueError: If the object ID is not a valid collision object
@@ -313,21 +316,17 @@ class Commander(BaseNode):
 
     @safe_execution
     async def pre_present_object(self):
-        """Move to pre-present goal
-
-        Args:
-            goal: The goal at which to present the object
-        """
+        """Move to present state with the currently attached object"""
         await self.moveit.pre_present_object()
 
     @safe_execution
     async def unpresent_object(self):
-        """Unpresent the currently attached object"""
+        """Move to the unpresent state with the currently attached object"""
         await self.moveit.unpresent_object()
 
     @safe_execution
     async def return_object(self):
-        """Return an object to its original position.
+        """Return the currently attached object to its mount.
 
         Raises:
             RuntimeError: If exactly one object is not attached
@@ -335,10 +334,6 @@ class Commander(BaseNode):
             ExecutionError: If the execution fails
         """
         await self.moveit.return_object()
-
-    def attach_object_manually(self, object_id: str):
-        """Add a manually attached collision object to the end effector"""
-        self.moveit.add_manually_attached_collision_object(object_id)
 
     # async def plan_and_execute(
     #     self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any

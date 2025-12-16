@@ -147,6 +147,8 @@
   ],
   "yaml.customTags": [
     "!merge sequence",
-    "!override sequence"
+    "!override sequence",
+    "!PoseStamped mapping",
+    "!ConcatPlanRequest mapping"
   ]
 }

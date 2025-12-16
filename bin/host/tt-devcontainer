@@ -10,4 +10,4 @@ builtin cd $TABLETOP_DIR
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
 
-devcontainer --workspace-folder . "$@"
+devcontainer --workspace-folder . --image-name tabletop/devcontainer "$@"

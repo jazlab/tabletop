@@ -1,7 +1,7 @@
 import asyncio
 import threading
 from collections.abc import Callable
-from copy import copy, deepcopy
+from copy import copy
 from types import TracebackType
 from typing import Any, Optional, Self
 
@@ -39,7 +39,6 @@ from tabletop_rig.interfaces.moveit.planning_scene import (
     PlanningSceneInterface,
 )
 from tabletop_rig.interfaces.moveit.requests import (
-    BasePlanRequest,
     ConcatPlanRequest,
     PlanGoalT,
     PlanRequest,
@@ -90,25 +89,40 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self.log("MoveIt plan and execute interface initialized")
 
     ###########################################################################
-    ########## Properties #####################################################
+    ########## Parameter Convenience Properties ###############################
+    ###########################################################################
+    @property
+    def simulate(self) -> bool:
+        """Get the simulation flag."""
+        return self.node.param("simulate")
+
+    @property
+    def default_group_name(self) -> str:
+        """Get the planning group name from the parameter server."""
+        return self.node.param("planning.default_group_name")
+
+    @property
+    def default_pose_link(self) -> str:
+        """Get the planning link from the parameter server."""
+        return self.node.param("planning.default_pose_link")
+
+    ###########################################################################
+    ########## MoveIt Convenience Methods and Properties ######################
     ###########################################################################
 
     @property
     def executing(self) -> bool:
         return self.execution_lock.locked()
 
-    ###########################################################################
-    ########## Parameter Convenience Properties ###############################
-    ###########################################################################
+    @property
+    def robot_model(self) -> RobotModel:
+        """Get the robot model."""
+        return self.moveit_py.get_robot_model()
 
     @property
-    def simulate(self) -> bool:
-        """Get the simulation flag."""
-        return self.node.param("simulate")
-
-    ###########################################################################
-    ########## MoveIt Convenience Methods and Properties ######################
-    ###########################################################################
+    def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
+        """Get the trajectory execution manager."""
+        return self.moveit_py.get_trajectory_execution_manager()
 
     def get_planning_component(
         self, group_name: Optional[str] = None
@@ -124,21 +138,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if group_name is None:
             group_name = self.default_group_name
         return self.moveit_py.get_planning_component(group_name)
-
-    @property
-    def robot_model(self) -> RobotModel:
-        """Get the robot model."""
-        return self.moveit_py.get_robot_model()
-
-    @property
-    def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
-        """Get the trajectory execution manager."""
-        return self.moveit_py.get_trajectory_execution_manager()
-
-    @property
-    def current_state(self) -> RobotState:
-        with self.planning_scene_ro() as scene:
-            return deepcopy(scene.current_state)
 
     def get_named_target_states(
         self, group_name: Optional[str] = None
@@ -270,30 +269,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return trajectory
 
-    def _validate_trajectory(self, trajectory: RobotTrajectory):
-        """Validate the given robot trajectory.
-
-        Args:
-            trajectory: The robot trajectory to validate.
-
-        Raises:
-            TrajectoryError: If the trajectory is invalid.
-        """
-        self.log("Validating trajectory", severity="DEBUG")
-
-        group_name = trajectory.joint_model_group_name
-
-        with self.planning_scene_ro() as scene:
-            if not scene.is_path_valid(
-                trajectory,
-                joint_model_group_name=group_name,
-                verbose=True,
-                invalid_index=[],
-            ):
-                raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
-
     def _post_process_trajectory(
-        self, trajectory: RobotTrajectory, request: BasePlanRequest
+        self,
+        trajectory: RobotTrajectory,
+        request: PlanRequest | ConcatPlanRequest,
     ) -> RobotTrajectory:
         """Preprocess the trajectory using the given request.
 
@@ -324,6 +303,28 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return trajectory
 
+    def _validate_trajectory(self, trajectory: RobotTrajectory):
+        """Validate the given robot trajectory.
+
+        Args:
+            trajectory: The robot trajectory to validate.
+
+        Raises:
+            TrajectoryError: If the trajectory is invalid.
+        """
+        self.log("Validating trajectory", severity="DEBUG")
+
+        group_name = trajectory.joint_model_group_name
+
+        with self.planning_scene_ro() as scene:
+            if not scene.is_path_valid(
+                trajectory,
+                joint_model_group_name=group_name,
+                verbose=True,
+                invalid_index=[],
+            ):
+                raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
+
     ###########################################################################
     ########## Planning and execution #########################################
     ###########################################################################
@@ -332,13 +333,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self, target_name: str, group_name: Optional[str] = None
     ) -> RobotState:
         """Get the named target state from the planning component."""
-        if target_name == "idle":
-            target_name = self.node.param("predefined_states.idle_state")
-        elif target_name == "pre_present":
-            target_name = self.node.param(
-                "predefined_states.pre_present_state"
-            )
-
         joint_state_dict = self.get_planning_component(
             group_name
         ).get_named_target_state_values(target_name)
@@ -346,40 +340,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         robot_state.joint_positions = joint_state_dict
         robot_state.update()
         return robot_state
-
-    def create_plan_request(
-        self, goal: PlanGoalT, **kwargs: Any
-    ) -> PlanRequest:
-        """Parse the planning kwargs.
-
-        Args:
-            goal: The goal to plan for.
-            **kwargs: Additional keyword arguments to override the default plan
-                request.
-
-        Returns:
-            A tuple of the parsed kwargs and any unused kwargs.
-        """
-        default_kwargs = self.node.param("planning.defaults")
-        kwargs = default_kwargs | kwargs
-        return PlanRequest(goal=goal, **kwargs)
-
-    def create_concat_plan_request(
-        self, goals: list[PlanGoalT], **kwargs: Any
-    ) -> ConcatPlanRequest:
-        """Parse the planning kwargs.
-
-        Args:
-            goal: The goal to plan for.
-            **kwargs: Additional keyword arguments to override the default plan
-                request.
-
-        Returns:
-            A tuple of the parsed kwargs and any unused kwargs.
-        """
-        default_kwargs = self.node.param("planning.defaults")
-        kwargs = default_kwargs | kwargs
-        return ConcatPlanRequest(goals=goals, **kwargs)
 
     def _get_cached_trajectory(
         self,
@@ -460,7 +420,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if isinstance(request.goal, PoseStamped):
             assert request.goal.header.frame_id == self.planning_frame
         else:
-            assert not isinstance(request.goal, str)
+            assert isinstance(request.goal, RobotState)
 
         # Set goal state
         goal_kwargs = {}
@@ -490,7 +450,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return planning_component, request_params
 
-    def _plan_trajectory(
+    def _plan_pipeline(
         self,
         request: PlanRequest,
         cancel_event: Optional[threading.Event] = None,
@@ -540,13 +500,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         """Retrieve trajectory from cache or plan a trajectory"""
         request = copy(request)
 
-        # Set start state if None
-        if request.start_state is None:
-            request.start_state = self.current_state
-
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
-            if request.goal.header.frame_id != self.planning_frame:
+            if not request.goal.header.frame_id:
+                request.goal.header.frame_id = self.planning_frame
+            elif request.goal.header.frame_id != self.planning_frame:
                 request.goal = self.change_reference_frame(
                     request.goal, self.planning_frame
                 )
@@ -554,6 +512,16 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             request.goal = self.get_target_state(
                 request.goal, request.group_name
             )
+
+        # Set start state to current state if None
+        if request.start_state is None:
+            request.start_state = self.current_state
+
+        # Set pose link and group name to default if not provided
+        if request.pose_link is None:
+            request.pose_link = self.default_pose_link
+        if request.group_name is None:
+            request.group_name = self.default_group_name
 
         # Check if the goal is already reached (this is wrong)
         # if isinstance(request.goal, PoseStamped):
@@ -588,16 +556,14 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 "Not using cached trajectories, planning and executing normally"
             )
 
-        fast = self.node.param("planning.fast_pipeline")
-        fallback = self.node.param("planning.fallback_pipeline")
         pipelines: list[str]
         attempts: list[int]
         if request.planning_pipeline is None:
-            pipelines = [fallback]
+            pipelines = [self.node.param("planning.fallback_pipeline")]
             attempts = [request.max_attempts]
 
             if isinstance(request.goal, PoseStamped):
-                pipelines.insert(0, fast)
+                pipelines.insert(0, self.node.param("planning.fast_pipeline"))
                 attempts.insert(0, 1)
         elif request.planning_pipeline == "linear" and not isinstance(
             request.goal, PoseStamped
@@ -614,7 +580,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             request.planning_pipeline = pipeline
             request.max_attempts = attempt
             try:
-                trajectory = self._plan_trajectory(request, cancel_event)
+                trajectory = self._plan_pipeline(request, cancel_event)
                 break
             except PlanningError as e:
                 if i < len(pipelines) - 1:
@@ -678,7 +644,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         # request don't fail because the last state is too far from the
         # start state
         if request.loop:
-            request.requests.append(self.create_plan_request(goal=start_state))
+            request.requests.append(PlanRequest(goal=start_state))
 
         # Validate or create list of dts
         if request.dts is None:
@@ -782,10 +748,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     async def plan(
         self,
-        goal: Optional[PlanGoalT] = None,
-        *,
-        goals: Optional[list[PlanGoalT]] = None,
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
+        *,
+        goal: Optional[PlanGoalT] = None,
+        goals: Optional[list[PlanGoalT]] = None,
         cancel_event: Optional[threading.Event] = None,
         **kwargs: Any,
     ) -> PlanResponseT:
@@ -799,7 +765,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             request: The request to plan for. If not provided, the request is
                 created from goal and kwargs.
             cancel_event: An event that can be used to cancel planning.
-            **kwargs: Keyword arguments to pass to `create_plan_request()`.
+            **kwargs: Keyword arguments to pass to the 'PlanRequest()' or
+                'ConcatPlanRequest()' constructor.
 
         Returns:
             A tuple containing:
@@ -830,9 +797,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             if goals is not None:
                 raise ValueError("Both 'goal' and 'goals' cannot be provided")
 
-            request = self.create_plan_request(goal, **kwargs)
+            request = PlanRequest(goal=goal, **kwargs)
         elif goals is not None:
-            request = self.create_concat_plan_request(goals, **kwargs)
+            request = ConcatPlanRequest(goals=goals, **kwargs)
         else:
             raise ValueError(
                 "One of 'goal', 'goals', or 'request' must be provided"
@@ -891,7 +858,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     async def plan_and_execute(
         self,
-        *args: Any,
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
         cache_trajectory: bool = True,
         **kwargs: Any,
@@ -924,9 +890,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             raise ValueError("start_state is not allowed in plan_and_execute")
 
         # Plan and return immediately if already at goal
-        trajectory, cache_kwargs = await self.plan(
-            *args, request=request, **kwargs
-        )
+        trajectory, cache_kwargs = await self.plan(request=request, **kwargs)
         if trajectory is None:
             return None
 
@@ -978,7 +942,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self.remove_all_collision_objects()
         if end_goal is None:
             end_goal = "idle"
-        await self.plan_and_execute(end_goal, **kwargs)
+        await self.plan_and_execute(goal=end_goal, **kwargs)
         self._init_planning_scene()
 
     def __enter__(self) -> Self:

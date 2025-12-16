@@ -54,7 +54,7 @@
       <joint name="wrist_2_joint" value="0" />
       <joint name="wrist_3_joint" value="0" />
     </group_state>
-    <group_state name="ready_for_action" group="manipulator">
+    <group_state name="idle" group="manipulator">
       <joint name="shoulder_pan_joint" value="0" />
       <joint name="shoulder_lift_joint" value="${-5*pi/6}" />
       <joint name="elbow_joint" value="${2*pi/3}" />

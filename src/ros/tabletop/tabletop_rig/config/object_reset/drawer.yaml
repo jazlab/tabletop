@@ -1,0 +1,15 @@
+allowed_collision_ids: []
+request: !ConcatPlanRequest
+  goals:
+    - !PoseStamped
+      position: [1.6, 1.0, 1.0]
+      rpy: [0.0, 0.0, 0.0]
+      frame_id: world
+    - !PoseStamped
+      position: [1.7, 1.0, 1.0]
+      rpy: [0.0, 0.0, 0.0]
+      frame_id: world
+    - !PoseStamped
+      position: [1.6, 1.0, 1.0]
+      rpy: [0.0, 0.0, 0.0]
+      frame_id: world

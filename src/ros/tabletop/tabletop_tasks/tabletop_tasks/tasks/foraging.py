@@ -44,21 +44,21 @@ class ForagingTask(BaseTask):
     # Phases
     ############################################################
 
-    async def present(self, pose: PoseStamped):
-        """Present object."""
-        self.log("Present phase")
+    async def prepare(self, pose: PoseStamped):
+        """Prepare trial by moving object to desired location."""
+        self.log("Prepare phase")
         await self.commander.plan_and_execute(
             goal=pose, planning_pipeline="linear"
         )
 
     async def stimulus(self):
-        """Present stimulus."""
+        """Reveal stimulus for stimulus by revealing smartglass"""
         self.log("Stimulus phase")
         await self.commander.reveal_smartglass()
         await asyncio.sleep(self.stimulus_duration)
 
     async def delay(self, occlude: bool):
-        """Delay phase."""
+        """Optionally occlude smartglass and wait for delay duration"""
         self.log("Delay phase")
         if occlude:
             await self.commander.occlude_smartglass()
@@ -110,7 +110,7 @@ class ForagingTask(BaseTask):
             raise ValueError("trial_spec should not be None for foraging task")
 
         self.log(f"Foraging task trial spec: {trial_spec}")
-        await self.present(trial_spec.object_pose)
+        await self.prepare(trial_spec.object_pose)
         await self.stimulus()
         await self.delay(trial_spec.occlude)
         feedback = await self.response(trial_spec.arm)

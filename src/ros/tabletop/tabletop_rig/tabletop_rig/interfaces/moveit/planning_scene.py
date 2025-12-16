@@ -1,9 +1,9 @@
-import glob
 import hashlib
 import json
 import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
+from glob import glob
 from typing import Any, ContextManager, Literal, Optional
 
 import numpy as np
@@ -12,11 +12,12 @@ import yaml
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit.core.collision_detection import (  # type: ignore[reportMissingModuleSource]
     AllowedCollisionMatrix,
-    CollisionRequest,
-    CollisionResult,
 )
 from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
     PlanningScene,
+)
+from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
+    RobotState,
 )
 from moveit.planning import MoveItPy, PlanningSceneMonitor
 from moveit_msgs.msg import AllowedCollisionMatrix as AllowedCollisionMatrixMsg
@@ -27,9 +28,8 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from moveit_msgs.msg import PlanningScene as PlanningSceneMsg
-from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.impl.logging_severity import LoggingSeverity
-from trimesh.transformations import identity_matrix
+from transformations import identity_matrix
 
 from tabletop_py.utils.mesh import (
     load_geometry,
@@ -72,8 +72,6 @@ class PlanningSceneInterface(BaseInterface):
         self.moveit_py = MoveItPy("moveit_py", provide_planning_service=True)
 
         self._init_planning_scene()
-
-        self._init_attached_object()
 
         self._init_link_padding()
 
@@ -174,51 +172,6 @@ class PlanningSceneInterface(BaseInterface):
         with open(config_path, "w") as f:
             yaml.dump(orig_config, f)
 
-    def _init_attached_object(self):
-        """Initialize the attached object."""
-        object_id = None
-        idx = None
-
-        try:
-            object_id = self.node.param("initial_attached_object")
-        except ParameterNotDeclaredException:
-            pass
-
-        try:
-            idx = self.node.param("initial_attached_object_idx")
-        except ParameterNotDeclaredException:
-            pass
-
-        if object_id is not None:
-            if idx is not None:
-                raise ValueError(
-                    "Cannot specify both initial_attached_object and initial_attached_object_idx"
-                )
-            if object_id not in self.collision_object_ids:
-                raise ValueError(
-                    f"Initial attached object {object_id} not found in collision object ids"
-                )
-            self.log(
-                f"Moving and attaching initial object {object_id} from name"
-            )
-        elif idx is not None:
-            object_id = self.object_grid[*idx]
-            if object_id is None:
-                raise ValueError(f"No object at index {idx}")
-            assert object_id in self.collision_object_ids
-            self.log(
-                f"Moving and attaching initial object {object_id} from index {idx}"
-            )
-        else:
-            self.log("No initial attached object specified")
-            return
-
-        assert isinstance(object_id, str)
-        self.move_collision_object(object_id, self.eef_pose_stamped())
-        self.attach_collision_object(
-            object_id, self.default_pose_link, touch_links=self.touch_links
-        )
-
     def _init_link_padding(self):
         """Set the link padding for the planning scene."""
         config: dict[str, Any] = self.node.param("link_padding")
@@ -241,31 +194,6 @@ class PlanningSceneInterface(BaseInterface):
     ###########################################################################
     ########## Parameter Convenience Properties ###############################
     ###########################################################################
-
-    @property
-    def default_group_name(self) -> str:
-        """Get the planning group name from the parameter server."""
-        return self.node.param("planning.defaults.group_name")
-
-    @property
-    def default_pose_link(self) -> str:
-        """Get the planning link from the parameter server."""
-        return self.node.param("planning.defaults.pose_link")
-
-    @property
-    def allowed_object_mount_collisions(self) -> list[tuple[str, str]]:
-        """Get the allowed object mount collisions from the parameter server."""
-        return [
-            (id_0, id_1)
-            for id_0, id_1 in self.node.param(
-                "object_manipulation.allowed_collisions"
-            ).items()
-        ]
-
-    @property
-    def touch_links(self) -> list[str]:
-        """Get the touch links from the parameter server."""
-        return self.node.param("object_manipulation.touch_links")
 
     @property
     def object_grid(self) -> np.ndarray:
@@ -375,6 +303,12 @@ class PlanningSceneInterface(BaseInterface):
 
         return matrix_df
 
+    @property
+    def current_state(self) -> RobotState:
+        """Get the current state from the planning scene"""
+        with self.planning_scene_ro() as scene:
+            return deepcopy(scene.current_state)
+
     ###########################################################################
     ########## Poses and Frame Transformations ################################
     ###########################################################################
@@ -404,15 +338,6 @@ class PlanningSceneInterface(BaseInterface):
             )
             return tf
 
-    def get_frame_pose_stamped(
-        self, frame_id: str, **kwargs: Any
-    ) -> PoseStamped:
-        """Get the frame pose relative to the planning frame for a given frame id."""
-        return self.create_pose_stamped(
-            pose=pose_msg_from_matrix(self.get_frame_transform(frame_id)),
-            **kwargs,
-        )
-
     def change_reference_frame(
         self, pose_stamped: PoseStamped, new_frame_id: str
     ) -> PoseStamped:
@@ -435,10 +360,21 @@ class PlanningSceneInterface(BaseInterface):
             new_frame_id=new_frame_id,
         )
 
-    def eef_pose_stamped(self, frame_id: Optional[str] = None) -> PoseStamped:
+    def get_frame_pose_stamped(
+        self, frame_id: str, **kwargs: Any
+    ) -> PoseStamped:
+        """Get the frame pose relative to the planning frame for a given frame id."""
+        return self.create_pose_stamped(
+            pose=pose_msg_from_matrix(self.get_frame_transform(frame_id)),
+            **kwargs,
+        )
+
+    def get_link_pose_stamped(
+        self, link: str, frame_id: Optional[str] = None
+    ) -> PoseStamped:
         """Get the current end-effector pose."""
         with self.planning_scene_ro() as scene:
-            eef_pose = scene.current_state.get_pose(self.default_pose_link)
+            eef_pose = scene.current_state.get_pose(link)
 
         pose_stamped = self.create_pose_stamped(
             pose=eef_pose, frame_id=self.planning_frame
@@ -638,36 +574,34 @@ class PlanningSceneInterface(BaseInterface):
             )
         return attached_collision_object_ids[0]
 
-    def check_collision(
-        self, group_name: Optional[str] = None
-    ) -> CollisionResult:
-        """Check if an object is colliding with the planning scene."""
-        if group_name is None:
-            group_name = self.default_group_name
-
-        self.log(f"Checking collision for group {group_name}")
-
-        request = CollisionRequest()
-        request.joint_model_group_name = group_name
-        request.contacts = True
-        request.max_contacts = 100
-        request.max_contacts_per_pair = 1
-        request.cost = False
-        request.verbose = True
-
-        with self.planning_scene_ro() as scene:
-            result = CollisionResult()
-            scene.check_collision(request, result)
-            return result
-
-    def is_state_colliding(self, group_name: Optional[str] = None) -> bool:
-        """Check if the current state of the planning scene is colliding."""
-        if group_name is None:
-            group_name = self.default_group_name
-
-        with self.planning_scene_ro() as scene:
-            return scene.is_state_colliding(group_name)
-
+    # def check_collision(self, group_name: str) -> CollisionResult:
+    #     """Check if an object is colliding with the planning scene."""
+    #     # if group_name is None:
+    #     #     group_name = self.default_group_name
+    #
+    #     self.log(f"Checking collision for group {group_name}")
+    #
+    #     request = CollisionRequest()
+    #     request.joint_model_group_name = group_name
+    #     request.contacts = True
+    #     request.max_contacts = 100
+    #     request.max_contacts_per_pair = 1
+    #     request.cost = False
+    #     request.verbose = True
+    #
+    #     with self.planning_scene_ro() as scene:
+    #         result = CollisionResult()
+    #         scene.check_collision(request, result)
+    #         return result
+    #
+    # def is_state_colliding(self, group_name: str) -> bool:
+    #     """Check if the current state of the planning scene is colliding."""
+    #     # if group_name is None:
+    #     #     group_name = self.default_group_name
+    #
+    #     with self.planning_scene_ro() as scene:
+    #         return scene.is_state_colliding(group_name)
+    #
     def _parse_collision_matrix_entry(
         self, success: bool, allowed_collision_type: str
     ) -> bool:
@@ -782,7 +716,7 @@ class PlanningSceneInterface(BaseInterface):
         """
         return self._modify_collision_matrix(id_0, id_1, allow=False)
 
-    def process_init_collision_object(
+    def process_add_collision_object(
         self,
         collision_object: CollisionObject,
         *,
@@ -804,6 +738,9 @@ class PlanningSceneInterface(BaseInterface):
             f"Processing collision object: {collision_object.id}",
             severity="DEBUG",
         )
+
+        if collision_object.operation != CollisionObject.ADD:
+            raise ValueError("CollisionObject operation must be ADD")
 
         # Process color
         if color is not None:
@@ -848,7 +785,7 @@ class PlanningSceneInterface(BaseInterface):
             object_id=object_id, coef=coef, pose_stamped=pose_stamped
         )
 
-        self.process_init_collision_object(
+        self.process_add_collision_object(
             collision_object=collision_object,
             allowed_collision_ids=allowed_collision_ids,
         )
@@ -886,7 +823,7 @@ class PlanningSceneInterface(BaseInterface):
             dimensions=dimensions,
         )
 
-        self.process_init_collision_object(
+        self.process_add_collision_object(
             collision_object=collision_object,
             color=color,
             allowed_collision_ids=allowed_collision_ids,
@@ -1003,7 +940,7 @@ class PlanningSceneInterface(BaseInterface):
                 subframe_poses=subframe_poses,
             )
 
-        self.process_init_collision_object(
+        self.process_add_collision_object(
             collision_object=collision_object,
             color=color,
             allowed_collision_ids=allowed_collision_ids,
@@ -1044,7 +981,7 @@ class PlanningSceneInterface(BaseInterface):
             raise NotADirectoryError(
                 f"Object meshes path {path} is not a directory"
             )
-        paths = glob.glob(os.path.join(path, "*.stl")) + glob.glob(
+        paths = glob(os.path.join(path, "*.stl")) + glob(
             os.path.join(path, "*.dae")
         )
 
@@ -1055,8 +992,11 @@ class PlanningSceneInterface(BaseInterface):
 
         self.grid_object_poses: dict[str, PoseStamped] = {}
 
+        existing = set(self.collision_object_ids)
+        assert len(existing) == len(self.collision_object_ids)
+
         for idx, overrides in object_kwargs.items():
-            # Skip if object already exists in the planning scene
+            # Skip "empty" grid positions (assign None to object_id)
             object_id = overrides.pop("object_id", None)
             if object_id is None:
                 self.log(
@@ -1064,11 +1004,11 @@ class PlanningSceneInterface(BaseInterface):
                 )
                 continue
 
-            if object_id in self.collision_object_ids:
-                self.log(
-                    f"Skipping object mesh {object_id} because it already exists in the planning scene"
+            # Check for identical objects
+            if object_id in existing:
+                raise ValueError(
+                    f"Object ID {object_id} already exists in planning scene"
                 )
-                continue
 
             # Merge allowed collision ids
             if (
@@ -1183,31 +1123,6 @@ class PlanningSceneInterface(BaseInterface):
         collision_object.operation = CollisionObject.MOVE
 
         self.planning_scene_monitor.process_collision_object(collision_object)
-
-    def add_manually_attached_collision_object(self, object_id: str):
-        """Add a manually attached collision object to the planning scene."""
-        self.log(f"Adding manually attached collision object: {object_id}")
-        mesh_dir = self.node.param("planning_scene.object_meshes.path")
-        mesh_paths = glob.glob(os.path.join(mesh_dir, f"{object_id}.*"))
-        if not mesh_paths:
-            raise FileNotFoundError(
-                f"Mesh file for {object_id} not found in {mesh_dir}"
-            )
-        elif len(mesh_paths) > 1:
-            raise ValueError(
-                f"Multiple mesh files found for {object_id}: {mesh_paths}"
-            )
-        mesh_path = mesh_paths[0]
-
-        self.add_mesh_collision_object(
-            object_id=object_id,
-            path=mesh_path,
-            pose_stamped=self.eef_pose_stamped(),
-            **self.node.param("manually_attached_object_kwargs"),
-        )
-        self.attach_collision_object(
-            object_id, self.default_pose_link, touch_links=self.touch_links
-        )
 
     ###########################################################################
     ########## Logging ########################################################

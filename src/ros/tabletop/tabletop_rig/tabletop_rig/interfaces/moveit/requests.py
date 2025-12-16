@@ -22,8 +22,8 @@ def is_real_number(x: Any) -> bool:
     return False
 
 
-@dataclass(kw_only=True)
-class BasePlanRequest:
+@dataclass
+class _BasePlanRequest:
     """Request to plan a trajectory"""
 
     start_state: Optional[RobotState] = None
@@ -32,7 +32,7 @@ class BasePlanRequest:
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
-    max_attempts: int = 1
+    max_attempts: int = 3
     use_cache: bool = True
     apply_totg: bool = True
     apply_smoothing: bool = False
@@ -119,7 +119,7 @@ class BasePlanRequest:
 
 
 @dataclass(kw_only=True)
-class PlanRequest(BasePlanRequest):
+class PlanRequest(_BasePlanRequest):
     """Request to plan a trajectory"""
 
     goal: PlanGoalT
@@ -139,7 +139,7 @@ class PlanRequest(BasePlanRequest):
 
 
 @dataclass(init=False)
-class ConcatPlanRequest(BasePlanRequest):
+class ConcatPlanRequest(_BasePlanRequest):
     """Request to plan a series of trajectories and concatenate them"""
 
     requests: list[PlanRequest]
@@ -150,28 +150,20 @@ class ConcatPlanRequest(BasePlanRequest):
     def __init__(
         self,
         *,
-        goals: Optional[list[PlanGoalT]] = None,
         requests: Optional[list[PlanRequest]] = None,
-        request_kwargs: Optional[list[dict[str, Any]]] = None,
+        goals: Optional[list[PlanGoalT]] = None,
         dts: Optional[list[float]] = None,
         loop: bool = False,
         post_process_after_concat: bool = False,
         **kwargs: Any,
     ):
         if requests is not None:
-            if goals is not None or request_kwargs is not None:
+            if goals is not None:
                 raise ValueError(
-                    "Neither 'goals' nor 'request_kwargs' cannot be provided if 'requests' is provided"
+                    "'goals' cannot be provided if 'requests' is provided"
                 )
             # requests = [copy(request) for request in requests]
         elif goals is not None:
-            if request_kwargs is None:
-                request_kwargs = [{}] * len(goals)
-            elif len(request_kwargs) != len(goals):
-                raise ValueError(
-                    "request_kwargs must be the same length as goals"
-                )
-
             common_kwargs = kwargs.copy()
             if "start_state" in common_kwargs:
                 del common_kwargs["start_state"]
@@ -181,13 +173,10 @@ class ConcatPlanRequest(BasePlanRequest):
                 common_kwargs["apply_smoothing"] = False
 
             requests = []
-            for goal, req_kwargs in zip(goals, request_kwargs):
-                req_kwargs = common_kwargs | req_kwargs
-                requests.append(PlanRequest(goal=goal, **req_kwargs))
+            for goal in goals:
+                requests.append(PlanRequest(goal=goal, **common_kwargs))
         else:
-            raise ValueError(
-                "Either 'goals' and 'request_kwargs', or 'requests', must be provided"
-            )
+            raise ValueError("Either 'goals' or 'requests', must be provided")
 
         self.requests = requests
         self.dts = dts
@@ -231,6 +220,15 @@ class ConcatPlanRequest(BasePlanRequest):
 
         if type_error:
             raise ValueError(f"Invalid {name} type: {type(value)}")
+
+
+@dataclass(init=False)
+class ResetRequest:
+    """Request to reset an object"""
+
+    def __init__(self, concat_request):
+        # TODO
+        pass
 
 
 PlanResponseT = tuple[RobotTrajectory | None, list[dict[str, Any]]]

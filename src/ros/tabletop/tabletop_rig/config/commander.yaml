@@ -69,20 +69,19 @@
     planning:
       fast_pipeline: linear
       fallback_pipeline: rrt_star
-      defaults:
-        pose_link: eef
-        group_name: manipulator
-        max_attempts: 5
-        # planning_pipeline: rrt_star
-        # apply_totg: true
-        # apply_smoothing: false
-        # velocity_scaling_factor: 1.0
-        # acceleration_scaling_factor: 1.0
-        # path_tolerance: 0.001
-        # resample_dt: 0.05
-        # min_angle_change: 0.001
-        # mitigate_overshoot: false
-        # overshoot_threshold: 0.002
+      default_pose_link: eef
+      default_group_name: manipulator
+      # max_attempts: 5
+      # planning_pipeline: rrt_star
+      # apply_totg: true
+      # apply_smoothing: false
+      # velocity_scaling_factor: 1.0
+      # acceleration_scaling_factor: 1.0
+      # path_tolerance: 0.001
+      # resample_dt: 0.05
+      # min_angle_change: 0.001
+      # mitigate_overshoot: false
+      # overshoot_threshold: 0.002
       pose_tolerance:
         position_tolerance: 0.01
         orientation_tolerance: 0.01
@@ -97,30 +96,67 @@
         max_trajectories: 5
         new_cache: false
 
-    plan_and_execute:
-      max_attempts: 3
-
-    predefined_states:
-      idle_state: ready_for_action
-      pre_present_state: pre_present
-
-    predefined_poses:
-      pre_fetch_offset: [-0.03, 0.0, -0.05] # relative to object init pose
-      pre_attach_offset: [-0.03, 0.0, 0.0] # relative to object init pose
-      post_attach_offset: [0.077, 0.0, 0.0] # relative to object init pose
-      post_fetch_offset: [0.077, 0.0, -0.15] # relative to object init pose
-      pre_present_pose:
-        position: [0.9525, 0.4, 0.6]
-        rpy: [0.0, 0.0, -1.5707]
+    # predefined_states:
+    #   idle_state: ready_for_action
+    #   pre_present_state: pre_present
+    #
+    # predefined_poses:
+    #   pre_fetch_offset: [-0.03, 0.0, -0.05] # relative to object init pose
+    #   pre_attach_offset: [-0.03, 0.0, 0.0] # relative to object init pose
+    #   post_attach_offset: [0.077, 0.0, 0.0] # relative to object init pose
+    #   post_fetch_offset: [0.077, 0.0, -0.15] # relative to object init pose
+    #   pre_present_pose:
+    #     position: [0.9525, 0.4, 0.6]
+    #     rpy: [0.0, 0.0, -1.5707]
 
     object_manipulation:
-      detach_velocity_scaling_factor: 1.0
-      allowed_collisions:
-        eef_sphere: rig
       touch_links:
         - eef_link
       mount_ids:
         - rig
+      detach_allowed_collisions:
+        eef_sphere: rig
+      detach_velocity_scaling_factor: 1.0
+      phase_offsets:
+        pre_fetch: [-0.03, 0.0, -0.05] # relative to object init pose
+        pre_attach: [-0.03, 0.0, 0.0] # relative to object init pose
+        attach: [0.0, 0.0, 0.0] # relative to object init pose
+        post_attach: [0.077, 0.0, 0.0] # relative to object init pose
+        post_fetch: [0.077, 0.0, -0.15] # relative to object init pose
+      unpresent_pose_stamped:
+        position: [0.9525, 0.4, 0.6]
+        rpy: [0.0, 0.0, -1.5707]
+      reset_config_map:
+        small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
 
     safe_execution:
       max_retries: 3
@@ -137,7 +173,7 @@
     manually_attached_object_kwargs:
       allowed_collision_ids:
         - eef_sphere
-      simplification: bounding_box_oriented
+      simplification: bounding_primitive
       color: [1.0, 1.0, 1.0, 0.5]
 
     planning_scene:

@@ -2,30 +2,37 @@
 
 set -eo pipefail
 
-if [[ $# -gt 1 ]]; then
-    print_error "Usage: $0 [<service_name> (default 'dev')"
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+builtin cd $TABLETOP_DIR
+
+if [[ $# > 1 ]]; then
+    print_error "Usage: $0 [<service_name> (default: dev)]"
     exit 1
 fi
 
-SERVICE=${1:-dev}
+SERVICE="${1:-dev}"
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
+export COMPOSE_BAKE=true
+export COMPOSE_REMOVE_ORPHANS=true
 
-cd $TABLETOP_DIR
-source docker/env.bash
-
-export COMPOSE_PROFILES="*"
 # Check if dev container is already running
-if [[ ! $(docker compose ps -q --status=running $SERVICE) ]]; then
-    docker compose up -d $SERVICE
+if [[ ! "$(docker compose ps -q --status=running $SERVICE)" ]]; then
+    if [[ "$SERVICE" = dev ]]; then
+        devcontainer up -d $SERVICE
+    else
+        docker compose up -d $SERVICE
+    fi
 fi
 
-CONTAINER_ID=$(docker compose ps -q $SERVICE)
-if [[ $TERM = *kitty* ]]; then
-    CMD="kitten run-shell --shell /bin/bash --shell-integration no-cursor"
+# CONTAINER_ID=$(docker compose ps -q $SERVICE)
+if [[ "$SERVICE" = dev && "$TERM" = "*kitty*" ]]; then
+    devcontainer exec --workspace-folder . \
+        kitten run-shell --shell-integration no-cursor --shell /bin/bash
 else
-    CMD=bash
+    docker compose exec -it $SERVICE /bin/bash
 fi
 
-docker exec -it $CONTAINER_ID $CMD
+# docker compose exec -it $CONTAINER_ID $CMD
