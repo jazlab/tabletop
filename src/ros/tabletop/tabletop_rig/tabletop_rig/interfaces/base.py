@@ -13,7 +13,7 @@ class BaseInterface(LoggerMixin):
             logger_name: Name to give logger
         """
         self._node = node
-        self._logger = self._node.get_logger().get_child(logger_name)
+        self._logger = node.get_logger().get_child(logger_name)
 
     def get_logger(self) -> RcutilsLogger:
         """Get the logger instance"""

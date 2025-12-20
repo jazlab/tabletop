@@ -56,6 +56,7 @@ from tabletop_rig.utils.ros import (
 
 
 class PlanningSceneInterface(BaseInterface):
+    # TODO: Documentation
     def __init__(
         self, node: BaseNode, logger_name: str = "moveit_scene_interface"
     ):

@@ -225,12 +225,12 @@
           allowed_collision_ids:
             - base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
-        box_0:
+        box_safety:
           type: BOX
           dimensions: [0.5, 0.4, 1.9812]
           pose_stamped:
             position: [1.655, 0.2, 0.9906]
-          color: [1.0, 0.0, 0.0, 0.2]
+          color: [1.0, 0.0, 0.0, 0.1]
         floor:
           type: BOX
           dimensions: [2.0, 2.0, 0.0]
@@ -261,6 +261,12 @@
           pose_stamped:
             position: [1.8669, 1.0, 1.0]
           color: [1.0, 1.0, 1.0, 0.1]
+        drawer_station:
+          type: BOX
+          dimensions: [0.1, 0.2, 1.0]
+          pose_stamped:
+            position: [1.85, 1.0, 0.5]
+          color: [0.0, 0.0, 1.0, 0.5]
       rig_meshes:
         rig:
           pose_stamped:

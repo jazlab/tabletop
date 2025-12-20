@@ -27,6 +27,33 @@ class BracketedListDumper(yaml.Dumper):
             )
 
 
+# class CustomYamlLoader(yaml.SafeLoader):
+#     def __init__(self, stream, constructors: dict[str, Callable]):
+#         for tag, fn in constructors.items():
+#             self._add_mapping_constructor(tag, fn)
+#         super().__init__(stream)
+#
+#     def _add_mapping_constructor(self, tag: str, fn: Callable):
+#         self.add_constructor(
+#             tag,
+#             constructor=lambda loader, node: self._mapping_constructor(
+#                 loader,  # type: ignore[reportArgumentType]
+#                 node,  # type: ignore[reportArgumentType]
+#                 fn=fn,
+#             ),
+#         )
+#
+#     @staticmethod
+#     def _mapping_constructor(
+#         loader: yaml.SafeLoader,
+#         node: yaml.nodes.MappingNode,
+#         *,
+#         fn: Callable,
+#     ):
+#         return fn(**loader.construct_mapping(node, deep=True))  # type: ignore[reportCallIssue]
+#
+
+
 def yaml_dump_string(d: Any, width: int = 80) -> str:
     return yaml.dump(d, Dumper=BracketedListDumper, width=width)
 

@@ -85,6 +85,7 @@ def make_tf_publisher(
         name=f"{name}_static_transform_publisher",
         package="tf2_ros",
         executable="static_transform_publisher",
+        output="both",
         arguments=[
             "--x",
             str(position[0]),
@@ -209,6 +210,7 @@ def generate_launch_description():
         namespace="",
         package="rclcpp_components",
         executable="component_container",
+        output="both",
         composable_node_descriptions=flir_nodes,
         ros_arguments=[
             "--log-level",

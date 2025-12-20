@@ -43,6 +43,7 @@ from tabletop_rig.interfaces.moveit.requests import (
     PlanGoalT,
     PlanRequest,
     PlanResponseT,
+    TrajectoryCacheKwargs,
 )
 from tabletop_rig.interfaces.moveit.trajectory_cache import (
     FuzzyTrajectoryCache,
@@ -55,6 +56,8 @@ from tabletop_rig.utils.ros import (
 
 
 class PlanAndExecuteInterface(PlanningSceneInterface):
+    _trajectory_precache: dict[int, TrajectoryCacheKwargs]
+
     def __init__(
         self,
         node: BaseNode,
@@ -77,9 +80,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         allowed_start_tolerance = self.node.param(
             "trajectory_execution.allowed_start_tolerance"
         )
-        self.trajectory_cache = FuzzyTrajectoryCache(
+        self._trajectory_cache = FuzzyTrajectoryCache(
             scene_hash=self.scene_hash,
+            planning_frame=self.planning_frame,
             robot_state_tolerance=allowed_start_tolerance,
+            parent_logger=self.get_logger(),
             **trajectory_cache_config,
         )
 
@@ -349,7 +354,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         """Attempt to retrieve and validate all cached trajectories"""
         self.log("Attempting to retrieve cached trajectories")
         try:
-            trajectories = self.trajectory_cache.get_trajectories(request)
+            trajectories = self._trajectory_cache.get_trajectories(request)
         except KeyError:
             self.log("No cached trajectory found, planning normally")
             return None
@@ -550,7 +555,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         ):
             trajectory = self._get_cached_trajectory(request, cancel_event)
             if trajectory is not None:
-                return trajectory, []
+                return trajectory, None
         else:
             self.log(
                 "Not using cached trajectories, planning and executing normally"
@@ -597,7 +602,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         trajectory = self._post_process_trajectory(trajectory, request)
         # TODO: Maybe revalidate
         # self._validate_trajectory(trajectory)
-        cache_kwargs = {"trajectory": trajectory, "request": request}
+        cache_kwargs: TrajectoryCacheKwargs = {
+            "trajectory": trajectory,
+            "request": request,
+        }
 
         return trajectory, [cache_kwargs]
 
@@ -609,28 +617,14 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
         request = copy(request)
-        for i, req in enumerate(request.requests):
-            request.requests[i] = copy(req)
 
         # Validate request
-        if len(request.requests) < 1:
-            raise ValueError("At least one goal/plan request must be provided")
-        if any(req.start_state is not None for req in request.requests):
-            raise ValueError(
-                "'start_state' cannot be provided for any segment PlanRequest in 'request.requests'"
-            )
+        if len(request.goals) < 1:
+            raise ValueError("At least one goal must be provided")
         if request.post_process_after_concat:
             if request.dts is not None:
                 raise ValueError(
                     "'dts' cannot be provided if 'post_process_after_concat' is True"
-                )
-            if any(
-                req.apply_totg or req.apply_smoothing
-                for req in request.requests
-            ):
-                raise ValueError(
-                    "'apply_totg' and 'apply_smoothing' cannot be True for any segment"
-                    "PlanRequest in 'request.requests' if 'post_process_after_concat' is True"
                 )
 
         # Set initial start state if None
@@ -644,27 +638,45 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         # request don't fail because the last state is too far from the
         # start state
         if request.loop:
-            request.requests.append(PlanRequest(goal=start_state))
+            request.goals.append(start_state)
 
         # Validate or create list of dts
         if request.dts is None:
-            dts = [1e-4] * len(request.requests)
-        elif len(request.dts) == len(request.requests):
+            dts = [1e-4] * len(request.goals)
+        elif len(request.dts) == len(request.goals):
             dts = request.dts
         else:
             raise ValueError("dts must be the same length as goals")
 
         # Loop over individual plan requests
         trajectories: list[RobotTrajectory] = []
-        cache_kwargs: list[dict[str, Any]] = []
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
         new_dts: list[float] = []
         running_dt: float = 0.0
-        for i, req in enumerate(request.requests):
+
+        for i, req in enumerate(request.generate_plan_requests()):
             self.log(
-                f"Planning trajectory segment {i}/{len(request.requests)}",
+                f"Planning trajectory segment {i}/{len(request.goals)}",
             )
             try:
                 req.start_state = start_state
+
+                # If completing the loop and the requested planning_pipeline is
+                # 'linear', we have to set it to default for this segment
+                if (
+                    request.loop
+                    and i == len(request.goals) - 1
+                    and req.planning_pipeline == "linear"
+                ):
+                    self.log(
+                        "Both 'loop' and 'planning_pipeline=linear' were requested, "
+                        "but 'loop' uses the initial robot state as the goal for "
+                        "the loop closure segment, which is unsupported by the "
+                        "'linear' planning pipeline. Reverting to default for the "
+                        "last segment",
+                        severity="WARN",
+                    )
+                    req.planning_pipeline = None
 
                 trajectory, single_cache_kwargs = self._plan_impl(
                     request=req, cancel_event=cancel_event
@@ -675,15 +687,16 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                     running_dt += dts[i]
                 if trajectory is not None:
                     trajectories.append(trajectory)
-                    cache_kwargs.extend(single_cache_kwargs)
                     new_dts.append(dts[i] + running_dt)
+                    if single_cache_kwargs is not None:
+                        cache_kwargs.extend(single_cache_kwargs)
 
                     # Reset running dt and set start state to end of last trajectory
                     running_dt = 0.0
                     start_state = trajectory[len(trajectory) - 1]
             except Exception:
                 self.log(
-                    f"Error generating segment {i}/{len(request.requests)}",
+                    f"Error generating segment {i}/{len(request.goals)}",
                     severity="ERROR",
                 )
                 raise
@@ -701,6 +714,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             concat_trajectory = self._post_process_trajectory(
                 concat_trajectory, request
             )
+
+        if len(cache_kwargs) == 0:
+            return concat_trajectory, None
 
         return concat_trajectory, cache_kwargs
 
@@ -752,7 +768,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         *,
         goal: Optional[PlanGoalT] = None,
         goals: Optional[list[PlanGoalT]] = None,
-        cancel_event: Optional[threading.Event] = None,
         **kwargs: Any,
     ) -> PlanResponseT:
         """Plan a trajectory to a goal or series of goals
@@ -764,7 +779,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 'request' must be provided
             request: The request to plan for. If not provided, the request is
                 created from goal and kwargs.
-            cancel_event: An event that can be used to cancel planning.
             **kwargs: Keyword arguments to pass to the 'PlanRequest()' or
                 'ConcatPlanRequest()' constructor.
 
@@ -787,7 +801,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         See Also:
             `_plan_impl()`: For parameter and implementation details.
         """
-        cancel_event = threading.Event()
         if request is not None:
             if goal is not None or goals is not None or len(kwargs) > 0:
                 raise ValueError(
@@ -842,7 +855,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             self.stop_execution()
             raise
 
-    def cache_trajectories(self, cache_kwargs: list[dict[str, Any]]):
+    def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
         """Cache the given trajectory.
 
         Args:
@@ -851,7 +864,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         """
         if not self.node.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:
-                self.trajectory_cache.cache_trajectory(**kwargs)
+                self._trajectory_cache.cache_trajectory(**kwargs)
             self.log(f"Cached {len(cache_kwargs)} trajectories successfully")
         else:
             self.log("Cache is frozen, skipping cache")
@@ -861,7 +874,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
         cache_trajectory: bool = True,
         **kwargs: Any,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[TrajectoryCacheKwargs] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
@@ -891,18 +904,12 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Plan and return immediately if already at goal
         trajectory, cache_kwargs = await self.plan(request=request, **kwargs)
-        if trajectory is None:
-            return None
 
         # Execute desired request
         await self.execute(trajectory)
 
-        # Nothing to cache
-        if len(cache_kwargs) == 0:
-            return None
-
         # Cache the trajectory if requested
-        if cache_trajectory:
+        if cache_trajectory and cache_kwargs is not None:
             cache_kwargs[-1]["true_end_state"] = self.current_state
             self.cache_trajectories(cache_kwargs)
             return None
@@ -947,7 +954,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     def __enter__(self) -> Self:
         """Enter the context manager."""
-        self.trajectory_cache.__enter__()
+        self._trajectory_cache.__enter__()
         return self
 
     def __exit__(
@@ -957,7 +964,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         exc_tb: Optional[TracebackType],
     ):
         """Exit the context manager."""
-        self.trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
+        self._trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
     ########## Destroy ########################################################
@@ -965,7 +972,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     def destroy(self):
         if hasattr(self, "trajectory_cache"):
-            self.trajectory_cache.close()
+            self._trajectory_cache.close()
         # if hasattr(self, "trajectory_execution_manager"):
         #     self.trajectory_execution_manager.stop_execution()
         super().destroy()

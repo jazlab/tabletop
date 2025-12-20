@@ -1,17 +1,16 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [1.6, 1.0, 0.7]
+  position: [1.6, 1.0, 1.0]
   rpy: [0.0, 0.0, 0.0]
   frame_id: world
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [1.7, 1.0, 0.7]
+      position: [1.7, 1.0, 1.0]
       rpy: [0.0, 0.0, 0.0]
       frame_id: world
     - !PoseStamped
-      position: [1.6, 1.0, 0.7]
+      position: [1.6, 1.0, 1.0]
       rpy: [0.0, 0.0, 0.0]
       frame_id: world
-allowed_collision_ids:
-  - drawer_station
+allowed_collision_ids: []

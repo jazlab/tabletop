@@ -149,6 +149,7 @@
     "!merge sequence",
     "!override sequence",
     "!PoseStamped mapping",
-    "!ConcatPlanRequest mapping"
+    "!ConcatPlanRequest mapping",
+    "!ObjectResetConfig mapping"
   ]
 }

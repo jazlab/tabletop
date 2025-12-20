@@ -1,4 +1,4 @@
-# Set environment variables
+# Directory configuration
 export TABLETOP_DIR=$(dirname $(realpath ${BASH_SOURCE[0]}))
 export TABLETOP_CACHE_DIR=$TABLETOP_DIR/.cache/tabletop
 export COLCON_WS=$TABLETOP_DIR
@@ -6,13 +6,22 @@ export COLCON_LOG_DIR=$COLCON_WS/log/colcon
 export CCACHE_DIR=$TABLETOP_DIR/.cache/ccache
 export ROS_LOG_DIR=$TABLETOP_DIR/log/ros
 export ROS_BAG_DIR=$TABLETOP_DIR/bags
+
+# ROS configuration
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export RCUTILS_LOGGING_USE_STDOUT=1
+export RCUTILS_LOGGING_BUFFERED_STREAM=0
+# export RCUTILS_COLORIZED_OUTPUT=1
+
+# Foxglove configuration
+export FOXGLOVE_PORT=${FOXGLOVE_PORT:-8765}
+
+# UR configuration
 export SIM_ROBOT_IP=192.168.12.20
 export SIM_REVERSE_IP=192.168.12.10
 export ROBOT_IP=192.168.13.20
 export REVERSE_IP=192.168.13.10
 # export PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
-export FOXGLOVE_PORT=${FOXGLOVE_PORT:-8765}
 
 # Source Python virtual environment
 if [ -f $TABLETOP_DIR/.venv/bin/activate ]; then

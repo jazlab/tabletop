@@ -321,8 +321,25 @@ class Commander(BaseNode):
 
     @safe_execution
     async def unpresent_object(self):
-        """Move to the unpresent state with the currently attached object"""
+        """Move to the unpresent state with the currently attached object
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
         await self.moveit.unpresent_object()
+
+    @safe_execution
+    async def reset_object(self):
+        """Reset the currently attached object using its associated ObjectResetConfig
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self.moveit.reset_object()
 
     @safe_execution
     async def return_object(self):

@@ -5,7 +5,7 @@ import os
 import threading
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from shelve import Shelf
 from typing import Any, Optional, cast
 
@@ -32,8 +32,6 @@ from tabletop_rig.utils.ros import (
     robot_trajectory_from_msg,
 )
 
-WORLD_FRAME_ID = "world"
-
 RobotStateToleranceT = float | dict[str, float]
 PositionToleranceT = float | tuple[float, float, float]
 OrientationToleranceT = (
@@ -41,32 +39,33 @@ OrientationToleranceT = (
 )
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True, frozen=True, kw_only=True)
 class FuzzyTrajectoryCacheKey:
     start_state: RobotState
     goal: RobotState | PoseStamped
     pose_link: str | None
     group_name: str
+    planning_frame: InitVar[str]
 
-    def __post_init__(self):
+    def __post_init__(self, planning_frame: str):
         # Type check
         if not isinstance(self.start_state, RobotState):
-            raise ValueError(
+            raise TypeError(
                 f"Start state must be a RobotState: {self.start_state}"
             )
         if not isinstance(self.goal, (RobotState, PoseStamped)):
-            raise ValueError(
+            raise TypeError(
                 f"Goal must be a RobotState or PoseStamped: {self.goal}"
             )
         if self.pose_link is not None and not isinstance(self.pose_link, str):
-            raise ValueError(f"Pose link must be a string: {self.pose_link}")
+            raise TypeError(f"Pose link must be a string: {self.pose_link}")
         if not isinstance(self.group_name, str):
-            raise ValueError(f"Group name must be a string: {self.group_name}")
+            raise TypeError(f"Group name must be a string: {self.group_name}")
 
         # Check that the start state is in the world frame
-        if self.start_state.robot_model.model_frame != WORLD_FRAME_ID:
+        if self.start_state.robot_model.model_frame != planning_frame:
             raise ValueError(
-                f"Start state robot model frame must be '{WORLD_FRAME_ID}': {self.start_state.robot_model.model_frame}"
+                f"Start state robot model frame must be '{planning_frame}': {self.start_state.robot_model.model_frame}"
             )
 
         # Check that the start state has the joint model group
@@ -79,9 +78,9 @@ class FuzzyTrajectoryCacheKey:
 
         if isinstance(self.goal, RobotState):
             # Check that the goal state is in the world frame
-            if self.goal.robot_model.model_frame != WORLD_FRAME_ID:
+            if self.goal.robot_model.model_frame != planning_frame:
                 raise ValueError(
-                    f"Goal robot model frame must be '{WORLD_FRAME_ID}': {self.goal.robot_model.model_frame}"
+                    f"Goal robot model frame must be '{planning_frame}': {self.goal.robot_model.model_frame}"
                 )
 
             # Check that the pose link is not provided if the goal is a RobotState
@@ -99,9 +98,9 @@ class FuzzyTrajectoryCacheKey:
                 )
         else:
             # Check that the goal pose is in the world frame
-            if self.goal.header.frame_id != WORLD_FRAME_ID:
+            if self.goal.header.frame_id != planning_frame:
                 raise ValueError(
-                    f"Goal pose frame id must be '{WORLD_FRAME_ID}': {self.goal.header.frame_id}"
+                    f"Goal pose frame id must be '{planning_frame}': {self.goal.header.frame_id}"
                 )
 
             # Check that the pose link is provided if the goal is a PoseStamped
@@ -112,7 +111,7 @@ class FuzzyTrajectoryCacheKey:
 
     @classmethod
     def from_plan_request(
-        cls, request: PlanRequest
+        cls, request: PlanRequest, *, planning_frame: str
     ) -> "FuzzyTrajectoryCacheKey":
         if isinstance(request.goal, RobotState):
             pose_link = None
@@ -121,13 +120,14 @@ class FuzzyTrajectoryCacheKey:
 
         try:
             return cls(
-                request.start_state,  # type: ignore[ArgumentType]
-                request.goal,  # type: ignore[ArgumentType]
-                pose_link,
-                request.group_name,  # type: ignore[ArgumentType]
+                start_state=request.start_state,  # type: ignore[ArgumentType]
+                goal=request.goal,  # type: ignore[ArgumentType]
+                pose_link=pose_link,
+                group_name=request.group_name,  # type: ignore[ArgumentType]
+                planning_frame=planning_frame,
             )
-        except ValueError as e:
-            raise ValueError(
+        except (TypeError, ValueError) as e:
+            raise type(e)(
                 "Invalid PlanRequest for creating FuzzyTrajectoryCacheKey"
             ) from e
 
@@ -278,27 +278,28 @@ class FuzzyTrajectoryCache(LoggerMixin):
     database.
     """
 
-    _symlink_filename: str = "cache.db"
-    _robot_state_tolerance: RobotStateToleranceT
-    _position_tolerance: PositionToleranceT
-    _orientation_tolerance: OrientationToleranceT
-    _max_trajectories: int
+    SYMLINK_NAME: str = "cache.db"
 
     def __init__(
         self,
         *,
         path: str,
         scene_hash: str,
+        planning_frame: str,
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
         orientation_tolerance: OrientationToleranceT,
         max_trajectories: int = 1,
         new_cache: bool = False,
+        logger_name: str = "trajectory_cache",
+        parent_logger: Optional[RcutilsLogger] = None,
     ):
         """
         Args:
             path: The path of the cache.
             scene_hash: The hash of the rig.
+            planning_frame: The planning frame used by the PlanningScene
+                (to verify all cache keys are with respect to the planning_frame)
             robot_state_tolerance: The joint angle tolerance for the cache. If
                 a single float is provided, it is used for all 6 joints.
             position_tolerance: The position tolerance for the cache. If a
@@ -312,7 +313,10 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 symlink is updated. If False, the old cache file (either the
                 provided filename or the symlinked cache file) is used.
         """
-        self._logger = rclpy.logging.get_logger("trajectory_cache")
+        if parent_logger is None:
+            self._logger = rclpy.logging.get_logger(logger_name)
+        else:
+            self._logger = parent_logger.get_child(logger_name)
 
         # Initialize the path
         path = os.path.expandvars(os.path.expanduser(path))
@@ -335,7 +339,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
         symlink_path: str | None = None
 
         if os.path.isdir(path):
-            symlink_path = os.path.join(path, self._symlink_filename)
+            symlink_path = os.path.join(path, self.SYMLINK_NAME)
 
         try:
             if new_cache:
@@ -420,6 +424,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 if old_symlink_target is not None:
                     os.symlink(old_symlink_target, symlink_path)
             raise
+
+        # Save the planning_frame
+        self._planning_frame = planning_frame
 
     def get_logger(self) -> RcutilsLogger:
         """Get the logger instance"""
@@ -715,7 +722,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
         """
         # Check that the trajectory is valid only
         if validate and not _reverse:
-            validation_key = FuzzyTrajectoryCacheKey.from_plan_request(request)
+            validation_key = FuzzyTrajectoryCacheKey.from_plan_request(
+                request, planning_frame=self._planning_frame
+            )
             try:
                 self._validate_trajectory_quality(
                     trajectory, validation_key, true_end_state
@@ -726,7 +735,8 @@ class FuzzyTrajectoryCache(LoggerMixin):
                     severity="WARN",
                 )
                 raise e
-                return
+                # TODO: remove
+                # return
 
         # Extract the start and end states, the end pose, and the group name
         # from the trajectory
@@ -740,11 +750,19 @@ class FuzzyTrajectoryCache(LoggerMixin):
 
         # Start state to end state key
         state_key = FuzzyTrajectoryCacheKey(
-            start_state, end_state, None, group_name
+            start_state=start_state,
+            goal=end_state,
+            pose_link=None,
+            group_name=group_name,
+            planning_frame=self._planning_frame,
         )
         # Start state to end pose key
         pose_key = FuzzyTrajectoryCacheKey(
-            start_state, end_pose, request.pose_link, group_name
+            start_state=start_state,
+            goal=end_pose,
+            pose_link=request.pose_link,
+            group_name=group_name,
+            planning_frame=self._planning_frame,
         )
 
         # Cache the trajectory
@@ -790,7 +808,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
         Returns:
             The best trajectory for the given key.
         """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(request)
+        key = FuzzyTrajectoryCacheKey.from_plan_request(
+            request, planning_frame=self._planning_frame
+        )
         trajectory = self[key][0].get_trajectory(key.start_state)
         if validate:
             self._validate_trajectory_quality(trajectory, key)
@@ -813,7 +833,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
         Returns:
             The sorted list of trajectories for the given key.
         """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(request)
+        key = FuzzyTrajectoryCacheKey.from_plan_request(
+            request, planning_frame=self._planning_frame
+        )
         trajectories = [v.get_trajectory(key.start_state) for v in self[key]]
         if validate:
             for trajectory in trajectories:
@@ -844,7 +866,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
         Returns:
             True if a trajectory exists for the given key, False otherwise.
         """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(request)
+        key = FuzzyTrajectoryCacheKey.from_plan_request(
+            request, planning_frame=self._planning_frame
+        )
         return key in self
 
     def __delitem__(self, key: FuzzyTrajectoryCacheKey):
@@ -865,7 +889,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
             pose_link: The link to use for the pose.
             group_name: The group name of the trajectory.
         """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(request)
+        key = FuzzyTrajectoryCacheKey.from_plan_request(
+            request, planning_frame=self._planning_frame
+        )
         del self[key]
 
     def open(self, flag: str = "w"):

@@ -19,7 +19,9 @@ from tabletop_rig.interfaces.moveit.plan_and_execute import (
 )
 from tabletop_rig.interfaces.moveit.requests import (
     ConcatPlanRequest,
+    ObjectResetConfig,
     PlanGoalT,
+    TrajectoryCacheKwargs,
 )
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import (
@@ -90,6 +92,7 @@ class ResetLoader(yaml.SafeLoader):
     def __init__(self, *args, **kwargs):
         self._add_mapping_constructor("!PoseStamped", pose_stamped_msg)
         self._add_mapping_constructor("!ConcatPlanRequest", ConcatPlanRequest)
+        self._add_mapping_constructor("!ObjectResetConfig", ObjectResetConfig)
         super().__init__(*args, **kwargs)
 
     def _add_mapping_constructor(self, tag: str, fn: Callable):
@@ -113,6 +116,7 @@ class ResetLoader(yaml.SafeLoader):
 
 
 class ObjectManipulationInterface(PlanAndExecuteInterface):
+    # TODO: Documentation
     def __init__(
         self,
         node: BaseNode,
@@ -143,36 +147,37 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
 
         # Parse and save the configurations for each unique file
-        self.reset_allowed_collision_ids: dict[str, list[str]] = {}
-        self.reset_requests: dict[str, ConcatPlanRequest] = {}
+        self.reset_configs: dict[str, ObjectResetConfig] = {}
 
         unique_files: set[str] = set(self.reset_config_map.values())
         for filename in unique_files:
             with open(filename) as f:
-                config: dict[str, Any] = yaml.load(f, ResetLoader)
+                config: ObjectResetConfig = yaml.load(f, ResetLoader)
 
-            allowed_collision_ids = config.pop("allowed_collision_ids")
-            request = config.pop("request")
-
-            if len(config) > 0:
-                raise ValueError(
-                    f"Unkown reset parameters in config file {filename}: {config.keys()}"
-                )
-
-            if not isinstance(request, ConcatPlanRequest):
+            if not isinstance(config, ObjectResetConfig):
                 raise TypeError(
-                    f"Incorrect parsing of 'request' key in reset config file {filename}. "
-                    f"Make sure to add the !ConcatPlanRequest YAML tag to the request key"
+                    f"Incorrect parsing of object reset config file {filename}. "
+                    f"Make sure to add the !ObjectResetConfig YAML tag to the "
+                    f"beginning of the file, as well as the !ConcatPlanRequest "
+                    f"and !PoseStamped tags where necessary "
+                    f"(see object_reset/example.yaml)"  # TODO
                 )
 
-            self.reset_allowed_collision_ids[filename] = allowed_collision_ids
-            self.reset_requests[filename] = request
+            if (
+                config.allowed_collision_ids is not None
+                and len(config.allowed_collision_ids) > 0
+            ):
+                if (
+                    config.reset_request.planning_pipeline is not None
+                    and config.reset_request.planning_pipeline != "linear"
+                ):
+                    raise ValueError(
+                        "If allowed_collision_ids is provided, the 'reset_request' "
+                        "planning_pipeline must be linear or not provided for "
+                        "object resetting (to prevent accidental collisions)"
+                    )
 
-            # if "goals" in kwargs:
-            #     for i, kw in enumerate(config["goals"]):
-            #         kwargs["goals"][i] = self.create_pose_stamped(**kw)
-            # if "requests" in config:
-            #     pass  # TODO
+            self.reset_configs[filename] = config
 
     def _init_attached_object(self):
         """Initialize the attached object."""
@@ -274,69 +279,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             new_frame_id=new_frame_id,
         )
 
-    #
-    # def pre_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the pre-fetch pose of an object."""
-    #     return self._grid_object_pose_stamped_with_offset(
-    #         object_id,
-    #         self.node.param("predefined_poses.pre_fetch_offset"),
-    #     )
-    #
-    # def pre_attach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the pre-attach pose of an object."""
-    #     return self._grid_object_pose_stamped_with_offset(
-    #         object_id,
-    #         self.node.param("predefined_poses.pre_attach_offset"),
-    #     )
-    #
-    # def attach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the attach pose of an object."""
-    #     return self.grid_object_poses[object_id]
-    #
-    # def post_attach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the post-attach pose of an object."""
-    #     return self._grid_object_pose_stamped_with_offset(
-    #         object_id,
-    #         self.node.param("predefined_poses.post_attach_offset"),
-    #     )
-    #
-    # def post_fetch_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the post-fetch pose of an object."""
-    #     return self._grid_object_pose_stamped_with_offset(
-    #         object_id,
-    #         self.node.param("predefined_poses.post_fetch_offset"),
-    #     )
-    #
-    # # def pre_present_pose_stamped(self, _: str) -> PoseStamped:
-    # #     """Get the pre-present pose."""
-    # #     return self.create_pose_stamped(
-    # #         **self.node.param("predefined_poses.pre_present_pose")
-    # #     )
-    # #
-    # # def unpresent_pose_stamped(self, object_id: str) -> PoseStamped:
-    # #     """Get the unpresent (pre-present) pose."""
-    # #     return self.pre_present_pose_stamped(object_id)
-    # #
-    # def pre_return_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the pre-return (post-fetch) pose of an object."""
-    #     return self.post_fetch_pose_stamped(object_id)
-    #
-    # def pre_detach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the pre-detach (post-attach) pose of an object."""
-    #     return self.post_attach_pose_stamped(object_id)
-    #
-    # def detach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the detach (object init) pose of an object."""
-    #     return self.grid_object_poses[object_id]
-    #
-    # def post_detach_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the post-detach (pre-attach) pose of an object."""
-    #     return self.pre_attach_pose_stamped(object_id)
-    #
-    # def post_return_pose_stamped(self, object_id: str) -> PoseStamped:
-    #     """Get the post-return (pre-fetch) pose of an object."""
-    #     return self.pre_fetch_pose_stamped(object_id)
-    #
     ###########################################################################
     ########## Fetch, present, and return #####################################
     ###########################################################################
@@ -345,7 +287,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self,
         phase: ObjectPhase,
         object_id: str,
-        # goal: PlanGoalT | None = None, TODO
     ) -> PlanGoalT:
         """Get the goal for the given phase and object.
 
@@ -358,13 +299,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             The goal for the given phase and object.
         """
         match phase:
-            # TODO
-            # case ObjectPhase.PRESENT:
-            #     if goal is None:
-            #         raise ValueError(
-            #             "Goal is required for present and unpresent phases"
-            #         )
-            #     return goal
             case ObjectPhase.IDLE:
                 return "idle"
             case ObjectPhase.PRE_PRESENT:
@@ -382,17 +316,13 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 return self._grid_object_pose_stamped_with_offset(
                     object_id, offset
                 )
-                # TODO
-                # return getattr(self, f"{phase.name.lower()}_pose_stamped")(
-                #     object_id
-                # )
 
-    async def _object_phase(
+    async def _execute_phase(
         self,
         object_id: str,
         phase: ObjectPhase,
         **kwargs: Any,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[TrajectoryCacheKwargs] | None:
         """Plan and execute a phase of the object manipulation process.
 
         This is a helper function for the object manipulation process.
@@ -530,11 +460,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         # Iterate through the fetch phases, returning the object to its mount
         # if the fetch fails
-        cache_kwargs: list[dict[str, Any]] = []
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
         try:
             for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
                 # self.object_phase = ObjectPhase(i)
-                kwargs = await self._object_phase(
+                kwargs = await self._execute_phase(
                     object_id, ObjectPhase(i), cache_trajectory=False
                 )
                 if kwargs is not None and cache_trajectories:
@@ -568,7 +498,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self.log(f"Pre-presenting object {object_id}")
 
         # Pre-present phase
-        await self._object_phase(object_id, ObjectPhase.PRE_PRESENT)
+        await self._execute_phase(object_id, ObjectPhase.PRE_PRESENT)
 
     @object_manipulation_lock_decorator
     async def unpresent_object(self):
@@ -577,12 +507,42 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self.log(f"Unpresenting object {object_id}")
 
         # Unpresent phase
-        await self._object_phase(object_id, ObjectPhase.UNPRESENT)
 
-        # Pre-return phase
-        self._pre_return_cache_kwargs = await self._object_phase(
-            object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
+        # # Pre-return phase
+        # self._pre_return_cache_kwargs = await self._object_phase(
+        #     object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
+        # )
+
+    @object_manipulation_lock_decorator
+    async def reset_object(self, cache_trajectories: bool = True):
+        """Unpresent the currently attached object and move it to its pre-return pose."""
+        object_id = self.get_exactly_one_attached_object_id()
+        self.log(f"Resetting object {object_id}")
+
+        # Retrieve reset config
+        filename = self.reset_config_map[object_id]
+        config = self.reset_configs[filename]
+
+        # Unpresent (for caching reasons)
+        await self._execute_phase(object_id, ObjectPhase.UNPRESENT)
+
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
+
+        # Plan and execute to start goal
+        kwargs = await self.plan_and_execute(
+            goal=config.start_goal, cache_trajectory=False
         )
+        if kwargs is not None:
+            cache_kwargs.extend(kwargs)
+
+        # Plan and execute reset path
+        kwargs = await self.plan_and_execute(config.reset_request)
+        if kwargs is not None:
+            cache_kwargs.extend(kwargs)
+
+        # Cache all trajectories if requested
+        if cache_trajectories and len(cache_kwargs) > 0:
+            self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_lock_decorator
     async def return_object(self, cache_trajectories: bool = True):
@@ -604,19 +564,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         self.log(f"Returning object {object_id}")
 
-        cache_kwargs: list[dict[str, Any]] = []
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
 
         # Cache the unpresent trajectory if it exists
-        if not hasattr(self, "_pre_return_cache_kwargs"):
-            raise RuntimeError("Object was not unpresented before returning")
-
-        if self._pre_return_cache_kwargs is not None:
-            cache_kwargs.extend(self._pre_return_cache_kwargs)
-            del self._pre_return_cache_kwargs
+        # if not hasattr(self, "_pre_return_cache_kwargs"):
+        #     raise RuntimeError("Object was not unpresented before returning")
+        #
+        # if self._pre_return_cache_kwargs is not None:
+        #     cache_kwargs.extend(self._pre_return_cache_kwargs)
+        #     del self._pre_return_cache_kwargs
 
         # Iterate through the unpresenting and returning phases
-        for i in range(ObjectPhase.PRE_DETACH, ObjectPhase.IDLE + 1):
-            kwargs = await self._object_phase(
+        # for i in range(ObjectPhase.PRE_RETURN, ObjectPhase.IDLE + 1):
+        for i in range(ObjectPhase.PRE_RETURN, ObjectPhase.POST_RETURN + 1):
+            kwargs = await self._execute_phase(
                 object_id, ObjectPhase(i), cache_trajectory=False
             )
             if kwargs is not None:
@@ -668,21 +629,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if len(self.attached_collision_object_ids) > 0:
                 object_id = self.get_exactly_one_attached_object_id()
                 if object_id in self.grid_object_poses:
-                    await self.unpresent_object()
+                    # await self.unpresent_object()
                     await self.return_object()
             if end_goal is not None:
                 await self.plan_and_execute(goal=end_goal)
-        except (PlanningError, ExecutionError):
-            raise
-            # if self.simulate:
-            #     self.log(
-            #         f"Error while resetting rig: {type(e).__name__}: {e}",
-            #         severity="ERROR",
-            #     )
-            #     self.log(
-            #         "Clearing planning scene and moving out of collision (simulation only)",
-            #         severity="WARN",
-            #     )
-            #     await self.clear_scene_and_reset(end_goal)
-            # else:
-            #     raise
+        except (PlanningError, ExecutionError) as e:
+            if self.simulate:
+                self.log(
+                    f"Error while resetting rig: {type(e).__name__}: {e}",
+                    severity="ERROR",
+                )
+                self.log(
+                    "Clearing planning scene and moving out of collision (simulation only)",
+                    severity="WARN",
+                )
+                await self.clear_scene_and_reset(end_goal)
+            else:
+                raise

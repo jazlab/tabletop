@@ -772,6 +772,9 @@ def object_color_msg(
     return object_color
 
 
+# Robot trajectory utilities
+
+
 def robot_trajectory_from_msg(
     trajectory_msg: RobotTrajectoryMsg,
     state: RobotState,
