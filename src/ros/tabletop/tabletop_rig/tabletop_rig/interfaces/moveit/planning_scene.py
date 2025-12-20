@@ -595,14 +595,12 @@ class PlanningSceneInterface(BaseInterface):
     #         scene.check_collision(request, result)
     #         return result
     #
-    # def is_state_colliding(self, group_name: str) -> bool:
-    #     """Check if the current state of the planning scene is colliding."""
-    #     # if group_name is None:
-    #     #     group_name = self.default_group_name
-    #
-    #     with self.planning_scene_ro() as scene:
-    #         return scene.is_state_colliding(group_name)
-    #
+    def is_state_colliding(self, group_name: str) -> bool:
+        """Check if the current state of the planning scene is colliding."""
+
+        with self.planning_scene_ro() as scene:
+            return scene.is_state_colliding(group_name)
+
     def _parse_collision_matrix_entry(
         self, success: bool, allowed_collision_type: str
     ) -> bool:

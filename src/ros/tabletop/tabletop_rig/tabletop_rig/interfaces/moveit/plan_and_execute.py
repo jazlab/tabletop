@@ -642,17 +642,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Validate or create list of dts
         if request.dts is None:
-            dts = [1e-4] * len(request.goals)
-        elif len(request.dts) == len(request.goals):
-            dts = request.dts
-        else:
+            request.dts = [0.0] * len(request.goals)
+        elif len(request.dts) != len(request.goals):
             raise ValueError("dts must be the same length as goals")
 
         # Loop over individual plan requests
         trajectories: list[RobotTrajectory] = []
         cache_kwargs: list[TrajectoryCacheKwargs] = []
-        new_dts: list[float] = []
-        running_dt: float = 0.0
 
         for i, req in enumerate(request.generate_plan_requests()):
             self.log(
@@ -682,18 +678,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                     request=req, cancel_event=cancel_event
                 )
 
-                if trajectory is None:
-                    # Increment running dt so intentional pauses aren't missed
-                    running_dt += dts[i]
-                if trajectory is not None:
-                    trajectories.append(trajectory)
-                    new_dts.append(dts[i] + running_dt)
-                    if single_cache_kwargs is not None:
-                        cache_kwargs.extend(single_cache_kwargs)
+                trajectories.append(trajectory)
+                if single_cache_kwargs is not None:
+                    cache_kwargs.extend(single_cache_kwargs)
 
-                    # Reset running dt and set start state to end of last trajectory
-                    running_dt = 0.0
-                    start_state = trajectory[len(trajectory) - 1]
+                start_state = trajectory[len(trajectory) - 1]
             except Exception:
                 self.log(
                     f"Error generating segment {i}/{len(request.goals)}",
@@ -706,8 +695,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         concat_trajectory.joint_model_group_name = trajectories[
             0
         ].joint_model_group_name
-        for dt, trajectory in zip(new_dts, trajectories):
-            concat_trajectory.append(trajectory, dt=dt, start_index=0)
+        for dt, trajectory in zip(request.dts, trajectories):
+            concat_trajectory.append(trajectory, dt=dt + 1e-4, start_index=0)
 
         # Post process after concatenation if requested
         if request.post_process_after_concat:

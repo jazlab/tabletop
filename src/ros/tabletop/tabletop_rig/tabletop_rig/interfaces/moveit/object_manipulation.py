@@ -11,7 +11,7 @@ from rclpy.exceptions import ParameterNotDeclaredException
 
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
-    ExecutionError,
+    MoveitRecoverableError,
     ObjectManipulationError,
     PlanningError,
 )
@@ -116,7 +116,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._init_reset_configs()
 
         self.object_manipulation_lock = asyncio.Lock()
-        self.object_phase = ObjectPhase.IDLE
+        self._object_phase = ObjectPhase.IDLE
+
+        self._object_reset: dict[str, bool] = {}
+        for object_id in self.grid_object_poses.keys():
+            self._object_reset[object_id] = True
 
         self.log("MoveIt object manipulation interface initialized")
 
@@ -149,18 +153,22 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
 
             if (
-                config.allowed_collision_ids is not None
-                and len(config.allowed_collision_ids) > 0
+                config.object_allowed_collision_ids is not None
+                and len(config.object_allowed_collision_ids) > 0
+            ) or (
+                config.additional_allowed_collisions is not None
+                and len(config.additional_allowed_collisions) > 0
             ):
                 if (
                     config.reset_request.planning_pipeline is not None
                     and config.reset_request.planning_pipeline != "linear"
                 ):
                     raise ValueError(
-                        "If allowed_collision_ids is provided, the 'reset_request' "
-                        "planning_pipeline must be linear or not provided for "
-                        "object resetting (to prevent accidental collisions)"
+                        "If 'object_allowed_collision_ids' or 'additional_allowed_collisions' "
+                        "is provided, the 'reset_request' planning_pipeline must be linear or "
+                        "not provided for object resetting (to prevent accidental collisions)"
                     )
+                config.reset_request.planning_pipeline = "linear"
 
             self.reset_configs[filename] = config
 
@@ -413,7 +421,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @object_manipulation_lock_decorator
     async def fetch_object(
-        self, object_id: str, cache_trajectories: bool = True
+        self, object_id: str, *, cache_trajectories: bool = True
     ):
         """Fetch an object from its mount.
 
@@ -448,27 +456,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Iterate through the fetch phases, returning the object to its mount
         # if the fetch fails
         cache_kwargs: list[TrajectoryCacheKwargs] = []
-        try:
-            for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
-                # self.object_phase = ObjectPhase(i)
-                kwargs = await self._execute_phase(
-                    object_id, ObjectPhase(i), cache_trajectory=False
-                )
-                if kwargs is not None and cache_trajectories:
-                    cache_kwargs.extend(kwargs)
-        except (PlanningError, ExecutionError):
-            # TODO: Move restart logic
-            # self.log(
-            #     f"Error while fetching object: {e}",
-            #     severity="ERROR",
-            # )
-            # self.log("Attempting to return object to mount", severity="WARN")
-            # start_idx = ObjectPhase.IDLE - i  # type: ignore
-            # for i in range(start_idx, ObjectPhase.IDLE + 1):
-            #     await self._object_phase(
-            #         object_id, ObjectPhase(i), cache_trajectory=False
-            #     )
-            raise
+        for i in range(ObjectPhase.PRE_FETCH, ObjectPhase.POST_FETCH + 1):
+            # self.object_phase = ObjectPhase(i)
+            kwargs = await self._execute_phase(
+                object_id, ObjectPhase(i), cache_trajectory=False
+            )
+            if kwargs is not None and cache_trajectories:
+                cache_kwargs.extend(kwargs)
+        # TODO: Move restart logic
+        # self.log(
+        #     f"Error while fetching object: {e}",
+        #     severity="ERROR",
+        # )
+        # self.log("Attempting to return object to mount", severity="WARN")
+        # start_idx = ObjectPhase.IDLE - i  # type: ignore
+        # for i in range(start_idx, ObjectPhase.IDLE + 1):
+        #     await self._object_phase(
+        #         object_id, ObjectPhase(i), cache_trajectory=False
+        #     )
+        # raise
 
         # Cache all trajectories if requested
         if cache_trajectories and len(cache_kwargs) > 0:
@@ -487,31 +493,30 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Pre-present phase
         await self._execute_phase(object_id, ObjectPhase.PRE_PRESENT)
 
-    @object_manipulation_lock_decorator
-    async def unpresent_object(self):
-        """Unpresent the currently attached object and move it to its pre-return pose."""
-        object_id = self.get_exactly_one_attached_object_id()
-        self.log(f"Unpresenting object {object_id}")
-
-        # Unpresent phase
-
-        # # Pre-return phase
-        # self._pre_return_cache_kwargs = await self._object_phase(
-        #     object_id, ObjectPhase.PRE_RETURN, cache_trajectory=False
-        # )
+        # Set object reset state to False
+        self._object_reset[object_id] = False
 
     @object_manipulation_lock_decorator
-    async def reset_object(self, cache_trajectories: bool = True):
+    async def reset_object(
+        self, *, unpresent: bool = True, cache_trajectories: bool = True
+    ):
         """Unpresent the currently attached object and move it to its pre-return pose."""
         object_id = self.get_exactly_one_attached_object_id()
-        self.log(f"Resetting object {object_id}")
+
+        if self._object_reset[object_id]:
+            self.log(f"No need to reset object {object_id}, skipping")
+            return
+        else:
+            self.log(f"Resetting object {object_id}")
 
         # Retrieve reset config
         filename = self.reset_config_map[object_id]
         config = self.reset_configs[filename]
+        assert config.reset_request.planning_pipeline == "linear"
 
         # Unpresent (for caching reasons)
-        await self._execute_phase(object_id, ObjectPhase.UNPRESENT)
+        if unpresent:
+            await self._execute_phase(object_id, ObjectPhase.UNPRESENT)
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
@@ -523,25 +528,34 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             cache_kwargs.extend(kwargs)
 
         # Plan and execute reset path with allowed collisions
-        if config.allowed_collision_ids is not None:
-            self.allow_collision(object_id, config.allowed_collision_ids)
+        allowed_collisions: list[tuple[str, str]] = []
+        if config.object_allowed_collision_ids is not None:
+            allowed_collisions = [
+                (object_id, aid) for aid in config.object_allowed_collision_ids
+            ]
+        if config.additional_allowed_collisions is not None:
+            allowed_collisions.extend(config.additional_allowed_collisions)
 
+        if len(allowed_collisions) > 0:
+            self.allow_collision(*zip(*allowed_collisions))
         try:
-            kwargs = await self.plan_and_execute(config.reset_request)
+            kwargs = await self.plan_and_execute(
+                config.reset_request, cache_trajectory=False
+            )
             if kwargs is not None:
                 cache_kwargs.extend(kwargs)
         finally:
-            if config.allowed_collision_ids is not None:
-                self.disallow_collision(
-                    object_id, config.allowed_collision_ids
-                )
+            if len(allowed_collisions) > 0:
+                self.disallow_collision(*zip(*allowed_collisions))
+
+        self._object_reset[object_id] = True
 
         # Cache all trajectories if requested
         if cache_trajectories and len(cache_kwargs) > 0:
             self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_lock_decorator
-    async def return_object(self, cache_trajectories: bool = True):
+    async def return_object(self, *, cache_trajectories: bool = True):
         """Return an object to its original position.
 
         Args:
@@ -558,17 +572,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             raise RuntimeError(
                 f"Object {object_id} is not in the grid, cannot return it"
             )
+
+        if not self._object_reset[object_id]:
+            raise ObjectManipulationError(
+                f"Object {object_id} has not been reset yet, cannot return"
+            )
+
         self.log(f"Returning object {object_id}")
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
-
-        # Cache the unpresent trajectory if it exists
-        # if not hasattr(self, "_pre_return_cache_kwargs"):
-        #     raise RuntimeError("Object was not unpresented before returning")
-        #
-        # if self._pre_return_cache_kwargs is not None:
-        #     cache_kwargs.extend(self._pre_return_cache_kwargs)
-        #     del self._pre_return_cache_kwargs
 
         # Iterate through the unpresenting and returning phases
         # for i in range(ObjectPhase.PRE_RETURN, ObjectPhase.IDLE + 1):
@@ -625,11 +637,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if len(self.attached_collision_object_ids) > 0:
                 object_id = self.get_exactly_one_attached_object_id()
                 if object_id in self.grid_object_poses:
-                    # await self.unpresent_object()
+                    await self.reset_object(unpresent=False)
                     await self.return_object()
             if end_goal is not None:
                 await self.plan_and_execute(goal=end_goal)
-        except (PlanningError, ExecutionError) as e:
+        except MoveitRecoverableError as e:
             if self.simulate:
                 self.log(
                     f"Error while resetting rig: {type(e).__name__}: {e}",

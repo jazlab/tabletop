@@ -47,11 +47,11 @@ class ActionCallUnsuccessfulError(Exception):
     """Action call failed."""
 
 
-class CommanderRecoverableError(Exception):
+class MoveitRecoverableError(Exception):
     """Recoverable error that can be retried."""
 
 
-class PlanningError(CommanderRecoverableError):
+class PlanningError(MoveitRecoverableError):
     """Planning error."""
 
 
@@ -85,11 +85,7 @@ class MaxPlanningAttemptsReachedError(PlanningError):
         )
 
 
-class ExecutionError(CommanderRecoverableError):
-    """Execution error."""
-
-
-class TrajectoryError(ExecutionError):
+class TrajectoryError(PlanningError):
     """Trajectory error."""
 
     def __init__(self, error_code: TrajectoryErrorCodes):
@@ -100,6 +96,10 @@ class TrajectoryError(ExecutionError):
         if isinstance(other, TrajectoryError):
             return self.error_code == other.error_code
         return False
+
+
+class ExecutionError(MoveitRecoverableError):
+    """Execution error."""
 
 
 class ExecutionRejectedError(ExecutionError):
@@ -136,5 +136,5 @@ class NotSafeToExecuteError(ExecutionError):
         super().__init__(msg)
 
 
-class ObjectManipulationError(CommanderRecoverableError):
+class ObjectManipulationError(MoveitRecoverableError):
     """Error while manipulating object."""

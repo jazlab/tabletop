@@ -21,9 +21,9 @@ from tabletop_interfaces.msg import TeensySensor
 
 from tabletop_rig.exceptions import (
     ActionCallUnsuccessfulError,
-    CommanderRecoverableError,
     ExecutionError,
     ExecutionInterruptedError,
+    MoveitRecoverableError,
     NotSafeToExecuteError,
     ServiceCallUnsuccessfulError,
 )
@@ -320,17 +320,6 @@ class Commander(BaseNode):
         await self.moveit.pre_present_object()
 
     @safe_execution
-    async def unpresent_object(self):
-        """Move to the unpresent state with the currently attached object
-
-        Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        await self.moveit.unpresent_object()
-
-    @safe_execution
     async def reset_object(self):
         """Reset the currently attached object using its associated ObjectResetConfig
 
@@ -444,7 +433,7 @@ class Commander(BaseNode):
                 except (
                     ServiceCallUnsuccessfulError,
                     ActionCallUnsuccessfulError,
-                    CommanderRecoverableError,
+                    MoveitRecoverableError,
                 ) as e:
                     self.log(
                         "Caught exception while resetting commander:",
@@ -473,7 +462,7 @@ class Commander(BaseNode):
         """Enter the context manager."""
         self.log("Entering commander context manager", severity="DEBUG")
         self.moveit.__enter__()
-        await self.reset_commander()
+        await self.reset_commander(end_goal="idle")
         return self
 
     async def __aexit__(
@@ -486,7 +475,7 @@ class Commander(BaseNode):
         self.log("Exiting commander context manager", severity="DEBUG")
         try:
             if exc_type is not None:
-                if isinstance(exc_value, CommanderRecoverableError):
+                if isinstance(exc_value, MoveitRecoverableError):
                     self.log(
                         "Caught exception while running commander:",
                         severity="ERROR",

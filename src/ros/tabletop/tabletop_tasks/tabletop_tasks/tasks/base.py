@@ -115,7 +115,6 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
     async def _reset_trial(self):
         """Reset and return object from previous trial"""
-        await self.commander.unpresent_object()
         await self.commander.reset_object()
         await self.commander.return_object()
 
