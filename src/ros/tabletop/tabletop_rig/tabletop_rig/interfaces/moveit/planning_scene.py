@@ -92,7 +92,7 @@ class PlanningSceneInterface(BaseInterface):
 
         config: dict[str, Any] = self.node.param("planning_scene")
 
-        cache_dir = os.path.expandvars(os.path.expanduser(config["dir"]))
+        cache_dir = os.path.expanduser(os.path.expandvars(config["cache_dir"]))
         if not os.path.isabs(cache_dir):
             raise ValueError(
                 f"Planning scene cache directory must be absolute: {cache_dir}"

@@ -1,7 +1,7 @@
 import asyncio
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Optional
 
 import rclpy.logging
 from rclpy.impl.rcutils_logger import RcutilsLogger
@@ -51,7 +51,7 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         self,
         commander: Commander,
         trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
-        logger_name: str = "task",
+        logger_name: Optional[str] = None,
     ):
         """Initialize base task.
 
@@ -62,7 +62,12 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
             logger_name: Name to give logger
         """
         self._commander = commander
-        self._logger = rclpy.logging.get_logger(logger_name)
+
+        self._logger = rclpy.logging.get_logger("tabletop_task")
+        # if logger_name is None:
+        #     self._logger = logger
+        # else:
+        #     self._logger = logger.get_child(logger_name)
 
         # Create trial_generator if necessary
         if isinstance(trial_generator, Mapping):

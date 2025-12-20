@@ -1,4 +1,5 @@
-from collections.abc import Hashable, Iterable, Mapping
+from abc import ABCMeta, abstractmethod
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from typing import Any
 
 import yaml
@@ -27,31 +28,35 @@ class BracketedListDumper(yaml.Dumper):
             )
 
 
-# class CustomYamlLoader(yaml.SafeLoader):
-#     def __init__(self, stream, constructors: dict[str, Callable]):
-#         for tag, fn in constructors.items():
-#             self._add_mapping_constructor(tag, fn)
-#         super().__init__(stream)
-#
-#     def _add_mapping_constructor(self, tag: str, fn: Callable):
-#         self.add_constructor(
-#             tag,
-#             constructor=lambda loader, node: self._mapping_constructor(
-#                 loader,  # type: ignore[reportArgumentType]
-#                 node,  # type: ignore[reportArgumentType]
-#                 fn=fn,
-#             ),
-#         )
-#
-#     @staticmethod
-#     def _mapping_constructor(
-#         loader: yaml.SafeLoader,
-#         node: yaml.nodes.MappingNode,
-#         *,
-#         fn: Callable,
-#     ):
-#         return fn(**loader.construct_mapping(node, deep=True))  # type: ignore[reportCallIssue]
-#
+class KwargYamlLoader(yaml.SafeLoader, metaclass=ABCMeta):
+    def __init__(self, *args, **kwargs):
+        for tag, fn in self.get_kwarg_constructors().items():
+            self._add_mapping_constructor(tag, fn)
+
+        super().__init__(*args, **kwargs)
+
+    def _add_mapping_constructor(self, tag: str, fn: Callable):
+        self.add_constructor(
+            tag,
+            constructor=lambda loader, node: self._mapping_constructor(
+                loader,  # type: ignore[reportArgumentType]
+                node,  # type: ignore[reportArgumentType]
+                fn=fn,
+            ),
+        )
+
+    @staticmethod
+    def _mapping_constructor(
+        loader: yaml.SafeLoader,
+        node: yaml.nodes.MappingNode,
+        *,
+        fn: Callable,
+    ):
+        return fn(**loader.construct_mapping(node, deep=True))  # type: ignore[reportCallIssue]
+
+    @abstractmethod
+    def get_kwarg_constructors(self) -> dict[str, Callable]:
+        """Abstract method to return a dictionary mapping tags to constructor functions"""
 
 
 def yaml_dump_string(d: Any, width: int = 80) -> str:

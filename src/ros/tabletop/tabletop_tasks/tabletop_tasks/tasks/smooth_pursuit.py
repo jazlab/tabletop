@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -143,6 +144,7 @@ class SmoothPursuitTask(BaseTask):
             await self.commander.plan_and_execute(goal=self._goals[0])
 
             # Plan concatenated trajectory
+            start = time.time()
             trajectory = await self.commander.plan(
                 goals=self._goals[1:],
                 velocity_scaling_factor=self._velocity_scaling_factor,
@@ -151,6 +153,7 @@ class SmoothPursuitTask(BaseTask):
                 planning_pipeline="linear",
                 use_cache=False,
             )
+            self.log(f"Time Taken: {time.time() - start}")
             assert trajectory is not None
 
             # Schedule smooth pursuit and execution tasks

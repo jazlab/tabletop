@@ -112,9 +112,10 @@
     object_manipulation:
       touch_links:
         - eef_link
+        - eef_sphere
       mount_ids:
         - rig
-      detach_allowed_collisions:
+      mount_allowed_collisions:
         eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
       phase_offsets:
@@ -177,7 +178,7 @@
       color: [1.0, 1.0, 1.0, 0.5]
 
     planning_scene:
-      dir: $TABLETOP_CACHE_DIR/planning_scene
+      cache_dir: $TABLETOP_CACHE_DIR/planning_scene
       robot_collision_links:
         - base_link_inertia
         - shoulder_link
@@ -282,8 +283,8 @@
         grid_origin:
           position: [0.282, 0.7652, 1.1845]
         common_kwargs:
-          allowed_collision_ids:
-            - eef_sphere
+          # allowed_collision_ids:
+          #   - eef_sphere
           simplification: bounding_primitive
         object_kwargs:
           0,0:

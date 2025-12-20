@@ -9,6 +9,7 @@ import yaml
 from geometry_msgs.msg import PoseStamped
 from rclpy.exceptions import ParameterNotDeclaredException
 
+from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
     ExecutionError,
     ObjectManipulationError,
@@ -48,16 +49,18 @@ class ObjectPhase(IntEnum):
     IDLE = 13
 
 
-MOUNT_PHASES = [
-    ObjectPhase.PRE_ATTACH,
-    ObjectPhase.ATTACH,
-    ObjectPhase.POST_ATTACH,
-    ObjectPhase.POST_FETCH,
-    ObjectPhase.PRE_DETACH,
-    ObjectPhase.DETACH,
-    ObjectPhase.POST_DETACH,
-    ObjectPhase.POST_RETURN,
-]
+MOUNT_PHASES = set(
+    (
+        ObjectPhase.PRE_ATTACH,
+        ObjectPhase.ATTACH,
+        ObjectPhase.POST_ATTACH,
+        ObjectPhase.POST_FETCH,
+        ObjectPhase.PRE_DETACH,
+        ObjectPhase.DETACH,
+        ObjectPhase.POST_DETACH,
+        ObjectPhase.POST_RETURN,
+    )
+)
 
 # Mapping of phases to their corresponding pose offsets
 PHASE_OFFSET_MAP = {
@@ -88,31 +91,13 @@ def object_manipulation_lock_decorator(
     return wrapper
 
 
-class ResetLoader(yaml.SafeLoader):
-    def __init__(self, *args, **kwargs):
-        self._add_mapping_constructor("!PoseStamped", pose_stamped_msg)
-        self._add_mapping_constructor("!ConcatPlanRequest", ConcatPlanRequest)
-        self._add_mapping_constructor("!ObjectResetConfig", ObjectResetConfig)
-        super().__init__(*args, **kwargs)
-
-    def _add_mapping_constructor(self, tag: str, fn: Callable):
-        self.add_constructor(
-            tag,
-            constructor=lambda loader, node: self._mapping_constructor(
-                loader,  # type: ignore[reportArgumentType]
-                node,  # type: ignore[reportArgumentType]
-                fn=fn,
-            ),
-        )
-
-    @staticmethod
-    def _mapping_constructor(
-        loader: yaml.SafeLoader,
-        node: yaml.nodes.MappingNode,
-        *,
-        fn: Callable,
-    ):
-        return fn(**loader.construct_mapping(node, deep=True))  # type: ignore[reportCallIssue]
+class ResetLoader(KwargYamlLoader):
+    def get_kwarg_constructors(self) -> dict[str, Callable]:
+        return {
+            "!PoseStamped": pose_stamped_msg,
+            "!ConcatPlanRequest": ConcatPlanRequest,
+            "!ObjectResetConfig": ObjectResetConfig,
+        }
 
 
 class ObjectManipulationInterface(PlanAndExecuteInterface):
@@ -246,16 +231,18 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         return self.node.param("object_manipulation.mount_ids")
 
     @property
-    def detach_allowed_collisions(self) -> list[tuple[str, str]]:
+    def mount_allowed_collisions(self) -> list[tuple[str, str]]:
         """Get the allowed object mount collisions from the parameter server."""
         return [
             (id_0, id_1)
             for id_0, id_1 in self.node.param(
-                "object_manipulation.detach_allowed_collisions"
+                "object_manipulation.mount_allowed_collisions"
             ).items()
         ]
 
-        # return self.node.param("object_manipulation.detach_allowed_collisions")
+        # ret = self.node.param("object_manipulation.mount_allowed_collisions")
+        # print(ret)
+        # return ret
 
     ###########################################################################
     ########## Object Manipulation Convenience Methods ########################
@@ -346,7 +333,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         extra_kwargs["use_cache"] = False
 
         if phase in MOUNT_PHASES:
-            self.allow_collision(*zip(*self.detach_allowed_collisions))
+            self.allow_collision(*zip(*self.mount_allowed_collisions))
 
         if phase == ObjectPhase.DETACH:
             extra_kwargs["velocity_scaling_factor"] = self.node.param(
@@ -400,7 +387,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     raise
         finally:
             if phase in MOUNT_PHASES:
-                self.disallow_collision(*zip(*self.detach_allowed_collisions))
+                self.disallow_collision(*zip(*self.mount_allowed_collisions))
             match phase:
                 case (
                     ObjectPhase.PRE_ATTACH
@@ -535,10 +522,19 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if kwargs is not None:
             cache_kwargs.extend(kwargs)
 
-        # Plan and execute reset path
-        kwargs = await self.plan_and_execute(config.reset_request)
-        if kwargs is not None:
-            cache_kwargs.extend(kwargs)
+        # Plan and execute reset path with allowed collisions
+        if config.allowed_collision_ids is not None:
+            self.allow_collision(object_id, config.allowed_collision_ids)
+
+        try:
+            kwargs = await self.plan_and_execute(config.reset_request)
+            if kwargs is not None:
+                cache_kwargs.extend(kwargs)
+        finally:
+            if config.allowed_collision_ids is not None:
+                self.disallow_collision(
+                    object_id, config.allowed_collision_ids
+                )
 
         # Cache all trajectories if requested
         if cache_trajectories and len(cache_kwargs) > 0:
