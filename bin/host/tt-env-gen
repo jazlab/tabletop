@@ -111,9 +111,8 @@ if [ -d /dev/flir ]; then
     done < <(find /dev/flir -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
 fi
 
-# Check if FLIR_MAX_CAMERAS constant was exceed
-# If so, the constant must be increased and the compose.yaml file must be
-# modified to allow for more devices
+# Check if FLIR_MAX_DEVS constant was exceed. If so, the constant must be
+# increased and the compose.yaml file must be modified to allow for more devices
 if (( i > FLIR_MAX_DEVS )); then
     print_error "You have more cameras connected than FLIR_MAX_DEVS"
     print_error "To remedy, increase the number of FLIR_DEV_* devices in the compose.yaml file"
@@ -121,8 +120,8 @@ if (( i > FLIR_MAX_DEVS )); then
     exit 1
 fi
 
-while (( i < FLIR_MAX_CAMERAS )); do
-    dotenv_set FLIR_DEV_$i /dev/null
+while (( i < FLIR_MAX_DEVS )); do
+    dotenv_set "FLIR_DEV_$i" /dev/null
     (( i+=1 ))
 done
 
