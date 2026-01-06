@@ -60,7 +60,7 @@ services:
   flicd:
     <<: *common
     container_name: tabletop-flicd
-    profiles: [ rig ]
+    profiles: [ real ]
     image: ubuntu:latest
     pull_policy: always
     labels:
@@ -118,7 +118,7 @@ services:
     extends: ros-base
     container_name: tabletop-foxglove
     profiles: !override
-      - rig
+      - real
       - sim
     restart: unless-stopped
     command: tt-launch foxglove
@@ -127,7 +127,7 @@ services:
     extends: ros-base
     container_name: tabletop-rviz
     profiles: !override
-      - rig
+      - real
       - sim
     environment:
       - DISPLAY=$NOVNC_DISPLAY
@@ -141,15 +141,22 @@ services:
     extends: ros-base
     container_name: tabletop-ur
     profiles: !override
-      - rig
+      - real
+    restart: unless-stopped
+    command: tt-launch ur robot_mode:=real
+
+  ur-mock:
+    extends: ros-base
+    container_name: tabletop-ur
+    profiles: !override
       - sim
     restart: unless-stopped
-    command: tt-launch ur
+    command: tt-launch ur robot_mode:=mock
 
   optitrack:
     extends: ros-base
     profiles: !override
-      - rig
+      - real
     container_name: tabletop-optitrack
     restart: unless-stopped
     command: tt-launch optitrack
@@ -158,7 +165,7 @@ services:
     extends: ros-base
     container_name: tabletop-flir
     profiles: !override
-      - rig
+      - real
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -173,7 +180,7 @@ services:
     extends: ros-base
     container_name: tabletop-teensy
     profiles: !override
-      - rig
+      - real
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
@@ -191,10 +198,10 @@ services:
     container_name: tabletop-flic
     extends: ros-base
     profiles: !override
-      - rig
+      - real
     depends_on: [ flicd ]
     restart: unless-stopped
-    command: tt-launch flic
+    command: tt-launch flic simulate:=false
 
   flic-sim:
     container_name: tabletop-flic-sim
@@ -252,9 +259,6 @@ services:
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
       - $KITTY_LISTEN_ON_MNT
-      - ~/.vimrc:/home/$USER_NAME/.vimrc
-      - ~/.config/nvim:/home/$USER_NAME/.config/nvim
-      - ~/.config/starship.toml:/home/$USER_NAME/.config/starship.toml
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES

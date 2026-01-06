@@ -123,12 +123,10 @@ def generate_launch_description():
         output="both",
         emulate_tty=True,
         parameters=[
+            LaunchConfiguration("config_file"),
             {
-                "mocap4r2_system": "optitrack",
-                "marker_topics": ["markers", "predicted_markers"],
-                "rb_topics": ["rigid_bodies"],
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
-            }
+            },
         ],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         on_exit=[Shutdown()],

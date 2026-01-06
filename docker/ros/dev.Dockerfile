@@ -31,6 +31,9 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 nvm install 22
 EOT
 
+# Install npm packages globally
+RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli
+
 ARG TARGETARCH
 
 # Install Neovim
@@ -57,10 +60,10 @@ EOT
 # Install complete-alias
 RUN <<EOT
 set -e
-curl -fsSL -o ~/complete-alias \
+curl -fsSL -o ~/complete_alias \
 https://raw.githubusercontent.com/cykerway/complete-alias/refs/heads/master/complete_alias
-chmod +x ~/complete-alias
-echo ". ~/complete-alias" >> ~/.bash_completion
+chmod +x ~/complete_alias
+echo ". ~/complete_alias" >> ~/.bash_completion
 EOT
 
 # Install kitten

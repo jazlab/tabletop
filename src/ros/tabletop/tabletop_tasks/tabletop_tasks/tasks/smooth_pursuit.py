@@ -156,6 +156,9 @@ class SmoothPursuitTask(BaseTask):
             self.log(f"Time Taken: {time.time() - start}")
             assert trajectory is not None
 
+            # Reveal smartglass
+            await self.commander.reveal_smartglass()
+
             # Schedule smooth pursuit and execution tasks
             smooth_pursuit_task = asyncio.create_task(
                 self.commander.smooth_pursuit_and_reward()
