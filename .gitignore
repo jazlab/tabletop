@@ -4,10 +4,9 @@ __pycache__/
 .DS_Store
 .cache/
 browse.vc.db*
-cache/
 
 # Logs
-log/
+/log/
 *.log
 
 # Temporary files
@@ -33,8 +32,8 @@ flic.db
 *.gif
 
 # Bags
-bags/
-icareaboutthesebags/
+/bags/
+/icareaboutthesebags/
 
 # Saved models
 saved_weights/

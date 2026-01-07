@@ -109,9 +109,6 @@ services:
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
     init: true
-
-  ros-build:
-    extends: ros-base
     command: bash -c "tt-build --only-modules && tt-build"
 
   foxglove:
@@ -147,7 +144,7 @@ services:
 
   ur-mock:
     extends: ros-base
-    container_name: tabletop-ur
+    container_name: tabletop-ur-mock
     profiles: !override
       - sim
     restart: unless-stopped
