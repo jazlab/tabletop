@@ -1,3 +1,30 @@
+"""ROS2 node for Flic Bluetooth button integration.
+
+This module provides a ROS2 node that interfaces with Flic Bluetooth
+buttons for measuring response times in behavioral experiments. The node
+connects to a Flic server daemon and exposes button press events as a
+ROS2 action.
+
+The node can operate in two modes:
+- Real mode: Connects to actual Flic buttons via the Flic server
+- Simulation mode: Generates random delays for testing
+
+Actions provided:
+    /flic/response_time: Wait for button press and return response time
+
+Parameters:
+    simulate: Run in simulation mode without hardware (bool).
+    simulate_min_delay: Minimum simulated delay in seconds.
+    simulate_max_delay: Maximum simulated delay in seconds.
+    server_ip: Flic server IP address.
+    server_port: Flic server port.
+    max_connections: Maximum concurrent button connections.
+    auto_disconnect_time: Auto-disconnect timeout in seconds.
+
+Example:
+    ros2 run tabletop_rig flic --ros-args -p simulate:=true
+"""
+
 import argparse
 import asyncio
 import random
@@ -24,6 +51,18 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class Flic(BaseNode):
+    """ROS2 node for Flic Bluetooth button response time measurement.
+
+    Provides an action server that waits for a Flic button press and
+    returns the response time. Used in behavioral experiments to measure
+    subject reaction times.
+
+    Attributes:
+        simulate: Whether running in simulation mode.
+        flic_client: Connection to the Flic server (real mode only).
+        goal_lock: Asyncio lock for managing concurrent goals.
+    """
+
     default_params = BaseNode.default_params | {
         "simulate": False,
         "simulate_min_delay": 1.0,
@@ -36,15 +75,11 @@ class Flic(BaseNode):
     }
 
     def __init__(self):
-        # Initialize base node
+        """Initialize the Flic node and action server."""
         super().__init__("flic")
 
         self.simulate = self.param("simulate")
 
-        # Services
-        # qos = copy(QoSPresetProfiles.SERVICES_DEFAULT.value)
-        # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
-        # qos.liveliness_lease_duration = Duration(seconds=100)
         self.flic_response_time_server = ActionServer(
             self,
             FlicResponseTime,
@@ -62,6 +97,18 @@ class Flic(BaseNode):
     async def flic_response_time_goal_callback(
         self, goal_request: FlicResponseTime.Goal
     ) -> GoalResponse:
+        """Handle incoming action goal requests.
+
+        Validates that no other goal is in progress and that the requested
+        button exists (in real mode).
+
+        Args:
+            goal_request: The goal containing the button's Bluetooth address.
+
+        Returns:
+            GoalResponse.ACCEPT if the goal can be processed,
+            GoalResponse.REJECT otherwise.
+        """
         async with self.goal_lock:
             if hasattr(self, "cancel_event"):
                 self.log(
@@ -88,6 +135,17 @@ class Flic(BaseNode):
                 return GoalResponse.ACCEPT
 
     async def flic_response_time_cancel_callback(self, _) -> CancelResponse:
+        """Handle action cancellation requests.
+
+        Sets the cancel event if a goal is in progress.
+
+        Args:
+            _: Unused cancel request.
+
+        Returns:
+            CancelResponse.ACCEPT if cancellation is possible,
+            CancelResponse.REJECT if no goal is in progress.
+        """
         async with self.goal_lock:
             if hasattr(self, "cancel_event"):
                 self.cancel_event.set()
@@ -102,7 +160,19 @@ class Flic(BaseNode):
     async def flic_response_time_callback(
         self, goal_handle: ServerGoalHandle
     ) -> FlicResponseTime.Result:
-        """Flic response time action callback."""
+        """Execute the response time measurement action.
+
+        Connects to the specified Flic button (or simulates a delay),
+        waits for a button press or cancellation, and returns the
+        elapsed time.
+
+        Args:
+            goal_handle: The active action goal handle.
+
+        Returns:
+            FlicResponseTime.Result containing the measured response time,
+            or empty result if cancelled.
+        """
         try:
             self.log("Flic response time action started")
             start_time = self.get_clock().now()
@@ -162,7 +232,18 @@ class Flic(BaseNode):
                 del self.cancel_event
 
     async def init_flic_client(self):
-        """Start the flic client."""
+        """Initialize the connection to the Flic server.
+
+        In real mode, establishes a TCP connection to the Flic server
+        daemon, verifies the Bluetooth controller is attached, and
+        checks that at least one button is registered.
+
+        In simulation mode, this is a no-op.
+
+        Raises:
+            RuntimeError: If Bluetooth controller is not attached or
+                no buttons are found.
+        """
         if self.simulate:
             self.log("Simulating flic client, no client started")
         else:
@@ -192,14 +273,22 @@ class Flic(BaseNode):
             await self.flic_client.disconnect_all()
 
     async def wait_for_closed(self):
-        """Wait for the flic client to close."""
+        """Wait for the Flic client connection to close.
+
+        In real mode, waits until the Flic server connection is closed.
+        In simulation mode, waits indefinitely.
+        """
         if self.simulate:
             await asyncio.sleep(float("inf"))
         else:
             await self.flic_client.wait_for_closed()
 
     def destroy_node(self):
-        """Destroy the node."""
+        """Clean up resources and destroy the node.
+
+        Closes the Flic client connection if active before calling
+        the parent destroy_node method.
+        """
         if hasattr(self, "flic_client") and not self.flic_client.closed:
             self.log("Closing flic client")
             self.flic_client.close()
@@ -207,6 +296,14 @@ class Flic(BaseNode):
 
 
 async def main_async(args=None):
+    """Async entry point for the Flic node.
+
+    Initializes ROS2, creates the node, connects to the Flic server,
+    and spins until shutdown or connection loss.
+
+    Args:
+        args: Command line arguments (passed to rclpy.init).
+    """
     rclpy.init(args=args)
 
     # Parse non-ROS arguments
@@ -251,6 +348,7 @@ async def main_async(args=None):
 
 
 def main(args=None):
+    """Entry point for the flic node."""
     try:
         asyncio.run(main_async(args))
     except KeyboardInterrupt:

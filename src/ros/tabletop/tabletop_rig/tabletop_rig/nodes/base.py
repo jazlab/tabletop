@@ -1,3 +1,29 @@
+"""Base node class providing common ROS2 functionality.
+
+This module provides the BaseNode class which extends rclpy's Node with
+common functionality used across all tabletop_rig nodes:
+
+- Parameter declaration with defaults and validation
+- Nested parameter access (dot-separated names)
+- Structured logging via LoggerMixin
+- Synchronous and asynchronous service calls
+- Time and sleep utilities
+
+All custom nodes in this package should inherit from BaseNode rather
+than directly from rclpy.Node.
+
+Example:
+    class MyNode(BaseNode):
+        default_params = BaseNode.default_params | {
+            "my_param": 1.0,
+        }
+        required_params = {"required_param"}
+
+        def __init__(self):
+            super().__init__("my_node")
+            value = self.param("my_param")
+"""
+
 import asyncio
 from typing import Any, Optional, cast
 
@@ -22,19 +48,34 @@ from tabletop_rig.utils.ros import SrvType, SrvTypeRequest, SrvTypeResponse
 
 
 class BaseNode(Node, LoggerMixin):
-    """
-    Base class for all nodes.
+    """Base class for all tabletop_rig ROS2 nodes.
 
-    This class extends the Node class with common functionality, including
-    parameter declaration, logging, and service calls.
+    This class extends rclpy.Node with common functionality including
+    parameter declaration, structured logging, and service call utilities.
+    All nodes in this package should inherit from BaseNode.
+
+    Subclasses can define required and default parameters by overriding
+    the class attributes. Parameter validation occurs during __init__.
+
+    Attributes:
+        default_params: Dict of parameter names to default values. These
+            are declared automatically if not overridden by launch config.
+        required_params: Set of parameter names that must be declared before
+            node initialization (typically via launch file).
+
+    Example:
+        class MyNode(BaseNode):
+            default_params = BaseNode.default_params | {"rate": 10.0}
+            required_params = {"device_name"}
+
+            def __init__(self):
+                super().__init__("my_node")
     """
 
-    # Optional parameters with default values
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 2.0,
     }
-    # Required parameters
     required_params: set[str] = set()
 
     def __init__(
@@ -42,16 +83,29 @@ class BaseNode(Node, LoggerMixin):
         *args,
         **kwargs,
     ):
+        """Initialize the base node.
+
+        Args:
+            *args: Positional arguments passed to rclpy.Node.__init__.
+            **kwargs: Keyword arguments passed to rclpy.Node.__init__.
+
+        Raises:
+            ValueError: If required and default parameters intersect.
+            ParameterNotDeclaredException: If a required parameter is missing.
+        """
         Node.__init__(self, *args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
-        # self.log_parameters(severity="DEBUG")
 
     def _check_parameters(self):
-        """
-        Check if there is any intersection between required and default
-        parameters or if any required parameter is not declared. If so,
-        raise an error.
+        """Validate parameter configuration.
+
+        Ensures required and default parameters don't overlap and that
+        all required parameters have been declared (via launch file).
+
+        Raises:
+            ValueError: If required and default parameters intersect.
+            ParameterNotDeclaredException: If a required parameter is missing.
         """
         # Check for intersections
         if self.required_params & self.default_params.keys():
@@ -69,9 +123,11 @@ class BaseNode(Node, LoggerMixin):
                 raise ParameterNotDeclaredException(msg)
 
     def _declare_default_parameters(self):
-        """
-        Declare the default parameters, which are used if no overrides are
-        provided.
+        """Declare default parameters if not already declared.
+
+        Iterates through default_params and declares each parameter
+        with its default value. If a parameter was already declared
+        (e.g., via launch file override), logs a warning and skips.
         """
         for name, value in self.default_params.items():
             try:
@@ -88,8 +144,18 @@ class BaseNode(Node, LoggerMixin):
         severity: str | LoggingSeverity = "INFO",
         **kwargs: Any,
     ) -> bool:
-        """
-        Log all parameters with the given prefix.
+        """Log all parameters matching a prefix in YAML format.
+
+        Args:
+            prefix: Parameter name prefix filter. Empty string matches all.
+            severity: Logging severity level (string or LoggingSeverity).
+            **kwargs: Additional arguments passed to self.log().
+
+        Returns:
+            True if parameters were logged, False if severity below threshold.
+
+        Raises:
+            ParameterNotDeclaredException: If no parameters match prefix.
         """
         if not isinstance(severity, LoggingSeverity):
             severity = LoggingSeverity[severity]
@@ -106,10 +172,20 @@ class BaseNode(Node, LoggerMixin):
             return False
 
     def get_nested_parameters(self, prefix: str = "") -> dict:
-        """Get a nested dictionary of parameters with the given prefix.
+        """Get parameters as a nested dictionary structure.
 
-        Retrieves all parameters from a ROS2 node and structures them into a
-        nested dictionary. Namespaces are represented as nested dictionaries.
+        Retrieves all parameters matching the prefix and structures them
+        into nested dicts based on dot-separated names. For example,
+        parameters "foo.bar" and "foo.baz" become {"foo": {"bar": ..., "baz": ...}}.
+
+        Args:
+            prefix: Parameter name prefix filter.
+
+        Returns:
+            Nested dictionary of parameter values.
+
+        Raises:
+            ParameterNotDeclaredException: If no parameters match prefix.
         """
         params = self.get_parameters_by_prefix(prefix)
         if len(params) == 0:
@@ -131,7 +207,19 @@ class BaseNode(Node, LoggerMixin):
         return nested_params
 
     def param(self, name: str) -> Any:
-        """Get a parameter from the node."""
+        """Get a parameter value by name.
+
+        Attempts to get a single parameter first. If the name represents
+        a namespace (prefix), returns a nested dictionary of all parameters
+        under that prefix.
+
+        Args:
+            name: Parameter name (may be dot-separated for nested access).
+
+        Returns:
+            Parameter value, or nested dict if name is a prefix.
+            Returns None for parameters set to "null" string.
+        """
         try:
             value = self.get_parameter(name).value
             return value if value != "null" else None
@@ -139,11 +227,22 @@ class BaseNode(Node, LoggerMixin):
             return self.get_nested_parameters(name)
 
     def ros_time(self) -> float:
-        """Get the current time in seconds from the ROS2 clock."""
+        """Get current time in seconds from the ROS2 clock.
+
+        Returns:
+            Current time in seconds (floating point).
+        """
         return float(self.get_clock().now().nanoseconds) / 1e9
 
     def ros_sleep(self, seconds: float):
-        """Sleep for the given number of seconds."""
+        """Sleep for the specified duration using ROS2 clock.
+
+        Args:
+            seconds: Sleep duration in seconds.
+
+        Raises:
+            ROSSleepError: If the ROS2 clock fails to sleep correctly.
+        """
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
             raise ROSSleepError("ROS2 clock did not sleep correctly")
 
@@ -152,9 +251,20 @@ class BaseNode(Node, LoggerMixin):
         srv_type: Optional[type] = None,
         srv_name: Optional[str] = None,
     ) -> Client:
-        """
-        Create a client for a service or return the provided client if it
-        is not None.
+        """Create a service client with its own callback group.
+
+        Creates a client for the specified service using a
+        MutuallyExclusiveCallbackGroup to allow concurrent service calls.
+
+        Args:
+            srv_type: Service type class (e.g., std_srvs.srv.Trigger).
+            srv_name: Service name string.
+
+        Returns:
+            Configured ROS2 service client.
+
+        Raises:
+            ValueError: If srv_type or srv_name is None.
         """
         if srv_type is None or srv_name is None:
             raise ValueError(
@@ -174,7 +284,19 @@ class BaseNode(Node, LoggerMixin):
         srv_type: type | None,
         srv_name: str | None,
     ):
-        """Validate the service client."""
+        """Validate that a service client matches expected type and name.
+
+        Used to ensure a provided client is compatible with the intended
+        service when srv_type or srv_name are also provided.
+
+        Args:
+            service_client: The client to validate.
+            srv_type: Expected service type, or None to skip check.
+            srv_name: Expected service name, or None to skip check.
+
+        Raises:
+            ValueError: If client doesn't match expected type or name.
+        """
         if (srv_type is not None and srv_type != service_client.srv_type) or (
             srv_name is not None and srv_name != service_client.service_name
         ):
@@ -217,17 +339,22 @@ class BaseNode(Node, LoggerMixin):
         service_client: Optional[Client] = None,
         timeout: Optional[float] = None,
     ):
-        """Wait for a service to be available.
+        """Block until a service becomes available.
+
+        Either creates a temporary client (if srv_type and srv_name are
+        provided) or uses the provided service_client. Temporary clients
+        are destroyed after the wait completes.
 
         Args:
-            srv_type: The type of the service.
-            srv_name: The name of the service.
-            srv_client: The service client to use.
-            timeout_sec: The timeout in seconds.
+            srv_type: Service type class. Required if service_client is None.
+            srv_name: Service name. Required if service_client is None.
+            service_client: Existing client to use instead of creating one.
+            timeout: Wait timeout in seconds. Defaults to parameter
+                'default_service_wait_timeout'.
 
         Raises:
-            ServiceCallError: If the service call fails.
-            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
+            ServiceCallTimeoutError: If service not available within timeout.
+            ValueError: If service_client provided but type/name don't match.
         """
         timeout = (
             timeout
@@ -260,7 +387,15 @@ class BaseNode(Node, LoggerMixin):
                 self.destroy_client(service_client)
 
     async def wait_for_service_async(self, *args, **kwargs):
-        """Wait for a service to be available (asynchronous)."""
+        """Async version of wait_for_service_blocking.
+
+        Runs the blocking wait in a thread pool to avoid blocking
+        the asyncio event loop.
+
+        Args:
+            *args: Positional arguments passed to wait_for_service_blocking.
+            **kwargs: Keyword arguments passed to wait_for_service_blocking.
+        """
         await asyncio.to_thread(
             self.wait_for_service_blocking, *args, **kwargs
         )
@@ -274,21 +409,25 @@ class BaseNode(Node, LoggerMixin):
         srv_client: Optional[Client] = None,
         timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
-        """Call a service synchronously, returning the response.
+        """Make a synchronous (blocking) service call.
+
+        Creates a temporary client if srv_client is not provided. Validates
+        the response and raises exceptions for timeouts or failures.
 
         Args:
-            srv_request: The request message for the service.
-            srv_type: The type of the service.
-            srv_name: The name of the service.
-            service_client: The service client to use.
-            timeout: The timeout in seconds.
+            srv_request: The request message to send.
+            srv_type: Service type class. Required if srv_client is None.
+            srv_name: Service name. Required if srv_client is None.
+            srv_client: Existing client to reuse.
+            timeout: Call timeout in seconds. Defaults to parameter
+                'default_service_call_timeout'.
 
         Returns:
-            The response from the service.
+            The service response message.
 
         Raises:
-            ServiceCallError: If the service call fails.
-            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
+            ServiceCallTimeoutError: If the call times out.
+            ServiceCallUnsuccessfulError: If response.success is False.
         """
         timeout = (
             timeout
@@ -336,21 +475,25 @@ class BaseNode(Node, LoggerMixin):
         srv_client: Optional[Client] = None,
         timeout: Optional[float] = None,
     ) -> SrvTypeResponse:
-        """Call a service asynchronously, returning a future and the service client.
+        """Make an asynchronous service call.
+
+        Non-blocking version of service_call_blocking. Uses asyncio.timeout
+        to enforce the timeout without blocking the event loop.
 
         Args:
-            srv_request: The request message for the service.
-            srv_type: The type of the service.
-            srv_name: The name of the service.
-            srv_client: The service client to use.
-            timeout: The timeout in seconds.
+            srv_request: The request message to send.
+            srv_type: Service type class. Required if srv_client is None.
+            srv_name: Service name. Required if srv_client is None.
+            srv_client: Existing client to reuse.
+            timeout: Call timeout in seconds. Defaults to parameter
+                'default_service_call_timeout'.
 
         Returns:
-            The response from the service.
+            The service response message.
 
         Raises:
-            ServiceCallError: If the service call fails.
-            ServiceCallUnsuccessfulError: If the service call is unsuccessful.
+            ServiceCallTimeoutError: If the call times out.
+            ServiceCallUnsuccessfulError: If response.success is False.
         """
         timeout = (
             timeout

@@ -1,3 +1,28 @@
+"""MoveIt planning scene management interface.
+
+This module provides a comprehensive interface for managing the MoveIt planning
+scene, including collision objects, attached objects, and the allowed collision
+matrix. It is the foundation of the MoveIt interface hierarchy.
+
+Key Capabilities:
+- Loading collision objects from YAML configuration and mesh files
+- Adding/removing world and attached collision objects
+- Managing the allowed collision matrix for selective collision checking
+- Supporting both mesh and primitive collision geometries
+- Named robot state and pose management
+- Planning scene hashing for trajectory cache validation
+
+The PlanningSceneInterface is designed to be subclassed by higher-level
+interfaces that add motion planning and execution capabilities.
+
+Inheritance Hierarchy:
+    BaseInterface
+    └── PlanningSceneInterface
+        └── PlanAndExecuteInterface
+            └── ObjectManipulationInterface
+                └── MoveItInterface
+"""
+
 import hashlib
 import json
 import os
@@ -56,6 +81,27 @@ from tabletop_rig.utils.ros import (
 
 
 class PlanningSceneInterface(BaseInterface):
+    """Interface for managing MoveIt planning scene components.
+
+    Provides methods to:
+    - Load and manage collision objects from configuration
+    - Control object attachment to robot links
+    - Configure allowed collision matrix entries
+    - Query and set named robot states and poses
+    - Generate scene hashes for cache invalidation
+
+    This class manages the PlanningSceneMonitor from MoveItPy and provides
+    convenient wrappers for common planning scene operations.
+
+    Attributes:
+        _moveit_py: The MoveItPy instance for planning scene access.
+        _planning_scene_monitor: Monitor for planning scene updates.
+        _robot_model: The robot model from URDF/SRDF.
+        _planning_frame: The reference frame for planning.
+        _pose_link: Default end-effector link for pose targets.
+        _group_name: Default planning group name.
+    """
+
     # TODO: Documentation
     def __init__(
         self, node: BaseNode, logger_name: str = "moveit_scene_interface"

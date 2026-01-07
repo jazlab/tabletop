@@ -1,3 +1,27 @@
+"""Fuzzy trajectory caching for motion planning.
+
+This module provides a persistent cache for robot trajectories that uses
+fuzzy matching to find similar cached trajectories. This enables faster
+motion planning by reusing previously computed trajectories when the
+start and goal states are within configurable tolerances.
+
+Key Features:
+- Fuzzy matching with configurable joint angle, position, and orientation tolerances
+- SQLite-backed persistent storage using Python's shelve interface
+- Thread-safe access with proper locking
+- Automatic validation of cached trajectories against quality criteria
+- Support for both joint space and Cartesian space goals
+- Automatic caching of reverse trajectories
+
+Classes:
+    FuzzyTrajectoryCacheKey: Immutable key for cache lookups with fuzzy matching
+    FuzzyTrajectoryCacheValue: Cached trajectory with path length for ranking
+    FuzzyTrajectoryCache: Main cache class with persistent storage
+
+The cache stores multiple trajectories per fuzzy key, ranked by path length,
+allowing retrieval of the shortest (most efficient) trajectory.
+"""
+
 import bisect
 import datetime
 import json

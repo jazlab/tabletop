@@ -1,3 +1,19 @@
+"""Pydantic request models for motion planning operations.
+
+This module defines structured request objects for the MoveIt planning interface.
+Using Pydantic models ensures type safety and validation for planning parameters.
+
+The request models support:
+- Single trajectory planning (PlanRequest)
+- Multi-waypoint trajectory planning (ConcatPlanRequest)
+- Object reset configurations (ObjectResetConfig)
+
+Type Definitions:
+    PlanGoalT: Union type for planning goals (RobotState, PoseStamped, or named goal string)
+    SinglePlanResponseT: Response type for single trajectory planning
+    PlanResponseT: Response type for multi-trajectory planning
+"""
+
 from typing import Any, NotRequired, Optional, TypedDict
 
 from geometry_msgs.msg import PoseStamped
@@ -15,12 +31,21 @@ from pydantic import BaseModel
 
 
 def is_real_number(x: Any) -> bool:
+    """Check if a value is a real number (int or float, but not bool).
+
+    Args:
+        x: Value to check.
+
+    Returns:
+        True if x is a numeric type (excluding bool), False otherwise.
+    """
     if isinstance(x, (float, int)) and not isinstance(x, bool):
         return True
     return False
 
 
 PlanGoalT = RobotState | PoseStamped | str
+"""Type alias for planning goal types: joint state, Cartesian pose, or named target."""
 
 
 class _BasePlanRequest(
@@ -29,7 +54,30 @@ class _BasePlanRequest(
     arbitrary_types_allowed=True,
     extra="forbid",
 ):
-    """Request to plan a trajectory"""
+    """Base class for planning request parameters.
+
+    Contains common parameters shared between single and multi-waypoint
+    planning requests including trajectory post-processing options.
+
+    Attributes:
+        start_state: Starting robot configuration. If None, uses current state.
+        pose_link: End-effector link for Cartesian goals.
+        group_name: MoveIt planning group name.
+        planning_pipeline: Which planner to use (e.g., "ompl", "pilz").
+        path_constraints: Optional path constraints for planning.
+        planning_scene: Custom planning scene. If None, uses current scene.
+        max_attempts: Maximum planning attempts before failing.
+        use_cache: Whether to use the trajectory cache.
+        apply_totg: Apply Time-Optimal Trajectory Generation.
+        apply_smoothing: Apply trajectory smoothing.
+        velocity_scaling_factor: Scale factor for velocity limits (0.0-1.0).
+        acceleration_scaling_factor: Scale factor for acceleration limits (0.0-1.0).
+        path_tolerance: Tolerance for path approximation.
+        resample_dt: Time step for trajectory resampling.
+        min_angle_change: Minimum angle change threshold for waypoints.
+        mitigate_overshoot: Enable overshoot mitigation in TOTG.
+        overshoot_threshold: Threshold for overshoot detection.
+    """
 
     start_state: Optional[RobotState] = None
     pose_link: Optional[str] = None
@@ -56,7 +104,14 @@ class PlanRequest(
     arbitrary_types_allowed=True,
     extra="forbid",
 ):
-    """Request to plan a trajectory"""
+    """Request for planning a single trajectory to a goal.
+
+    Extends _BasePlanRequest with a single goal specification.
+
+    Attributes:
+        goal: The planning goal as a RobotState (joint space), PoseStamped
+            (Cartesian space), or string (named target).
+    """
 
     goal: PlanGoalT
 
@@ -67,7 +122,18 @@ class ConcatPlanRequest(
     arbitrary_types_allowed=True,
     extra="forbid",
 ):
-    """Request to plan a series of trajectories and concatenate them"""
+    """Request for planning and concatenating multiple trajectory segments.
+
+    Extends _BasePlanRequest with multiple waypoint goals. The resulting
+    trajectory visits each goal in sequence.
+
+    Attributes:
+        goals: List of planning goals to visit in order.
+        dts: Optional dwell times at each waypoint (in seconds).
+        loop: If True, add a segment returning to the first goal.
+        post_process_after_concat: Apply TOTG/smoothing after concatenation
+            rather than per-segment.
+    """
 
     goals: list[PlanGoalT]
     dts: Optional[list[float]] = None
@@ -75,11 +141,14 @@ class ConcatPlanRequest(
     post_process_after_concat: bool = False
 
     def generate_plan_requests(self) -> list[PlanRequest]:
-        """Generate a PlanRequest for each goal in 'goals'
+        """Generate individual PlanRequests for each goal.
 
-        The 'start_state' for the first PlanRequest is set to self.start_state.
+        Creates a PlanRequest for each goal in the goals list, inheriting
+        all parameters from this request except start_state (which only
+        applies to the first segment).
 
-        The remaining parameters for each PlanRequest are shared from self (not copied).
+        Returns:
+            List of PlanRequest objects, one per goal.
         """
         kwargs = {}
         for name in _BasePlanRequest.model_fields.keys():
@@ -102,7 +171,19 @@ class ObjectResetConfig(
     arbitrary_types_allowed=True,
     extra="forbid",
 ):
-    """Request to reset an object"""
+    """Configuration for resetting an object to its initial position.
+
+    Defines the motion sequence and collision settings for returning
+    a manipulated object to its starting location.
+
+    Attributes:
+        start_goal: Goal position where the object starts (for fetching).
+        reset_request: Multi-waypoint request for the reset motion sequence.
+        object_allowed_collision_ids: IDs of objects to allow collision with
+            the manipulated object during reset.
+        additional_allowed_collisions: Additional collision pairs to ignore
+            as (link1, link2) tuples.
+    """
 
     start_goal: PlanGoalT
     reset_request: ConcatPlanRequest
@@ -111,10 +192,21 @@ class ObjectResetConfig(
 
 
 class TrajectoryCacheKwargs(TypedDict):
+    """Keyword arguments for caching a trajectory.
+
+    Attributes:
+        trajectory: The planned trajectory to cache.
+        request: The original planning request.
+        true_end_state: Optional actual end state (may differ from planned).
+    """
+
     trajectory: RobotTrajectory
     request: PlanRequest
     true_end_state: NotRequired[RobotState]
 
 
 SinglePlanResponseT = tuple[RobotTrajectory, TrajectoryCacheKwargs | None]
+"""Response type for single trajectory planning: (trajectory, cache_kwargs)."""
+
 PlanResponseT = tuple[RobotTrajectory, list[TrajectoryCacheKwargs] | None]
+"""Response type for multi-trajectory planning: (combined_trajectory, cache_kwargs_list)."""

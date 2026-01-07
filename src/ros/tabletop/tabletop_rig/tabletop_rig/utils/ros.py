@@ -1,3 +1,19 @@
+"""ROS2 utility functions for geometry, collision objects, and robot state.
+
+This module provides a comprehensive set of utilities for working with ROS2
+messages, including:
+
+- Time conversion utilities
+- Geometric message creation and manipulation (Point, Pose, Quaternion)
+- Homogeneous transformation matrix operations
+- Collision object creation from primitives and meshes
+- Robot state and trajectory utilities
+- Approximate equality comparisons for geometric types
+
+The module uses the transformations library for matrix operations and
+trimesh for mesh processing.
+"""
+
 import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
@@ -41,7 +57,7 @@ from tabletop_py.utils.common import is_iterable
 # Constants
 
 
-COLOR_MAP = {
+COLOR_MAP: dict[str, tuple[float, float, float, float]] = {
     "red": (1.0, 0.0, 0.0, 1.0),
     "green": (0.0, 1.0, 0.0, 1.0),
     "blue": (0.0, 0.0, 1.0, 1.0),
@@ -62,41 +78,50 @@ COLOR_MAP = {
     "lime": (0.75, 1.0, 0.0, 1.0),
     "coral": (1.0, 0.5, 0.31, 1.0),
 }
-"""RGBA color map from color name to RGBA tuple."""
+"""dict[str, tuple]: Maps color names to RGBA tuples (values 0.0-1.0)."""
 
-COLLISION_OBJECT_OPERATION_MAP = {
+COLLISION_OBJECT_OPERATION_MAP: dict[str, int] = {
     "ADD": CollisionObject.ADD,
     "REMOVE": CollisionObject.REMOVE,
     "APPEND": CollisionObject.APPEND,
     "MOVE": CollisionObject.MOVE,
 }
-"""Collision object operation map from operation name to collision object operation."""
+"""dict[str, int]: Maps operation names to CollisionObject operation constants."""
 
-SOLID_PRIMITIVE_TYPE_MAP = {
+SOLID_PRIMITIVE_TYPE_MAP: dict[str, int] = {
     "BOX": SolidPrimitive.BOX,
     "SPHERE": SolidPrimitive.SPHERE,
     "CYLINDER": SolidPrimitive.CYLINDER,
     "CONE": SolidPrimitive.CONE,
     "PRISM": SolidPrimitive.PRISM,
 }
-"""Solid primitive type map from type name to solid primitive type."""
+"""dict[str, int]: Maps primitive type names to SolidPrimitive type constants."""
 
 
 # Protocol definitions
 
 
 class SrvTypeRequest(Protocol):
-    """Protocol for a ROS2 service request type."""
+    """Protocol defining the interface for ROS2 service request types."""
 
 
 class SrvTypeResponse(Protocol):
-    """Protocol for a ROS2 service response type."""
+    """Protocol defining the interface for ROS2 service response types.
+
+    Attributes:
+        success: Whether the service call completed successfully.
+    """
 
     success: bool
 
 
 class SrvType(Protocol):
-    """Protocol for a ROS2 service type."""
+    """Protocol defining the interface for ROS2 service types.
+
+    Attributes:
+        Request: The request message class for this service.
+        Response: The response message class for this service.
+    """
 
     Request: Any
     Response: Any
@@ -106,14 +131,19 @@ class SrvType(Protocol):
 
 
 def load_yaml_from_package(package_name: str, file_path: str) -> Any:
-    """Load a YAML file from a ROS package share directory.
+    """Load a YAML file from a ROS2 package's share directory.
 
     Args:
-        package_name: The name of the ROS package.
-        file_path: The path to the YAML file within the package.
+        package_name: The name of the ROS2 package containing the file.
+        file_path: The relative path to the YAML file within the package's
+            share directory.
 
     Returns:
-        The loaded YAML data.
+        The parsed YAML data as Python objects (dict, list, etc.).
+
+    Raises:
+        PackageNotFoundError: If the package cannot be found.
+        FileNotFoundError: If the YAML file doesn't exist.
     """
     package_path = get_package_share_directory(package_name)
     absolute_file_path = os.path.join(package_path, file_path)
@@ -126,7 +156,18 @@ def load_yaml_from_package(package_name: str, file_path: str) -> Any:
 
 
 def seconds_from_ros_time(timestamp: Time | TimeMsg) -> float:
-    """Convert a ROS2 Time message to seconds."""
+    """Convert a ROS2 time representation to floating-point seconds.
+
+    Args:
+        timestamp: Either an rclpy.time.Time object or a
+            builtin_interfaces/Time message.
+
+    Returns:
+        The time as seconds since epoch as a float.
+
+    Raises:
+        ValueError: If timestamp is neither Time nor TimeMsg type.
+    """
     if isinstance(timestamp, Time):
         return timestamp.nanoseconds / 1e9
     elif isinstance(timestamp, TimeMsg):
@@ -136,7 +177,14 @@ def seconds_from_ros_time(timestamp: Time | TimeMsg) -> float:
 
 
 def time_msg_from_seconds(seconds: float) -> TimeMsg:
-    """Convert seconds to a ROS2 Time message."""
+    """Convert floating-point seconds to a ROS2 Time message.
+
+    Args:
+        seconds: Time in seconds (can include fractional component).
+
+    Returns:
+        A builtin_interfaces/Time message with sec and nanosec fields.
+    """
     return TimeMsg(
         sec=int(seconds), nanosec=int((seconds - int(seconds)) * 1e9)
     )
@@ -146,12 +194,26 @@ def time_msg_from_seconds(seconds: float) -> TimeMsg:
 
 
 def array_from_point_msg(point: Point) -> np.ndarray:
-    """Convert a geometry_msgs/Point message to a numpy array."""
+    """Convert a geometry_msgs/Point message to a numpy array.
+
+    Args:
+        point: The Point message to convert.
+
+    Returns:
+        A numpy array of shape (3,) containing [x, y, z].
+    """
     return np.array([point.x, point.y, point.z])
 
 
 def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
-    """Convert a geometry_msgs/Quaternion message to a normalized numpy array."""
+    """Convert a geometry_msgs/Quaternion message to a normalized numpy array.
+
+    Args:
+        quaternion: The Quaternion message to convert.
+
+    Returns:
+        A normalized numpy array of shape (4,) in [w, x, y, z] order.
+    """
     q = np.array([quaternion.w, quaternion.x, quaternion.y, quaternion.z])
     q = q / np.linalg.norm(q)
     return q
@@ -160,7 +222,19 @@ def array_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
 def arrays_from_pose_msg(
     pose: Pose, *, euler: bool = False, axes: str = "sxyz"
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Convert a geometry_msgs/Pose message to position and normalized quaternion arrays."""
+    """Convert a geometry_msgs/Pose message to position and orientation arrays.
+
+    Args:
+        pose: The Pose message to convert.
+        euler: If True, return orientation as Euler angles instead of quaternion.
+        axes: Euler angle convention when euler=True (default: "sxyz").
+
+    Returns:
+        A tuple of (position, orientation) where:
+        - position is a numpy array of shape (3,) containing [x, y, z]
+        - orientation is either a quaternion array (4,) in [w, x, y, z] order
+          or Euler angles array (3,) in [roll, pitch, yaw] order
+    """
     position = array_from_point_msg(pose.position)
     if euler:
         orientation = euler_array_from_quaternion_msg(pose.orientation, axes)
@@ -170,7 +244,17 @@ def arrays_from_pose_msg(
 
 
 def quaternion_msg(w: float, x: float, y: float, z: float) -> Quaternion:
-    """Convert a quaternion to a geometry_msgs/Quaternion message."""
+    """Create a normalized geometry_msgs/Quaternion message.
+
+    Args:
+        w: The scalar (real) component.
+        x: The x component of the vector part.
+        y: The y component of the vector part.
+        z: The z component of the vector part.
+
+    Returns:
+        A normalized Quaternion message.
+    """
     q = np.array([w, x, y, z])
     q = q / np.linalg.norm(q)
     w, x, y, z = (float(p) for p in q)
@@ -180,16 +264,18 @@ def quaternion_msg(w: float, x: float, y: float, z: float) -> Quaternion:
 def quaternion_msg_from_euler(
     roll: float, pitch: float, yaw: float, *, axes: str = "sxyz"
 ) -> Quaternion:
-    """Convert roll, pitch, yaw angles (in radians) to a geometry_msgs/Quaternion message.
+    """Convert Euler angles to a geometry_msgs/Quaternion message.
 
     Args:
-        roll: The roll angle in radians.
-        pitch: The pitch angle in radians.
-        yaw: The yaw angle in radians.
-        axes: The axes scheme to use for the rotation.
+        roll: Rotation about the x-axis in radians.
+        pitch: Rotation about the y-axis in radians.
+        yaw: Rotation about the z-axis in radians.
+        axes: Euler angle convention specifying axis sequence and frame type.
+            First character is 's' for static or 'r' for rotating frame.
+            Following characters specify axis sequence (default: "sxyz").
 
     Returns:
-        The quaternion message.
+        A normalized Quaternion message representing the rotation.
     """
     return quaternion_msg(*quaternion_from_euler(roll, pitch, yaw, axes))
 
@@ -197,12 +283,27 @@ def quaternion_msg_from_euler(
 def quaternion_msg_from_axis_angle(
     axis: Iterable[float], angle: float
 ) -> Quaternion:
-    """Convert an axis and angle to a geometry_msgs/Quaternion message."""
+    """Convert axis-angle representation to a geometry_msgs/Quaternion message.
+
+    Args:
+        axis: A 3-element iterable specifying the rotation axis (will be normalized).
+        angle: The rotation angle in radians.
+
+    Returns:
+        A normalized Quaternion message representing the rotation.
+    """
     return quaternion_msg(*quaternion_about_axis(angle, axis))
 
 
 def normalize_quaternion_msg(quaternion: Quaternion) -> Quaternion:
-    """Convert a quaternion to a normalized geometry_msgs/Quaternion message."""
+    """Normalize a geometry_msgs/Quaternion message.
+
+    Args:
+        quaternion: The Quaternion message to normalize.
+
+    Returns:
+        A new Quaternion message with unit magnitude.
+    """
     return quaternion_msg(
         quaternion.w, quaternion.x, quaternion.y, quaternion.z
     )
@@ -211,7 +312,16 @@ def normalize_quaternion_msg(quaternion: Quaternion) -> Quaternion:
 def euler_array_from_quaternion_msg(
     quaternion: Quaternion, axes: str = "sxyz"
 ) -> np.ndarray:
-    """Convert a geometry_msgs/Quaternion message to roll, pitch, yaw angles (in radians)."""
+    """Convert a geometry_msgs/Quaternion message to Euler angles.
+
+    Args:
+        quaternion: The Quaternion message to convert.
+        axes: Euler angle convention (default: "sxyz").
+
+    Returns:
+        A numpy array of shape (3,) containing [roll, pitch, yaw] in radians,
+        normalized to the range [-pi, pi].
+    """
     rpy = np.array(
         euler_from_quaternion(
             [quaternion.w, quaternion.x, quaternion.y, quaternion.z], axes=axes
@@ -229,7 +339,31 @@ def pose_msg(
     ] = None,
     rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
 ) -> Pose:
-    """Convert a dictionary of parameters to a geometry_msgs/Pose message."""
+    """Create a geometry_msgs/Pose message from flexible input types.
+
+    This factory function accepts multiple input formats for both position
+    and orientation, providing convenient pose construction.
+
+    Args:
+        position: The position, which can be:
+            - A Point message
+            - An iterable of [x, y, z]
+            - A mapping with 'x', 'y', 'z' keys
+        orientation: The orientation as quaternion, which can be:
+            - A Quaternion message
+            - An iterable of [w, x, y, z]
+            - A mapping with 'w', 'x', 'y', 'z' keys
+        rpy: The orientation as Euler angles, which can be:
+            - An iterable of [roll, pitch, yaw] in radians
+            - A mapping with 'roll', 'pitch', 'yaw' keys
+
+    Returns:
+        A Pose message with the specified position and orientation.
+
+    Raises:
+        ValueError: If both orientation and rpy are provided, or if
+            inputs have invalid types.
+    """
     pose = Pose()
 
     # Position extraction
@@ -288,20 +422,28 @@ def pose_stamped_msg(
         Quaternion | Iterable[float] | Mapping[str, float]
     ] = None,
 ) -> PoseStamped:
-    """Create a PoseStamped message from:
-    - a header or frame_id, but not both,
-    - a pose or at least one of position, rpy, or orientation, but not both.
+    """Create a geometry_msgs/PoseStamped message from flexible input types.
+
+    This factory function provides two mutually exclusive ways to specify
+    the header and pose components:
+    - Header: Provide either `header` OR (`frame_id` and/or `timestamp`)
+    - Pose: Provide either `pose` OR (`position` and/or `rpy`/`orientation`)
 
     Args:
-        header: The header of the pose.
-        frame_id: The frame id of the pose.
-        timestamp: The timestamp of the pose.
-        position: The position of the pose.
-        rpy: The roll, pitch, and yaw of the pose.
-        orientation: The orientation of the pose.
+        header: Complete Header message or mapping with header fields.
+        frame_id: The coordinate frame ID for the pose.
+        timestamp: The timestamp for the pose.
+        pose: Complete Pose message or mapping with pose fields.
+        position: Position as Point, iterable [x,y,z], or mapping.
+        rpy: Orientation as Euler angles [roll, pitch, yaw] in radians.
+        orientation: Orientation as Quaternion, iterable [w,x,y,z], or mapping.
 
     Returns:
-        The PoseStamped message.
+        A PoseStamped message with the specified header and pose.
+
+    Raises:
+        ValueError: If conflicting arguments are provided (e.g., both
+            header and frame_id, or both pose and position).
     """
 
     pose_stamped = PoseStamped()
@@ -353,7 +495,17 @@ def all_close_iterables(
     a2: Iterable[float] | np.ndarray,
     tolerance: float | Iterable[float] | np.ndarray,
 ) -> bool:
-    """Check if two arrays are close to each other."""
+    """Check if corresponding elements of two iterables are within tolerance.
+
+    Args:
+        a1: First array or iterable of numeric values.
+        a2: Second array or iterable of numeric values.
+        tolerance: Maximum allowed difference. Can be a scalar (applied to all
+            elements) or an array of per-element tolerances.
+
+    Returns:
+        True if all element-wise differences are strictly less than tolerance.
+    """
     if not isinstance(a1, np.ndarray):
         a1 = np.array(a1)
     if not isinstance(a2, np.ndarray):
@@ -369,7 +521,17 @@ def all_close_dicts(
     d2: dict[str, float],
     tolerance: float | dict[str, float],
 ) -> bool:
-    """Check if two dictionaries are close to each other."""
+    """Check if corresponding values in two dicts are within tolerance.
+
+    Args:
+        d1: First dictionary with string keys and numeric values.
+        d2: Second dictionary with the same keys as d1.
+        tolerance: Maximum allowed difference. Can be a scalar or a dict
+            mapping keys to per-key tolerances.
+
+    Returns:
+        True if all value differences are within their respective tolerances.
+    """
     if isinstance(tolerance, Mapping):
         for k, v in d1.items():
             if abs(v - d2[k]) > tolerance[k]:
@@ -384,7 +546,17 @@ def all_close_dicts(
 def all_close_points(
     p1: Point, p2: Point, tolerance: float | Iterable[float]
 ) -> bool:
-    """Check if two points are close to each other."""
+    """Check if two Point messages are within tolerance.
+
+    Args:
+        p1: First Point message.
+        p2: Second Point message.
+        tolerance: Maximum allowed difference for x, y, z components.
+            Can be scalar or per-axis [x_tol, y_tol, z_tol].
+
+    Returns:
+        True if all position components are within tolerance.
+    """
     p1_array = array_from_point_msg(p1)
     p2_array = array_from_point_msg(p2)
     return all_close_iterables(p1_array, p2_array, tolerance)
@@ -393,7 +565,20 @@ def all_close_points(
 def all_close_quaternions(
     q1: Quaternion, q2: Quaternion, tolerance: float | Iterable[float]
 ) -> bool:
-    """Check if two quaternions are close to each other."""
+    """Check if two Quaternion messages represent similar orientations.
+
+    This function accounts for quaternion double-cover, where q and -q
+    represent the same orientation.
+
+    Args:
+        q1: First Quaternion message.
+        q2: Second Quaternion message.
+        tolerance: Maximum allowed difference for quaternion components.
+            Can be scalar or per-component [w_tol, x_tol, y_tol, z_tol].
+
+    Returns:
+        True if quaternions are within tolerance (considering double-cover).
+    """
     q1_array = array_from_quaternion_msg(q1)
     q2_array = array_from_quaternion_msg(q2)
     return all_close_iterables(
@@ -407,13 +592,16 @@ def all_close_poses(
     position_tolerance: float | Iterable[float] | np.ndarray,
     orientation_tolerance: float | Iterable[float] | np.ndarray,
 ) -> bool:
-    """Check if two poses are close to each other.
+    """Check if two Pose messages are within tolerance.
 
     Args:
-        pose1: The first pose.
-        pose2: The second pose.
-        position_tolerance: The tolerance for the position.
-        orientation_tolerance: The quaternion or euler angle tolerance for the orientation.
+        pose1: First Pose message.
+        pose2: Second Pose message.
+        position_tolerance: Maximum allowed position difference.
+        orientation_tolerance: Maximum allowed quaternion component difference.
+
+    Returns:
+        True if both position and orientation are within their tolerances.
     """
     all_close_positions = all_close_points(
         pose1.position, pose2.position, position_tolerance
@@ -431,15 +619,19 @@ def all_close_poses_stamped(
     position_tolerance: float | Iterable[float] | np.ndarray,
     orientation_tolerance: float | Iterable[float] | np.ndarray,
 ) -> bool:
-    """Check if two poses are close to each other.
+    """Check if two PoseStamped messages are within tolerance.
 
     Args:
-        pose_stamped1: The first pose.
-        pose_stamped2: The second pose.
-        position_tolerance: The tolerance for the position.
-        orientation_tolerance: The quaternion or euler angle tolerance for the orientation.
+        pose_stamped1: First PoseStamped message.
+        pose_stamped2: Second PoseStamped message.
+        position_tolerance: Maximum allowed position difference.
+        orientation_tolerance: Maximum allowed quaternion component difference.
+
     Returns:
-        True if the poses are close to each other, False otherwise.
+        True if poses are within tolerance.
+
+    Raises:
+        ValueError: If the frame_ids don't match (poses not comparable).
     """
     if pose_stamped1.header.frame_id != pose_stamped2.header.frame_id:
         raise ValueError("PoseStamped messages must have the same frame_id")
@@ -458,7 +650,21 @@ def all_close_robot_states(
     velocity_tolerance: Optional[float | dict[str, float]] = None,
     acceleration_tolerance: Optional[float | dict[str, float]] = None,
 ) -> bool:
-    """Check if two robot states are close to each other."""
+    """Check if two RobotState objects have similar joint values.
+
+    Args:
+        state1: First RobotState.
+        state2: Second RobotState.
+        position_tolerance: Maximum allowed joint position difference.
+            Can be scalar or per-joint dict.
+        velocity_tolerance: Optional maximum allowed joint velocity difference.
+            If None, velocities are not compared.
+        acceleration_tolerance: Optional maximum allowed joint acceleration
+            difference. If None, accelerations are not compared.
+
+    Returns:
+        True if all compared joint values are within their tolerances.
+    """
     if not all_close_dicts(
         state1.joint_positions, state2.joint_positions, position_tolerance
     ):
@@ -485,7 +691,16 @@ def all_close_robot_states(
 
 
 def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
-    """Convert a 4x4 transformation matrix to a geometry_msgs/Pose message."""
+    """Convert a 4x4 homogeneous transformation matrix to a Pose message.
+
+    Args:
+        matrix: A 4x4 numpy array representing a homogeneous transformation
+            with rotation in the upper-left 3x3 and translation in the
+            right column.
+
+    Returns:
+        A Pose message with position and orientation extracted from the matrix.
+    """
     return pose_msg(
         position=translation_from_matrix(matrix),
         orientation=quaternion_from_matrix(matrix),
@@ -493,19 +708,40 @@ def pose_msg_from_matrix(matrix: np.ndarray) -> Pose:
 
 
 def matrix_from_point_msg(point: Point) -> np.ndarray:
-    """Convert a geometry_msgs/Point message to a 4x4 transformation matrix."""
+    """Convert a Point message to a 4x4 translation matrix.
+
+    Args:
+        point: The Point message containing x, y, z translation.
+
+    Returns:
+        A 4x4 numpy array representing pure translation (identity rotation).
+    """
     return translation_matrix([point.x, point.y, point.z])
 
 
 def matrix_from_quaternion_msg(quaternion: Quaternion) -> np.ndarray:
-    """Convert a geometry_msgs/Quaternion message to a 4x4 transformation matrix."""
+    """Convert a Quaternion message to a 4x4 rotation matrix.
+
+    Args:
+        quaternion: The Quaternion message to convert.
+
+    Returns:
+        A 4x4 numpy array representing pure rotation (zero translation).
+    """
     return quaternion_matrix(
         [quaternion.w, quaternion.x, quaternion.y, quaternion.z]
     )
 
 
 def matrix_from_pose_msg(pose: Pose | Mapping[str, Any]) -> np.ndarray:
-    """Convert a geometry_msgs/Pose message to a 4x4 transformation matrix."""
+    """Convert a Pose message to a 4x4 homogeneous transformation matrix.
+
+    Args:
+        pose: A Pose message or mapping with position/orientation fields.
+
+    Returns:
+        A 4x4 numpy array combining rotation and translation.
+    """
     if not isinstance(pose, Pose):
         pose = pose_msg(**pose)
     translation = matrix_from_point_msg(pose.position)
@@ -518,7 +754,19 @@ def change_reference_frame_pose(
     old_frame_transform: np.ndarray | Pose,
     new_frame_transform: np.ndarray | Pose,
 ) -> Pose:
-    """Change the reference frame of a pose."""
+    """Transform a pose from one reference frame to another.
+
+    Given a pose expressed in an old frame, and transforms from both the old
+    and new frames to a common world frame, computes the pose in the new frame.
+
+    Args:
+        old_pose: The pose to transform, expressed in the old frame.
+        old_frame_transform: Transform from old frame to world frame.
+        new_frame_transform: Transform from new frame to world frame.
+
+    Returns:
+        The pose expressed in the new reference frame.
+    """
     old_pose_matrix = matrix_from_pose_msg(old_pose)
     if isinstance(old_frame_transform, Pose):
         old_frame_transform = matrix_from_pose_msg(old_frame_transform)
@@ -541,13 +789,18 @@ def change_reference_frame_pose_stamped(
     new_frame_transform: np.ndarray | Pose,
     new_frame_id: str,
 ) -> PoseStamped:
-    """Transforms a pose from one frame to another.
+    """Transform a PoseStamped from one reference frame to another.
 
     Args:
-        old_pose_stamped (PoseStamped): The pose to transform.
-        old_frame_transform (np.ndarray): The transform from the old frame to the world frame.
-        new_frame_transform (np.ndarray): The transform from the new frame to the world frame.
-        new_frame_id (str): The ID of the new frame.
+        old_pose_stamped: The stamped pose to transform.
+        old_frame_transform: Transform from the old frame to world frame
+            (as 4x4 matrix or Pose).
+        new_frame_transform: Transform from the new frame to world frame
+            (as 4x4 matrix or Pose).
+        new_frame_id: The frame_id string for the new reference frame.
+
+    Returns:
+        A PoseStamped with the transformed pose and new frame_id.
     """
     new_pose = change_reference_frame_pose(
         old_pose_stamped.pose, old_frame_transform, new_frame_transform
@@ -564,7 +817,22 @@ def add_collision_object_msg(
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
-    """Create a collision object message."""
+    """Create a base CollisionObject message with ADD operation.
+
+    This creates a collision object with basic fields set but no geometry.
+    Use the specialized functions (add_primitive_collision_object_msg, etc.)
+    to create objects with actual collision geometry.
+
+    Args:
+        object_id: Unique identifier for the collision object.
+        pose_stamped: The pose and frame of the object.
+        subframe_names: Optional list of named subframe identifiers.
+        subframe_poses: Optional list of poses for subframes (relative to object pose).
+            Must be same length as subframe_names if provided.
+
+    Returns:
+        A CollisionObject message with ADD operation and no geometry.
+    """
     collision_object = CollisionObject()
     collision_object.header.frame_id = pose_stamped.header.frame_id
     collision_object.id = object_id
@@ -586,7 +854,16 @@ def add_plane_collision_object_msg(
     pose_stamped: PoseStamped,
     coef: list[float],
 ) -> CollisionObject:
-    """Create a collision object from a plane."""
+    """Create a collision object with a plane geometry.
+
+    Args:
+        object_id: Unique identifier for the collision object.
+        pose_stamped: The pose and frame of the plane.
+        coef: Plane equation coefficients [a, b, c, d] where ax + by + cz + d = 0.
+
+    Returns:
+        A CollisionObject message with plane geometry.
+    """
     collision_object = add_collision_object_msg(object_id, pose_stamped)
     collision_object.planes.append(Plane(coef=coef))  # type: ignore
     return collision_object
@@ -601,13 +878,22 @@ def add_primitive_collision_object_msg(
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
-    """Create a collision object from a primitive.
+    """Create a collision object with a primitive geometry.
 
     Args:
-        object_id (str): The ID of the collision object.
-        pose_stamped (PoseStamped): The pose of the collision object.
-        type (str): The type of the primitive.
-        dimensions (list[float]): The dimensions of the primitive.
+        object_id: Unique identifier for the collision object.
+        pose_stamped: The pose and frame of the object.
+        type: Primitive type name ("BOX", "SPHERE", "CYLINDER", "CONE", "PRISM").
+        dimensions: Dimensions for the primitive. Format depends on type:
+            - BOX: [x, y, z] extents
+            - SPHERE: [radius]
+            - CYLINDER: [height, radius]
+            - CONE: [height, radius]
+        subframe_names: Optional list of named subframe identifiers.
+        subframe_poses: Optional list of poses for subframes.
+
+    Returns:
+        A CollisionObject message with the specified primitive geometry.
     """
     collision_object = add_collision_object_msg(
         object_id, pose_stamped, subframe_names, subframe_poses
@@ -617,7 +903,6 @@ def add_primitive_collision_object_msg(
             type=SOLID_PRIMITIVE_TYPE_MAP[type], dimensions=dimensions
         )
     )
-    # collision_object.primitive_poses.append(pose_stamped.pose)  # type: ignore
 
     return collision_object
 
@@ -627,6 +912,7 @@ TrimeshPrimitive = (
     | trimesh.primitives.Sphere
     | trimesh.primitives.Cylinder
 )
+"""Type alias for trimesh primitive geometry types."""
 
 
 def add_primitive_collision_object_msg_from_mesh(
@@ -644,7 +930,31 @@ def add_primitive_collision_object_msg_from_mesh(
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
-    """Create a collision object from a trimesh geometry."""
+    """Create a collision object with primitive geometry derived from a mesh.
+
+    Computes a bounding primitive from the mesh geometry for use as a
+    simplified collision shape. Useful for faster collision checking
+    with acceptable approximation.
+
+    Args:
+        object_id: Unique identifier for the collision object.
+        pose_stamped: The pose and frame of the object.
+        mesh: The trimesh geometry to derive the primitive from.
+        primitive_type: Type of bounding primitive to compute:
+            - "bounding_primitive": Auto-select best fit primitive
+            - "bounding_box": Axis-aligned bounding box
+            - "bounding_box_oriented": Oriented bounding box
+            - "bounding_sphere": Bounding sphere
+            - "bounding_cylinder": Bounding cylinder
+        subframe_names: Optional list of named subframe identifiers.
+        subframe_poses: Optional list of poses for subframes.
+
+    Returns:
+        A CollisionObject with primitive geometry approximating the mesh.
+
+    Raises:
+        ValueError: If the computed primitive type is not supported.
+    """
     collision_object = add_collision_object_msg(
         object_id, pose_stamped, subframe_names, subframe_poses
     )
@@ -690,16 +1000,22 @@ def add_mesh_collision_object_msg(
     subframe_names: Optional[list[str]] = None,
     subframe_poses: Optional[list[Pose]] = None,
 ) -> CollisionObject:
-    """Create a collision object from a trimesh geometry.
+    """Create a collision object with mesh geometry.
+
+    Uses the full mesh triangles for precise collision detection.
+    More accurate than primitive approximations but slower to check.
 
     Args:
-        object_id (str): The ID of the collision object.
-        mesh (trimesh.Trimesh | trimesh.Scene | MeshMsg): The trimesh geometry
-            or mesh message to create the collision object from.
-        pose_stamped (PoseStamped): The pose of the collision object.
-        subframe_names (list[str]): The names of the subframes.
-        subframe_poses (list[Pose]): The poses of the subframes
-            (defined relative to `pose_stamped`).
+        object_id: Unique identifier for the collision object.
+        pose_stamped: The pose and frame of the object.
+        mesh: The mesh geometry, either as a trimesh object or pre-built
+            ROS Mesh message.
+        subframe_names: Optional list of named subframe identifiers.
+        subframe_poses: Optional list of poses for subframes
+            (defined relative to the object pose).
+
+    Returns:
+        A CollisionObject message with full mesh geometry.
     """
     collision_object = add_collision_object_msg(
         object_id, pose_stamped, subframe_names, subframe_poses
@@ -729,7 +1045,24 @@ def attached_collision_object_msg(
     link_name: str = "",
     touch_links: Optional[list[str]] = None,
 ) -> AttachedCollisionObject:
-    """Create an AttachedCollisionObject message."""
+    """Create an AttachedCollisionObject message.
+
+    Attached collision objects move with a robot link and can ignore
+    collisions with specified touch links (e.g., gripper fingers).
+
+    Args:
+        object_id: The ID of the collision object to attach/detach.
+        operation: The operation to perform ("ADD", "REMOVE", "APPEND", "MOVE").
+        link_name: The robot link to attach to. Required for ADD operation.
+        touch_links: Optional list of links that should ignore collisions
+            with this object (e.g., for grasped objects).
+
+    Returns:
+        An AttachedCollisionObject message.
+
+    Raises:
+        ValueError: If link_name is not provided for ADD operation.
+    """
     attached_collision_object = AttachedCollisionObject()
     attached_collision_object.object.id = object_id
 
@@ -749,7 +1082,21 @@ def attached_collision_object_msg(
 def object_color_msg(
     object_id: str, color: str | Iterable[float] | Mapping[str, float]
 ) -> ObjectColor:
-    """Create an ObjectColor message."""
+    """Create an ObjectColor message for visualization.
+
+    Args:
+        object_id: The ID of the object to color.
+        color: The color specification, which can be:
+            - A color name string from COLOR_MAP (e.g., "red", "blue")
+            - An iterable of [r, g, b, a] values (0.0-1.0)
+            - A mapping with 'r', 'g', 'b', 'a' keys
+
+    Returns:
+        An ObjectColor message for use with planning scene visualization.
+
+    Raises:
+        ValueError: If the color name is not found or format is invalid.
+    """
     object_color = ObjectColor()
     object_color.id = object_id
     if isinstance(color, str):
@@ -780,7 +1127,21 @@ def robot_trajectory_from_msg(
     state: RobotState,
     joint_model_group_name: str,
 ) -> RobotTrajectory:
-    """Convert a RobotTrajectory message to a RobotTrajectory object."""
+    """Convert a RobotTrajectory message to a MoveIt RobotTrajectory object.
+
+    Args:
+        trajectory_msg: The ROS message containing trajectory waypoints.
+        state: A reference RobotState used to initialize the trajectory.
+            Must not be dirty (have uncommitted changes).
+        joint_model_group_name: The name of the joint model group
+            (e.g., "manipulator", "arm") this trajectory applies to.
+
+    Returns:
+        A MoveIt RobotTrajectory object.
+
+    Raises:
+        ValueError: If the provided state is dirty.
+    """
     if state.dirty:
         raise ValueError("Robot state is dirty")
     trajectory = RobotTrajectory(state.robot_model)
@@ -792,7 +1153,14 @@ def robot_trajectory_from_msg(
 def robot_trajectory_copy(
     trajectory: RobotTrajectory,
 ) -> RobotTrajectory:
-    """Copy a RobotTrajectory object."""
+    """Create a deep copy of a RobotTrajectory object.
+
+    Args:
+        trajectory: The trajectory to copy.
+
+    Returns:
+        A new RobotTrajectory with the same waypoints and joint model group.
+    """
     state = trajectory[0]
     new_trajectory = RobotTrajectory(state.robot_model)
     new_trajectory.set_robot_trajectory_msg(
