@@ -1,3 +1,41 @@
+"""ROS2 node for Eyelink eye tracker integration.
+
+This module provides a ROS2 node that interfaces with SR Research Eyelink
+eye trackers for gaze tracking in behavioral experiments. It handles:
+
+- Communication with the Eyelink host PC over network
+- Real-time sample streaming and recording
+- Smooth pursuit detection for behavioral monitoring
+- Optional gaze estimation using neural network models
+- EDF file transfer and conversion to CSV
+
+The node can operate in two modes:
+- Real mode: Connects to actual Eyelink hardware via pylink
+- Simulation mode: Generates synthetic gaze data for testing
+
+Services provided:
+    /eyelink/start_recording: Begin recording samples
+    /eyelink/stop_recording: Stop recording and save data
+
+Actions provided:
+    /eyelink/smooth_pursuit: Monitor smooth pursuit eye movements
+
+Topics published:
+    /predicted_markers: Gaze estimation predictions (if enabled)
+
+Parameters:
+    tracker_address: IP address of the Eyelink host PC.
+    do_tracker_setup: Whether to run calibration on startup.
+    sample_rate: Sampling rate in Hz (typically 1000).
+    session_bag_dir: Directory for saving recorded data.
+    smooth_pursuit.*: Parameters for smooth pursuit detection.
+    gaze_estimation_config: Path to gaze model configuration.
+    simulate: Run in simulation mode without hardware.
+
+Example:
+    ros2 run tabletop_rig eyelink --ros-args -p simulate:=true
+"""
+
 import argparse
 import concurrent.futures
 import os
@@ -57,14 +95,23 @@ except ImportError:
 
 
 class DataFileReceiveError(Exception):
-    """Error while receiving the data file."""
+    """Raised when EDF file transfer from Eyelink PC fails."""
 
 
 class DataFileConversionError(Exception):
-    """Error while converting the data file."""
+    """Raised when EDF to CSV conversion fails."""
 
 
 class EyeAvailable(Enum):
+    """Eye availability status from the Eyelink tracker.
+
+    Attributes:
+        NO_EYE: No eye data available (error state).
+        LEFT_EYE: Only left eye is being tracked.
+        RIGHT_EYE: Only right eye is being tracked.
+        BINOCULAR: Both eyes are being tracked.
+    """
+
     NO_EYE = -1
     LEFT_EYE = 0
     RIGHT_EYE = 1
@@ -72,29 +119,67 @@ class EyeAvailable(Enum):
 
 
 class EyelinkMessageQueue:
-    """Thread-safe message queue for Eyelink messages."""
+    """Thread-safe bounded queue for Eyelink sample messages.
+
+    Provides a circular buffer for storing recent Eyelink samples,
+    used by the smooth pursuit detection algorithm. Thread-safe for
+    concurrent producer/consumer access.
+
+    Attributes:
+        queue: Bounded deque storing EyelinkMsg messages.
+        lock: Threading lock for synchronization.
+    """
 
     def __init__(self, maxlen: int):
+        """Initialize the message queue.
+
+        Args:
+            maxlen: Maximum number of messages to store.
+        """
         self.queue = deque[EyelinkMsg](maxlen=maxlen)
         self.lock = threading.Lock()
 
-    def append(self, msg: EyelinkMsg):
-        """Append a message to the queue."""
+    def append(self, msg: EyelinkMsg) -> None:
+        """Add a message to the queue (thread-safe).
+
+        Args:
+            msg: Eyelink sample message to add.
+        """
         with self.lock:
             self.queue.append(msg)
 
     def to_list(self) -> list[EyelinkMsg]:
-        """Get the latest messages from the queue."""
+        """Get all messages as a list (thread-safe).
+
+        Returns:
+            List of all messages currently in the queue.
+        """
         with self.lock:
             return list(self.queue)
 
-    def clear(self):
-        """Clear the queue."""
+    def clear(self) -> None:
+        """Remove all messages from the queue (thread-safe)."""
         with self.lock:
             self.queue.clear()
 
 
 class Eyelink(BaseNode):
+    """ROS2 node for Eyelink eye tracker integration.
+
+    Manages communication with the Eyelink host PC, streams gaze samples,
+    detects smooth pursuit eye movements, and optionally runs neural
+    network-based gaze estimation.
+
+    The node supports both real hardware operation and simulation mode
+    for testing without an Eyelink system.
+
+    Attributes:
+        simulate: Whether running in simulation mode.
+        tracker: Connection to the Eyelink host PC (real mode only).
+        message_queue: Recent samples for smooth pursuit detection.
+        recording: Whether currently recording samples.
+    """
+
     default_params = BaseNode.default_params | {
         "tracker_address": "192.168.13.30",
         "do_tracker_setup": True,
@@ -130,6 +215,14 @@ class Eyelink(BaseNode):
     ###########################################################################
 
     def __init__(self):
+        """Initialize the Eyelink node.
+
+        Sets up the tracker connection (or simulation), sample queue,
+        bag writer, gaze estimation model, and ROS interfaces.
+
+        Raises:
+            RuntimeError: If pylink not available and not in simulation mode.
+        """
         super().__init__("eyelink")
 
         self.simulate = self.param("simulate")
@@ -155,11 +248,11 @@ class Eyelink(BaseNode):
         self.init_ros()
         self.destroyed = False
 
-    def init_sample_retrieval(self):
-        """Setup the sample retrieval.
+    def init_sample_retrieval(self) -> None:
+        """Initialize sample retrieval infrastructure.
 
-        This function will setup the sample queue and thread pool, as well as
-        the stop event and sample retrieval loop future.
+        Sets up the message queue for recent samples, threading primitives
+        for the sample retrieval loop, and the recording state flag.
         """
         sample_rate = self.param("sample_rate")
         self.smooth_pursuit_window = self.param("smooth_pursuit.window")
@@ -173,11 +266,14 @@ class Eyelink(BaseNode):
         self.sample_retrieval_future.set_result(None)
         self.recording = False
 
-    def init_bag_writer(self):
-        """Setup the bag writer.
+    def init_bag_writer(self) -> None:
+        """Initialize the rosbag writer for recording samples.
 
-        This function will setup the bag writer if the session bag directory is
-        set.
+        Creates a bag writer in the session directory if configured.
+        Samples are recorded in MCAP format for later analysis.
+
+        Raises:
+            ValueError: If session_bag_dir is set but not a valid directory.
         """
         self.session_bag_dir = self.param("session_bag_dir")
         if self.session_bag_dir is None:
@@ -208,8 +304,15 @@ class Eyelink(BaseNode):
             )
         )
 
-    def init_gaze_estimation(self):
-        """Setup the gaze estimation model."""
+    def init_gaze_estimation(self) -> None:
+        """Initialize the neural network gaze estimation model.
+
+        Loads the model configuration and weights for real-time gaze
+        prediction from raw eye position data.
+
+        Raises:
+            ValueError: If sample rate doesn't match model configuration.
+        """
         path = os.path.expandvars(self.param("gaze_estimation_config"))
         with open(path, "r") as f:
             self.gaze_estimation_config = yaml.safe_load(f)
@@ -238,11 +341,11 @@ class Eyelink(BaseNode):
             )
             self.gaze_estimation_model.eval()
 
-    def init_ros(self):
-        """Setup the ROS node.
+    def init_ros(self) -> None:
+        """Initialize ROS2 interfaces.
 
-        This function will setup the ROS node. It will create a timer to log
-        the eyelink status and a series of services to control the tracker.
+        Creates services for recording control, the smooth pursuit action
+        server, and optionally the gaze estimation publisher and timer.
         """
         # Services
         self.eyelink_start_recording_service = self.create_service(
@@ -287,16 +390,19 @@ class Eyelink(BaseNode):
     # Tracker utilities
     ###########################################################################
 
-    def eyelink_pc_setup(self):
-        """Start tracker setup on the Eyelink PC.
+    def eyelink_pc_setup(self) -> None:
+        """Run interactive tracker setup/calibration on the Eyelink PC.
 
-        This function will start the tracker setup process on the Eyelink PC.
-        It will then wait for the user to press the "ESC" key (on the Eyelink
-        PC) to end the setup.
+        Initiates the calibration procedure on the Eyelink host PC.
+        This is a blocking call that waits until the operator presses
+        ESC on the Eyelink PC to complete setup.
 
-        Note: This function will not respond to a keyboard interrupt (e.g.
-        Ctrl+C) from this machine. Make sure to press the "ESC" key to end
-        the setup.
+        Note:
+            This blocks the Python process and won't respond to Ctrl+C.
+            Must press ESC on the Eyelink PC to continue.
+
+        Raises:
+            RuntimeError: If called in simulation mode.
         """
         if self.simulate:
             raise RuntimeError("Simulating eyelink, cannot do tracker setup")
@@ -309,12 +415,11 @@ class Eyelink(BaseNode):
             self.tracker.exitCalibration()
         self.log("Eyelink PC tracker setup complete")
 
-    def _open_data_file(self):
-        """Opens a data file on the EyeLink PC.
+    def _open_data_file(self) -> None:
+        """Open an EDF data file on the Eyelink host PC.
 
-        This function will open a data file on the EyeLink PC.
-        This file will be named "last.edf" and will store the data from the
-        current recording session.
+        Creates 'last.edf' on the Eyelink PC to store sample data.
+        Configures data collection parameters from node settings.
         """
         self.log("Opening data file")
         edf_file_name = "last.edf"
@@ -337,12 +442,15 @@ class Eyelink(BaseNode):
             if value is not None:
                 self.tracker.sendCommand(f"{key} = {value}")
 
-    def _close_data_file(self):
-        """Closes the data file and transfers it to the local machine.
+    def _close_data_file(self) -> None:
+        """Close the EDF file and transfer to local machine.
 
-        This function will stop the recording (if it is running), close the
-        data file on the EyeLink PC and transfer it to the local machine. It
-        will then convert the EDF file to ASC format.
+        Stops recording, closes the file on the Eyelink PC, transfers
+        it to the local session directory, and converts to CSV format.
+
+        Raises:
+            DataFileReceiveError: If file transfer fails.
+            DataFileConversionError: If EDF to CSV conversion fails.
         """
         self.log("Closing data file")
         self.tracker.setOfflineMode()
@@ -372,8 +480,12 @@ class Eyelink(BaseNode):
 
         self.log(f"Converted EDF to CSV: {csv_file_name}")
 
-    def _start_sample_retrieval(self):
-        """Start the sample retrieval loop."""
+    def _start_sample_retrieval(self) -> None:
+        """Start the background sample retrieval task.
+
+        Launches the sample retrieval loop as an executor task
+        that continuously reads samples from the tracker.
+        """
         self.log("Starting sample retrieval")
         assert self.stop_sample_retrieval_event.is_set()
         assert self.sample_retrieval_future.done(), (
@@ -396,8 +508,11 @@ class Eyelink(BaseNode):
             lambda _: self._wake_executor()
         )
 
-    def _stop_sample_retrieval(self):
-        """Stop the sample retrieval loop."""
+    def _stop_sample_retrieval(self) -> None:
+        """Stop the background sample retrieval task.
+
+        Signals the retrieval loop to stop and waits for completion.
+        """
         self.log("Stopping sample retrieval")
         try:
             self.stop_sample_retrieval_event.set()
@@ -408,8 +523,15 @@ class Eyelink(BaseNode):
                 severity="ERROR",
             )
 
-    def start_recording(self):
-        """Start the tracker recording and sample retrieval."""
+    def start_recording(self) -> None:
+        """Start recording eye tracking data.
+
+        Opens a data file on the Eyelink PC, starts the sample retrieval
+        loop, and begins tracker recording in binocular mode.
+
+        Raises:
+            RuntimeError: If already recording or if not in binocular mode.
+        """
 
         if self.recording:
             raise RuntimeError("Can't start recording, already recording")
@@ -441,8 +563,12 @@ class Eyelink(BaseNode):
 
         self.recording = True
 
-    def stop_recording(self):
-        """Stop the recording."""
+    def stop_recording(self) -> None:
+        """Stop recording and save data.
+
+        Stops sample retrieval, stops tracker recording, closes the
+        data file, and transfers it to the local machine.
+        """
         if not self.recording:
             self.log("Not recording, skipping stop", severity="WARN")
             return
@@ -483,18 +609,20 @@ class Eyelink(BaseNode):
     ###########################################################################
 
     def sample_to_msg(self, sample: Sample, timestamp: Time) -> EyelinkMsg:
-        """Get the valid eye data from the sample.
+        """Convert an Eyelink sample to a ROS message.
 
-        This function will return the timestamp and the eye data for the left
-        and right eyes, if available.
+        Extracts raw pupil positions and sizes from both eyes
+        and packages them into an EyelinkMsg.
 
         Args:
-            sample: The sample to get the eye data from.
+            sample: The pylink Sample object from the tracker.
+            timestamp: ROS timestamp for the message header.
 
         Returns:
-            The eye data message, if available and valid. If only one eye is
-            available/valid, its data will be set to MISSING_DATA. If no eye data is
-            available/valid, the function will return None.
+            Populated EyelinkMsg with eye position data.
+
+        Raises:
+            RuntimeError: If left or right eye sample is None.
         """
         # self.log("Getting valid eye data", severity="DEBUG")
 
@@ -522,6 +650,18 @@ class Eyelink(BaseNode):
     def generate_simulated_msg(
         self, min_pos: float, max_pos: float
     ) -> EyelinkMsg:
+        """Generate a synthetic Eyelink sample for simulation mode.
+
+        Creates realistic circular eye movement patterns with occasional
+        missing data and saccades to test the processing pipeline.
+
+        Args:
+            min_pos: Minimum eye position value.
+            max_pos: Maximum eye position value.
+
+        Returns:
+            Simulated EyelinkMsg with synthetic eye data.
+        """
         msg = EyelinkMsg()
         msg.header.stamp = self.get_clock().now().to_msg()
         t = self.ros_time()
@@ -562,17 +702,14 @@ class Eyelink(BaseNode):
 
         return msg
 
-    def sample_retrieval_loop(self):
-        """Get samples from the tracker.
+    def sample_retrieval_loop(self) -> None:
+        """Main loop for retrieving samples from the tracker.
 
-        This function will loop indefinitely, getting samples from the
-        tracker and adding them to the sample queue. This function is
-        thread-safe and should be run in a separate thread (or you'll not
-        be able to do anything else).
+        Continuously polls the tracker for new samples, converts them
+        to ROS messages, adds them to the message queue, and writes
+        them to the rosbag. Runs until stop_sample_retrieval_event is set.
 
-        Args:
-            stop_event: A threading event that can be used to stop the thread
-            from another thread.
+        In simulation mode, generates synthetic data instead.
         """
         self.log("Starting sample retrieval loop")
         wait_for_data_timeout_ms = int(
@@ -643,7 +780,14 @@ class Eyelink(BaseNode):
     ###########################################################################
 
     def _df_from_messages(self, msgs: list[EyelinkMsg]) -> pd.DataFrame:
-        """Convert a list of Eyelink messages to a pandas dataframe."""
+        """Convert Eyelink messages to a DataFrame for analysis.
+
+        Args:
+            msgs: List of Eyelink sample messages.
+
+        Returns:
+            DataFrame with columns: time, left_x, left_y, right_x, right_y.
+        """
         return pd.DataFrame(
             (
                 (
@@ -810,7 +954,15 @@ class Eyelink(BaseNode):
     def start_recording_callback(
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
-        """Start the recording."""
+        """Handle start_recording service request.
+
+        Args:
+            request: Empty trigger request.
+            response: Response to populate.
+
+        Returns:
+            Response with success status.
+        """
         self.start_recording()
 
         response.success = True
@@ -820,7 +972,15 @@ class Eyelink(BaseNode):
     def stop_recording_callback(
         self, request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
-        """Stop the recording."""
+        """Handle stop_recording service request.
+
+        Args:
+            request: Empty trigger request.
+            response: Response to populate.
+
+        Returns:
+            Response with success status.
+        """
         self.stop_recording()
 
         response.success = True
@@ -828,6 +988,16 @@ class Eyelink(BaseNode):
         return response
 
     def smooth_pursuit_goal_callback(self, _: Any) -> GoalResponse:
+        """Handle incoming smooth pursuit action goals.
+
+        Rejects if another goal is already in progress.
+
+        Args:
+            _: Unused goal request.
+
+        Returns:
+            GoalResponse.ACCEPT or GoalResponse.REJECT.
+        """
         with self.goal_callback_lock:
             if self.goal_ongoing:
                 self.log(
@@ -840,6 +1010,14 @@ class Eyelink(BaseNode):
                 return GoalResponse.ACCEPT
 
     def smooth_pursuit_cancel_callback(self, _: Any) -> CancelResponse:
+        """Handle smooth pursuit action cancellation requests.
+
+        Args:
+            _: Unused cancel request.
+
+        Returns:
+            CancelResponse.ACCEPT or CancelResponse.REJECT.
+        """
         with self.goal_callback_lock:
             if self.goal_ongoing:
                 return CancelResponse.ACCEPT
@@ -850,12 +1028,20 @@ class Eyelink(BaseNode):
                 )
                 return CancelResponse.REJECT
 
-    # Ideas: Continuously publish smooth pursuit state?
-    #   I (don't) like this idea
     def smooth_pursuit_callback(
         self, goal_handle: ServerGoalHandle
     ) -> EyelinkSmoothPursuit.Result:
-        """Flic response time action callback."""
+        """Execute smooth pursuit monitoring action.
+
+        Periodically checks for smooth pursuit and publishes feedback
+        until cancelled.
+
+        Args:
+            goal_handle: The action goal handle.
+
+        Returns:
+            Empty result (action typically cancelled by client).
+        """
         try:
             self.log("Starting smooth pursuit")
             window = self.param("smooth_pursuit.window")
@@ -894,8 +1080,12 @@ class Eyelink(BaseNode):
             with self.goal_callback_lock:
                 self.goal_ongoing = False
 
-    def gaze_estimation_callback(self):
-        """Callback to publish gaze estimation markers."""
+    def gaze_estimation_callback(self) -> None:
+        """Publish gaze estimation predictions.
+
+        Runs the neural network model on the latest valid sample
+        and publishes the predicted 3D gaze point as a Marker.
+        """
         msgs = self.message_queue.to_list()
 
         x = None
@@ -940,11 +1130,11 @@ class Eyelink(BaseNode):
     # Node lifecycle
     ###########################################################################
 
-    def destroy_node(self):
-        """Destroy the node.
+    def destroy_node(self) -> None:
+        """Clean up resources and destroy the node.
 
-        This function will stop the sample retrieval loop, stop the recording,
-        close the data file, and close the tracker.
+        Stops recording, closes the bag writer, and disconnects
+        from the Eyelink tracker before calling parent destroy.
         """
 
         try:
@@ -980,6 +1170,7 @@ class Eyelink(BaseNode):
 
 
 def main(args=None):
+    """Entry point for the eyelink node."""
     rclpy.init(args=args)
 
     # Parse non-ROS arguments

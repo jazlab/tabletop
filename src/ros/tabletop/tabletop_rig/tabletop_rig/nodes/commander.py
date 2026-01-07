@@ -1,3 +1,35 @@
+"""Main commander node orchestrating all experimental apparatus.
+
+This module provides the Commander node, the central control point for the
+tabletop experimental rig. It aggregates all interface components and provides
+a high-level API for running behavioral experiments.
+
+The Commander coordinates:
+- Robot motion planning and execution (MoveIt interface)
+- Safety monitoring (Teensy interface)
+- Subject feedback (sound, reward, smartglass)
+- Response time measurement (Flic buttons)
+- Gaze tracking (Eyelink interface)
+- Robot state recovery (dashboard interface)
+
+The node supports running custom experiment coroutines that can be
+specified at launch time, enabling flexible experiment protocols.
+
+Usage:
+    ros2 run tabletop_rig commander --ros-args --params-file config.yaml
+
+    With custom experiment:
+    ros2 run tabletop_rig commander --coro-module my_experiments \\
+        --coro-name run_trial --coro-config config.yaml
+
+Example:
+    async with Commander() as commander:
+        await commander.fetch_object("object_1")
+        await commander.pre_present_object()
+        response_time = await commander.flic_response_time(timeout=10.0)
+        await commander.return_object()
+"""
+
 import argparse
 import asyncio
 import concurrent.futures
@@ -40,7 +72,19 @@ T = TypeVar("T", bound=Callable[..., Coroutine])
 
 
 def safe_execution(coro_fn: T) -> T:
-    """Decorator for methods that should be run with the object manipulation lock."""
+    """Decorator for methods requiring safety-checked robot execution.
+
+    Wraps coroutines that execute robot motions to handle common error
+    cases with automatic recovery:
+    - NotSafeToExecuteError: Locks arms and waits for safety
+    - ExecutionInterruptedError: Resets dashboard and retries
+
+    Args:
+        coro_fn: Async method to wrap.
+
+    Returns:
+        Wrapped method with retry logic.
+    """
 
     async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
         max_retries = self.param("safe_execution.max_retries")
@@ -79,6 +123,26 @@ def safe_execution(coro_fn: T) -> T:
 
 
 class Commander(BaseNode):
+    """Main commander node coordinating all experimental apparatus.
+
+    The Commander is the top-level control node that aggregates all
+    hardware interfaces and provides a unified API for running experiments.
+    It handles safety interlocks, error recovery, and coordinates between
+    subsystems.
+
+    Use as an async context manager for automatic setup and cleanup:
+        async with Commander() as commander:
+            await commander.plan_and_execute(...)
+
+    Attributes:
+        sound: Audio feedback interface.
+        teensy: Microcontroller interface for safety and I/O.
+        flic: Bluetooth button interface for response times.
+        eyelink: Eye tracker interface for gaze monitoring.
+        dashboard: UR robot dashboard interface.
+        moveit: Motion planning and execution interface.
+    """
+
     default_params: dict[str, Any] = BaseNode.default_params | {}
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
@@ -119,9 +183,10 @@ class Commander(BaseNode):
     ###########################################################################
 
     def __init__(self):
-        """Initializes the Commander node.
+        """Initialize the Commander node with all interfaces.
 
-        Sets up MoveItPy, trajectory execution manager, robot model, and planning scene monitor.
+        Creates all hardware interface objects and connects to the
+        MoveIt motion planning system.
         """
         super().__init__(
             "commander", automatically_declare_parameters_from_overrides=True
@@ -140,11 +205,14 @@ class Commander(BaseNode):
 
         self.log("Commander initialized")
 
-    def _teensy_sensor_callback(self, msg: TeensySensor):
-        """Additional callback for the Teensy sensor subscription.
+    def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
+        """Handle Teensy sensor updates for safety monitoring.
 
-        If Teensy interface indicates it is not safe to execute and the
-        MoveIt inteface is executing, stop execution
+        Immediately stops robot execution if safety conditions are
+        violated (e.g., safety laser broken while robot is moving).
+
+        Args:
+            msg: Current sensor state from the Teensy.
         """
         if not self.teensy.safe_to_execute and self.moveit.executing:
             self.log(
@@ -170,36 +238,65 @@ class Commander(BaseNode):
         """
         await self.sound.play(note, duration)
 
-    async def release_arm(self, arm: Literal["left", "right", "both"]):
-        """Release the arm lock."""
+    async def release_arm(self, arm: Literal["left", "right", "both"]) -> None:
+        """Release the specified arm lock(s).
+
+        Args:
+            arm: Which arm(s) to release - "left", "right", or "both".
+        """
         await self.teensy.set_arm_lock(arm, lock=False)
 
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
-        """Lock arms and wait for safety laser to be unbroken"""
+        """Lock arms and wait for safety conditions to be met.
+
+        Engages both arm lock solenoids and waits for the subject to
+        place their arms in the locks and for the safety laser to
+        be unbroken.
+
+        Args:
+            timeout: Maximum wait time in seconds, or None for default.
+
+        Returns:
+            True if safety conditions met within timeout.
+        """
         return await self.teensy.lock_arms_and_wait(timeout)
 
-    async def reveal_smartglass(self):
-        """Reveal the smartglass."""
+    async def reveal_smartglass(self) -> None:
+        """Make the smartglass transparent (subject can see through)."""
         await self.teensy.set_smartglass(reveal=True)
 
-    async def occlude_smartglass(self):
-        """Occlude the smartglass."""
+    async def occlude_smartglass(self) -> None:
+        """Make the smartglass opaque (subject's view is blocked)."""
         await self.teensy.set_smartglass(reveal=False)
 
-    async def stop_reward(self):
-        """Set the reward state."""
+    async def stop_reward(self) -> None:
+        """Stop any active reward delivery immediately."""
         await self.teensy.set_reward(activate=False)
 
-    async def start_reward_and_wait(self, duration: float):
-        """Start reward and wait for it to finish."""
+    async def start_reward_and_wait(self, duration: float) -> None:
+        """Deliver reward for the specified duration.
+
+        Args:
+            duration: Reward duration in seconds.
+        """
         await self.teensy.start_reward_and_wait(duration)
 
     async def flic_response_time(
         self, timeout: Optional[float] = None
     ) -> float | None:
-        """Wait for flic button press, then return response time, or None if timeout is reached."""
+        """Measure response time using the Flic button.
+
+        Waits for the subject to press the Flic button associated with
+        the currently attached object and returns the elapsed time.
+
+        Args:
+            timeout: Maximum wait time in seconds, or None for no timeout.
+
+        Returns:
+            Response time in seconds, or None if timeout reached.
+        """
         object_id = self.moveit.get_exactly_one_attached_object_id()
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
@@ -212,8 +309,16 @@ class Commander(BaseNode):
 
         return reported_rt
 
-    async def smooth_pursuit_and_reward(self):
-        """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
+    async def smooth_pursuit_and_reward(self) -> None:
+        """Monitor smooth pursuit and provide contingent reward.
+
+        Continuously monitors the subject's eye movements. When smooth
+        pursuit is detected, plays a tone and accumulates reward credit.
+        Periodically delivers reward if the pursuit ratio exceeds the
+        threshold.
+
+        Runs until cancelled externally.
+        """
         interval_start_time: float | None = None
         last_smooth_pursuit = False
         pursuit_count = 0
@@ -274,34 +379,62 @@ class Commander(BaseNode):
         """
         return self.moveit.create_pose_stamped(frame_id=frame_id, **kwargs)
 
-    def attach_object_manually(self, object_id: str):
-        """Add a manually attached collision object to the end effector"""
+    def attach_object_manually(self, object_id: str) -> None:
+        """Mark an object as attached without robot motion.
+
+        Used when the robot already has an object grasped (e.g., after
+        recovery from an error) and the planning scene needs updating.
+
+        Args:
+            object_id: ID of the collision object to mark as attached.
+        """
         self.moveit.add_manually_attached_collision_object(object_id)
 
     async def plan(self, *args, **kwargs) -> RobotTrajectory | None:
-        """Plan to a given goal
+        """Plan a trajectory to the specified goal.
+
+        Generates a motion plan without executing it. Useful for
+        previewing trajectories or caching plans for later execution.
 
         Args:
-            goal: The gaol to plan to
+            *args: Positional arguments passed to MoveItInterface.plan.
+            **kwargs: Keyword arguments passed to MoveItInterface.plan.
+
+        Returns:
+            Planned trajectory, or None if planning failed.
         """
         trajectory, _ = await self.moveit.plan(*args, **kwargs)
         return trajectory
 
     @safe_execution
-    async def execute(self, *args, **kwargs):
-        """Plan to a given goal
+    async def execute(self, *args, **kwargs) -> None:
+        """Execute a previously planned trajectory.
 
         Args:
-            goal: The gaol to plan to
+            *args: Positional arguments passed to MoveItInterface.execute.
+            **kwargs: Keyword arguments passed to MoveItInterface.execute.
+
+        Raises:
+            ExecutionError: If trajectory execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
         """
         await self.moveit.execute(*args, **kwargs)
 
     @safe_execution
-    async def plan_and_execute(self, *args, **kwargs):
-        """Plan and execute to a given goal
+    async def plan_and_execute(self, *args, **kwargs) -> None:
+        """Plan and execute a motion to the specified goal.
+
+        Combines planning and execution in a single call. Uses the
+        trajectory cache when available.
 
         Args:
-            goal: The gaol to plan to
+            *args: Positional arguments passed to MoveItInterface.
+            **kwargs: Keyword arguments passed to MoveItInterface.
+
+        Raises:
+            PlanningError: If motion planning fails.
+            ExecutionError: If trajectory execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
         """
         await self.moveit.plan_and_execute(*args, **kwargs)
 
@@ -417,12 +550,19 @@ class Commander(BaseNode):
         self,
         timeout: Optional[float] = None,
         end_goal: Optional[PlanGoalT] = None,
-    ):
-        """Reset the dashboard and the robot until successful or timeout.
+    ) -> None:
+        """Reset the robot to a known good state.
+
+        Performs a full reset sequence: locks arms, waits for safety,
+        resets the UR dashboard, and optionally moves to a goal pose.
+        Retries automatically on recoverable errors.
 
         Args:
-            goal: Optional pose to move to after resetting the robot
-            timeout: Optional timeout for resetting the commander
+            timeout: Maximum total time for reset sequence.
+            end_goal: Optional pose or state to move to after reset.
+
+        Raises:
+            asyncio.TimeoutError: If reset not completed within timeout.
         """
         self.log("Resetting commander")
 
@@ -467,7 +607,13 @@ class Commander(BaseNode):
     ###########################################################################
 
     async def __aenter__(self) -> Self:
-        """Enter the context manager."""
+        """Enter the async context manager.
+
+        Initializes MoveIt and resets the commander to the idle state.
+
+        Returns:
+            The Commander instance.
+        """
         self.log("Entering commander context manager", severity="DEBUG")
         self.moveit.__enter__()
         await self.reset_commander(end_goal="idle")
@@ -479,7 +625,19 @@ class Commander(BaseNode):
         exc_value: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> bool:
-        """Exit the context manager."""
+        """Exit the async context manager.
+
+        Handles recoverable errors by resetting the commander.
+        Always cleans up MoveIt resources.
+
+        Args:
+            exc_type: Exception type if an exception occurred.
+            exc_value: Exception instance if an exception occurred.
+            exc_tb: Traceback if an exception occurred.
+
+        Returns:
+            True if a recoverable error was handled, False otherwise.
+        """
         self.log("Exiting commander context manager", severity="DEBUG")
         try:
             if exc_type is not None:
@@ -514,19 +672,31 @@ class Commander(BaseNode):
     ########## Destroy ########################################################
     ###########################################################################
 
-    def destroy_node(self):
+    def destroy_node(self) -> None:
+        """Clean up resources and destroy the node.
+
+        Destroys the MoveIt interface before calling parent destroy.
+        """
         if hasattr(self, "moveit"):
             self.moveit.destroy()
         super().destroy_node()
 
-    def __del__(self):
+    def __del__(self) -> None:
+        """Ensure cleanup on garbage collection."""
         self.destroy_node()
 
 
-async def debug_commander(commander: Commander, config: Optional[str] = None):
-    """Run the commander node interactively with a debugger.
+async def debug_commander(
+    commander: Commander, config: Optional[str] = None
+) -> None:
+    """Run the commander interactively for debugging.
 
-    Waits indefinitely
+    Sets a debugpy breakpoint and runs an infinite loop for
+    interactive debugging via attached debugger.
+
+    Args:
+        commander: The Commander instance.
+        config: Unused configuration path.
     """
     del config
 
@@ -564,15 +734,19 @@ async def asyncio_runner(
     config: str | None,
     spin_future: concurrent.futures.Future,
     max_workers: int,
-):
-    """Run a coroutine in an asyncio event loop.
+) -> None:
+    """Run an experiment coroutine with proper executor setup.
 
-    This function sets the default executor for the asyncio event loop to the
-    thread pool executor provided. Used to run coroutines in a custom thread
-    pool executor for performance reasons (e.g. more workers).
+    Configures the asyncio event loop with a thread pool executor and
+    runs the experiment coroutine. Handles cancellation when the ROS
+    executor stops.
 
     Args:
-        coro: The coroutine to run.
+        coro_fn: Async function to run (signature: commander, config).
+        commander: The Commander instance.
+        config: Configuration file path to pass to coro_fn.
+        spin_future: Future for the ROS executor spin thread.
+        max_workers: Number of thread pool workers.
     """
     tpe = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
     loop = asyncio.get_event_loop()
@@ -588,7 +762,22 @@ async def asyncio_runner(
     await task
 
 
-def main(args=None):
+def main(args=None) -> None:
+    """Entry point for the commander node.
+
+    Parses command line arguments, optionally loads a custom experiment
+    coroutine, and runs the commander node.
+
+    Args:
+        args: Command line arguments (uses sys.argv if None).
+
+    Command line options:
+        --coro-module: Python module containing the experiment coroutine.
+        --coro-name: Name of the coroutine function to run.
+        --coro-config: Configuration file path for the experiment.
+        --max-workers: Number of thread pool workers.
+        --debug: Enable debugpy for remote debugging.
+    """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     try:
         # Parse non-ROS arguments

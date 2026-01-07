@@ -1,3 +1,32 @@
+"""Motion planning and trajectory execution interface.
+
+This module extends PlanningSceneInterface with capabilities for planning
+robot trajectories and executing them on the real robot. It integrates
+with MoveIt's planning pipeline and trajectory execution manager.
+
+Key Capabilities:
+- Single and multi-waypoint trajectory planning
+- Trajectory caching for faster re-planning
+- Time-optimal trajectory generation (TOTG) and smoothing
+- Safe trajectory execution with pre-flight checks
+- Trajectory concatenation for complex motions
+- Error recovery and retry logic
+
+The interface supports both joint space and Cartesian space goals,
+with configurable planning pipelines (OMPL, Pilz, etc.).
+
+Planning Flow:
+1. Create PlanRequest/ConcatPlanRequest with goal and parameters
+2. Call plan() or plan_concat() to compute trajectory
+3. Optionally post-process with TOTG/smoothing
+4. Execute with plan_and_execute() or execute_trajectory()
+
+Safety:
+    Before execution, the interface checks that the current robot state
+    matches the trajectory start state and that external safety conditions
+    are met via a callback function.
+"""
+
 import asyncio
 import threading
 from collections.abc import Callable
@@ -56,6 +85,26 @@ from tabletop_rig.utils.ros import (
 
 
 class PlanAndExecuteInterface(PlanningSceneInterface):
+    """Interface for motion planning and trajectory execution.
+
+    Extends PlanningSceneInterface with:
+    - Motion planning via MoveIt's PlanningComponent
+    - Trajectory execution via TrajectoryExecutionManager
+    - Trajectory caching via FuzzyTrajectoryCache
+    - Post-processing (TOTG, smoothing)
+    - Safety-checked execution
+
+    The interface maintains a trajectory pre-cache for deferred cache
+    updates after successful execution.
+
+    Attributes:
+        _planning_component: MoveIt planning component for motion planning.
+        _trajectory_execution_manager: Manager for executing trajectories.
+        _safe_to_execute_callback: External safety check function.
+        _trajectory_cache: Fuzzy cache for trajectory reuse.
+        _trajectory_precache: Pending cache entries awaiting confirmation.
+    """
+
     _trajectory_precache: dict[int, TrajectoryCacheKwargs]
 
     def __init__(

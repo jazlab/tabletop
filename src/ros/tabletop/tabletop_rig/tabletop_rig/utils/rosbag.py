@@ -1,4 +1,22 @@
-"""Convert ROS 2 bag to CSV files, one CSV file per topic."""
+"""Convert ROS2 bag files to pandas DataFrames and CSV files.
+
+This module provides utilities for extracting data from ROS2 bag files in
+MCAP format and converting them to pandas DataFrames for analysis. It handles
+recursive message flattening and supports filtering by topic.
+
+The module was adapted from Open Source Robotics Foundation code and
+contributions by Michal Sojka.
+
+Typical usage:
+    # Convert a single bag directory
+    dfs = rosbag_to_dfs("/path/to/bag", topics=["/joint_states"])
+
+    # Convert all bags in a session and save as CSV
+    dfs = rosbag_session_to_dfs("/path/to/session", save=True)
+
+    # Command line usage
+    python -m tabletop_rig.utils.rosbag -d /path/to/session --topics /joint_states
+"""
 
 
 # Copyright 2020 Open Source Robotics Foundation, Inc.
@@ -31,6 +49,24 @@ from rosidl_runtime_py.utilities import get_message
 def _gen_msg_values(
     msg: Any, prefix: str = ""
 ) -> Generator[tuple[str, Any], None, None]:
+    """Recursively flatten a ROS message into key-value pairs.
+
+    Traverses nested ROS messages and sequences, generating column names
+    with dot notation for nested fields and bracket notation for array indices.
+
+    Args:
+        msg: A ROS message, list, or primitive value to flatten.
+        prefix: The current field path prefix for nested fields.
+
+    Yields:
+        Tuples of (column_name, value) for each leaf field in the message.
+
+    Examples:
+        For a PoseStamped message, generates entries like:
+        - ("header.stamp.sec", 123)
+        - ("pose.position.x", 1.0)
+        - ("pose.orientation.w", 1.0)
+    """
     if isinstance(msg, list):
         for i, val in enumerate(msg):
             yield from _gen_msg_values(val, f"{prefix}[{i}]")
@@ -53,15 +89,23 @@ def rosbag_to_dfs(
     exclude_topics: Iterable[str] | None = None,
     verbose: bool = False,
 ) -> dict[str, pd.DataFrame]:
-    """Convert a ROS 2 bag to a pandas DataFrame.
+    """Convert a ROS2 bag directory to pandas DataFrames.
+
+    Reads all messages from the specified bag and converts each topic
+    to a separate DataFrame with flattened message fields as columns.
+    Each row includes a `bag_time_ns` column with the message timestamp
+    in nanoseconds.
 
     Args:
-        bag_dir: The path to the bag directory.
-        topics: The topics to include in the DataFrame. If not provided, all topics will be included.
-        exclude_topics: The topics to exclude from the DataFrame.
+        bag_dir: Path to the bag directory containing MCAP files.
+        topics: Optional whitelist of topics to include. If None, all
+            topics are included.
+        exclude_topics: Optional list of topics to exclude from processing.
+        verbose: If True, display a progress bar during conversion.
 
     Returns:
-        dict[str, pd.DataFrame]: A dictionary of DataFrames, one for each topic.
+        Dictionary mapping topic names to DataFrames containing all
+        messages for that topic.
     """
 
     reader = rosbag2_py.SequentialReader()
@@ -120,15 +164,29 @@ def rosbag_session_to_dfs(
     save: bool = True,
     verbose: bool = False,
 ) -> dict[str, pd.DataFrame]:
-    """Convert a ROS 2 session to a pandas DataFrame.
+    """Convert all ROS2 bags in a session directory to DataFrames.
+
+    Recursively finds all MCAP files in subdirectories of the session
+    directory and converts them to DataFrames. Optionally saves the
+    DataFrames as CSV files in the session directory.
 
     Args:
-        session_dir: The path to the session directory.
-        topics: The topics to include in the DataFrame. If not provided, all topics will be included.
-        exclude_topics: The topics to exclude from the DataFrame.
+        session_dir: Path to the session directory containing bag subdirectories.
+        topics: Optional whitelist of topics to include. If None, all
+            topics are included.
+        exclude_topics: Optional list of topics to exclude from processing.
+        save: If True, save each DataFrame as a CSV file in the session
+            directory. Topic names are converted to filenames by replacing
+            '/' with '_'.
+        verbose: If True, display progress information during conversion.
 
     Returns:
-        dict[str, pd.DataFrame]: A dictionary of DataFrames, one for each topic.
+        Dictionary mapping topic names to DataFrames containing all
+        messages for that topic across all bags in the session.
+
+    Raises:
+        FileNotFoundError: If no MCAP files are found in the session directory.
+        ValueError: If the same topic appears in multiple bags (collision).
     """
 
     # Recursively find all .mcap files in bag_dir
@@ -172,10 +230,24 @@ def rosbag_session_to_dfs(
     return dfs
 
 
-def main():
+def main() -> None:
+    """Command-line interface for converting ROS2 bags to CSV files.
+
+    Parses command-line arguments and converts bags in the specified session
+    directory (or all directories in ROS_BAG_DIR) to CSV files.
+
+    Command-line Arguments:
+        -d, --session-dir: Path to session directory. If not provided,
+            converts all session directories found in ROS_BAG_DIR.
+        --topics: Whitelist of topics to include.
+        --exclude-topics: Topics to exclude (default: /rosout, /parameter_events).
+        -f, --force: Force overwrite of existing CSV files.
+    """
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Convert ROS2 bag files to CSV format."
+    )
     parser.add_argument(
         "-d",
         "--session-dir",

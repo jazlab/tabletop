@@ -1,4 +1,34 @@
 # pyright: reportIncompatibleMethodOverride=false
+"""Custom ROS2 executors with asyncio integration.
+
+This module provides executor implementations that bridge ROS2's callback-based
+execution model with Python's asyncio event loop, enabling truly concurrent
+async/await patterns in ROS2 nodes.
+
+The standard ROS2 executors block during `spin()`, which prevents integration
+with asyncio coroutines. These custom executors solve this by:
+
+1. Using non-blocking waits with asyncio sleep intervals (SimpleAIOExecutor)
+2. Running wait operations in a thread pool with asyncio integration (AIOExecutor)
+
+Classes:
+    SimpleAIOExecutor: Basic asyncio-compatible executor using polling.
+    AIOExecutor: Full-featured asyncio executor with thread pool support.
+    TestExecutor: Simple wrapper for debugging executor behavior.
+
+Example:
+    async def main():
+        rclpy.init()
+        node = MyNode()
+        executor = AIOExecutor()
+        executor.add_node(node)
+
+        # Spin in background while doing other async work
+        spin_task = asyncio.create_task(executor.spin())
+        await some_async_operation()
+        executor.shutdown()
+        await spin_task
+"""
 
 import asyncio
 import inspect
@@ -27,47 +57,88 @@ from rclpy.utilities import timeout_sec_to_nsec
 from rclpy.waitable import NumberOfEntities, Waitable
 
 WAIT_SET_CLEANUP_TIMEOUT_SEC = 0.1
+"""float: Timeout for cleaning up wait sets when cancelling operations."""
 
 
 class AIOFutureDoneError(Exception):
-    """An asyncio future is done."""
+    """Raised when an asyncio future completes during wait operations.
+
+    This exception is used internally to break out of the wait loop when
+    an asyncio future that was being monitored completes, allowing the
+    executor to process its result.
+    """
 
 
 class SimpleAIOExecutor(SingleThreadedExecutor):
-    """An asyncio-compatible executor.
+    """Simple asyncio-compatible executor using polling.
 
-    This executor modifies the spin_once method to allow for couroutine
-    callbacks to be executed without hanging the main loop.
+    This executor provides basic asyncio compatibility by using non-blocking
+    spin_once calls with small sleep intervals. It's simpler than AIOExecutor
+    but may have slightly higher CPU usage due to polling.
+
+    The spin method is an async coroutine that can be awaited, allowing
+    other async tasks to run concurrently.
+
+    Example:
+        executor = SimpleAIOExecutor()
+        executor.add_node(node)
+        await executor.spin()  # Runs until shutdown
     """
 
-    async def spin(self):
+    async def spin(self) -> None:
+        """Spin the executor asynchronously until shutdown.
+
+        Continuously processes callbacks using non-blocking spin_once calls
+        with brief async sleeps to yield to the event loop.
+        """
         while self._context.ok() and not self._is_shutdown:
             self.spin_once(timeout_sec=0)
             await asyncio.sleep(1e-4)
 
 
 class AIOExecutor(Executor):
-    """An asyncio-compatible executor.
+    """Full-featured asyncio-compatible ROS2 executor.
 
-    This executor modifies the spin_once method to allow for couroutine
-    callbacks to be executed without hanging the main loop.
+    This executor provides seamless integration between ROS2 callbacks and
+    Python's asyncio event loop. It uses a thread pool to perform blocking
+    ROS2 wait operations while allowing the asyncio event loop to continue
+    running.
+
+    Key features:
+    - All spin methods are async coroutines
+    - Supports both coroutine and regular callbacks
+    - Optional multi-threading for parallel callback execution
+    - Proper cleanup on shutdown
+
+    Attributes:
+        _multi_threaded: Whether parallel callback execution is enabled.
+        _tpe: Thread pool executor for blocking operations.
+        _aio_futures: List of pending asyncio futures being monitored.
+        _spin_interval: Sleep interval between spin iterations.
     """
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         multi_threaded: bool = False,
         max_workers: int = 1,
         spin_interval: float = 1e-3,
-        **kwargs,
-    ):
-        """Initialize the executor.
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the asyncio executor.
 
         Args:
-            *args: Arguments to pass to the superclass constructor.
-            multi_threaded: Whether to use a thread pool executor for non-coroutine callbacks.
-            max_workers: The maximum number of workers to use in the thread pool executor.
-            **kwargs: Keyword arguments to pass to the superclass constructor.
+            *args: Arguments passed to the base Executor constructor.
+            multi_threaded: If True, non-coroutine callbacks execute in the
+                thread pool, allowing parallel execution. If False, callbacks
+                execute sequentially.
+            max_workers: Maximum thread pool size. Only meaningful when
+                multi_threaded is True.
+            spin_interval: Time in seconds between spin loop iterations.
+            **kwargs: Keyword arguments passed to the base Executor constructor.
+
+        Raises:
+            ValueError: If max_workers > 1 but multi_threaded is False.
         """
         super().__init__(*args, **kwargs)
         if not multi_threaded and max_workers > 1:
@@ -80,6 +151,15 @@ class AIOExecutor(Executor):
         self._spin_interval = spin_interval
 
     def _waitables_ready(self, wait_set: Any) -> bool:
+        """Check if any entities in the wait set are ready.
+
+        Args:
+            wait_set: The ROS2 wait set to check.
+
+        Returns:
+            True if any subscription, guard condition, timer, client,
+            service, or event is ready for processing.
+        """
         for entity_type in [
             "subscription",
             "guard_condition",
@@ -98,17 +178,31 @@ class AIOExecutor(Executor):
         nodes: Optional[list[Node]] = None,
         condition: Callable[[], bool] = lambda: False,
     ) -> AsyncGenerator[tuple[Task, Any, Node | None], None]:
-        """
-        Yield callbacks that are ready to be executed.
+        """Async generator yielding callbacks ready for execution.
 
-        :raise ShutdownException: if executor was shut down.
-        :raise ConditionReachedException: if condition is True.
+        This is the core method that waits for ROS2 entities (subscriptions,
+        timers, services, etc.) to become ready and yields task handlers for
+        each ready callback.
 
-        :param timeout_sec: Seconds to wait. Block forever if ``None`` or negative.
-            Don't wait if 0.
-        :param nodes: A list of nodes to wait on. Wait on all nodes if ``None``.
-        :param condition: A callable that makes the function return immediately when it evaluates
-            to True.
+        The wait operation runs in a thread pool to avoid blocking the asyncio
+        event loop. The method also monitors any pending asyncio futures and
+        breaks out of the wait when they complete.
+
+        Args:
+            timeout_sec: Maximum time to wait in seconds. Block forever if None
+                or negative. Return immediately if 0.
+            nodes: Specific nodes to process. If None, processes all nodes
+                registered with the executor.
+            condition: Callable returning True to trigger early return via
+                ConditionReachedException.
+
+        Yields:
+            Tuples of (task_handler, entity, node) for each ready callback.
+
+        Raises:
+            ShutdownException: If the executor was shut down.
+            ConditionReachedException: If the condition callable returns True.
+            AIOFutureDoneError: If a monitored asyncio future completes.
         """
         timeout_nsec = timeout_sec_to_nsec(timeout_sec)
 
@@ -356,16 +450,20 @@ class AIOExecutor(Executor):
             raise AIOFutureDoneError()
 
     async def wait_for_ready_callbacks(
-        self, *args, **kwargs
+        self, *args: Any, **kwargs: Any
     ) -> tuple[Task, Any, Node | None]:
-        """
-        Return callbacks that are ready to be executed.
+        """Wait for and return a single ready callback.
 
-        The arguments to this function are passed to the internal method
-        :meth:`_wait_for_ready_callbacks` to get a generator for ready callbacks:
+        Wraps the async generator `_wait_for_ready_callbacks` to return
+        one callback at a time. Manages the generator lifecycle internally,
+        creating a new one when arguments change or the previous is exhausted.
 
-        .. Including the docstring for the hidden function for reference
-        .. automethod:: _wait_for_ready_callbacks
+        Args:
+            *args: Passed to _wait_for_ready_callbacks.
+            **kwargs: Passed to _wait_for_ready_callbacks.
+
+        Returns:
+            Tuple of (task_handler, entity, node) for the next ready callback.
         """
         while True:
             if (
@@ -385,14 +483,14 @@ class AIOExecutor(Executor):
                 self._cb_iter = None
 
     @staticmethod
-    async def _call_task(handler: Task):
-        """
-        Run or resume a task.
+    async def _call_task(handler: Task) -> None:
+        """Execute a task handler, supporting both coroutines and regular callables.
 
-        This attempts to execute a handler. If the handler is a coroutine it will attempt to
-        await it. If there are done callbacks it will schedule them with the executor.
+        Acquires the task lock to prevent concurrent execution, runs the handler,
+        and stores the result or exception in the task.
 
-        The return value of the handler is stored as the task result.
+        Args:
+            handler: The Task object wrapping the callback to execute.
         """
         if (
             not handler._pending()
@@ -428,7 +526,17 @@ class AIOExecutor(Executor):
         self,
         timeout_sec: Optional[float] = None,
         wait_condition: Callable[[], bool] = lambda: False,
-    ):
+    ) -> None:
+        """Internal implementation of spin_once.
+
+        Waits for a ready callback and executes it. Coroutine callbacks run
+        as asyncio tasks; regular callbacks run in the thread pool if
+        multi_threaded is enabled.
+
+        Args:
+            timeout_sec: Maximum wait time in seconds.
+            wait_condition: Callable for early termination condition.
+        """
         try:
             handler, _, _ = await self.wait_for_ready_callbacks(
                 timeout_sec, None, wait_condition
@@ -470,7 +578,16 @@ class AIOExecutor(Executor):
         self,
         timeout_sec: Optional[float] = None,
         wait_condition: Callable[[], bool] = lambda: False,
-    ):
+    ) -> None:
+        """Internal implementation of continuous spinning.
+
+        Repeatedly calls _spin_once_impl until shutdown, timeout, or the
+        wait condition is met.
+
+        Args:
+            timeout_sec: Maximum total spin time in seconds.
+            wait_condition: Callable for early termination condition.
+        """
         try:
             async with asyncio.timeout(timeout_sec):
                 while (
@@ -482,25 +599,58 @@ class AIOExecutor(Executor):
         except TimeoutError:
             pass
 
-    async def spin_once(self, timeout_sec: Optional[float] = None):
+    async def spin_once(self, timeout_sec: Optional[float] = None) -> None:
+        """Process a single callback asynchronously.
+
+        Args:
+            timeout_sec: Maximum time to wait for a callback in seconds.
+        """
         await self._spin_once_impl(timeout_sec)
 
     async def spin_once_until_future_complete(
         self, future: Future, timeout_sec: Optional[float] = None
-    ):
+    ) -> None:
+        """Process callbacks until a ROS future completes.
+
+        Args:
+            future: The ROS Future to wait for.
+            timeout_sec: Maximum time to wait in seconds.
+        """
         future.add_done_callback(lambda x: self.wake())
         await self._spin_once_impl(timeout_sec, future.done)
 
-    async def spin(self):
+    async def spin(self) -> None:
+        """Spin the executor asynchronously until shutdown.
+
+        Continuously processes callbacks until the ROS context is invalid
+        or shutdown is requested.
+        """
         await self._spin_impl()
 
     async def spin_until_future_complete(
         self, future: Future, timeout_sec: Optional[float] = None
-    ):
+    ) -> None:
+        """Spin until a ROS future completes or timeout.
+
+        Args:
+            future: The ROS Future to wait for.
+            timeout_sec: Maximum time to wait in seconds.
+        """
         future.add_done_callback(lambda x: self.wake())
         await self._spin_impl(timeout_sec, future.done)
 
     def shutdown(self, timeout_sec: Optional[float] = None) -> bool:
+        """Shutdown the executor and clean up resources.
+
+        Shuts down the thread pool, cancels pending asyncio futures,
+        and calls the parent shutdown method.
+
+        Args:
+            timeout_sec: Maximum time to wait for shutdown in seconds.
+
+        Returns:
+            True if shutdown completed successfully.
+        """
         success = super().shutdown(timeout_sec)
 
         if self._multi_threaded:
@@ -514,7 +664,17 @@ class AIOExecutor(Executor):
 
 
 class TestExecutor(SingleThreadedExecutor):
-    def spin(self):
+    """Simple executor wrapper for debugging purposes.
+
+    Wraps the standard SingleThreadedExecutor with print statements
+    to indicate when spinning starts and stops.
+    """
+
+    def spin(self) -> None:
+        """Spin with debug output.
+
+        Prints messages before and after the spin operation for debugging.
+        """
         print("Spinning")
         super().spin()
         print("Spinning done")

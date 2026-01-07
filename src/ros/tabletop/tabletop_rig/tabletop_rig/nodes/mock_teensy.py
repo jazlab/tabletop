@@ -1,3 +1,32 @@
+"""Mock Teensy microcontroller node for testing.
+
+This module provides a ROS2 node that simulates the Teensy microcontroller
+used in the tabletop experimental rig. It emulates:
+
+- Arm lock solenoid control and state sensing
+- Safety laser broken state
+- Smartglass (LCD shutter) control
+- Reward solenoid control
+- Sync pulse generation
+- Tactile glove analog inputs
+
+The simulation includes a "monkey loop" that models the subject's behavior,
+such as placing arms in locks with realistic delays and occasionally
+breaking the safety laser.
+
+Topics published:
+    /teensy/sensor: TeensySensor messages at 100Hz
+    /teensy/log: Log messages from the mock Teensy
+
+Services provided:
+    /teensy/set_arm_lock: Control arm lock solenoids
+    /teensy/set_smartglass: Control smartglass visibility
+    /teensy/set_reward: Control reward solenoid
+
+Example:
+    ros2 run tabletop_rig mock_teensy
+"""
+
 import argparse
 import asyncio
 import random
@@ -21,10 +50,11 @@ from tabletop_rig.nodes.base import BaseNode
 
 monkey_logger = rclpy.logging.get_logger("wiggins")
 
-# Define constants for digital pin states
+# Digital pin state constants
 HIGH = True
 LOW = False
 
+# Analog pin aliases (matching Teensy 4.0 pinout)
 A0 = 14
 A1 = 15
 A2 = 16
@@ -36,10 +66,10 @@ A7 = 21
 A8 = 22
 A9 = 23
 
-# Define pin assignments similar to main.cpp
-# Solenoid for locking the arm
-# Setting the lock pin to HIGH does not mean the arm is locked
-# The arm is only locked when the locked state pin is HIGH
+# Pin assignments matching the actual Teensy firmware (main.cpp)
+# Note: Setting the lock control pin to HIGH engages the solenoid,
+# but the arm is only actually locked when the locked state pin reads HIGH
+# (indicating the subject has placed their arm in the lock mechanism)
 LEFT_ARM_LOCK_CONTROL_PIN = 1
 RIGHT_ARM_LOCK_CONTROL_PIN = 2
 SMARTGLASS_CONTROL_PIN = 3
@@ -78,37 +108,84 @@ SYNC_PULSE_DELAY_RANGE_MS = 200
 SYNC_PULSE_DURATION_MS = 100
 
 
-def digital_write(pin, value: bool):
-    """Write a digital value to a pin."""
+def digital_write(pin: int, value: bool) -> None:
+    """Set a simulated digital output pin state.
+
+    Args:
+        pin: The output pin number.
+        value: HIGH (True) or LOW (False).
+
+    Raises:
+        AssertionError: If pin is not a valid output pin.
+    """
     assert pin in digital_output_pin_states, (
         f"Pin {pin} not found in digital_output_pin_states"
     )
     digital_output_pin_states[pin] = value
 
 
-def digital_read(pin) -> bool:
-    """Read a digital value from a pin."""
+def digital_read(pin: int) -> bool:
+    """Read a simulated digital input pin state.
+
+    Args:
+        pin: The input pin number.
+
+    Returns:
+        Current pin state (HIGH or LOW).
+
+    Raises:
+        AssertionError: If pin is not a valid input pin.
+    """
     assert pin in digital_input_pin_states, (
         f"Pin {pin} not found in digital_input_pin_states"
     )
     return digital_input_pin_states[pin]
 
 
-def analog_read(pin) -> int:
+def analog_read(pin: int) -> int:
+    """Read a simulated analog input pin value.
+
+    Args:
+        pin: The analog input pin number.
+
+    Returns:
+        Current 10-bit ADC value (0-1023).
+
+    Raises:
+        AssertionError: If pin is not a valid analog input pin.
+    """
     assert pin in analog_input_pin_states, (
         f"Pin {pin} not found in analog_input_pin_states"
     )
     return analog_input_pin_states[pin]
 
 
-def _change_input_pin_state(pin, value: bool):
+def _change_input_pin_state(pin: int, value: bool) -> None:
+    """Internal: Change a simulated input pin state.
+
+    Used by the monkey simulation loop to update sensor states.
+
+    Args:
+        pin: The input pin number to modify.
+        value: New pin state.
+    """
     assert pin in digital_input_pin_states, (
         f"Pin {pin} not found in digital_input_pin_states"
     )
     digital_input_pin_states[pin] = value
 
 
-def _read_output_pin_state(pin) -> bool:
+def _read_output_pin_state(pin: int) -> bool:
+    """Internal: Read an output pin state.
+
+    Used by the monkey simulation to check control signals.
+
+    Args:
+        pin: The output pin number.
+
+    Returns:
+        Current output pin state.
+    """
     assert pin in digital_output_pin_states, (
         f"Pin {pin} not found in digital_output_pin_states"
     )
@@ -116,8 +193,18 @@ def _read_output_pin_state(pin) -> bool:
 
 
 async def _sleep_and_change_input_pin_state(
-    pin, value: bool, delay_sec: float
-):
+    pin: int, value: bool, delay_sec: float
+) -> None:
+    """Internal: Change an input pin state after a delay.
+
+    Used to simulate the subject placing their arm in the lock
+    after some reaction time.
+
+    Args:
+        pin: The input pin to modify.
+        value: New pin state.
+        delay_sec: Delay before changing state.
+    """
     await asyncio.sleep(delay_sec)
     _change_input_pin_state(pin, value)
 
@@ -128,18 +215,30 @@ async def monkey_loop(
     safety_laser_broken_when_locked_prob: float,
     safety_laser_broken_when_unlocked_prob: float,
     loop_period_sec: float,
-):
-    """Simulate the monkey's actions.
+) -> None:
+    """Simulate realistic subject behavior for testing.
 
-    This function is responsible for simulating the monkey's actions, such as
-    locking and unlocking the arms, and breaking the safety laser.
+    Models the subject's actions including:
+    - Placing arms in locks with realistic delays after control signal
+    - Breaking the safety laser probabilistically based on arm lock state
+    - Handling the rare case of safety laser break while arms are locked
 
-    If both arms are locked, break the safety laser with a small probability
-    (to test arm lock failure handling)
-    Otherwise, the safety laser is broken with a higher probability and
-    the arm locked states are updated to reflect the arm lock control
-    pins (with some delay to reflect the monkey taking time to put their
-    arms in the arm lock)
+    The probabilities allow testing of:
+    - Normal operation (arms locked, laser unbroken)
+    - Safety interrupts (laser broken while arms unlocked)
+    - Edge cases (laser broken while arms supposedly locked)
+
+    Args:
+        min_arm_locked_delay_sec: Minimum delay before arm registers as locked.
+        max_arm_locked_delay_sec: Maximum delay before arm registers as locked.
+        safety_laser_broken_when_locked_prob: Probability of laser break when
+            both arms are locked (should be low, tests failure handling).
+        safety_laser_broken_when_unlocked_prob: Probability of laser break when
+            arms are unlocked (normal subject movement).
+        loop_period_sec: Main loop period in seconds.
+
+    Raises:
+        ValueError: If delay parameters are invalid.
     """
 
     if (
@@ -212,6 +311,24 @@ async def monkey_loop(
 
 
 class MockTeensy(BaseNode):
+    """Mock Teensy microcontroller node for simulation and testing.
+
+    Simulates the Teensy 4.0 microcontroller that controls the experimental
+    rig hardware. Provides the same ROS2 interface as the real firmware,
+    allowing testing of Commander node logic without hardware.
+
+    The simulation includes:
+    - Realistic arm lock behavior with subject response delays
+    - Probabilistic safety laser state changes
+    - Sync pulse generation with timing jitter
+    - Reward solenoid timing
+
+    Attributes:
+        monkey_loop: Asyncio task running the subject behavior simulation.
+        reward_active: Whether the reward solenoid is currently active.
+        smartglass_revealed: Current smartglass visibility state.
+    """
+
     default_params = BaseNode.default_params | {
         "monkey_loop.min_arm_locked_delay_sec": 0.5,
         "monkey_loop.max_arm_locked_delay_sec": 0.8,
@@ -221,9 +338,8 @@ class MockTeensy(BaseNode):
     }
 
     def __init__(self):
+        """Initialize the mock Teensy node with all publishers and services."""
         super().__init__("mock_teensy")
-
-        # Log publisher
         self.log_pub = self.create_publisher(String, "/teensy/log", 10)
 
         # Monkey loop
@@ -305,7 +421,20 @@ class MockTeensy(BaseNode):
 
     def log(
         self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
-    ):
+    ) -> bool:
+        """Log a message and publish it to /teensy/log.
+
+        Overrides BaseNode.log to also publish log messages to the
+        /teensy/log topic, mimicking the real Teensy firmware behavior.
+
+        Args:
+            message: Message to log.
+            severity: Log severity level.
+            **kwargs: Additional arguments passed to parent log method.
+
+        Returns:
+            True if message was logged successfully.
+        """
         success = super().log(message, severity, **kwargs)
 
         if isinstance(severity, LoggingSeverity):
@@ -317,7 +446,11 @@ class MockTeensy(BaseNode):
 
         return success
 
-    def sync_pulse_end_timer_callback(self):
+    def sync_pulse_end_timer_callback(self) -> None:
+        """Handle end of sync pulse period.
+
+        Brings the sync pulse pin LOW and logs the pulse duration.
+        """
         assert self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
@@ -333,7 +466,11 @@ class MockTeensy(BaseNode):
             severity="DEBUG",
         )
 
-    def sync_pulse_start_timer_callback(self):
+    def sync_pulse_start_timer_callback(self) -> None:
+        """Start a sync pulse after the random delay.
+
+        Brings the sync pulse pin HIGH and starts the end timer.
+        """
         assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, HIGH)
         self.sync_pulse_control_pin_state = HIGH
@@ -348,7 +485,12 @@ class MockTeensy(BaseNode):
             severity="DEBUG",
         )
 
-    def sync_pulse_base_timer_callback(self):
+    def sync_pulse_base_timer_callback(self) -> None:
+        """Handle the base sync pulse timer.
+
+        Schedules the next sync pulse with a random delay to simulate
+        timing jitter in the actual hardware.
+        """
         assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
@@ -365,7 +507,19 @@ class MockTeensy(BaseNode):
 
     def set_arm_lock_callback(
         self, request: SetArmLock.Request, response: SetArmLock.Response
-    ):
+    ) -> SetArmLock.Response:
+        """Handle arm lock control service requests.
+
+        Sets the arm lock control pins and, for unlock requests,
+        immediately updates the locked state (simulating immediate release).
+
+        Args:
+            request: Request specifying which arm(s) and lock/unlock.
+            response: Response to populate.
+
+        Returns:
+            Response with success status and message.
+        """
         if not request.left_arm and not request.right_arm:
             response.success = False
             response.message = "No arm specified"
@@ -410,7 +564,16 @@ class MockTeensy(BaseNode):
 
     def set_smartglass_callback(
         self, request: SetSmartglass.Request, response: SetSmartglass.Response
-    ):
+    ) -> SetSmartglass.Response:
+        """Handle smartglass control service requests.
+
+        Args:
+            request: Request specifying reveal or occlude.
+            response: Response to populate.
+
+        Returns:
+            Response with success status and message.
+        """
         pin_state = HIGH if request.reveal else LOW
         digital_write(SMARTGLASS_CONTROL_PIN, pin_state)
         response.success = True
@@ -421,7 +584,11 @@ class MockTeensy(BaseNode):
 
         return response
 
-    def reward_timer_callback(self):
+    def reward_timer_callback(self) -> None:
+        """Handle reward duration expiration.
+
+        Deactivates the reward solenoid when the timer fires.
+        """
         digital_write(REWARD_CONTROL_PIN, LOW)
         self.reward_active = False
         self.reward_timer.cancel()
@@ -429,7 +596,20 @@ class MockTeensy(BaseNode):
 
     def set_reward_callback(
         self, request: SetReward.Request, response: SetReward.Response
-    ):
+    ) -> SetReward.Response:
+        """Handle reward control service requests.
+
+        Activates or deactivates the reward solenoid. When activating,
+        starts a timer to automatically deactivate after the specified
+        duration.
+
+        Args:
+            request: Request specifying activate/deactivate and duration.
+            response: Response to populate.
+
+        Returns:
+            Response with success status and message.
+        """
         timer_is_canceled = self.reward_timer.is_canceled()
         assert self.reward_active != timer_is_canceled, (
             "Reward timer state and reward_active state are inconsistent"
@@ -482,8 +662,13 @@ class MockTeensy(BaseNode):
 
         return response
 
-    def sensor_timer_callback(self):
-        # Populate sensor message
+    def sensor_timer_callback(self) -> None:
+        """Publish current sensor state at 100Hz.
+
+        Reads all simulated sensor inputs and publishes a TeensySensor
+        message with arm lock states, safety laser state, reward state,
+        smartglass state, tactile glove values, and sync pulse timing.
+        """
         sensor_msg = TeensySensor()
         sensor_msg.header.stamp = self.get_clock().now().to_msg()
         sensor_msg.is_safety_laser_broken = digital_read(
@@ -516,6 +701,11 @@ class MockTeensy(BaseNode):
 
 
 async def main_async(args=None):
+    """Async entry point for the mock Teensy node.
+
+    Args:
+        args: Command line arguments (passed to rclpy.init).
+    """
     rclpy.init(args=args)
 
     # Parse non-ROS arguments
@@ -550,6 +740,7 @@ async def main_async(args=None):
 
 
 def main(args=None):
+    """Entry point for the mock_teensy node."""
     try:
         asyncio.run(main_async(args))
     except KeyboardInterrupt:
