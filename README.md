@@ -14,14 +14,28 @@ correction, spike sorting, NWB file conversion, etc.
 
 * [Design Choices](#design-choices)
 * [Requirements](#requirements)
-* [Installation](#installation)
+* [Setup](#setup)
 * [Usage](#usage)
     - [Starting Docker Containers](#starting-docker-containers)
-    - [Choosing Launch Files](#choosing-launch-file)
-    - [VSCode Dev Container](#vscode-dev-container)
+    - [Interacting with the noVNC GUI](#interacting-with-the-novnc-gui)
+    - [Choosing Launch Command](#choosing-launch-command)
+    - [Container Development](#container-development)
 * [Project Structure](#project-structure)
+* [CLI Commands](#cli-commands)
+    - [Host Commands](#host-commands-binhost)
+    - [Container Commands](#container-commands-bincontainer)
+    - [Common Commands](#common-commands-bincommon)
+    - [Build Command Options](#build-command-options)
+    - [Launch Command Options](#launch-command-options)
+* [Python CLI Tools](#python-cli-tools)
+* [Configuration](#configuration)
+    - [Environment Setup](#environment-setup-setupbash)
+    - [Environment Variables](#environment-variables-env)
+    - [Robot Configuration](#robot-configuration-env_files)
 * [Contributing](#contributing)
 * [License](#license)
+* [FAQ](#faq)
+* [Troubleshooting](#troubleshooting)
 
 
 ## Design Choices
@@ -541,8 +555,241 @@ Additional non-ROS 2 packages/directories (also located in the repository's root
 - `novnc`: Context for building and running noVNC Docker container
 - `ur_robot`: Contains the URCAPs and programs for starting the Universal Robots
     Simulator and interfacing with the simulator or physical robot
-- `scripts`: Utility scripts for setting up the environment and running the
-    project (locally and in Docker)
+- `bin/`: CLI commands organized by execution context (see [CLI Commands](#cli-commands))
+- `src/tabletop_py/`: Python utilities for gaze estimation, Flic buttons, and mesh processing
+
+
+## CLI Commands
+
+The TableTop project provides a set of `tt-*` commands that are automatically added
+to your PATH when you source `setup.bash`. Commands are organized by where they
+should be executed:
+
+### Host Commands (`bin/host/`)
+
+These commands are available on the host machine (outside Docker containers):
+
+| Command | Description |
+|---------|-------------|
+| `tt-env-gen` | Generate `.env` file from `.env.example` with dynamic hardware detection |
+| `tt-compose` | Wrapper for `docker compose` with TableTop-specific defaults |
+| `tt-docker` | Wrapper for `docker` with TableTop environment variables |
+| `tt-devcontainer` | Build and manage the VSCode Dev Container |
+| `tt-dev-attach` | Attach to a running Dev Container |
+| `tt-buildkit` | Configure Docker BuildKit for optimized builds |
+| `tt-robot-network` | Create network interface for physical UR5e communication |
+| `tt-flicd` | Start the Flic daemon container with auto-restart on disconnect |
+| `tt-bluetooth-reset` | Reset Bluetooth module (useful for Flic issues) |
+| `tt-udev-configure` | Configure udev rules for hardware devices |
+| `tt-usbfs-configure` | Configure USB filesystem for FLIR cameras |
+| `tt-cpu-speed-scaling-disable` | Disable CPU frequency scaling (for real-time performance) |
+| `tt-port-forward` | Forward ports for remote access |
+
+### Container Commands (`bin/container/`)
+
+These commands are available inside Docker containers (rig, devcontainer):
+
+| Command | Description |
+|---------|-------------|
+| `tt-build` | Build ROS 2 packages with colcon |
+| `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, etc.) |
+| `tt-clean-ws` | Clean the colcon workspace |
+| `tt-clean-logs` | Clean ROS and colcon log files |
+| `tt-dep-install` | Install ROS 2 dependencies via rosdep |
+| `tt-display-set` | Configure DISPLAY variable for GUI (novnc or x11) |
+| `tt-calibrate` | Run UR5e calibration and save to config file |
+| `tt-create-graph` | Generate ROS 2 node/topic graph visualization |
+| `tt-kill-ros` | Kill all running ROS 2 processes |
+| `tt-teensy-connect` | Connect to Teensy serial port for debugging |
+
+### Common Commands (`bin/common/`)
+
+These commands work on both host and container:
+
+| Command | Description |
+|---------|-------------|
+| `tt-teensy-build` | Build and upload Teensy firmware via PlatformIO |
+| `tt-robot-scp` | Copy URCap files to the physical robot |
+
+### Build Command Options
+
+The `tt-build` command supports several options:
+
+```bash
+tt-build [options]
+
+Options:
+  --clean           Clean tabletop packages before building
+  --clean-all       Clean entire workspace before building
+  -a, --all         Build all packages (including moveit2)
+  -p, --packages    Build specific packages and their dependencies
+  -m, --only-modules Build only external modules (moveit2, etc.)
+  -w, --workers N   Limit parallel workers (useful for low-memory systems)
+  --build-debug     Build with debug symbols
+  --clang           Use clang compiler
+  --linker NAME     Use specified linker (default: mold)
+  -v, --verbose     Verbose output
+```
+
+Examples:
+```bash
+# Build only tabletop packages (most common)
+tt-build
+
+# Build with clean workspace
+tt-build --clean
+
+# Build specific package
+tt-build -p tabletop_rig
+
+# Build all packages including moveit2
+tt-build --all
+
+# Build with limited parallelism (for low-memory systems)
+tt-build --workers 2
+```
+
+### Launch Command Options
+
+The `tt-launch` command provides shortcuts for common launch configurations:
+
+```bash
+tt-launch <type> [ros2_launch_args...]
+
+Types:
+  commander     Launch the Commander node only
+  rig           Launch the full rig (all hardware interfaces)
+  tasks         Launch the task runner
+  ur            Launch UR driver only
+  teensy        Launch Teensy interface only
+  flic          Launch Flic button interface only
+  flir          Launch FLIR camera driver
+  optitrack     Launch OptiTrack motion capture
+  rviz          Launch RViz visualization
+  foxglove      Launch Foxglove bridge
+```
+
+Examples:
+```bash
+# Launch full rig with mock hardware
+tt-launch rig robot_mode:=mock use_mock_teensy:=true
+
+# Launch tasks with specific configuration
+tt-launch tasks task:=foraging_ordered robot_mode:=ursim
+
+# Launch commander for the real robot
+tt-launch commander robot_mode:=real
+```
+
+
+## Python CLI Tools
+
+The `tabletop_py` package provides command-line tools for gaze estimation and
+data processing. These are available after sourcing `setup.bash`:
+
+| Command | Description |
+|---------|-------------|
+| `gaze-calibrate` | Run the full gaze calibration pipeline |
+| `gaze-preprocess` | Preprocess eye tracking and marker data |
+| `gaze-train` | Train gaze estimation neural network |
+| `gaze-visualize` | Visualize calibration data and predictions |
+
+### Gaze Calibration Pipeline
+
+```bash
+# Run full calibration pipeline
+gaze-calibrate -d /path/to/session --visualize
+
+# Preprocess data only
+gaze-preprocess -d /path/to/session --visualize
+
+# Train model only (assumes preprocessed data exists)
+gaze-train -d /path/to/session -c config/gaze_estimation.yaml
+
+# Visualize results
+gaze-visualize -d /path/to/session
+```
+
+### Additional Python Modules
+
+These modules can be run directly with `python -m`:
+
+```bash
+# Flic button client
+python -m tabletop_py.flic.client scan      # Scan for buttons
+python -m tabletop_py.flic.client listen    # Listen for button events
+python -m tabletop_py.flic.client info      # Get server info
+
+# Flic piano (musical keyboard using Flic buttons)
+python -m tabletop_py.flic.piano --key C --scale HarmonicMinor
+
+# Mesh utilities
+python -m tabletop_py.utils.mesh model.stl --preview
+python -m tabletop_py.utils.mesh model.stl --simplification convex_hull -o simplified.stl
+
+# EDF file conversion
+python -m tabletop_py.gaze.edf recording.edf -o recording.csv
+```
+
+
+## Configuration
+
+### Environment Setup (`setup.bash`)
+
+The `setup.bash` file configures the shell environment for TableTop development.
+Source it in your `.bashrc` or run it manually:
+
+```bash
+source /path/to/tabletop/setup.bash
+```
+
+This script:
+- Sets `TABLETOP_DIR` to the repository root
+- Configures ROS 2 environment variables (`RMW_IMPLEMENTATION`, `ROS_LOG_DIR`, etc.)
+- Sets robot IP addresses (`ROBOT_IP`, `REVERSE_IP`, `SIM_ROBOT_IP`, `SIM_REVERSE_IP`)
+- Activates the Python virtual environment (`.venv/`)
+- Sources the colcon workspace (`install/setup.bash`)
+- Adds `bin/common/` and context-specific `bin/` directories to PATH
+
+### Environment Variables (`.env`)
+
+The `.env` file contains Docker Compose configuration. Generate it using:
+
+```bash
+tt-env-gen        # Generate from .env.example
+tt-env-gen --clean # Regenerate from scratch
+```
+
+#### Required Variables (set in `.env.example`)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `USER_NAME` | Container username (should match host) | `mules` |
+| `USER_UID` | Container user ID (should match host) | `1000` |
+| `USER_GID` | Container group ID (should match host) | `1000` |
+| `NOVNC_DISPLAY` | Display number for noVNC server | `:20.0` |
+| `CUDA_VERSION` | CUDA version suffix for PyTorch | `130` |
+| `BIND_CONSISTENCY` | Docker bind mount consistency mode | `cached` |
+
+#### Auto-Generated Variables (by `tt-env-gen`)
+
+The `tt-env-gen` script automatically detects and configures:
+
+- **NVIDIA GPU**: Sets `COMMANDER_RUNTIME=nvidia` and configures CUDA
+- **FLIR Cameras**: Detects `/dev/flir/*` devices and maps them to `FLIR_DEV_*`
+- **Teensy**: Detects `/dev/ttyACM0` and sets `TEENSY_DEV`
+- **PulseAudio**: Configures audio socket mounting for sound playback
+- **Kitty Terminal**: Configures Kitty remote control socket
+
+### Robot Configuration (`env_files/`)
+
+Environment files for different robot configurations:
+
+| File | Description |
+|------|-------------|
+| `env_files/robot.env` | Real robot IP configuration |
+| `env_files/sim.env` | Simulator IP configuration |
+| `env_files/launch_*.env` | Preset launch configurations |
 
 ## Contributing
 
