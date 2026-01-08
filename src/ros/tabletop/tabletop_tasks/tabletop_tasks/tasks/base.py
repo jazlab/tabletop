@@ -1,3 +1,29 @@
+"""Base task classes for behavioral experiments.
+
+This module provides the abstract base class for all experimental tasks
+in the TableTop system. Tasks orchestrate the sequence of robot actions,
+subject interactions, and trial logic for behavioral experiments.
+
+The task architecture follows a standard trial-based structure:
+1. Prepare trial (fetch and position object)
+2. Run trial (present stimulus, collect response)
+3. Reset trial (return object to home position)
+
+Tasks work with trial generators to produce sequences of trials,
+and can be configured via YAML configuration files.
+
+Classes:
+    NullTrialGenerator: Placeholder generator that yields a single None trial.
+    BaseTask: Abstract base class for all experimental tasks.
+
+Example:
+    class MyTask(BaseTask):
+        async def run_trial(self, trial_spec):
+            await self.commander.reveal_smartglass()
+            response = await self.commander.flic_response_time()
+            return TrialFeedback(reaction_time=response)
+"""
+
 import asyncio
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
@@ -15,6 +41,8 @@ from tabletop_tasks.trial_generators.base import (
     TrialSpec,
 )
 
+#: Default MIDI note configuration for sound feedback.
+#: Used by tasks that play sounds during reward delivery.
 DEFAULT_NOTE = {
     "name": "C",
     "octave": 4,
@@ -24,11 +52,25 @@ DEFAULT_NOTE = {
 
 
 class NullTrialGenerator:
+    """Placeholder trial generator that yields a single None trial.
+
+    Used by tasks that don't require a trial generator but still
+    need to conform to the task execution interface.
+    """
+
     def __init__(self):
+        """Initialize the null generator."""
         self.returned = False
 
     def __next__(self) -> None:
-        """Generate a new trial."""
+        """Return None once, then stop iteration.
+
+        Returns:
+            None on first call.
+
+        Raises:
+            StopIteration: On subsequent calls.
+        """
         if self.returned:
             raise StopIteration
 
@@ -36,15 +78,34 @@ class NullTrialGenerator:
         return None
 
     def send(self, *args, **kwargs):
-        """Get trial feedback."""
+        """Accept and ignore trial feedback.
+
+        Args:
+            *args: Ignored positional arguments.
+            **kwargs: Ignored keyword arguments.
+        """
         pass
 
 
 class BaseTask(LoggerMixin, metaclass=ABCMeta):
-    """Abstract base class for all TableTop tasks.
+    """Abstract base class for all TableTop experimental tasks.
 
-    Tasks should define a `run` coroutine method that asynchronously executes
-    the task.
+    Tasks define the logic for running behavioral experiments, including
+    stimulus presentation, response collection, and reward delivery.
+    Subclasses must implement run_trial() to define trial-specific logic.
+
+    The default run() implementation provides a standard trial loop that:
+    1. Locks arms and occludes smartglass for safety
+    2. Prepares each trial (fetches and positions object)
+    3. Runs the trial and collects feedback
+    4. Resets the trial (returns object)
+
+    Subclasses can override run() for custom experiment structures.
+
+    Attributes:
+        commander: Reference to the Commander node for robot control.
+        _trial_generator: Generator producing TrialSpec objects.
+        _logger: ROS logger for this task.
     """
 
     def __init__(
@@ -53,23 +114,24 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
         logger_name: Optional[str] = None,
     ):
-        """Initialize base task.
+        """Initialize the base task.
 
         Args:
-            commander: Commander instance for interacting with the system
-            trial_generator: Trial generator instance or config associated with
-                task, if applicable
-            logger_name: Name to give logger
+            commander: Commander instance for robot and peripheral control.
+            trial_generator: Either a BaseTrialGenerator instance, or a dict
+                with "class" and "kwargs" keys for dynamic instantiation.
+                If None, tasks must handle trial generation themselves.
+            logger_name: Optional name for the ROS logger (currently unused).
+
+        Raises:
+            ValueError: If trial_generator dict specifies a class that isn't
+                a BaseTrialGenerator subclass.
         """
         self._commander = commander
 
         self._logger = rclpy.logging.get_logger("tabletop_task")
-        # if logger_name is None:
-        #     self._logger = logger
-        # else:
-        #     self._logger = logger.get_child(logger_name)
 
-        # Create trial_generator if necessary
+        # Create trial_generator from config dict if necessary
         if isinstance(trial_generator, Mapping):
             self._trial_generator = getattr(
                 importlib.import_module("tabletop_tasks.trial_generators"),
@@ -83,21 +145,29 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
             self._trial_generator = trial_generator
 
     def get_logger(self) -> RcutilsLogger:
-        """Get the task logger instance"""
+        """Get the task logger instance.
+
+        Returns:
+            ROS logger for this task.
+        """
         return self._logger
 
     @property
     def commander(self) -> Commander:
-        """Get the commander instance."""
+        """Get the commander instance.
+
+        Returns:
+            The Commander node reference for robot control.
+        """
         return self._commander
 
-    # @property
-    # def trial_generator(self) -> BaseTrialGenerator:
-    #     """Get the trial generator"""
-    #     return self._trial_generator
-
     async def _occlude_and_lock(self):
-        """Occlude smartglass, lock arms, and wait until safe to execute"""
+        """Occlude smartglass and lock arms concurrently.
+
+        Ensures safety before robot motion by blocking the subject's
+        view and constraining their arms. Waits for both operations
+        to complete.
+        """
         arm_lock_task = asyncio.create_task(
             self.commander.lock_arms_and_wait()
         )
@@ -109,12 +179,23 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         await smartglass_task
 
     async def _prepare_trial(self, trial_spec: TrialSpec):
-        """Fetch object for trial."""
+        """Prepare the object for a trial.
+
+        Fetches the specified object and moves it to the pre-presentation
+        position.
+
+        Args:
+            trial_spec: Trial specification containing the object ID.
+        """
         await self.commander.fetch_object(trial_spec.object_id)
         await self.commander.pre_present_object()
 
     async def _reset_trial(self):
-        """Reset and return object from previous trial"""
+        """Reset the object after a trial.
+
+        Resets the object to its home configuration and returns it
+        to its storage position.
+        """
         await self.commander.reset_object()
         await self.commander.return_object()
 
@@ -122,20 +203,31 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
     async def run_trial(
         self, trial_spec: TrialSpec | None
     ) -> TrialFeedback | None:
-        """Run one trial
+        """Run a single trial.
+
+        Subclasses must implement this method to define the trial-specific
+        logic including stimulus presentation, response collection, and
+        reward delivery.
 
         Args:
-            trial_spec: Trial specification for current trial. If no trial
-                generator was provided at instantiation, trial_spec will
-                be None
+            trial_spec: Specification for the current trial, or None if
+                no trial generator was provided.
 
         Returns:
-            TrialFeedback for the trial
+            TrialFeedback with behavioral measures from the trial,
+            or None if no feedback should be sent to the generator.
         """
 
     async def run(self) -> None:
-        """Run the task."""
+        """Run the complete task.
 
+        Executes the standard trial loop: for each trial from the
+        generator, prepares the trial, runs it, collects feedback,
+        and resets before the next trial.
+
+        The loop runs indefinitely, restarting the trial generator
+        when exhausted. Override this method for custom task structures.
+        """
         while True:
             async with self.commander:
                 await self._occlude_and_lock()
@@ -153,7 +245,3 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
                     # Reset object before next trial
                     await self._reset_trial()
-
-                    # TODO: Allow resetting and preparing to happen concurrently
-                    # reset_task = asyncio.create_task(self._reset_trial())
-                    # await reset_task
