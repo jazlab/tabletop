@@ -1,3 +1,27 @@
+"""PyTorch utilities for gaze estimation model training.
+
+This module provides utility functions and classes for training neural
+network models for gaze estimation. It includes dataset handling,
+dataloader initialization, and dynamic model/optimizer instantiation.
+
+Functions:
+    seed_everything: Set random seeds for reproducibility.
+    configure_torch_dtype: Configure PyTorch default dtype and precision.
+    init_dataloaders: Create train/val/test dataloaders with K-fold CV.
+    init_model: Dynamically load model classes from gaze.models.
+    init_optimizer: Dynamically load optimizers from torch.optim.
+    init_criterion: Dynamically load loss functions from torch.nn.
+
+Classes:
+    GazeDataset: PyTorch Dataset for eye tracking data.
+
+Example:
+    seed_everything(42)
+    configure_torch_dtype(torch.float32)
+    train_val_gen, test_loader = init_dataloaders(df, test_size=0.2, ...)
+    model = init_model("GazeEstimationModelMLP", input_size=4, ...)
+"""
+
 import importlib
 import random
 from collections.abc import Generator
@@ -13,6 +37,13 @@ from torch.utils.data import DataLoader, Dataset
 
 
 def seed_everything(seed: int):
+    """Set random seeds for reproducibility across all libraries.
+
+    Sets seeds for PyTorch (CPU and CUDA), NumPy, and Python's random module.
+
+    Args:
+        seed: The random seed value.
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -23,12 +54,34 @@ def seed_everything(seed: int):
 def configure_torch_dtype(
     dtype: torch.dtype = torch.float32, matmul_precision: str = "high"
 ):
+    """Configure PyTorch default dtype and matrix multiplication precision.
+
+    Args:
+        dtype: Default tensor dtype (default torch.float32).
+        matmul_precision: Matrix multiplication precision level.
+            Options: "highest", "high", "medium" (default "high").
+    """
     torch.set_default_dtype(dtype)
     torch.set_float32_matmul_precision(matmul_precision)
 
 
 class GazeDataset(Dataset):
+    """PyTorch Dataset for gaze estimation training data.
+
+    Loads eye tracking data (EYELINK_DATA_COLS) as inputs and motion capture
+    marker positions (MARKER_DATA_COLS) as targets from a pandas DataFrame.
+
+    Attributes:
+        x: Input tensor of eye tracking data (shape: [N, num_input_features]).
+        y: Target tensor of marker positions (shape: [N, 3]).
+    """
+
     def __init__(self, df: pd.DataFrame):
+        """Initialize the dataset from a DataFrame.
+
+        Args:
+            df: DataFrame containing both EYELINK_DATA_COLS and MARKER_DATA_COLS.
+        """
         from tabletop_py.gaze.preprocess import (
             EYELINK_DATA_COLS,
             MARKER_DATA_COLS,
@@ -42,6 +95,12 @@ class GazeDataset(Dataset):
         )
 
     def stats(self) -> dict[str, torch.Tensor]:
+        """Compute dataset statistics for normalization.
+
+        Returns:
+            Dictionary with keys "x_mean", "x_std", "y_mean", "y_std"
+            containing the mean and standard deviation for inputs and targets.
+        """
         return {
             "x_mean": self.x.mean(dim=0),
             "x_std": self.x.std(dim=0),
@@ -50,9 +109,18 @@ class GazeDataset(Dataset):
         }
 
     def __len__(self):
+        """Return the number of samples in the dataset."""
         return self.x.shape[0]
 
     def __getitem__(self, idx):
+        """Get a single sample by index.
+
+        Args:
+            idx: Sample index.
+
+        Returns:
+            Tuple of (input_features, target_position).
+        """
         return self.x[idx], self.y[idx]
 
 
@@ -120,6 +188,15 @@ def init_dataloaders(
 
 
 def init_model(name: str, **kwargs) -> nn.Module:
+    """Dynamically instantiate a model class from tabletop_py.gaze.models.
+
+    Args:
+        name: Name of the model class (e.g., "GazeEstimationModelMLP").
+        **kwargs: Arguments passed to the model constructor.
+
+    Returns:
+        Instantiated model.
+    """
     model_class: type[nn.Module] = getattr(
         importlib.import_module("tabletop_py.gaze.models"), name
     )
@@ -128,6 +205,16 @@ def init_model(name: str, **kwargs) -> nn.Module:
 
 
 def init_optimizer(model: nn.Module, name: str, **kwargs) -> optim.Optimizer:
+    """Dynamically instantiate an optimizer from torch.optim.
+
+    Args:
+        model: Model whose parameters will be optimized.
+        name: Name of the optimizer class (e.g., "Adam", "SGD").
+        **kwargs: Arguments passed to the optimizer constructor.
+
+    Returns:
+        Instantiated optimizer.
+    """
     optimizer_class: type[optim.Optimizer] = getattr(
         importlib.import_module("torch.optim"),
         name,  # type: ignore
@@ -137,6 +224,15 @@ def init_optimizer(model: nn.Module, name: str, **kwargs) -> optim.Optimizer:
 
 
 def init_criterion(name: str, **kwargs) -> nn.Module:
+    """Dynamically instantiate a loss criterion from torch.nn.
+
+    Args:
+        name: Name of the loss class (e.g., "MSELoss", "L1Loss").
+        **kwargs: Arguments passed to the loss constructor.
+
+    Returns:
+        Instantiated loss function.
+    """
     criterion_class: type[nn.Module] = getattr(
         importlib.import_module("torch.nn"), name
     )

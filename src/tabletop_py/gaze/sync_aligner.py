@@ -1,11 +1,42 @@
+"""Temporal synchronization between multiple data streams.
+
+This module provides tools for aligning timestamps between different
+data sources (e.g., EyeLink, OptiTrack, Arduino) by detecting matching
+patterns in synchronized trigger signals.
+
+The alignment process:
+1. Extract time intervals between trigger pulses in each stream
+2. Find matching sequences of intervals across streams
+3. Compute linear regression between timestamps
+4. Apply offset correction to align secondary stream to primary
+
+Constants:
+    THRESHOLD: Maximum allowed difference between intervals for matching.
+    CONSECUTIVE_MATCHES: Required consecutive matches to confirm alignment.
+
+Functions:
+    find_streak_intervals: Extract time intervals from trigger signal.
+    find_matching_index_and_start_time: Find alignment between streams.
+    calculate_time_intervals_and_correlation: Compute sync parameters.
+    align_secondary_csv: Apply alignment offset to secondary CSV.
+
+Example:
+    slope, intercept, rms_error, outliers = calculate_time_intervals_and_correlation(
+        "primary.csv", "secondary.csv"
+    )
+    align_secondary_csv("secondary.csv", "aligned.csv", intercept)
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
-# Constants
+#: Maximum time difference (seconds) for interval matching
 THRESHOLD = 0.04
+
+#: Required number of consecutive interval matches for alignment
 CONSECUTIVE_MATCHES = 80
 
 

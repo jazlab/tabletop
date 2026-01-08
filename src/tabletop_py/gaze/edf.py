@@ -1,3 +1,35 @@
+"""EyeLink EDF file format handling and conversion.
+
+This module provides utilities for working with EyeLink EDF (EyeLink Data
+Format) files, the native format produced by EyeLink eye trackers.
+
+EDF files are binary and require conversion to ASCII (ASC) format before
+they can be processed. This module wraps the EyeLink edf2asc utility and
+provides DataFrame conversion.
+
+Functions:
+    edf_to_asc: Convert EDF binary file to ASCII format.
+    asc_to_df: Parse ASCII eye tracking data into a DataFrame.
+    edf_to_csv: Full pipeline from EDF to CSV file.
+    main: CLI entry point for EDF to CSV conversion.
+
+Supported Data Formats:
+    - Monocular: 5 columns (time, left_x, left_y, left_pupil, input)
+    - Binocular: 8 columns (adds right_x, right_y, right_pupil)
+
+Dependencies:
+    Requires the edf2asc utility from EyeLink Developers Kit to be
+    installed and available on PATH.
+
+Example:
+    # Convert EDF to CSV
+    python -m tabletop_py.gaze.edf recording.edf -o recording.csv
+
+    # Programmatic usage
+    csv_path = edf_to_csv("recording.edf", keep_asc=False)
+    df = pd.read_csv(csv_path)
+"""
+
 import argparse
 import io
 import logging

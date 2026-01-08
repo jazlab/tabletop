@@ -1,14 +1,53 @@
-"""Flic client library for python
+"""Async Flic button client library for Python.
 
-Requires python 3.3 or higher.
+This module provides an asynchronous client for communicating with Flic
+Bluetooth buttons via the Flic daemon server. It implements the Flic
+protocol for button discovery, connection management, and event handling.
 
-For detailed documentation, see the protocol documentation.
+The library uses asyncio for non-blocking I/O and supports:
+- Scanning for nearby Flic buttons
+- Connecting to and disconnecting from buttons
+- Receiving button events (press, release, click, double-click, hold)
+- Battery status monitoring
+- Button discovery via ScanWizard
 
-Notes on the data type used in this python implementation compared to the protocol documentation:
-All kind of integers are represented as python integers.
-Booleans use the Boolean type.
-Enums use the defined python enums below.
-Bd addr are represented as standard python strings, e.g. "aa:bb:cc:dd:ee:ff".
+Data Type Conventions:
+    - Integers: Standard Python integers
+    - Booleans: Python bool type
+    - Enums: Defined Python Enum classes (see below)
+    - Bluetooth addresses: Strings in format "aa:bb:cc:dd:ee:ff"
+
+Classes:
+    FlicClient: Main async client (asyncio.Protocol) for server communication.
+    ButtonConnectionChannel: Manages connection to individual buttons.
+    ButtonScanner: Scans for button advertisement packets.
+    ScanWizard: High-level button discovery and pairing wizard.
+    BatteryStatusListener: Monitors button battery status.
+
+Enums:
+    ClickType: Button event types (ButtonDown, ButtonUp, Click, etc.)
+    ConnectionStatus: Connection states (Disconnected, Connected, Ready)
+    LatencyMode: Connection latency settings (Normal, Low, High)
+
+Example:
+    async def main():
+        loop = asyncio.get_event_loop()
+        _, client = await loop.create_connection(
+            lambda: FlicClient(loop=loop), "localhost", 5551
+        )
+
+        channel = ButtonConnectionChannel("aa:bb:cc:dd:ee:ff")
+        client.add_connection_channel(channel)
+        await channel.wait_for_creation()
+
+        event_time = await channel.wait_for_button_event(ClickType.ButtonDown)
+        print(f"Button pressed at {event_time}")
+
+        client.close()
+
+Note:
+    Requires a running Flic daemon (flicd) to communicate with buttons.
+    See https://github.com/50ButtonsEach/fliclib-linux-hci for setup.
 """
 
 import argparse
@@ -101,23 +140,54 @@ class ScanWizardResult(Enum):
 
 
 class ScanWizardError(Exception):
-    """Scan wizard error"""
+    """Exception raised when scan wizard fails to complete successfully.
+
+    Attributes:
+        result: The ScanWizardResult indicating the failure reason.
+    """
 
     def __init__(self, result: ScanWizardResult):
+        """Initialize with the scan wizard result.
+
+        Args:
+            result: The ScanWizardResult indicating failure reason.
+        """
         self.result = result
         super().__init__(f"Scan wizard failed: {result}")
 
 
 class ConnectionChannelError(Exception):
-    """Connection channel error"""
+    """Exception raised when connection channel creation fails.
+
+    Attributes:
+        error: The CreateConnectionChannelError indicating the failure reason.
+    """
 
     def __init__(self, error: CreateConnectionChannelError):
+        """Initialize with the connection channel error.
+
+        Args:
+            error: The CreateConnectionChannelError indicating failure reason.
+        """
         self.error = error
         super().__init__(f"Connection channel not created: {error}")
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
 class ButtonInfo:
+    """Information about a Flic button.
+
+    Immutable dataclass containing button identification and version info.
+
+    Attributes:
+        bd_addr: Bluetooth address (e.g., "aa:bb:cc:dd:ee:ff").
+        uuid: Button UUID, if available.
+        color: Button color name, if available.
+        serial_number: Button serial number, if available.
+        flic_version: Flic protocol version.
+        firmware_version: Button firmware version.
+    """
+
     bd_addr: str
     uuid: str | None
     color: str | None
@@ -128,6 +198,21 @@ class ButtonInfo:
 
 @dataclass(slots=True, kw_only=True, frozen=True)
 class Info:
+    """Information about the Flic server and its state.
+
+    Immutable dataclass containing server status and capabilities.
+
+    Attributes:
+        bluetooth_controller_state: Current state of the Bluetooth controller.
+        my_bd_addr: Bluetooth address of this device.
+        my_bd_addr_type: Type of Bluetooth address (public or random).
+        max_pending_connections: Maximum allowed pending connections.
+        max_concurrently_connected_buttons: Maximum simultaneous connections.
+        current_pending_connections: Number of currently pending connections.
+        currently_no_space_for_new_connection: True if connection limit reached.
+        bd_addr_of_verified_buttons: Tuple of verified button addresses.
+    """
+
     bluetooth_controller_state: BluetoothControllerState
     my_bd_addr: str
     my_bd_addr_type: BdAddrType
