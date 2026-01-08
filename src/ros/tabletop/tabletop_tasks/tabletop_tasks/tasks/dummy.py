@@ -1,4 +1,13 @@
-"""Base task module."""
+"""Dummy task for testing and placeholder purposes.
+
+This module provides a minimal task implementation that does nothing
+but keep the commander context alive. Useful for testing the task
+infrastructure or as a placeholder during development.
+
+Example:
+    task = DummyTask(commander)
+    await task.run()  # Runs indefinitely, sleeping each second
+"""
 
 import asyncio
 import random
@@ -20,17 +29,48 @@ from tabletop_tasks.trial_generators.base import (
 
 
 class DummyTask(BaseTask):
-    """Dummy task."""
+    """Minimal placeholder task that runs indefinitely.
+
+    This task maintains an active commander context while doing no
+    actual work. It's useful for:
+    - Testing the task infrastructure
+    - Keeping robot connections alive during debugging
+    - Serving as a template for new task implementations
+
+    Unlike other tasks, DummyTask does not use a trial generator
+    and overrides run() to provide its own infinite loop.
+    """
 
     def __init__(self, commander: Commander) -> None:
+        """Initialize the dummy task.
+
+        Args:
+            commander: Commander instance for robot interaction.
+        """
         super().__init__(commander, logger_name="dummy_task")
 
     async def run_trial(
         self, trial_spec: TrialSpec | None
     ) -> TrialFeedback | None:
+        """Not implemented for dummy task.
+
+        This method exists only to satisfy the abstract base class
+        requirement. DummyTask overrides run() directly.
+
+        Args:
+            trial_spec: Unused trial specification.
+
+        Returns:
+            None (never called).
+        """
         pass
 
-    async def run0(self):
+    async def run0(self) -> None:
+        """Test method for debugging object grid positioning.
+
+        Continuously logs the end-effector position relative to the
+        grid origin. Useful for calibrating object placement.
+        """
         grid_origin_kwargs = self.commander.param(
             "planning_scene.object_meshes.grid_origin"
         )
@@ -59,7 +99,12 @@ class DummyTask(BaseTask):
             )
             await asyncio.sleep(1.0)
 
-    async def run(self):
+    async def run(self) -> None:
+        """Test Flic button response times across multiple objects.
+
+        Iterates through small objects 15-29 and measures Flic button
+        response times, computing average and standard deviation.
+        """
         flic_rts = []
         total_rts = []
         for idx in range(15, 30):
@@ -79,7 +124,13 @@ class DummyTask(BaseTask):
         self.log(f"Reported avg: {flic_avg:.4f}s, std: {flic_std:.6f}")
         self.log(f"Total avg: {total_avg:.4f}s, std: {total_std:.6f}")
 
-    async def run2(self):
+    async def run2(self) -> None:
+        """Test Flic response times with smartglass occlusion.
+
+        Tests the full trial sequence with smartglass occlusion and
+        reveal, measuring corrected response times that account for
+        the occlusion period.
+        """
         rts = []
         try:
             for idx in range(15, 30):
