@@ -166,3 +166,8 @@ This gets its own section because it's a pain in the ass.
     ./scripts/teensy_build.sh
     ```
 2. When in doubt, try unplugging it and plugging it back in.
+
+## Robot
+
+1. Running `tt-calibrate` more than once does nothing, the calibration is
+    saved on the robot and doesn't change

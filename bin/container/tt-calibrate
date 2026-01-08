@@ -12,7 +12,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 calib_file="$1"
-config_dir=$(colcon_cd tabletop_description)/config
+config_dir="$(colcon list --paths-only --packages-select tabletop_description)/config"
 target_file="$config_dir/$calib_file"
 
 if [[ -f "$target_file" ]]; then
@@ -25,4 +25,4 @@ if [[ -f "$target_file" ]]; then
 fi
 
 
-ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=$ROBOT_IP target_filename:=$target_file
+ros2 launch ur_calibration calibration_correction.launch.py "robot_ip:=$ROBOT_IP" "target_filename:=$target_file"

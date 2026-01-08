@@ -329,7 +329,11 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 os.makedirs(path)
             elif ext != ".db":
                 raise ValueError(f"Invalid cache file extension: {ext}")
-        elif not os.path.isdir(path) and new_cache:
+        elif os.path.isdir(path):
+            # We need to make a new cache if the directory is empty
+            if not any(os.scandir(path)):
+                new_cache = True
+        elif new_cache:
             raise ValueError(
                 "Cannot create a new cache file if path is not a directory"
             )

@@ -93,9 +93,9 @@ def generate_launch_description():
             FindPackageShare("tabletop_description"),
             "config",
             IfElseSubstitution(
-                EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
-                "ur5e_calibration.yaml",
+                EqualsSubstitution(LaunchConfiguration("robot_mode"), "ursim"),
                 "ursim_calibration.yaml",
+                "ur5e_calibration.yaml",
             ),
         ]
     )
