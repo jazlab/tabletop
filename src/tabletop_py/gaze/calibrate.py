@@ -1,3 +1,27 @@
+"""High-level calibration orchestrator for gaze estimation.
+
+This module provides the main entry point for calibrating gaze estimation
+models. It orchestrates the full pipeline from raw ROS bag data to a
+trained model:
+
+1. Convert ROS bags to CSV (if not already done)
+2. Preprocess eye tracking and marker data
+3. Train and evaluate the gaze estimation model
+
+The calibration uses data from a calibration session where the subject
+tracks a known marker position, providing ground truth for training.
+
+Functions:
+    main: CLI entry point for the calibration pipeline.
+
+Example:
+    # Run calibration on a session
+    python -m tabletop_py.gaze.calibrate -d /path/to/session --visualize
+
+    # Force reprocessing of all steps
+    python -m tabletop_py.gaze.calibrate -d /path/to/session --force
+"""
+
 import argparse
 import logging
 import os
