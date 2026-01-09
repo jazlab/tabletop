@@ -14,6 +14,7 @@ Services provided:
     /dashboard_client/play: Start program execution
     /dashboard_client/get_safety_mode: Get current safety mode
     /dashboard_client/get_robot_mode: Get current robot mode
+    /dashboard_client/is_in_remote_control: Check if robot is in remote control
 
 Actions provided:
     /ur_robot_state_helper/set_mode: Change robot operational mode
@@ -196,7 +197,7 @@ class MockDashboard(BaseNode):
         request: Load.Request,
         response: Load.Response,
         service_name: str,
-    ) -> DashboardLoad.Response:
+    ) -> Load.Response:
         """Handle load_program and load_installation service requests.
 
         Args:
@@ -256,8 +257,18 @@ class MockDashboard(BaseNode):
         self,
         request: IsInRemoteControl.Request,
         response: IsInRemoteControl.Response,
-    ):
-        """Callback for GetRobotMode service."""
+    ) -> IsInRemoteControl.Response:
+        """Check if the robot is in remote control mode.
+
+        Always returns True for remote control in the mock implementation.
+
+        Args:
+            request: The service request (empty).
+            response: The response to populate.
+
+        Returns:
+            Response with remote_control set to True.
+        """
         self.log("Received IsInRemoteControl request")
         response.remote_control = True
         response.answer = "Robot is in Remote Control"
