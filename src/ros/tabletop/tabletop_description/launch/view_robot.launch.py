@@ -25,8 +25,34 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
-# Author: Denis Stogl
+"""ROS 2 launch file for visualizing the robot model in RViz.
+
+This launch file provides a standalone visualization setup for viewing and
+interacting with the robot URDF model. It launches joint state publishers
+(with optional GUI) and RViz for 3D visualization.
+
+Useful for verifying URDF changes, testing joint limits, and debugging
+robot description issues without connecting to hardware.
+
+Launch Arguments:
+    ur_type: UR robot series (default: ur5e)
+    robot_ip: Robot IP for URDF generation (default: 192.168.12.20)
+    description_launchfile: Path to robot state publisher launch file
+    rviz_config_file: Path to RViz configuration file
+    joint_state_publisher_gui: Launch interactive joint slider GUI (default: false)
+    initial_joint_state: Initial joint positions as list
+
+Nodes Launched:
+    joint_state_publisher: Publishes static joint states (or GUI version)
+    robot_state_publisher: Publishes robot transforms (via included launch)
+    rviz2: 3D visualization (exits on close)
+
+Example:
+    # View robot with joint slider GUI
+    ros2 launch tabletop_description view_robot.launch.py joint_state_publisher_gui:=true
+
+Author: Denis Stogl
+"""
 
 import math
 
@@ -47,6 +73,12 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def declare_arguments():
+    """Declare launch arguments for robot visualization.
+
+    Returns:
+        List of DeclareLaunchArgument actions for configuring the
+        robot type, description files, RViz config, and joint publisher options.
+    """
     return [
         DeclareLaunchArgument(
             "ur_type",
@@ -105,6 +137,19 @@ def declare_arguments():
 
 
 def generate_launch_description():
+    """Generate the launch description for robot visualization.
+
+    Creates and configures nodes for robot visualization:
+    - Joint state publisher (static or GUI-based)
+    - Robot state publisher (via included launch file)
+    - RViz2 with configured view
+
+    The joint state publisher initializes joints to a neutral pose with
+    shoulder_lift and elbow at 90 degrees.
+
+    Returns:
+        LaunchDescription containing all visualization nodes.
+    """
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
     robot_ip = LaunchConfiguration("robot_ip")

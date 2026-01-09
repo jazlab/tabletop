@@ -25,9 +25,32 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+"""ROS 2 launch file for the robot state publisher.
 
-#
-# Author: Felix Exner
+This launch file generates the URDF robot description from xacro files and
+starts the robot_state_publisher node. It supports the full range of
+Universal Robots configurations including hardware interfaces, safety
+parameters, and tool communication settings.
+
+The launch file also saves the generated URDF to a cache directory for
+debugging and external tool access.
+
+Launch Arguments:
+    ur_type: UR robot series (ur3, ur3e, ur5, ur5e, ur10, ur10e, ur16e, etc.)
+    robot_ip: IP address of the robot controller
+    safety_limits: Enable safety limits controller (default: true)
+    kinematics_params_file: Robot-specific calibration file
+    use_mock_hardware: Use mock hardware for simulation (default: false)
+    reverse_ip: IP for robot-to-driver communication (default: 0.0.0.0)
+
+Nodes Launched:
+    robot_state_publisher: Publishes robot transforms based on URDF
+
+Example:
+    ros2 launch tabletop_description rsp.launch.py ur_type:=ur5e robot_ip:=192.168.12.20
+
+Author: Felix Exner
+"""
 
 import os
 
@@ -45,6 +68,15 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """Generate the launch description for robot state publisher.
+
+    Creates launch configurations from arguments, generates URDF from xacro,
+    saves it to cache, and launches the robot_state_publisher node.
+
+    Returns:
+        LaunchDescription containing declared arguments, URDF save action,
+        and robot_state_publisher node.
+    """
     ur_type = LaunchConfiguration("ur_type")
     robot_ip = LaunchConfiguration("robot_ip")
     safety_limits = LaunchConfiguration("safety_limits")
@@ -201,6 +233,14 @@ def generate_launch_description():
     )
 
     def urdf_save(context):
+        """Save the generated URDF to the cache directory.
+
+        Writes the URDF string to $TABLETOP_CACHE_DIR/tabletop.urdf,
+        overwriting any existing file.
+
+        Args:
+            context: Launch context for evaluating substitutions.
+        """
         urdf_str = robot_description_content.perform(context)
 
         urdf_dir = os.environ["TABLETOP_CACHE_DIR"]
