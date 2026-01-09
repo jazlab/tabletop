@@ -1,3 +1,31 @@
+"""ROS 2 launch file for combined UR robot driver and MoveIt.
+
+This launch file provides a complete setup for running the UR robot with
+MoveIt motion planning. It includes both the ur_robot_driver for hardware
+communication and the MoveIt move_group for planning.
+
+This is a convenience launch file that combines:
+- ur_robot_driver/ur_control.launch.py: Robot driver and controllers
+- tabletop_moveit_config/moveit.launch.py: MoveIt planning
+
+The launch arguments are pre-configured for the TableTop UR5e setup with
+URSim calibration. Modify the launch arguments for different configurations.
+
+Included Launch Files:
+    ur_robot_driver/ur_control.launch.py: UR robot control and communication
+    tabletop_moveit_config/moveit.launch.py: MoveIt motion planning
+
+Default Configuration:
+    ur_type: ur5e
+    robot_ip: 192.168.12.20
+    reverse_ip: 192.168.12.10
+    use_mock_hardware: false
+    launch_rviz: true (via MoveIt launch)
+
+Example:
+    ros2 launch tabletop_moveit_config ur_moveit.launch.py
+"""
+
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -6,6 +34,14 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """Generate the launch description for UR robot with MoveIt.
+
+    Includes the UR robot driver launch file with TableTop-specific
+    configuration, followed by the MoveIt launch file for motion planning.
+
+    Returns:
+        LaunchDescription containing included UR driver and MoveIt launches.
+    """
     # launch_logging_config.level = logging.DEBUG
     # UR Robot Driver
     ur_robot_driver = IncludeLaunchDescription(

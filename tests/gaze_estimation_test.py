@@ -1,3 +1,26 @@
+"""Unit tests for gaze estimation geometric models.
+
+This module contains pytest test cases for the gaze estimation model
+components in tabletop_py.gaze.models, including:
+
+- nearest_focus: Finding closest points between two 3D lines
+- intersect_ray_sphere: Ray-sphere intersection for eye modeling
+- GazeEstimationModelGeometric: Full geometric gaze estimation model
+
+Test Classes:
+    TestNearestFocus: Tests for line-line closest point algorithms.
+    TestIntersectRaySphere: Tests for ray-sphere intersection.
+    TestGazeEstimationModelGeometric: Integration tests for full model.
+
+Helper Functions:
+    assert_tensors_equal: Compare tensors with tolerance.
+    assert_all_tensors_equal: Compare lists of tensors.
+    get_default_model_params: Create default model initialization parameters.
+
+Example:
+    pytest tests/gaze_estimation_test.py -v
+"""
+
 from typing import Any
 
 import pytest
@@ -16,6 +39,16 @@ from tabletop_py.gaze.models import (
 def assert_tensors_equal(
     t0: torch.Tensor, t1: torch.Tensor, tol: float = 1e-6
 ):
+    """Assert two tensors are approximately equal.
+
+    Args:
+        t0: First tensor to compare.
+        t1: Second tensor to compare.
+        tol: Absolute tolerance for comparison (default: 1e-6).
+
+    Raises:
+        AssertionError: If tensors differ by more than tolerance.
+    """
     assert torch.allclose(t0, t1, atol=tol), f"Tensors not equal:\n{t0}\n{t1}"
 
 
@@ -24,12 +57,30 @@ def assert_all_tensors_equal(
     t1s: list[torch.Tensor] | tuple[torch.Tensor, ...],
     tol: float = 1e-6,
 ):
+    """Assert corresponding tensors in two sequences are approximately equal.
+
+    Args:
+        t0s: First sequence of tensors.
+        t1s: Second sequence of tensors.
+        tol: Absolute tolerance for comparison (default: 1e-6).
+
+    Raises:
+        AssertionError: If any corresponding tensor pair differs.
+    """
     for t0, t1 in zip(t0s, t1s):
         assert_tensors_equal(t0, t1, tol)
 
 
 class TestNearestFocus:
+    """Test cases for nearest_focus line intersection algorithms.
+
+    Tests the nearest_focus and nearest_focus_cross functions which find
+    the closest points between two 3D lines (rays). These are used in
+    gaze estimation to find where left and right eye gaze vectors converge.
+    """
+
     def test_simple_non_parallel_lines(self):
+        """Test basic case with perpendicular, non-intersecting lines."""
         p0 = torch.tensor([[0.0, 0.0, 0.0]])
         v0 = torch.tensor([[1.0, 0.0, 0.0]])
         p1 = torch.tensor([[0.0, 1.0, 0.0]])
@@ -145,7 +196,15 @@ class TestNearestFocus:
 
 
 class TestIntersectRaySphere:
+    """Test cases for ray-sphere intersection algorithm.
+
+    Tests the intersect_ray_sphere function which computes where a ray
+    intersects a sphere surface. This is used to model how gaze rays
+    exit the eyeball (approximated as a sphere).
+    """
+
     def test_single_intersection(self):
+        """Test ray hitting sphere center from outside."""
         ray_origin = torch.tensor([[0.0, 0.0, -2.0]])
         ray_direction = torch.tensor([[0.0, 0.0, 1.0]])
         sphere_center = torch.tensor([[0.0, 0.0, 0.0]])
@@ -251,9 +310,26 @@ class TestIntersectRaySphere:
             )
 
 
-# Helper function to create default parameters for EyeTrackingModel
 def get_default_model_params(device: str = "cpu") -> dict[str, Any]:
-    """Provides a default set of parameters for EyeTrackingModel initialization."""
+    """Create default parameters for GazeEstimationModelGeometric initialization.
+
+    Provides a reasonable set of camera and eye parameters for testing.
+    Uses identity transforms and centered intrinsics with small camera
+    offsets to simulate a binocular eye tracking setup.
+
+    Args:
+        device: PyTorch device for tensor allocation (default: "cpu").
+
+    Returns:
+        Dictionary containing:
+            - camera_left_tf: 4x4 transform for left camera
+            - camera_right_tf: 4x4 transform for right camera
+            - camera_left_intrinsic: 3x3 intrinsic matrix
+            - camera_right_intrinsic: 3x3 intrinsic matrix
+            - eye_left_center: 3D position of left eye center
+            - eye_right_center: 3D position of right eye center
+            - eye_radius: Radius of eye sphere (meters)
+    """
     params = {
         "camera_left_tf": torch.eye(4, dtype=torch.float32, device=device),
         "camera_right_tf": torch.eye(4, dtype=torch.float32, device=device),
@@ -282,14 +358,23 @@ def get_default_model_params(device: str = "cpu") -> dict[str, Any]:
 
 
 class TestGazeEstimationModelGeometric:
+    """Integration tests for the full geometric gaze estimation model.
+
+    Tests the GazeEstimationModelGeometric class which combines camera
+    projection, ray-sphere intersection, and binocular convergence to
+    estimate 3D gaze focus points from 2D pupil coordinates.
+    """
+
     @pytest.fixture
     def default_params(self) -> dict[str, Any]:
+        """Fixture providing default model parameters."""
         return get_default_model_params()
 
     @pytest.fixture
     def model(
         self, default_params: dict[str, Any]
     ) -> GazeEstimationModelGeometric:
+        """Fixture providing an initialized model with default parameters."""
         return GazeEstimationModelGeometric(**default_params)
 
     def test_model_initialization(

@@ -25,9 +25,36 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+"""ROS 2 launch file for MoveIt 2 motion planning.
 
-#
-# Author: Felix Exner
+This launch file starts the MoveIt move_group node with the TableTop robot
+configuration. It waits for the robot description to be available before
+launching to ensure proper initialization.
+
+The launch file configures:
+- MoveIt semantic robot description (SRDF) from xacro
+- Warehouse database for storing robot states (SQLite backend)
+- Optional RViz visualization with MoveIt plugin
+
+Launch Arguments:
+    launch_rviz: Start RViz with MoveIt configuration (default: true)
+    rviz_config_file: Path to RViz config file
+    ur_type: UR robot series for SRDF generation
+    warehouse_sqlite_path: Path to SQLite database for warehouse
+    use_sim_time: Use simulated time (default: false)
+    publish_robot_description_semantic: Publish SRDF to topic (default: true)
+
+Nodes Launched:
+    wait_for_robot_description: Blocks until robot_description is available
+    move_group: MoveIt planning and execution node
+    rviz2_moveit: RViz with MoveIt configuration (optional)
+
+Example:
+    ros2 launch tabletop_moveit_config moveit.launch.py ur_type:=ur5e
+
+Author: Felix Exner
+"""
+
 import os
 
 from launch import LaunchDescription
@@ -41,6 +68,12 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def declare_arguments():
+    """Declare launch arguments for MoveIt configuration.
+
+    Returns:
+        LaunchDescription containing argument declarations for RViz,
+        robot type, warehouse database, and simulation time settings.
+    """
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -92,6 +125,17 @@ def declare_arguments():
 
 
 def generate_launch_description():
+    """Generate the launch description for MoveIt motion planning.
+
+    Builds MoveIt configuration using MoveItConfigsBuilder, sets up
+    warehouse database connection, and creates nodes for motion planning.
+    Uses event handlers to ensure move_group and RViz start only after
+    robot description is available.
+
+    Returns:
+        LaunchDescription with wait_for_robot_description node and
+        event-triggered move_group and RViz nodes.
+    """
     launch_rviz = LaunchConfiguration("launch_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     ur_type = LaunchConfiguration("ur_type")
