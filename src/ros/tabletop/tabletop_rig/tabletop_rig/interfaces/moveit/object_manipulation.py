@@ -1,3 +1,29 @@
+"""Object manipulation state machine for pick-and-place operations.
+
+This module extends PlanAndExecuteInterface with high-level object manipulation
+capabilities, implementing a state machine for fetching, presenting, and
+returning objects during experiments.
+
+State Machine Phases (ObjectPhase):
+    PRE_FETCH -> PRE_ATTACH -> ATTACH -> POST_ATTACH -> POST_FETCH
+    -> PRE_PRESENT -> PRESENT -> UNPRESENT
+    -> PRE_RETURN -> PRE_DETACH -> DETACH -> POST_DETACH -> POST_RETURN -> IDLE
+
+Key Operations:
+    - fetch_object(): Pick up an object from its rest position
+    - present_object(): Move to presentation position with held object
+    - return_object(): Return object to its rest position and release
+    - reset_object(): Return object after an interrupted operation
+
+The interface manages object attachment state, collision allowances, and
+coordinates with the planning scene for proper collision checking during
+manipulation.
+
+Configuration:
+    Object manipulation parameters (waypoints, collision settings) are loaded
+    from YAML files in the configured objects directory.
+"""
+
 import asyncio
 import os
 from collections.abc import Callable, Coroutine
@@ -33,6 +59,28 @@ from tabletop_rig.utils.ros import (
 
 
 class ObjectPhase(IntEnum):
+    """State machine phases for object manipulation.
+
+    The phases track the current state of object manipulation, from
+    idle through fetch, present, and return operations.
+
+    Attributes:
+        PRE_FETCH: Moving toward object for pickup.
+        PRE_ATTACH: At object, preparing to grasp.
+        ATTACH: Grasping/attaching object.
+        POST_ATTACH: Object attached, preparing to move away.
+        POST_FETCH: Moving away with object.
+        PRE_PRESENT: Moving toward presentation position.
+        PRESENT: At presentation position, object visible.
+        UNPRESENT: Moving away from presentation.
+        PRE_RETURN: Moving toward return position.
+        PRE_DETACH: At return position, preparing to release.
+        DETACH: Releasing object.
+        POST_DETACH: Object released, moving away.
+        POST_RETURN: Completing return motion.
+        IDLE: No active manipulation, ready for next command.
+    """
+
     PRE_FETCH = 0
     PRE_ATTACH = 1
     ATTACH = 2

@@ -1,3 +1,13 @@
+"""Interface for audio synthesis using FluidSynth.
+
+This module provides an interface for playing sounds during experiments using
+the FluidSynth software synthesizer. It supports playing MIDI notes with
+configurable soundfonts and instruments.
+
+FluidSynth is a real-time software synthesizer that uses SoundFont (.sf2)
+files to generate audio, commonly used for auditory feedback in experiments.
+"""
+
 import asyncio
 import os
 from collections.abc import (
@@ -13,8 +23,33 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class SoundInterface(BaseInterface):
-    def __init__(self, node: BaseNode):
-        """Initializes the DashboardInterface"""
+    """Interface for playing sounds via FluidSynth.
+
+    Provides methods for starting, stopping, and playing notes with
+    configurable duration. The interface can be disabled via configuration
+    for silent operation during debugging.
+
+    Attributes:
+        enabled: Whether sound playback is enabled.
+        _default_note: The default note to play when none is specified.
+        _default_duration: The default duration for note playback in seconds.
+    """
+
+    def __init__(self, node: BaseNode) -> None:
+        """Initialize the sound interface.
+
+        Loads configuration from the node's parameters, initializes FluidSynth
+        with the configured soundfont, and sets up the default note and
+        instrument.
+
+        Args:
+            node: Parent ROS2 node containing sound configuration parameters.
+
+        Raises:
+            FileNotFoundError: If the configured soundfont file doesn't exist.
+            RuntimeError: If FluidSynth fails to initialize.
+            ValueError: If default_duration is not a positive number.
+        """
         super().__init__(node, "sound_interface")
 
         config: dict[str, Any] = self.node.param("sound")
@@ -46,24 +81,38 @@ class SoundInterface(BaseInterface):
 
         self.log("Sound interface initialized")
 
-    def init_sound(self):
-        """Initialize sound."""
+    def init_sound(self) -> None:
+        """Initialize sound system (placeholder for future use)."""
 
-    def start_note(self, note: Optional[Note] = None):
-        """Start a note."""
+    def start_note(self, note: Optional[Note] = None) -> None:
+        """Start playing a note continuously.
+
+        The note plays until explicitly stopped with stop_note().
+
+        Args:
+            note: The note to play. If None, uses the default note.
+        """
         if self.enabled:
             if note is None:
                 note = self._default_note
             fluidsynth.play_Note(note)
 
-    def stop_note(self, note: Optional[Note] = None):
-        """Stop a note."""
+    def stop_note(self, note: Optional[Note] = None) -> None:
+        """Stop a currently playing note.
+
+        Args:
+            note: The note to stop. If None, stops the default note.
+        """
         if self.enabled:
             if note is None:
                 note = self._default_note
             fluidsynth.stop_Note(note)
 
-    def stop_everything(self):
+    def stop_everything(self) -> None:
+        """Stop all currently playing notes.
+
+        Useful for cleanup or when aborting an experiment.
+        """
         if self.enabled:
             fluidsynth.stop_everything()
 
@@ -71,12 +120,17 @@ class SoundInterface(BaseInterface):
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
         duration: Optional[float] = None,
-    ):
-        """Play a note for a given duration.
+    ) -> None:
+        """Play a note for a specified duration asynchronously.
+
+        Starts the note, waits for the duration using async sleep, then
+        stops the note. This allows other async tasks to run during playback.
 
         Args:
-            note: Note to play. If None, the default note is used.
-            duration: Duration of the sound in seconds. If None, the default duration is used.
+            note: Note to play. Can be a mingus Note object or a dict with
+                Note constructor arguments. If None, uses the default note.
+            duration: How long to play in seconds. If None, uses the default
+                duration from configuration.
         """
         if self.enabled:
             if note is None:

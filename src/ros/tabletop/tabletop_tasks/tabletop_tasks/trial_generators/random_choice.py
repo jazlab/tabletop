@@ -1,4 +1,22 @@
-"""Block-structured cup/drawer trial generator."""
+"""Random choice trial generator for behavioral experiments.
+
+This module provides a trial generator that randomly samples trial
+parameters from specified distributions. Each trial independently
+samples object ID, pose, arm assignment, and occlusion.
+
+This generator is non-adaptive - feedback is ignored and does not
+influence subsequent trial generation.
+
+Example:
+    generator = RandomChoice(
+        commander=commander,
+        object_ids=["cup_1", "cup_2"],
+        poses=[{"position": [0.5, 0, 0.3]}],
+        arms=["left", "right"],
+        occlude_prob=0.5,
+        num_trials=100,
+    )
+"""
 
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -14,15 +32,23 @@ from tabletop_tasks.trial_generators.base import (
 
 
 class RandomChoice(BaseTrialGenerator):
-    """
-    Random choice trial generator.
+    """Trial generator with random independent sampling.
 
-    Randomly chooses an object from a list of objects and a pose from a list of poses.
+    Generates trials by randomly sampling each parameter independently:
+    - Object ID: uniform random from provided list
+    - Pose: uniform random from provided list
+    - Arm: uniform random from provided list
+    - Occlude: Bernoulli with specified probability
 
-    Args:
-        object_ids: List of object ids to choose from.
-        poses: List of poses to choose from.
-        num_trials: Number of trials to generate.
+    This generator does not adapt based on feedback.
+
+    Attributes:
+        _object_ids: List of object identifiers to sample from.
+        _poses: List of PoseStamped objects to sample from.
+        _arms: List of arm assignments to sample from.
+        _occlude_prob: Probability of occlusion on each trial.
+        _num_trials: Total number of trials to generate.
+        _trial_counter: Current trial count.
     """
 
     def __init__(
@@ -34,6 +60,19 @@ class RandomChoice(BaseTrialGenerator):
         occlude_prob: float,
         num_trials: int,
     ):
+        """Initialize the random choice generator.
+
+        Args:
+            commander: Commander instance for robot interaction.
+            object_ids: List of object IDs to randomly select from.
+            poses: List of pose dictionaries (passed to create_pose_stamped).
+            arms: List of arm assignments to randomly select from.
+            occlude_prob: Probability of smartglass occlusion (0.0 to 1.0).
+            num_trials: Total number of trials to generate.
+
+        Raises:
+            ValueError: If num_trials is less than 1.
+        """
         super().__init__(commander)
 
         self._object_ids = object_ids
@@ -50,7 +89,14 @@ class RandomChoice(BaseTrialGenerator):
         self._trial_counter = 0
 
     def __next__(self) -> TrialSpec:
-        """Return a trial."""
+        """Generate the next random trial.
+
+        Returns:
+            TrialSpec with randomly sampled parameters.
+
+        Raises:
+            StopIteration: When num_trials have been generated.
+        """
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
@@ -81,5 +127,11 @@ class RandomChoice(BaseTrialGenerator):
         return trial_spec
 
     def send(self, feedback: TrialFeedback):
-        """Send feedback."""
+        """Process trial feedback (no-op for random generator).
+
+        This generator does not adapt based on feedback.
+
+        Args:
+            feedback: Unused trial feedback.
+        """
         pass

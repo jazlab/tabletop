@@ -1,3 +1,27 @@
+"""Training and evaluation pipeline for gaze estimation models.
+
+This module provides the training loop, evaluation metrics, and full
+training pipeline for gaze estimation models. Supports K-fold cross-
+validation with early stopping and model checkpointing.
+
+Functions:
+    evaluate: Compute test metrics (MSE, RMSE, R2) on a dataloader.
+    train: Train a model with early stopping on validation loss.
+    train_and_evaluate: Full pipeline with cross-validation and test eval.
+    main: CLI entry point for training.
+
+The training pipeline:
+1. Load and preprocess data from session directory
+2. Initialize K-fold cross-validation dataloaders
+3. Train models for each fold with early stopping
+4. Select best model based on validation loss
+5. Evaluate on held-out test set
+6. Save model weights and predictions
+
+Example:
+    python -m tabletop_py.gaze.train -d /path/to/session --visualize
+"""
+
 import logging
 import os
 from collections.abc import Mapping

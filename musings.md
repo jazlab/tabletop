@@ -2,6 +2,24 @@
 My thoughts/frustrations/notes as I work on the TableTop project (now
 organized as troubleshooting guide!).
 
+## Quick Reference
+
+Before diving into troubleshooting, here are the most common commands:
+
+```bash
+# Host machine commands
+source setup.bash           # Set up environment (add to .bashrc)
+tt-env-gen                   # Generate .env file (run after hardware changes)
+tt-compose build             # Build Docker images
+tt-compose up ursim_novnc rig_novnc  # Start simulator and rig
+
+# Inside container
+tt-build                     # Build tabletop packages
+tt-build --clean             # Clean rebuild
+tt-launch rig robot_mode:=mock  # Launch with mock hardware
+tt-launch tasks task:=foraging_ordered  # Run a task
+```
+
 ## Docker
 
 1. If you have issues building the docker container (like this one time we
@@ -163,11 +181,117 @@ This gets its own section because it's a pain in the ass.
     the correct number of handles and that `colcon.meta` is updated with the
     correct number of each type of handle. Then rebuild using:
     ```bash
-    ./scripts/teensy_build.sh
+    tt-teensy-build
     ```
 2. When in doubt, try unplugging it and plugging it back in.
+
+3. To connect to the Teensy serial port for debugging:
+    ```bash
+    tt-teensy-connect
+    ```
+
+4. Make sure to regenerate your `.env` file after plugging in the Teensy so
+   Docker can mount the device:
+    ```bash
+    tt-env-gen
+    ```
+
 
 ## Robot
 
 1. Running `tt-calibrate` more than once does nothing, the calibration is
     saved on the robot and doesn't change
+
+
+## Environment and Configuration
+
+1. If commands like `tt-build` or `tt-launch` aren't found, make sure you've
+   sourced `setup.bash`:
+    ```bash
+    source /path/to/tabletop/setup.bash
+    ```
+    Better yet, add it to your `.bashrc`.
+
+2. If Docker can't find hardware devices (FLIR cameras, Teensy, etc.),
+   regenerate your `.env` file:
+    ```bash
+    tt-env-gen --clean
+    ```
+    This detects connected hardware and configures Docker mounts.
+
+3. If you're switching between noVNC and X11 displays inside the container:
+    ```bash
+    tt-display-set novnc    # Use noVNC display
+    tt-display-set x11      # Use host X11 display
+    ```
+    Then open a new terminal for changes to take effect.
+
+4. If your `.env` file is missing variables or seems corrupted:
+    ```bash
+    tt-env-gen --clean      # Regenerate from .env.example
+    ```
+
+5. The `tt-compose` and `tt-docker` commands are wrappers that automatically
+   set up the correct environment. Always prefer them over raw `docker` and
+   `docker compose` commands.
+
+
+## Gaze Estimation
+
+1. The gaze calibration pipeline has multiple steps. Run them individually
+   for debugging:
+    ```bash
+    gaze-preprocess -d /path/to/session --visualize  # Check preprocessing
+    gaze-train -d /path/to/session                   # Train model
+    gaze-visualize -d /path/to/session               # Visualize results
+    ```
+
+2. If training seems stuck or loss isn't decreasing, check that:
+    - Preprocessing completed successfully (check for NaN values)
+    - EyeLink and OptiTrack data are properly synchronized
+    - The config file has reasonable hyperparameters
+
+3. To convert EyeLink EDF files to CSV:
+    ```bash
+    python -m tabletop_py.gaze.edf recording.edf -o recording.csv
+    ```
+    Note: Requires the `edf2asc` utility from EyeLink Developers Kit.
+
+
+## FLIR Cameras
+
+1. Before using FLIR cameras, configure the USB filesystem:
+    ```bash
+    tt-usbfs-configure
+    ```
+
+2. Make sure udev rules are set up:
+    ```bash
+    tt-udev-configure
+    ```
+
+3. After plugging in cameras, regenerate the `.env` file:
+    ```bash
+    tt-env-gen
+    ```
+
+
+## Performance
+
+1. For real-time robot control, disable CPU frequency scaling:
+    ```bash
+    tt-cpu-speed-scaling-disable
+    ```
+
+2. If builds are freezing your computer, limit parallelism:
+    ```bash
+    tt-build --workers 1    # Single threaded (slow but safe)
+    tt-build --workers 2    # Compromise
+    ```
+
+3. To clean up disk space from old builds and logs:
+    ```bash
+    tt-clean-ws             # Clean tabletop build artifacts
+    tt-clean-ws --all       # Clean everything including moveit2
+    tt-clean-logs           # Clean log files
+    ```

@@ -1,3 +1,30 @@
+"""Visualization tools for gaze estimation data and results.
+
+This module provides plotting and animation functions for visualizing
+eye tracking data, marker positions, and model predictions.
+
+Functions:
+    plot_eyelink_markers: Time series plots of eye tracking and marker data.
+    animate_2d_dots: 2D scatter animation of eye positions.
+    animate_3d_dots: 3D scatter animation of gaze points.
+    visualize_calibration: Full visualization pipeline for a session.
+    main: CLI entry point.
+
+Supported Output Formats:
+    - Static plots: PNG, PDF, SVG (via matplotlib)
+    - Animations: MP4 (FFMpeg), GIF (Pillow)
+
+Example:
+    # Visualize raw and preprocessed data
+    plot_eyelink_markers(df, "Raw Data", freq=500, save_path="raw.png")
+
+    # Animate predictions vs targets
+    animate_3d_dots(
+        {"Target": targets, "Prediction": preds},
+        freq=500, min_x=-0.5, max_x=0.5, ...
+    )
+"""
+
 import logging
 import os
 from collections.abc import Mapping

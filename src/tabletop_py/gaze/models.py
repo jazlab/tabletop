@@ -1,3 +1,27 @@
+"""Neural network models and geometric utilities for gaze estimation.
+
+This module provides PyTorch models for estimating 3D gaze direction from
+2D pupil coordinates. It includes both geometric (physics-based) and
+learned (MLP) approaches, along with helper functions for tensor operations.
+
+Models:
+    GazeEstimationModelGeometric: Physics-based model using ray-sphere
+        intersection and camera projection geometry.
+    GazeEstimationModelMLP: Multi-layer perceptron for direct regression.
+
+Helper Classes:
+    LearnableMaskedCorrectionParameter: Parameter with bounded learnable
+        corrections for calibration refinement.
+
+Utility Functions:
+    dot: Batched dot product.
+    mv: Matrix-vector multiplication.
+    make_homogeneous: Convert to homogeneous coordinates.
+    decompose_tf: Extract translation/rotation from transform matrix.
+    intersect_ray_sphere: Compute ray-sphere intersection points.
+    nearest_focus: Find closest points on two 3D lines.
+"""
+
 from typing import Any, Literal, Optional
 
 import torch

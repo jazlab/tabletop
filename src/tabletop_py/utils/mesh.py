@@ -1,3 +1,35 @@
+"""3D mesh manipulation and processing utilities.
+
+This module provides functions for loading, transforming, simplifying,
+and exporting 3D meshes and scenes using the trimesh library. It supports
+both individual meshes (Trimesh) and multi-mesh scenes (Scene).
+
+Supported file formats:
+    - COLLADA (.dae): Scenes with multiple meshes and metadata
+    - STL (.stl): Single mesh binary format
+
+The module also includes a command-line interface for mesh simplification
+and visualization.
+
+Functions:
+    copy_geometry: Deep copy a mesh or scene.
+    scale_geometry: Scale a mesh or scene uniformly.
+    transform_geometry: Apply a transformation matrix.
+    load_geometry: Load mesh from file with optional scaling.
+    simplify_quadratic_decimation: Reduce face count using quadratic decimation.
+    simplify_bounding_primitive: Replace with axis-aligned bounding box.
+    simplify_convex_hull: Replace with convex hull.
+    visualize_geometry: Interactive 3D visualization.
+    export_geometry: Export mesh to file.
+    count_vertices_faces: Count geometric primitives.
+    main: CLI entry point.
+
+Example:
+    >>> mesh = load_geometry("model.stl", scale=0.001)
+    >>> simplified = simplify_convex_hull(mesh)
+    >>> export_geometry(simplified, "model_simplified.stl")
+"""
+
 import argparse
 import os
 from typing import Any, Optional, TypeVar, cast
@@ -6,17 +38,21 @@ import numpy as np
 import trimesh
 from trimesh.exchange.dae import export_collada
 
+#: TypeVar for generic mesh/scene operations
 GeometryT = TypeVar("GeometryT", bound=trimesh.Trimesh | trimesh.Scene)
 
 
-# Mesh utility functions
-
-
 def copy_geometry(geometry: GeometryT) -> GeometryT:
-    """Copy a mesh or scene.
+    """Create a deep copy of a mesh or scene.
+
+    For scenes, dumps all geometry to create independent copies.
+    For meshes, uses the built-in copy method.
 
     Args:
         geometry: The mesh or scene to copy.
+
+    Returns:
+        Independent copy of the input geometry.
     """
     if isinstance(geometry, trimesh.Scene):
         return trimesh.Scene(geometry.dump())  # type: ignore
@@ -25,11 +61,17 @@ def copy_geometry(geometry: GeometryT) -> GeometryT:
 
 
 def scale_geometry(geometry: GeometryT, scale: float) -> GeometryT:
-    """Scale a mesh or scene (not in-place).
+    """Scale a mesh or scene uniformly (not in-place).
+
+    Creates a copy and applies uniform scaling. Does not modify
+    the original geometry.
 
     Args:
         geometry: The mesh or scene to scale.
-        scale: The scale to apply to the mesh.
+        scale: Uniform scale factor (e.g., 0.001 to convert mm to m).
+
+    Returns:
+        Scaled copy of the input geometry.
     """
     geometry = copy_geometry(geometry)
     return geometry.apply_scale(scale)
@@ -209,10 +251,24 @@ def visualize_geometry(
     notebook: bool = False,
     axis_scale: float = 0.2,
 ) -> Any | None:
-    """Visualize a mesh or scene.
+    """Visualize a mesh or scene interactively.
+
+    Opens an interactive 3D viewer window using pyglet. Adds a
+    coordinate axis indicator scaled relative to the geometry size.
 
     Args:
         geometry: The mesh or scene to visualize.
+        notebook: If True, return viewer for Jupyter notebook display.
+            If False (default), open a pyglet window.
+        axis_scale: Scale factor for the coordinate axis indicator
+            relative to geometry extent (default 0.2).
+
+    Returns:
+        Viewer object if notebook=True, None otherwise.
+
+    Note:
+        In non-notebook mode, the viewer runs until the window is
+        closed or KeyboardInterrupt is received.
     """
     import pyglet
 
@@ -261,10 +317,15 @@ def export_geometry(geometry: trimesh.Trimesh | trimesh.Scene, path: str):
 def count_vertices_faces(
     geometry: trimesh.Trimesh | trimesh.Scene,
 ) -> tuple[int, int]:
-    """Count the number of vertices and faces in a mesh or scene.
+    """Count the total number of vertices and faces in a mesh or scene.
+
+    For scenes, sums the vertex and face counts across all meshes.
 
     Args:
-        geometry: The mesh or scene to count the vertices and faces of.
+        geometry: The mesh or scene to count primitives in.
+
+    Returns:
+        Tuple of (vertex_count, face_count).
     """
     if isinstance(geometry, trimesh.Scene):
         return (
@@ -276,6 +337,19 @@ def count_vertices_faces(
 
 
 def main():
+    """Command-line interface for mesh simplification and visualization.
+
+    Provides options for:
+    - Loading STL or DAE mesh files
+    - Scaling meshes
+    - Simplifying using convex hull, bounding box, or quadric decimation
+    - Previewing meshes interactively
+    - Exporting simplified meshes
+
+    Usage:
+        python -m tabletop_py.utils.mesh input.stl --scale 0.001 --simplification convex_hull
+        python -m tabletop_py.utils.mesh model.dae --preview
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("input_file", type=str, help="Mesh file to simplify")
     parser.add_argument(

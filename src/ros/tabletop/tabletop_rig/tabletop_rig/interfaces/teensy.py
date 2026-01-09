@@ -1,3 +1,13 @@
+"""Interface for Teensy microcontroller communication.
+
+This module provides an interface to communicate with a Teensy microcontroller
+that manages experimental apparatus including arm restraints, safety sensors,
+smartglass goggles, and reward delivery systems.
+
+The Teensy acts as a bridge between the ROS2 system and physical hardware,
+providing safety interlocks and subject interface mechanisms.
+"""
+
 import asyncio
 import threading
 from collections.abc import Callable
@@ -18,20 +28,51 @@ from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
 
 
-def noop(msg: TeensySensor):
-    """Default additional_subscription_callback for teensy message topic (does nothing)"""
+def noop(msg: TeensySensor) -> None:
+    """Default callback that does nothing (placeholder for optional callbacks).
+
+    Args:
+        msg: The TeensySensor message (ignored).
+    """
     pass
 
 
 class TeensyInterface(BaseInterface):
+    """Interface for controlling experimental apparatus via Teensy microcontroller.
+
+    Provides methods to control arm restraints, smartglass goggles, and reward
+    delivery, as well as monitoring safety sensors to determine if it's safe
+    to execute robot movements.
+
+    The interface subscribes to sensor data and provides a thread-safe
+    `safe_to_execute` property that checks arm lock status and safety laser.
+
+    Attributes:
+        _teensy_sub: Subscription to TeensySensor messages.
+        _last_teensy_sensor: Most recent sensor reading.
+        _safe_to_execute: Whether current conditions allow robot execution.
+        _set_arm_lock_client: Service client for arm lock control.
+        _set_reward_client: Service client for reward delivery.
+        _set_smartglass_client: Service client for smartglass control.
+    """
+
     def __init__(
         self,
         node: BaseNode,
         additional_subscription_callback: Optional[
             Callable[[TeensySensor], None]
         ] = None,
-    ):
-        """Initializes the TeensyInterface"""
+    ) -> None:
+        """Initialize the Teensy interface.
+
+        Sets up subscriptions for sensor data and service clients for
+        controlling the arm locks, reward system, and smartglass.
+
+        Args:
+            node: Parent ROS2 node for creating ROS resources.
+            additional_subscription_callback: Optional callback invoked with
+                each TeensySensor message after internal processing.
+        """
         super().__init__(node, "teensy_interface")
 
         # Subscribers
@@ -87,13 +128,27 @@ class TeensyInterface(BaseInterface):
 
     @property
     def last_teensy_sensor(self) -> TeensySensor:
-        """Get the last teensy sensor."""
+        """The most recent TeensySensor message received.
+
+        Returns:
+            A deep copy of the last sensor reading to prevent external mutation.
+        """
         with self._teensy_sensor_lock:
             return deepcopy(self._last_teensy_sensor)
 
     @property
     def safe_to_execute(self) -> bool:
-        """Get the is safe to execute state."""
+        """Whether conditions currently allow safe robot execution.
+
+        Checks that:
+        1. Sensor data is recent (within max_sensor_delay)
+        2. Both arms are locked
+        3. Safety laser is not broken
+        4. Conditions have been safe for required_time duration
+
+        Returns:
+            True if all safety conditions are met, False otherwise.
+        """
         max_sensor_delay = self.node.param(
             "teensy.safe_to_execute.max_sensor_delay"
         )
@@ -113,15 +168,30 @@ class TeensyInterface(BaseInterface):
     # Subscribers
 
     def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
-        """Check if the robot is safe to execute."""
+        """Check if a sensor message indicates safe conditions.
+
+        Args:
+            msg: The sensor message to evaluate.
+
+        Returns:
+            True if both arms are locked and safety laser is unbroken.
+        """
         return (
             msg.is_left_arm_locked
             and msg.is_right_arm_locked
             and not msg.is_safety_laser_broken
         )
 
-    def _teensy_sensor_callback(self, msg: TeensySensor):
-        """Callback for the teensy sensor."""
+    def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
+        """Process incoming TeensySensor messages.
+
+        Updates internal state and determines if conditions are safe for
+        robot execution. Requires conditions to remain safe for a configurable
+        duration before setting safe_to_execute to True.
+
+        Args:
+            msg: The incoming sensor message.
+        """
         required_time = self.node.param("teensy.safe_to_execute.required_time")
 
         # Determine if the monkey is safe
@@ -145,15 +215,18 @@ class TeensyInterface(BaseInterface):
 
     async def set_arm_lock(
         self, arm: Literal["left", "right", "both"], lock: bool
-    ):
-        """Set the arm lock state via the /teensy/set_arm_lock service
+    ) -> None:
+        """Set the arm restraint lock state.
+
+        Controls electromagnetic arm locks to restrain or release the subject's
+        arms during experiments.
 
         Args:
-            arm: The arm to change the lock state of ('left', 'right', or 'both')
-            lock: Whether to lock or release the arm
+            arm: Which arm(s) to control: "left", "right", or "both".
+            lock: True to engage the lock (restrain), False to release.
 
-        Returns:
-            True if the service call was successful, False otherwise
+        Raises:
+            ValueError: If arm is not one of the valid options.
         """
         if arm not in ["left", "right", "both"]:
             raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
@@ -171,15 +244,17 @@ class TeensyInterface(BaseInterface):
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
-        """Lock both arms and wait until safe to execute
+        """Lock both arms and wait until conditions are safe for robot execution.
+
+        Engages both arm locks and polls until the safe_to_execute property
+        returns True (arms locked, safety laser clear, conditions stable).
 
         Args:
-            timeout: Timeout in seconds. If None, the default timeout from
-                parameters is used.
+            timeout: Maximum time to wait in seconds. If None, waits indefinitely.
 
         Returns:
-            True if arms were locked and safety laser was unbroken within the timeout,
-            False otherwise.
+            True if safe conditions were achieved within the timeout,
+            False if timeout was reached.
         """
         self.log("Locking arms and waiting until safe to execute")
         await self.set_arm_lock("both", lock=True)
@@ -193,8 +268,15 @@ class TeensyInterface(BaseInterface):
         except TimeoutError:
             return False
 
-    async def set_smartglass(self, reveal: bool):
-        """Set the smartglass state."""
+    async def set_smartglass(self, reveal: bool) -> None:
+        """Control the smartglass goggles transparency.
+
+        Smartglass goggles can switch between opaque and transparent states
+        to control what the subject can see during trials.
+
+        Args:
+            reveal: True to make goggles transparent, False to make opaque.
+        """
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
         await self.node.service_call_async(
             srv_request=SetSmartglass.Request(reveal=reveal),
@@ -203,8 +285,21 @@ class TeensyInterface(BaseInterface):
 
     async def set_reward(
         self, activate: bool, duration: Optional[int | float] = None
-    ):
-        """Set the reward state."""
+    ) -> None:
+        """Control the reward delivery system.
+
+        Activates or deactivates the reward mechanism (typically a juice pump)
+        for subject reinforcement.
+
+        Args:
+            activate: True to start reward delivery, False to stop.
+            duration: Required when activate=True; how long to deliver reward
+                in seconds. Must be positive.
+
+        Raises:
+            ValueError: If activate=True but duration is None or non-positive,
+                or if activate=False but duration is provided.
+        """
         request = SetReward.Request(activate=activate)
         if activate:
             if duration is None or duration <= 0:
@@ -224,8 +319,20 @@ class TeensyInterface(BaseInterface):
             srv_request=request, srv_client=self._set_reward_client
         )
 
-    async def start_reward_and_wait(self, duration: float):
-        """Start reward and wait for it to finish."""
+    async def start_reward_and_wait(self, duration: float) -> None:
+        """Deliver reward and wait for completion.
+
+        Starts reward delivery for the specified duration and blocks until
+        the reward finishes. Verifies that the reward actually started and
+        completed.
+
+        Args:
+            duration: How long to deliver reward in seconds.
+
+        Raises:
+            AssertionError: If reward doesn't become active after starting.
+            RuntimeError: If reward is still active after the expected duration.
+        """
         await self.set_reward(activate=True, duration=duration)
 
         spin_period = self.node.param("teensy.spin_period")

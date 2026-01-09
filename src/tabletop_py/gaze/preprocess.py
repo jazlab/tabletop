@@ -1,3 +1,36 @@
+"""Data preprocessing pipeline for gaze estimation calibration.
+
+This module handles preprocessing of eye tracking (EyeLink) and motion
+capture (OptiTrack) data for gaze estimation model training. It provides
+functions for timestamp alignment, data cleaning, smoothing, and merging
+multiple data streams.
+
+The preprocessing pipeline:
+1. Format timestamps from ROS bag exports
+2. Standardize time ranges between data streams
+3. Clean invalid/missing data points
+4. Reindex and interpolate to common time grid
+5. Apply smoothing (Savitzky-Golay filter)
+6. Merge eye tracking and marker data
+
+Constants:
+    EYELINK_POS_COLS: Eye position column names for both eyes.
+    EYELINK_DATA_COLS: Input features for model training.
+    MARKER_DATA_COLS: Target position columns (3D marker position).
+
+Functions:
+    reindex_and_interpolate: Resample data to new time grid.
+    verify_timestamps: Validate timestamp monotonicity and frequency.
+    smooth_savgol: Apply Savitzky-Golay smoothing filter.
+    clean_eyelink_data: Remove invalid eye tracking samples.
+    clean_marker_data: Remove invalid marker samples.
+    preprocess_data: Full preprocessing pipeline.
+    main: CLI entry point.
+
+Example:
+    python -m tabletop_py.gaze.preprocess -d /path/to/session --visualize
+"""
+
 import logging
 import os
 from collections.abc import Mapping
@@ -19,9 +52,13 @@ logger = logging.getLogger(__name__)
 pd.options.mode.copy_on_write = True
 
 
+#: Column names for eye position data (both eyes, x and y)
 EYELINK_POS_COLS = ["left_x", "left_y", "right_x", "right_y"]
+
+#: Input feature columns for gaze estimation model
 EYELINK_DATA_COLS = EYELINK_POS_COLS  # + ["left_pupil", "right_pupil"]
 
+#: Target output columns (3D marker position)
 MARKER_DATA_COLS = ["marker_x", "marker_y", "marker_z"]
 
 

@@ -1,3 +1,13 @@
+"""Interface for Eyelink eye tracking system.
+
+This module provides an interface to communicate with the Eyelink eye tracker
+for monitoring smooth pursuit eye movements. It uses ROS2 actions to receive
+real-time feedback about whether the subject is smoothly tracking a target.
+
+Smooth pursuit is a type of eye movement where the eyes follow a moving target.
+This is commonly used in neuroscience experiments to ensure subject engagement.
+"""
+
 import asyncio
 from collections.abc import (
     Callable,
@@ -12,10 +22,24 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class EyelinkInterface(BaseInterface):
-    def __init__(self, node: BaseNode):
-        """Initializes the Eyelink Interface
+    """Interface for Eyelink eye tracker smooth pursuit monitoring.
 
-        Sets up MoveItPy, trajectory execution manager, robot model, and planning scene monitor.
+    Provides async methods to start smooth pursuit tracking and receive
+    callbacks when the pursuit status changes. Uses a producer-consumer
+    pattern to safely bridge ROS callbacks with asyncio.
+
+    Attributes:
+        eyelink_smooth_pursuit_client: Action client for smooth pursuit monitoring.
+    """
+
+    def __init__(self, node: BaseNode) -> None:
+        """Initialize the Eyelink interface.
+
+        Sets up the action client for smooth pursuit monitoring and waits
+        for the Eyelink action server to become available.
+
+        Args:
+            node: Parent ROS2 node to create the action client on.
         """
         super().__init__(node, "eyelink_interface")
 
@@ -35,8 +59,17 @@ class EyelinkInterface(BaseInterface):
         feedback_msg: EyelinkSmoothPursuit.Impl.FeedbackMessage,
         queue: asyncio.Queue[bool],
         loop: asyncio.AbstractEventLoop,
-    ):
-        """Callback for the eyelink smooth pursuit feedback."""
+    ) -> None:
+        """Handle incoming smooth pursuit feedback from the action server.
+
+        This callback runs in the ROS executor thread and safely passes
+        feedback to the asyncio event loop via a thread-safe queue.
+
+        Args:
+            feedback_msg: The feedback message from the action server.
+            queue: Asyncio queue to pass pursuit status to the consumer.
+            loop: The asyncio event loop for thread-safe queue operations.
+        """
         feedback = feedback_msg.feedback
 
         loop.call_soon_threadsafe(
@@ -52,8 +85,16 @@ class EyelinkInterface(BaseInterface):
         queue: asyncio.Queue[bool],
         callback: Callable[[bool], None]
         | Callable[[bool], Coroutine[Any, Any, None]],
-    ):
-        """Consumer for the eyelink smooth pursuit queue."""
+    ) -> None:
+        """Process pursuit status updates and invoke the user callback.
+
+        Runs continuously, consuming items from the queue and passing them
+        to the user-provided callback. Supports both sync and async callbacks.
+
+        Args:
+            queue: Queue of pursuit status updates from the producer.
+            callback: User callback to invoke with each status update.
+        """
         while True:
             if asyncio.iscoroutinefunction(callback):
                 await callback(await queue.get())
@@ -64,14 +105,20 @@ class EyelinkInterface(BaseInterface):
         self,
         callback: Callable[[bool], None]
         | Callable[[bool], Coroutine[Any, Any, None]],
-    ):
-        """Start the smooth pursuit action
+    ) -> None:
+        """Monitor smooth pursuit and invoke callback on status changes.
 
-        Receives smooth pursuit feedback and passes it to user-defined callback
+        Starts the smooth pursuit action and sets up a producer-consumer
+        pipeline to deliver pursuit status updates to the provided callback.
+        Runs until cancelled or the action completes.
 
         Args:
-            callback: Function or coroutine function that is called when smooth
-                pursuit feedback is received
+            callback: Function or coroutine called with True when the subject
+                is smoothly pursuing and False when not. Called each time
+                the pursuit status changes.
+
+        Raises:
+            RuntimeError: If the action goal is rejected by the server.
         """
         queue: asyncio.Queue[bool] = asyncio.Queue()
         loop = asyncio.get_event_loop()

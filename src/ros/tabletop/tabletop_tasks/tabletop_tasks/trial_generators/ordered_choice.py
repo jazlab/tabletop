@@ -1,4 +1,22 @@
-"""Block-structured cup/drawer trial generator."""
+"""Ordered choice trial generator for behavioral experiments.
+
+This module provides a trial generator that cycles through all
+combinations of trial parameters in a deterministic order. Uses
+itertools.product to create a full factorial design.
+
+This generator is non-adaptive - feedback is ignored and does not
+influence subsequent trial generation.
+
+Example:
+    generator = OrderedChoice(
+        commander=commander,
+        object_ids=["cup_1", "cup_2"],
+        poses=[{"position": [0.5, 0, 0.3]}],
+        arms=["left", "right"],
+        occlude=[True, False],
+        num_trials=100,
+    )
+"""
 
 import itertools
 from collections.abc import Mapping
@@ -14,14 +32,25 @@ from tabletop_tasks.trial_generators.base import (
 
 
 class OrderedChoice(BaseTrialGenerator):
-    """Ordered choice trial generator.
+    """Trial generator with deterministic ordered cycling.
 
-    Chooses an object from a list of objects and a pose from a list of poses in order.
+    Generates trials by cycling through all combinations of parameters
+    in a fixed order. Creates a full factorial design using itertools.product
+    and iterates through combinations, wrapping when necessary.
 
-    Args:
-        object_ids: List of object ids to choose from.
-        poses: List of poses to choose from.
-        num_trials: Number of trials to generate.
+    Parameter order in the product (fastest to slowest varying):
+    occlude -> pose -> arm -> object_id
+
+    This generator does not adapt based on feedback.
+
+    Attributes:
+        _object_ids: List of object identifiers.
+        _poses: List of PoseStamped objects.
+        _arms: List of arm assignments.
+        _occlude: List of occlusion states.
+        _num_trials: Total number of trials to generate.
+        _trial_counter: Current trial count.
+        _parameter_grid: Precomputed list of all parameter combinations.
     """
 
     def __init__(
@@ -33,6 +62,19 @@ class OrderedChoice(BaseTrialGenerator):
         occlude: list[bool],
         num_trials: int,
     ):
+        """Initialize the ordered choice generator.
+
+        Args:
+            commander: Commander instance for robot interaction.
+            object_ids: List of object IDs to cycle through.
+            poses: List of pose dictionaries (passed to create_pose_stamped).
+            arms: List of arm assignments to cycle through.
+            occlude: List of occlusion states to cycle through.
+            num_trials: Total number of trials to generate.
+
+        Raises:
+            ValueError: If num_trials is less than 1.
+        """
         super().__init__(commander)
 
         self._object_ids = object_ids
@@ -47,6 +89,7 @@ class OrderedChoice(BaseTrialGenerator):
         self._num_trials = num_trials
         self._trial_counter = 0
 
+        # Precompute all combinations for deterministic ordering
         self._parameter_grid = list(
             itertools.product(
                 self._occlude, self._poses, self._arms, self._object_ids
@@ -54,7 +97,17 @@ class OrderedChoice(BaseTrialGenerator):
         )
 
     def __next__(self) -> TrialSpec:
-        """Return a trial."""
+        """Generate the next trial in sequence.
+
+        Cycles through the parameter grid, wrapping to the beginning
+        when all combinations have been used.
+
+        Returns:
+            TrialSpec with the next parameter combination.
+
+        Raises:
+            StopIteration: When num_trials have been generated.
+        """
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
@@ -73,5 +126,11 @@ class OrderedChoice(BaseTrialGenerator):
         return trial_spec
 
     def send(self, feedback: TrialFeedback):
-        """Send feedback."""
+        """Process trial feedback (no-op for ordered generator).
+
+        This generator does not adapt based on feedback.
+
+        Args:
+            feedback: Unused trial feedback.
+        """
         pass
