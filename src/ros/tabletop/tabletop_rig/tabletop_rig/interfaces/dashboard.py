@@ -5,9 +5,14 @@ from rclpy.action import ActionClient
 from rclpy.action.client import ClientGoalHandle, GoalStatus
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
-from ur_dashboard_msgs.msg import RobotMode, SafetyMode
-from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
-from ur_dashboard_msgs.srv import Load as DashboardLoad
+from ur_dashboard_msgs.msg import ProgramState, RobotMode, SafetyMode
+from ur_dashboard_msgs.srv import (
+    GetProgramState,
+    GetRobotMode,
+    GetSafetyMode,
+    IsInRemoteControl,
+    Load,
+)
 
 from tabletop_rig.exceptions import (
     ActionCallUnsuccessfulError,
@@ -49,30 +54,18 @@ class DashboardInterface(BaseInterface):
         self,
         srv_name: str,
         filename: str,
-    ) -> DashboardLoad.Response:
+    ) -> Load.Response:
         """Load a program or installation on the robot dashboard (asynchronous)."""
         self.log(
             f"Loading {srv_name}: {filename} in UR Dashboard",
             severity="DEBUG",
         )
         response = await self.node.service_call_async(
-            srv_request=DashboardLoad.Request(filename=filename),
-            srv_type=DashboardLoad,
+            srv_request=Load.Request(filename=filename),
+            srv_type=Load,
             srv_name=srv_name,
         )
-        return cast(DashboardLoad.Response, response)
-
-    async def _get_program_state(self) -> SafetyMode:
-        """Get the safety mode from the dashboard client."""
-        response = cast(
-            GetSafetyMode.Response,
-            await self.node.service_call_async(
-                srv_request=GetSafetyMode.Request(),
-                srv_type=GetSafetyMode,
-                srv_name="/dashboard_client/get_safety_mode",
-            ),
-        )
-        return response.safety_mode
+        return cast(Load.Response, response)
 
     async def _get_safety_mode(self) -> SafetyMode:
         """Get the safety mode from the dashboard client."""
@@ -98,7 +91,31 @@ class DashboardInterface(BaseInterface):
         )
         return response.robot_mode
 
-    async def reset(self, timeout: Optional[float] = None):
+    async def _get_program_state(self) -> ProgramState:
+        """Get the safety mode from the dashboard client."""
+        response = cast(
+            GetProgramState.Response,
+            await self.node.service_call_async(
+                srv_request=GetProgramState.Request(),
+                srv_type=GetProgramState,
+                srv_name="/dashboard_client/program_state",
+            ),
+        )
+        return response.state
+
+    async def _is_in_remote_control(self) -> bool:
+        """Get the safety mode from the dashboard client."""
+        response = cast(
+            IsInRemoteControl.Response,
+            await self.node.service_call_async(
+                srv_request=IsInRemoteControl.Request(),
+                srv_type=IsInRemoteControl,
+                srv_name="/dashboard_client/is_in_remote_control",
+            ),
+        )
+        return response.remote_control
+
+    async def _reset(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
         config = self.node.param("dashboard")
@@ -117,7 +134,7 @@ class DashboardInterface(BaseInterface):
                 robot_mode = await self._get_robot_mode()
                 while (
                     safety_mode.mode != SafetyMode.NORMAL
-                    or robot_mode.mode != RobotMode.RUNNING
+                    and robot_mode.mode != RobotMode.RUNNING
                 ):
                     self.log(
                         f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
@@ -189,7 +206,7 @@ class DashboardInterface(BaseInterface):
                 SetMode.Goal(
                     target_robot_mode=RobotMode.RUNNING,
                     stop_program=True,
-                    play_program=True,
+                    play_program=False,
                 )
             ),
         )
@@ -210,13 +227,68 @@ class DashboardInterface(BaseInterface):
         ):
             raise ActionCallUnsuccessfulError("UR SetMode action failed")
 
-    async def _reset(self, timeout: Optional[float] = None):
+        robot_mode = await self._get_robot_mode()
+        if robot_mode.mode != RobotMode.RUNNING:
+            raise RuntimeError(
+                f"Robot mode should be RUNNING, actual mode: {robot_mode}"
+            )
+
+    async def reset(self, timeout: Optional[float] = None):
         """Call a sequence of dashboard client services to reset the dashboard (asynchronous)."""
         self.log("Resetting dashboard")
+
+        remote_control = await self._is_in_remote_control()
+        if not remote_control:
+            raise RuntimeError(
+                "Dashboard is not in Remote Control mode, please fix that immediately"
+            )
         config = self.node.param("dashboard")
         async with asyncio.timeout(timeout):
+            # Load program
+            try:
+                await self._load_file(
+                    "/dashboard_client/load_program", config["program"]
+                )
+            except ServiceCallUnsuccessfulError as e:
+                self.log(
+                    f"Failed to load program with error: {e}", severity="WARN"
+                )
+                self.log("Attempting to reconnect...")
+                await self._trigger("/dashboard_client/connect")
+
+            # Set RobotState to RUNNING
+            await self._set_robot_mode_running()
+
+            # Close any popups and unlock protective stop
+            await self._trigger("/dashboard_client/close_popup")
+            await self._trigger("/dashboard_client/close_safety_popup")
+            await self._trigger("/dashboard_client/unlock_protective_stop")
+
+            # Play program
+            await self._trigger("/dashboard_client/play")
+
+            safety_mode = await self._get_safety_mode()
+            while safety_mode.mode != SafetyMode.NORMAL:
+                self.log(
+                    f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds until NORMAL...",
+                    severity="WARN",
+                )
+                await asyncio.sleep(config["play_retry_delay"])
+                safety_mode = await self._get_safety_mode()
+
+            return
+
+            safety_mode = await self._get_safety_mode()
+            while safety_mode.mode != SafetyMode.NORMAL:
+                self.log(
+                    f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
+                    severity="WARN",
+                )
+                await asyncio.sleep(config["play_retry_delay"])
+                safety_mode = await self._get_safety_mode()
+                robot_mode = await self._get_robot_mode()
+
             while True:
-                await self._set_robot_mode_running()
                 # Timeout included in wait_for_dashboard to stop the thread
                 # from waiting longer than timeout
 
@@ -231,7 +303,7 @@ class DashboardInterface(BaseInterface):
                 robot_mode = await self._get_robot_mode()
                 while (
                     safety_mode.mode != SafetyMode.NORMAL
-                    or robot_mode.mode != RobotMode.RUNNING
+                    and robot_mode.mode != RobotMode.RUNNING
                 ):
                     self.log(
                         f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",

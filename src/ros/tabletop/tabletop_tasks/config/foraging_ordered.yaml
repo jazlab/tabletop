@@ -30,10 +30,10 @@ tasks:
             - right
             - both
           occlude:
-            - false
+            - true
           num_trials: 100000
       stimulus_duration: 0.5
-      delay_duration: 0.5
+      delay_duration: 1.0
       response_timeout: 2.5
       reward_duration: 1.0
       reveal_duration: 0.5

@@ -226,11 +226,11 @@
           allowed_collision_ids:
             - base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
-        box_safety:
+        safety_box:
           type: BOX
-          dimensions: [0.5, 0.4, 1.9812]
+          dimensions: [0.5, 0.5, 1.9812]
           pose_stamped:
-            position: [1.655, 0.2, 0.9906]
+            position: [1.655, 0.25, 0.9906]
           color: [1.0, 0.0, 0.0, 0.1]
         floor:
           type: BOX
@@ -441,14 +441,14 @@
             object_id: small_object_25
             color: [0.25, 0.0, 0.75, 1.0] # light purple
             rel_pose:
-              position: [1.19103, 0.3167, 0.001]
-              rpy: [0.0, 0.0, -1.5707]
+              position: [1.19103, 0.3167, -0.001]
+              rpy: [0.0, 0.01, -1.5707]
           8,2:
             object_id: small_object_26
             color: [0.0, 0.75, 0.25, 1.0] # light cyan
             rel_pose:
               position: [1.1973, 0.6292, -0.005]
-              rpy: [0.0015, -0.01, -1.5707]
+              rpy: [0.0, 0.03, -1.5707]
           9,0:
             object_id: small_object_27
             color: [0.75, 0.5, 0.25, 1.0] # peach

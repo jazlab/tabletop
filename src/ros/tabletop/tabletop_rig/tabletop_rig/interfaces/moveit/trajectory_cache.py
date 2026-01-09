@@ -503,6 +503,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
             return
 
         # Check that the values have not changed and/or that the hash is the same
+        mismatch = False
         for key, value in metadata.items():
             try:
                 old_value = self._shelf[key]
@@ -512,13 +513,17 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 ) from e
 
             if old_value != value:
-                raise ValueError(
-                    f"Old {key} value in db is different from new value: {old_value} != {value}."
+                self.log(
+                    f"Old {key} value in db is different from new value: {old_value} != {value}.",
+                    severity="WARN",
                 )
 
         # Set the values in the db anyway
-        for key, value in metadata.items():
-            self._shelf[key] = value
+        if mismatch:
+            self.log("Clearing existing cache...", severity="WARN")
+            self._shelf.clear()
+            for key, value in metadata.items():
+                self._shelf[key] = value
 
     @property
     def scene_hash(self) -> str:

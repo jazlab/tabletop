@@ -202,7 +202,15 @@ class Commander(BaseNode):
         """Wait for flic button press, then return response time, or None if timeout is reached."""
         object_id = self.moveit.get_exactly_one_attached_object_id()
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
-        return await self.flic.response_time(bd_addr, timeout)
+
+        start_time = self.ros_time()
+        reported_rt = await self.flic.response_time(bd_addr, timeout)
+        total_rt = self.ros_time() - start_time
+
+        if reported_rt is not None:
+            self.log(f"Reported: {reported_rt:.4f}s | Total: {total_rt}")
+
+        return reported_rt
 
     async def smooth_pursuit_and_reward(self):
         """Get Eyelink smooth pursuit state and reward if smooth pursuit is active"""
@@ -475,6 +483,12 @@ class Commander(BaseNode):
         self.log("Exiting commander context manager", severity="DEBUG")
         try:
             if exc_type is not None:
+                # We use only the first exception raised if an exception group is met
+                if isinstance(exc_value, ExceptionGroup):
+                    if len(exc_value.exceptions) != 1:
+                        return False
+                    exc_value = exc_value.exceptions[0]
+
                 if isinstance(exc_value, MoveitRecoverableError):
                     self.log(
                         "Caught exception while running commander:",

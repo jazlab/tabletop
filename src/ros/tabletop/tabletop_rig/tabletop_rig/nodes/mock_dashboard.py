@@ -4,8 +4,12 @@ from rclpy.executors import SingleThreadedExecutor
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import RobotMode, SafetyMode
-from ur_dashboard_msgs.srv import GetRobotMode, GetSafetyMode
-from ur_dashboard_msgs.srv import Load as DashboardLoad
+from ur_dashboard_msgs.srv import (
+    GetRobotMode,
+    GetSafetyMode,
+    IsInRemoteControl,
+    Load,
+)
 
 from tabletop_rig.nodes.base import BaseNode
 
@@ -51,7 +55,7 @@ class MockDashboard(BaseNode):
         )
 
         self.load_program_srv = self.create_service(
-            DashboardLoad,
+            Load,
             "/dashboard_client/load_program",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
@@ -61,7 +65,7 @@ class MockDashboard(BaseNode):
         )
 
         self.load_installation_srv = self.create_service(
-            DashboardLoad,
+            Load,
             "/dashboard_client/load_installation",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
@@ -102,6 +106,12 @@ class MockDashboard(BaseNode):
             self.get_robot_mode_callback,
         )
 
+        self.is_in_remote_control_srv = self.create_service(
+            IsInRemoteControl,
+            "/dashboard_client/is_in_remote_control",
+            self.is_in_remote_control_callback,
+        )
+
         self.set_mode_server = ActionServer(
             self,
             SetMode,
@@ -132,8 +142,8 @@ class MockDashboard(BaseNode):
 
     def load_callback(
         self,
-        request: DashboardLoad.Request,
-        response: DashboardLoad.Response,
+        request: Load.Request,
+        response: Load.Response,
         service_name: str,
     ):
         """Callback for Load service."""
@@ -159,6 +169,18 @@ class MockDashboard(BaseNode):
         self.log("Received GetRobotMode request")
         response.robot_mode.mode = RobotMode.RUNNING
         response.answer = "Robot mode is RUNNING"
+        response.success = True
+        return response
+
+    def is_in_remote_control_callback(
+        self,
+        request: IsInRemoteControl.Request,
+        response: IsInRemoteControl.Response,
+    ):
+        """Callback for GetRobotMode service."""
+        self.log("Received IsInRemoteControl request")
+        response.remote_control = True
+        response.answer = "Robot is in Remote Control"
         response.success = True
         return response
 

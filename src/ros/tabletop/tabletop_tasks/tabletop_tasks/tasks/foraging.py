@@ -1,6 +1,7 @@
 """Foraging task."""
 
 import asyncio
+import random
 from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
@@ -62,37 +63,36 @@ class ForagingTask(BaseTask):
         self.log("Delay phase")
         if occlude:
             await self.commander.occlude_smartglass()
-        await asyncio.sleep(self.delay_duration)
+        # await asyncio.sleep(self.delay_duration)
+        # TODO: Revert
+        await asyncio.sleep(random.random() * 5)
 
     async def response(
         self, arm: Literal["left", "right", "both"]
     ) -> TrialFeedback:
         """Response phase."""
         self.log("Response phase")
-        await self.commander.release_arm(arm)
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.commander.reveal_smartglass())
+            tg.create_task(self.commander.release_arm(arm))
 
-        # Wait for response
-        # Use the ROS2 clock to measure reaction time (for consistency with
-        # ROS2 synchronization)
+        # Wait for response from monkey button press
         if reaction_time := await self.commander.flic_response_time(
             self.response_timeout
         ):
-            # Response received
-            sound_task = None
-            if self.reward_sound:
-                sound_task = asyncio.create_task(
-                    self.commander.play_sound(**self.sound_kwargs)
+            # Reward monkey and play sound
+            async with asyncio.TaskGroup() as tg:
+                if self.reward_sound:
+                    tg.create_task(
+                        self.commander.play_sound(**self.sound_kwargs)
+                    )
+                tg.create_task(
+                    self.commander.start_reward_and_wait(self.reward_duration)
                 )
-            reward_task = asyncio.create_task(
-                self.commander.start_reward_and_wait(self.reward_duration)
-            )
-            self.log(f"Reaction time: {reaction_time}")
-            if sound_task is not None:
-                await sound_task
-            await reward_task
+                self.log(f"Reaction time: {reaction_time}")
+
             return TrialFeedback(reaction_time=reaction_time, timeout=False)
         else:
-            # Response not received
             self.log("Response timeout")
             return TrialFeedback(reaction_time=None, timeout=True)
 

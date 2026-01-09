@@ -123,7 +123,8 @@ class PlanningSceneInterface(BaseInterface):
                     saved_scene_hash = f.read().strip()
                 if (
                     saved_config == config
-                    and saved_scene_hash == self.scene_hash
+                    and saved_scene_hash
+                    == self.scene_hash(include_robot=False)
                 ):
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
@@ -169,7 +170,7 @@ class PlanningSceneInterface(BaseInterface):
         self.save_collision_matrix(collision_matrix_path)
         self.save_grid_object_poses(grid_object_poses_path)
         with open(scene_hash_path, "w") as f:
-            f.write(self.scene_hash)
+            f.write(self.scene_hash(include_robot=False))
         with open(config_path, "w") as f:
             yaml.dump(orig_config, f)
 
@@ -394,8 +395,7 @@ class PlanningSceneInterface(BaseInterface):
     ########## Scene Saving and Loading #######################################
     ###########################################################################
 
-    @property
-    def scene_hash(self) -> str:
+    def scene_hash(self, include_robot: bool) -> str:
         """Get the hash of the rig, for consistency purposes.
 
         Returns:
@@ -459,10 +459,12 @@ class PlanningSceneInterface(BaseInterface):
                     )
 
         # Base link pose
-        position, _ = arrays_from_pose_msg(
-            self.get_frame_pose_stamped("base_link").pose
-        )
-        hash_algorithm.update(position.tobytes())
+        if include_robot:
+            position, orientation = arrays_from_pose_msg(
+                self.get_frame_pose_stamped("base_link").pose
+            )
+            hash_algorithm.update(position.tobytes())
+            hash_algorithm.update(orientation.tobytes())
 
         return hash_algorithm.hexdigest()
 

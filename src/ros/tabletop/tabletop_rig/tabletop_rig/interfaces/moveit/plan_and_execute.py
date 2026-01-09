@@ -81,7 +81,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             "trajectory_execution.allowed_start_tolerance"
         )
         self._trajectory_cache = FuzzyTrajectoryCache(
-            scene_hash=self.scene_hash,
+            scene_hash=self.scene_hash(include_robot=True),
             planning_frame=self.planning_frame,
             robot_state_tolerance=allowed_start_tolerance,
             parent_logger=self.get_logger(),
