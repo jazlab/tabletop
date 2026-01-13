@@ -170,6 +170,7 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
+    cpus: 8 # Limit cpu usage
     restart: unless-stopped
     command: tt-launch flir
 

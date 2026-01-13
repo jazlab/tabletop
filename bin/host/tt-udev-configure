@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-
 set -eo pipefail
+
 PLATFORMIO_FILENAME=98-platformio.rules
 TEENSY_FILNAME=00-teensy.rules
 FLIR_FILENAME=40-flir.rules

@@ -145,6 +145,7 @@ cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 
 # Set Mixins
 mixins=()
+mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
 if [[ $build_debug = true ]]; then
     mixins+=("debug")
 else
@@ -154,7 +155,6 @@ fi
 if [[ $clang = true ]]; then
     mixins+=("clang")
 fi
-mixins+=("compile-commands" "build-testing-off" "ccache" "$linker")
 
 # Set parallel workers
 if [[ -n $workers ]]; then

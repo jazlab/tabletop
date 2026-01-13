@@ -30,7 +30,12 @@ common:
   # factory_reset: false
   # device_reset: false
   # device_reset_timeout: 3.0
+
   # set parameters defined in blackfly_s.yaml
+  # to use a user set, do this:
+  default_user_set: Default
+  user_set_selector: Default
+  user_set_load: Yes
   gain_auto: Continuous
   acquisition_mode: Continuous
   exposure_mode: Timed
@@ -41,9 +46,6 @@ common:
   trigger_mode: "Off"
   pixel_format: BayerRG8
   # exposure_auto: Continuous
-  # to use a user set, do this:
-  # user_set_selector: UserSet0
-  # user_set_load: Yes
   # to reduce the sensor width and shift the crop
   # image_width: 960
   # image_height: 600

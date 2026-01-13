@@ -13,12 +13,14 @@ export COMPOSE_REMOVE_ORPHANS=true
 
 ARGS=()
 # export COMPOSE_PROFILES="*"
+build=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         build)
             ARGS+=("$1")
-            # ARGS+=("--builder" "tabletop_builder")
             export COMPOSE_PROFILES="*"
+            build=true
+            # ARGS+=("--builder" "tabletop_builder")
             # export BUILDKIT_PROGRESS=plain
             ;;
         # up)
@@ -45,4 +47,9 @@ set -- "${ARGS[@]}"
 print_status "docker compose $@"
 echo
 
-exec docker compose "$@"
+if [[ "$build" = true ]]; then
+    docker compose "$@"
+    docker compose run --rm ros-base bash -c "tt-build --only-modules && tt-build"
+else
+    exec docker compose "$@"
+fi

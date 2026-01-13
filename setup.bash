@@ -36,19 +36,17 @@ if [ -f $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bas
     source $TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash
 fi
 
+# Add Spinnaker bin directory to PATH
+# export PATH=/opt/spinnaker/bin:$PATH
+# export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+# export SPINNAKER_GENTL64_CTI=$COLCON_WS/install/spinnaker_camera_driver/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+
 # Source ROS environment
 if [ -f /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash ]; then
-    # Source ROS environment
-    source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
-
-    # Add Spinnaker bin directory to PATH
-    # export PATH=/opt/spinnaker/bin:$PATH
-    # export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-    # export SPINNAKER_GENTL64_CTI=$COLCON_WS/install/spinnaker_camera_driver/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
-    # Source project workspace
     if [ -f $COLCON_WS/install/setup.bash ]; then
         source $COLCON_WS/install/setup.bash
+    else
+        source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
     fi
 fi
 

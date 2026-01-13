@@ -33,3 +33,7 @@
 [submodule "foxglove_moveit_msg_converter"]
 	path = src/ros/modules/foxglove_moveit_msg_converter
 	url = https://github.com/valmikikothare/foxglove_moveit_msg_converter.git
+[submodule "trac_ik"]
+	path = src/ros/modules/trac_ik
+	url = https://bitbucket.org/traclabs/trac_ik.git
+	branch = jazzy

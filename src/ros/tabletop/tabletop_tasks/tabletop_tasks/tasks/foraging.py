@@ -29,7 +29,6 @@ Example:
 """
 
 import asyncio
-import random
 from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
@@ -145,9 +144,7 @@ class ForagingTask(BaseTask):
         self.log("Delay phase")
         if occlude:
             await self.commander.occlude_smartglass()
-        # await asyncio.sleep(self.delay_duration)
-        # TODO: Revert
-        await asyncio.sleep(random.random() * 5)
+        await asyncio.sleep(self.delay_duration)
 
     async def response(
         self, arm: Literal["left", "right", "both"]

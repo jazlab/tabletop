@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+# Bring down flir container if running
+print_status "Bringing down flir container (if running)"
+tt-compose down flir
+
+# Reload and trigger udev rules
+print_status "Reloading udev rules"
+sudo udevadm control --reload
+sudo udevadm trigger
+
+# Regenerate env files
+print_status "Regenerating .env file to update Flir camera paths"
+tt-env-gen
+
+# Run factory reset on cameras
+# TODO: Fix this
+print_status "Factory resetting Flir cameras"
+print_warning "You'll have to ctrl+c when it's done (TODO)"
+echo
+sleep 3
+tt-compose run --rm flir tt-launch flir factory_reset:=true || true
+
+# Reload and trigger udev rules again
+print_status "Reloading udev rules again"
+sudo udevadm control --reload
+sudo udevadm trigger
+
+# Regenerate env files
+print_status "Regenerating .env file once more"
+tt-env-gen
+
+# Start flir container again
+print_status "Starting flir container again"
+print_status "Check logs using 'tt-compose logs flir' to ensure everything is working"
+tt-compose up -d flir
