@@ -1,6 +1,6 @@
 *
 !src/**/package.xml
-!deps/apt.list
 !uv.lock
 !pyproject.toml
 !docker/ros/entrypoint.sh
+**/tabletop_teensy/

@@ -1,34 +1,11 @@
-ARG ROS_DISTRO=jazzy
-ARG INSTALL_CUDA
-ARG CUDA_VERSION=128
-ARG UV_EXTRA
+ARG BASE_IMAGE=ros:jazzy
 ARG USER_NAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 ARG USER_GROUPS
+ARG UV_EXTRA
 
-# Nvidia and non-nvidia build stages
-FROM ros:$ROS_DISTRO AS ros
-FROM ros:$ROS_DISTRO AS ros-nvidia-128
-
-COPY --from=nvidia/cuda:12.8.1-devel-ubuntu24.04 \
-    /usr/local/cuda /usr/local/cuda
-ENV PATH=/usr/local/cuda/bin:$PATH
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
-
-FROM ros:$ROS_DISTRO AS ros-nvidia-130
-
-COPY --from=nvidia/cuda:13.0.2-devel-ubuntu24.04 \
-    /usr/local/cuda /usr/local/cuda
-ENV PATH=/usr/local/cuda/bin:$PATH
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
-# Choose stage based on CUDA_VERSION arg
-FROM ros-nvidia-$CUDA_VERSION AS ros-nvidia
-
-# Choose stage based on INSTALL_CUDA arg
-FROM ros${INSTALL_CUDA:+-nvidia-${CUDA_VERSION}}
+FROM $BASE_IMAGE
 
 SHELL ["/bin/bash", "-c"]
 
@@ -36,11 +13,16 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
+# Upgrade existing packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get upgrade -y
+
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
-apt-get update && apt-get upgrade -y
+apt-get update
 apt-get install -y \
     sudo \
     curl \
@@ -64,7 +46,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
 if [[ $TARGETARCH = amd64 ]] ; then
-    apt-get update && apt-get upgrade -y
+    apt-get update
     apt-get install -y ca-certificates software-properties-common
     apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
     add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
@@ -112,14 +94,13 @@ EOT
 USER $USER_NAME
 
 # Install ROS dependencies from src/ros directory
-ARG ROS_DISTRO
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=bind,source=src/ros,target=/tmp/src <<EOT
 set -ex
 cd /tmp/src
-sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get update
 source /opt/ros/$ROS_DISTRO/setup.bash
 rosdep update
 echo $DEPENDENCY_TYPES

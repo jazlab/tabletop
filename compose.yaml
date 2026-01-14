@@ -11,7 +11,6 @@ services:
     pull_policy: always
     network_mode: none
     volumes:
-      - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
@@ -96,20 +95,18 @@ services:
       dockerfile: ./docker/ros/base.Dockerfile
       pull: true
       args:
-        - ROS_DISTRO=jazzy
+        - BASE_IMAGE=$ROS_BASE_IMAGE
         - USER_NAME=$USER_NAME
         - USER_UID=$USER_UID
         - USER_GID=$USER_GID
         - UV_EXTRA=$UV_EXTRA
     volumes:
-      - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
     init: true
-    command: bash -c "tt-build --only-modules && tt-build"
 
   foxglove:
     extends: ros-base
@@ -247,8 +244,8 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
+      - $TEENSY_DEV
     volumes:
-      - /etc/localtime:/etc/localtime:ro
       - type: bind
         source: .
         target: /tabletop

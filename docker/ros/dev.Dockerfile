@@ -4,7 +4,7 @@ FROM tabletop/ros-base
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -e
-sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get update
 sudo apt-get install -y \
     git \
     git-lfs \
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     <<EOT
 set -e
-sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get update
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 \. "$HOME/.nvm/nvm.sh"
 nvm install 22
