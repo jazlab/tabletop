@@ -9,6 +9,7 @@
 #include <rclc/rclc.h>
 #include <std_msgs/msg/string.h>
 #include <tabletop_interfaces/msg/teensy_sensor.h>
+#include <tabletop_interfaces/srv/ping.h>
 #include <tabletop_interfaces/srv/set_arm_lock.h>
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
@@ -52,6 +53,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define LOG_TOPIC "/teensy/log"
 
 // ROS2 services
+#define PING_SRV_NAME "/teensy/ping"
 #define SET_ARM_LOCK_SRV_NAME "/teensy/set_arm_lock"
 #define SET_SMARTGLASS_SRV_NAME "/teensy/set_smartglass"
 #define SET_REWARD_SRV_NAME "/teensy/set_reward"
@@ -72,6 +74,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 rcl_publisher_t sensor_publisher;
 rcl_publisher_t log_publisher;
 
+rcl_service_t ping_service;
 rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
@@ -90,6 +93,8 @@ rclc_executor_t executor;
 tabletop_interfaces__msg__TeensySensor sensor_msg;
 std_msgs__msg__String log_msg;
 
+tabletop_interfaces__srv__Ping_Request ping_request;
+tabletop_interfaces__srv__Ping_Response ping_response;
 tabletop_interfaces__srv__SetArmLock_Request set_arm_lock_request;
 tabletop_interfaces__srv__SetArmLock_Response set_arm_lock_response;
 tabletop_interfaces__srv__SetSmartglass_Request set_smartglass_request;
@@ -105,7 +110,7 @@ enum agent_states {
   AGENT_AVAILABLE,
   AGENT_CONNECTED,
   AGENT_DISCONNECTED,
-} agent_state = WAITING_AGENT;
+} agent_state;
 
 bool is_reward_active;
 bool is_smartglass_revealed;
@@ -436,6 +441,15 @@ void set_reward_callback(const void* req, void* res) {
   LOG("%s", response->message.data);
 }
 
+// Service callback for ping
+void ping_callback(const void* req, void* res) {
+  RCLC_UNUSED(req);
+  tabletop_interfaces__srv__Ping_Response* response =
+      static_cast<tabletop_interfaces__srv__Ping_Response*>(res);
+
+  GET_CURRENT_ROS_TIME(response->received_time);
+}
+
 // Service callback for controlling the arm lock
 void set_arm_lock_callback(const void* req, void* res) {
   const tabletop_interfaces__srv__SetArmLock_Request* request =
@@ -531,6 +545,10 @@ bool init_client() {
 
   // Services
   RCCHECK(rclc_service_init_default(
+      &ping_service, &node,
+      ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, Ping),
+      PING_SRV_NAME));
+  RCCHECK(rclc_service_init_default(
       &set_arm_lock_service, &node,
       ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetArmLock),
       SET_ARM_LOCK_SRV_NAME));
@@ -562,12 +580,14 @@ bool init_client() {
   LOG("Timers initialized");
 
   // Executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 8, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
+  RCCHECK(rclc_executor_add_service(&executor, &ping_service, &ping_request,
+                                    &ping_response, ping_callback));
   RCCHECK(rclc_executor_add_service(
       &executor, &set_arm_lock_service, &set_arm_lock_request,
       &set_arm_lock_response, set_arm_lock_callback));
@@ -602,6 +622,7 @@ bool deinit_client() {
   RCCHECK(rcl_timer_fini(&sync_pulse_end_timer));
   RCCHECK(rcl_timer_fini(&sensor_timer));
   RCCHECK(rcl_timer_fini(&reward_timer));
+  RCCHECK(rcl_service_fini(&ping_service, &node));
   RCCHECK(rcl_service_fini(&set_arm_lock_service, &node));
   RCCHECK(rcl_service_fini(&set_smartglass_service, &node));
   RCCHECK(rcl_service_fini(&set_reward_service, &node));
@@ -663,6 +684,8 @@ void setup() {
     printf("Failed to create message memories\n");
     error_loop();
   }
+
+  agent_state = WAITING_AGENT;
 
   delay(1000);
 }

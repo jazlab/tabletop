@@ -22,6 +22,7 @@ set(msg_files
 )
 
 set(srv_files
+  "srv/Ping.srv"
   "srv/SetArmLock.srv"
   "srv/SetReward.srv"
   "srv/SetSmartglass.srv"

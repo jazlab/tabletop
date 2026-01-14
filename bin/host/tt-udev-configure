@@ -7,7 +7,7 @@ TEENSY_FILNAME=00-teensy.rules
 FLIR_FILENAME=40-flir.rules
 
 # PlatformIO (disabled in lieu of custom teensy rule below)
-# sudo curl -fsSL -o /etc/udev/rules.d/$PLATFORMIO_FILENAME https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
+sudo curl -fsSL -o /etc/udev/rules.d/$PLATFORMIO_FILENAME https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
 
 # Teensy
 sudo tee /etc/udev/rules.d/$TEENSY_FILNAME > /dev/null <<EOF

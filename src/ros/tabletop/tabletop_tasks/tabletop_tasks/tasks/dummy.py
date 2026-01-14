@@ -11,8 +11,11 @@ Example:
 
 import asyncio
 import random
+from typing import cast
 
 import numpy as np
+from rclpy.time import Time
+from tabletop_interfaces.srv import Ping
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
@@ -65,7 +68,7 @@ class DummyTask(BaseTask):
         """
         pass
 
-    async def run0(self) -> None:
+    async def test_robot_position(self) -> None:
         """Test method for debugging object grid positioning.
 
         Continuously logs the end-effector position relative to the
@@ -99,7 +102,7 @@ class DummyTask(BaseTask):
             )
             await asyncio.sleep(1.0)
 
-    async def run(self) -> None:
+    async def test_flic_latency_pre_pressed(self) -> None:
         """Test Flic button response times across multiple objects.
 
         Iterates through small objects 15-29 and measures Flic button
@@ -124,8 +127,8 @@ class DummyTask(BaseTask):
         self.log(f"Reported avg: {flic_avg:.4f}s, std: {flic_std:.6f}")
         self.log(f"Total avg: {total_avg:.4f}s, std: {total_std:.6f}")
 
-    async def run2(self) -> None:
-        """Test Flic response times with smartglass occlusion.
+    async def test_flic_latency_human(self) -> None:
+        """Test Flic response times using human response time as ground truth
 
         Tests the full trial sequence with smartglass occlusion and
         reveal, measuring corrected response times that account for
@@ -160,5 +163,65 @@ class DummyTask(BaseTask):
                     self.log(f"Reported: {flic_rt:.4f}s | Total: {total_rt}")
                     rts.append(total_rt)
         finally:
-            avg = sum(rts) / len(rts)
-            self.log(f"Average response time: {avg}")
+            avg = np.mean(rts)
+            std = np.std(rts)
+            self.log(f"Total avg: {avg:.4f}s, std: {std:.6f}")
+
+    async def test_teensy_latency(self):
+        client = self.commander.create_client(Ping, "/teensy/ping")
+
+        roundtrips = []
+        forwards = []
+        backwards = []
+
+        for i in range(1000):
+            start_time = self.commander.get_clock().now()
+            response = cast(
+                Ping.Response,
+                await self.commander.service_call_async(
+                    srv_request=Ping.Request(sent_time=start_time.to_msg()),
+                    srv_client=client,
+                ),
+            )
+            end_time = self.commander.get_clock().now()
+            response = cast(Ping.Response, response)
+            teensy_time = Time.from_msg(response.received_time)
+
+            roundtrip = (end_time - start_time).nanoseconds / 1e6
+            forward = (teensy_time - start_time).nanoseconds / 1e6
+            backward = (end_time - teensy_time).nanoseconds / 1e6
+
+            # Warmup period
+            if i > 50:
+                roundtrips.append(roundtrip)
+                forwards.append(forward)
+                backwards.append(backward)
+
+            # self.log(
+            #     f"Roundtrip (real ~ calculated): {roundtrip:.2f} ms ~ {sum:.2f} ms | "
+            #     f"calculated = forward + backward: {forward:.2f} ms + {backward:.2f} ms)"
+            # )
+
+        roundtrip_mean = np.mean(roundtrips)
+        roundtrip_std = np.std(roundtrips)
+        forward_mean = np.mean(forwards)
+        forward_std = np.std(forwards)
+        backward_mean = np.mean(backwards)
+        backward_std = np.std(backwards)
+
+        self.log(
+            "----------------------------------------------------------\n"
+            f"Stats (N={len(roundtrips)}):\n"
+            f"Roundtrip: {roundtrip_mean:.2f} ± {roundtrip_std:.2f} ms\n"
+            f"Forward:   {forward_mean:.2f} ± {forward_std:.2f} ms\n"
+            f"Backward:  {backward_mean:.2f} ± {backward_std:.2f} ms\n"
+            "----------------------------------------------------------"
+        )
+
+    async def run(self) -> None:
+        """Run one or more of the tests"""
+        async with self.commander:
+            # await self.test_flic_latency_pre_pressed()
+            # await self.test_flic_latency_human()
+            # await self.test_robot_position()
+            await self.test_teensy_latency()

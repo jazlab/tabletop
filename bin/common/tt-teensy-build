@@ -9,7 +9,7 @@ source $bin_dir/../utils.sh
 project_dir=$TABLETOP_DIR/src/ros/tabletop/tabletop_teensy
 
 target_arg="--target upload"
-compile=false
+compiledb=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
@@ -20,8 +20,8 @@ while [[ $# -gt 0 ]]; do
             unset target_arg
             shift
             ;;
-        --compile)
-            compile=true
+        --compile-commands)
+            compiledb=true
             target_arg="--target compiledb"
             shift
             ;;
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--clean] [--no-upload]"
+            echo "Usage: $0 [--clean] [--no-upload] "
             exit 1
             ;;
     esac
@@ -47,10 +47,10 @@ if [[ $clean = true ]]; then
         fi
     fi
     print_status "Cleaning build directory"
-    sudo rm -rf $project_dir/.pio
+    rm -rf $project_dir/.pio
 fi
 
-if [[ $compile = true ]]; then
+if [[ $compiledb = true ]]; then
     extra_script_path=$project_dir/.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
     if [[ -f $extra_script_path ]]; then
         cat << EOF >> $extra_script_path
@@ -67,12 +67,20 @@ EOF
 fi
 
 print_status "Building Teensy code"
-while ! pio run $target_arg --project-dir $project_dir; do
+retries=2
+i=0
+while (( i < retries )) && ! pio run $target_arg --project-dir $project_dir; do
+    (( i+=1 ))
+    if (( i >= retries )); then
+        print_error "Build failed $i times, aborting"
+        exit 1
+    fi
+
     if [[ -n $target_arg ]]; then
         print_status "Build failed, retrying..."
         sleep 1
     else
-        print_status "Build failed, aborting..."
+        print_error "Build failed, aborting"
         exit 1
     fi
 done

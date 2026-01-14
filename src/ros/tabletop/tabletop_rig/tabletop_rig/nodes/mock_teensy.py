@@ -19,6 +19,7 @@ Topics published:
     /teensy/log: Log messages from the mock Teensy
 
 Services provided:
+    /teensy/ping: Ping service for latency measurement
     /teensy/set_arm_lock: Control arm lock solenoids
     /teensy/set_smartglass: Control smartglass visibility
     /teensy/set_reward: Control reward solenoid
@@ -43,7 +44,7 @@ from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
-from tabletop_interfaces.srv import SetArmLock, SetReward, SetSmartglass
+from tabletop_interfaces.srv import Ping, SetArmLock, SetReward, SetSmartglass
 
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
@@ -378,6 +379,12 @@ class MockTeensy(BaseNode):
         # Services
         # qos = copy(QoSPresetProfiles.SERVICES_DEFAULT.value)
         # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
+        self.ping_service = self.create_service(
+            Ping,
+            "/teensy/ping",
+            self.ping_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
         self.set_arm_lock_service = self.create_service(
             SetArmLock,
             "/teensy/set_arm_lock",
@@ -504,6 +511,24 @@ class MockTeensy(BaseNode):
             f"Sync pulse start timer scheduled for {delay_ms:.1f} ms",
             severity="DEBUG",
         )
+
+    def ping_callback(
+        self, request: Ping.Request, response: Ping.Response
+    ) -> Ping.Response:
+        """Handle ping service requests.
+
+        Returns the current time to allow round-trip latency measurement.
+
+        Args:
+            request: Request containing sent_time timestamp.
+            response: Response to populate.
+
+        Returns:
+            Response with received_time set to current clock time.
+        """
+        _ = request  # sent_time is not used, just for client reference
+        response.received_time = self.get_clock().now().to_msg()
+        return response
 
     def set_arm_lock_callback(
         self, request: SetArmLock.Request, response: SetArmLock.Response
