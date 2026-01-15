@@ -237,15 +237,9 @@ services:
       additional_contexts:
         tabletop/ros-base: service:ros-base
     runtime: $COMMANDER_RUNTIME
-    devices:
-      - $FLIR_DEV_0
-      - $FLIR_DEV_1
-      - $FLIR_DEV_2
-      - $FLIR_DEV_3
-      - $FLIR_DEV_4
-      - $FLIR_DEV_5
-      - $TEENSY_DEV
     volumes:
+      - /dev:/dev
+      - /var/run/docker.sock:/var/run/docker.sock
       - type: bind
         source: .
         target: /tabletop
@@ -264,6 +258,7 @@ services:
       novnc:
         condition: service_healthy
     init: true
+    privileged: true
     command: sleep infinity
 
 volumes:

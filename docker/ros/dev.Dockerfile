@@ -34,6 +34,9 @@ EOT
 # Install npm packages globally
 RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli
 
+# Install claude code
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
 ARG TARGETARCH
 
 # Install Neovim

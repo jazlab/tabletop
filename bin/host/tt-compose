@@ -49,7 +49,7 @@ echo
 
 if [[ "$build" = true ]]; then
     docker compose "$@"
-    docker compose run --rm ros-base bash -c "tt-build --only-modules && tt-build"
+    docker compose run --rm ros-base bash -c "tt-build --all"
 else
     exec docker compose "$@"
 fi
