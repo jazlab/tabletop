@@ -28,12 +28,10 @@ if [[ ! "$(docker compose ps -q --status=running $SERVICE)" ]]; then
 fi
 
 # CONTAINER_ID=$(docker compose ps -q $SERVICE)
-docker compose exec $SERVICE /entrypoint.sh bash
-# if [[ "$SERVICE" = dev && "$TERM" = "*kitty*" ]]; then
-#     devcontainer exec --workspace-folder . \
-#         kitten run-shell --shell-integration no-cursor --shell /bin/bash
-# else
-#     docker compose exec $SERVICE /bin/bash
-# fi
+if [[ "$SERVICE" = dev && "$TERM" = "*kitty*" ]]; then
+    exec docker compose exec "$SERVICE" kitten run-shell --shell-integration=no-cursor --shell=/bin/bash /entrypoint.sh
+else
+    exec docker compose exec "$SERVICE" /entrypoint.sh bash
+fi
 
 # docker compose exec -it $CONTAINER_ID $CMD

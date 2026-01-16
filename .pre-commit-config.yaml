@@ -1,23 +1,4 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.13.0
-    hooks:
-      # Run the linter.
-      - id: ruff-check
-        types_or: [python, pyi]
-        args: [--fix]
-      # Run the formatter.
-      - id: ruff-format
-        types_or: [python, pyi]
-  # - repo: https://github.com/shellcheck-py/shellcheck-py
-  #   rev: v0.11.0.1
-  #   hooks:
-  #     - id: shellcheck
-  - repo: https://github.com/openstack/bashate
-    rev: 2.1.1
-    hooks:
-      - id: bashate
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -42,3 +23,36 @@ repos:
         args: [--autofix, --no-sort-keys]
       - id: end-of-file-fixer
       - id: trailing-whitespace
+  - repo: https://github.com/openstack/bashate
+    rev: 2.1.1
+    hooks:
+      - id: bashate
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.13.0
+    hooks:
+      # Run the linter.
+      - id: ruff-check
+        types_or: [python, pyi]
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
+        types_or: [python, pyi]
+  # - repo: https://github.com/shellcheck-py/shellcheck-py
+  #   rev: v0.11.0.1
+  #   hooks:
+  #     - id: shellcheck
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v14.0.6
+    hooks:
+      - id: clang-format
+        types_or: [c++, c, cuda]
+        args: ["-fallback-style=none"]
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+      - id: cmake-lint
+        args:
+          [--line-width  220, --disabled-codes=C0307, --suppress-decorations]

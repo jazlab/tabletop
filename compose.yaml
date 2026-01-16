@@ -239,12 +239,13 @@ services:
     runtime: $COMMANDER_RUNTIME
     volumes:
       - /dev:/dev
-      - /var/run/docker.sock:/var/run/docker.sock
       - type: bind
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
+      - ~/.claude:/home/$USER_NAME/.claude
+      - ~/.claude.json:/home/$USER_NAME/.claude.json
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
       - $KITTY_LISTEN_ON_MNT

@@ -791,17 +791,17 @@ def main(args=None) -> None:
         non_ros_args = rclpy.utilities.remove_ros_args(args)
         args, _ = parser.parse_known_args(non_ros_args)
 
-        if args.coro_module is not None or args.coro_name is not None:
-            if args.coro_name is None or args.coro_module is None:
-                raise ValueError(
-                    "Both coro_module and coro_name must be provided when one is provided"
-                )
+        if args.coro_module is not None and args.coro_name is not None:
             print(
                 f"Loading coroutine {args.coro_name} from module {args.coro_module} "
             )
             coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
                 importlib.import_module(args.coro_module),
                 args.coro_name,
+            )
+        elif args.coro_name is not None or args.coro_module is not None:
+            raise ValueError(
+                "Both coro_module and coro_name must be provided when one is provided"
             )
         else:
             print(

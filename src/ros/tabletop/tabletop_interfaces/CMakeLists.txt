@@ -16,30 +16,23 @@ find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-set(msg_files
-  "msg/Eyelink.msg"
-  "msg/TeensySensor.msg"
-)
+set(msg_files "msg/Eyelink.msg" "msg/TeensySensor.msg")
 
-set(srv_files
-  "srv/Ping.srv"
-  "srv/SetArmLock.srv"
-  "srv/SetReward.srv"
-  "srv/SetSmartglass.srv"
-)
+set(srv_files "srv/Ping.srv" "srv/SetArmLock.srv" "srv/SetReward.srv"
+              "srv/SetSmartglass.srv")
 
-set(action_files
-  "action/EyelinkSmoothPursuit.action"
-  "action/FlicResponseTime.action"
-)
+set(action_files "action/EyelinkSmoothPursuit.action"
+                 "action/FlicResponseTime.action")
 
-rosidl_generate_interfaces(${PROJECT_NAME}
+rosidl_generate_interfaces(
+  ${PROJECT_NAME}
   ${msg_files}
   ${srv_files}
   ${action_files}
-  DEPENDENCIES builtin_interfaces std_msgs
-  ADD_LINTER_TESTS
-)
+  DEPENDENCIES
+  builtin_interfaces
+  std_msgs
+  ADD_LINTER_TESTS)
 
 ament_export_dependencies(rosidl_default_runtime)
 
