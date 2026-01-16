@@ -9,3 +9,4 @@ uint16[5] right_tactile_glove_states
 bool sync_pulse_state
 builtin_interfaces/Time sync_pulse_last_time_on
 builtin_interfaces/Time sync_pulse_last_time_off
+builtin_interfaces/Time safety_laser_last_time_broken

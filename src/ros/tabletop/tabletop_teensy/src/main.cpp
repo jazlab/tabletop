@@ -18,7 +18,7 @@
 #include "rmw/qos_profiles.h"
 #include "rmw_microros/time_sync.h"
 
-#if !defined(MICRO_ROS_TRANSPORT_ARDUINO_SERIAL)
+#ifndef MICRO_ROS_TRANSPORT_ARDUINO_SERIAL
 #error This code only supports serial transport.
 #endif
 
@@ -30,11 +30,19 @@
 #define SMARTGLASS_CONTROL_PIN 3
 #define REWARD_CONTROL_PIN 1
 #define SYNC_PULSE_CONTROL_PIN 9
-#define LEFT_ARM_LOCKED_STATE_PIN 34
-#define RIGHT_ARM_LOCKED_STATE_PIN 35
-#define SAFETY_LASER_UNBROKEN_STATE_PIN 36
+#define LEFT_ARM_LOCK_STATE_PIN 34
+#define RIGHT_ARM_LOCK_STATE_PIN 35
+#define SAFETY_LASER_STATE_PIN 36
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
+
+// Define pin states
+#define LEFT_ARM_LOCKED_STATE HIGH
+#define RIGHT_ARM_LOCKED_STATE HIGH
+#define SAFETY_LASER_BROKEN_STATE LOW
+
+// Define interrupt trigger conditions
+#define SAFETY_LASER_BROKEN_TRIGGER FALLING
 
 // Message memory configuration
 #define MAX_STRING_CAPACITY 100
@@ -81,6 +89,8 @@ rcl_timer_t sync_pulse_end_timer;
 rcl_timer_t sensor_timer;
 rcl_timer_t reward_timer;
 
+rcl_guard_condition_t safety_laser_gc;
+
 rcl_allocator_t allocator;
 rclc_support_t support;
 rcl_node_t node;
@@ -114,6 +124,8 @@ bool is_smartglass_revealed;
 bool sync_pulse_state;
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
+
+volatile int64_t safety_laser_last_time_broken_ns;
 
 // Macro definitions
 #define RCCHECK(fn)                                                                                                    \
@@ -183,24 +195,36 @@ builtin_interfaces__msg__Time sync_pulse_last_time_off;
 #define RCL_S_TO_MS(sec) (sec * 1000LL)
 #define ROS_TIME_TO_MS(time_msg) (RCL_S_TO_MS(time_msg.sec) + RCL_NS_TO_MS(time_msg.nanosec))
 #define ROS_TIME_TO_NS(time_msg) (RCL_S_TO_NS(time_msg.sec) + time_msg.nanosec)
+#define NS_TO_ROS_TIME(time_msg, ns)                                                                                   \
+  {                                                                                                                    \
+    time_msg.sec = ns / (1000LL * 1000LL * 1000LL);                                                                    \
+    time_msg.nanosec = ns % (1000LL * 1000LL * 1000LL);                                                                \
+  }
 #define GET_CURRENT_ROS_TIME(time_msg)                                                                                 \
   {                                                                                                                    \
     int64_t now_ns = rmw_uros_epoch_nanos();                                                                           \
-    time_msg.sec = now_ns / (1000LL * 1000LL * 1000LL);                                                                \
-    time_msg.nanosec = now_ns % (1000LL * 1000LL * 1000LL);                                                            \
+    NS_TO_ROS_TIME(time_msg, now_ns);                                                                                  \
   }
 
+static void safety_laser_isr()
+{
+  int64_t now_ns = rmw_uros_epoch_nanos();
+  if (now_ns - safety_laser_last_time_broken_ns > RCL_MS_TO_NS(50))
+  {
+    safety_laser_last_time_broken_ns = now_ns;
+  }
+}
 static inline bool is_safety_laser_broken()
 {
-  return digitalReadFast(SAFETY_LASER_UNBROKEN_STATE_PIN) == LOW;
+  return digitalReadFast(SAFETY_LASER_STATE_PIN) == SAFETY_LASER_BROKEN_STATE;
 }
 static inline bool is_left_arm_locked()
 {
-  return digitalReadFast(LEFT_ARM_LOCKED_STATE_PIN) == HIGH;
+  return digitalReadFast(LEFT_ARM_LOCK_STATE_PIN) == LEFT_ARM_LOCKED_STATE;
 }
 static inline bool is_right_arm_locked()
 {
-  return digitalReadFast(RIGHT_ARM_LOCKED_STATE_PIN) == HIGH;
+  return digitalReadFast(RIGHT_ARM_LOCK_STATE_PIN) == RIGHT_ARM_LOCKED_STATE;
 }
 
 static inline void set_left_arm_lock(bool lock)
@@ -311,6 +335,11 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     sensor_msg.sync_pulse_state = sync_pulse_state;
     sensor_msg.sync_pulse_last_time_on = sync_pulse_last_time_on;
     sensor_msg.sync_pulse_last_time_off = sync_pulse_last_time_off;
+
+    // Safety laser last time pressed
+    builtin_interfaces__msg__Time safety_laser_last_time_broken;
+    NS_TO_ROS_TIME(safety_laser_last_time_broken, safety_laser_last_time_broken_ns);
+    sensor_msg.safety_laser_last_time_broken = safety_laser_last_time_broken;
 
     RCASSERT(rcl_publish(&sensor_publisher, &sensor_msg, NULL), "Failed to publish sensor message");
   }
@@ -460,6 +489,7 @@ void ping_callback(const void* req, void* res)
   tabletop_interfaces__srv__Ping_Response* response = static_cast<tabletop_interfaces__srv__Ping_Response*>(res);
 
   GET_CURRENT_ROS_TIME(response->received_time);
+  response->success = (response->received_time.sec != 0) || (response->received_time.nanosec != 0);
 }
 
 // Service callback for controlling the arm lock
@@ -542,6 +572,9 @@ bool init_client()
   // Reset output pins
   reset_state();
 
+  // Attach interrupt service routines
+  attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_isr, SAFETY_LASER_BROKEN_TRIGGER);
+
   // Initialize allocator
   allocator = rcl_get_default_allocator();
 
@@ -615,6 +648,9 @@ bool deinit_client()
   // Reset output pins
   reset_state();
 
+  // Attach interrupt service routines
+  detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
+
   // Destroy session
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
   RCCHECK(rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0));
@@ -655,9 +691,9 @@ void setup()
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
 
   // Initialize input pins
-  pinMode(LEFT_ARM_LOCKED_STATE_PIN, INPUT_PULLUP);
-  pinMode(RIGHT_ARM_LOCKED_STATE_PIN, INPUT_PULLUP);
-  pinMode(SAFETY_LASER_UNBROKEN_STATE_PIN, INPUT_PULLUP);
+  pinMode(LEFT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
+  pinMode(SAFETY_LASER_STATE_PIN, INPUT_PULLUP);
   for (size_t i = 0; i < 5; i++)
   {
     pinMode(LEFT_GLOVE_STATE_PINS[i], INPUT);
@@ -715,14 +751,8 @@ void loop()
                          agent_sync_retries = (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)) ?
                                                   0 :
                                                   agent_sync_retries + 1;);
-      if (agent_sync_retries < AGENT_SYNC_MAX_RETRIES)
-      {
-        if (RCL_RET_OK != rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS)))
-        {
-          agent_state = AGENT_DISCONNECTED;
-        }
-      }
-      else
+      if ((agent_sync_retries >= AGENT_SYNC_MAX_RETRIES) ||
+          (RCL_RET_OK != rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))))
       {
         agent_state = AGENT_DISCONNECTED;
       }
