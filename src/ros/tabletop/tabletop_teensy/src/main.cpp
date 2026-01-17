@@ -13,6 +13,7 @@
 #include <tabletop_interfaces/srv/set_arm_lock.h>
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
+#include <atomic.h>
 
 #include "core_pins.h"
 #include "rmw/qos_profiles.h"
@@ -25,6 +26,7 @@
 // #define DEBUG_LOGGING
 
 // Define pin mappings
+// NOTE: Pin 37 does not work
 #define LEFT_ARM_LOCK_CONTROL_PIN 4
 #define RIGHT_ARM_LOCK_CONTROL_PIN 5
 #define SMARTGLASS_CONTROL_PIN 3
@@ -33,6 +35,7 @@
 #define LEFT_ARM_LOCK_STATE_PIN 34
 #define RIGHT_ARM_LOCK_STATE_PIN 35
 #define SAFETY_LASER_STATE_PIN 36
+#define BUTTON_STATE_PIN 33
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 
@@ -40,9 +43,11 @@ static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 #define LEFT_ARM_LOCKED_STATE HIGH
 #define RIGHT_ARM_LOCKED_STATE HIGH
 #define SAFETY_LASER_BROKEN_STATE LOW
+#define BUTTON_PRESSED_STATE LOW
 
 // Define interrupt trigger conditions
-#define SAFETY_LASER_BROKEN_TRIGGER FALLING
+#define SAFETY_LASER_ISR_TRIGGER CHANGE
+#define BUTTON_ISR_TRIGGER CHANGE
 
 // Message memory configuration
 #define MAX_STRING_CAPACITY 100
@@ -69,10 +74,20 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_SYNC_PERIOD_MS 200
 #define AGENT_SYNC_TIMEOUT_MS 3
 #define AGENT_SYNC_MAX_RETRIES 5
-#define SENSOR_PERIOD_MS 20
+#define SENSOR_PERIOD_MS 10
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
 #define SYNC_PULSE_DELAY_RANGE_MS 200
 #define SYNC_PULSE_DURATION_MS 100
+
+// Builtin LED agent state indicator
+//    Steady on:    WAITING_AGENT
+//    Steady off:   AGENT_AVAILABLE | AGENT_DISCONNECTED
+//    Blink slow:   AGENT_CONNECTED
+//    Blink fast:   UNRECOVERABLE_ERROR
+// If UNRECOVERABLE_ERROR state is reached, the teensy needs to be rebooted
+// This should not usually happen and indicates an error in the source code.
+#define BLINK_CONNECTED_PERIOD_MS 500
+#define BLINK_ERROR_PERIOD_MS 100
 
 // Global variables
 rcl_publisher_t sensor_publisher;
@@ -117,6 +132,7 @@ enum agent_states
   AGENT_AVAILABLE,
   AGENT_CONNECTED,
   AGENT_DISCONNECTED,
+  UNCRECOVERABLE_ERROR,
 } agent_state;
 
 bool is_reward_active;
@@ -126,6 +142,9 @@ builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
 
 volatile int64_t safety_laser_last_time_broken_ns;
+volatile int64_t button_last_time_pressed_ns;
+volatile int64_t button_last_time_bounced_ns;
+volatile bool button_state_stable;
 
 // Macro definitions
 #define RCCHECK(fn)                                                                                                    \
@@ -206,7 +225,7 @@ volatile int64_t safety_laser_last_time_broken_ns;
     NS_TO_ROS_TIME(time_msg, now_ns);                                                                                  \
   }
 
-static void safety_laser_isr()
+static void safety_laser_broken_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
   if (now_ns - safety_laser_last_time_broken_ns > RCL_MS_TO_NS(50))
@@ -214,9 +233,22 @@ static void safety_laser_isr()
     safety_laser_last_time_broken_ns = now_ns;
   }
 }
+static void button_pressed_isr()
+{
+  int64_t now_ns = rmw_uros_epoch_nanos();
+  if (button_state_stable != BUTTON_PRESSED_STATE)
+  {
+    button_last_time_pressed_ns = now_ns;
+  }
+  button_last_time_bounced_ns = now_ns;
+}
 static inline bool is_safety_laser_broken()
 {
   return digitalReadFast(SAFETY_LASER_STATE_PIN) == SAFETY_LASER_BROKEN_STATE;
+}
+static inline bool is_button_pressed()
+{
+  return digitalReadFast(BUTTON_STATE_PIN) == BUTTON_PRESSED_STATE;
 }
 static inline bool is_left_arm_locked()
 {
@@ -250,16 +282,6 @@ static inline void set_sync_pulse(bool activate)
 {
   digitalWriteFast(SYNC_PULSE_CONTROL_PIN, activate ? HIGH : LOW);
   sync_pulse_state = activate;
-}
-
-// Error handle loop
-void error_loop()
-{
-  while (1)
-  {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    delay(500);
-  }
 }
 
 // Support init with custom clock
@@ -318,6 +340,7 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     sensor_msg.is_safety_laser_broken = is_safety_laser_broken();
     sensor_msg.is_left_arm_locked = is_left_arm_locked();
     sensor_msg.is_right_arm_locked = is_right_arm_locked();
+    sensor_msg.is_button_pressed = is_button_pressed();
     sensor_msg.is_reward_active = is_reward_active;
     sensor_msg.is_smartglass_revealed = is_smartglass_revealed;
 
@@ -340,6 +363,22 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     builtin_interfaces__msg__Time safety_laser_last_time_broken;
     NS_TO_ROS_TIME(safety_laser_last_time_broken, safety_laser_last_time_broken_ns);
     sensor_msg.safety_laser_last_time_broken = safety_laser_last_time_broken;
+
+    // Button last time pressed
+    noInterrupts();
+    if (rmw_uros_epoch_nanos() - button_last_time_bounced_ns > 5)
+    {
+      button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
+    }
+    interrupts();
+
+    builtin_interfaces__msg__Time button_last_time_pressed;
+
+    noInterrupts();
+    NS_TO_ROS_TIME(button_last_time_pressed, button_last_time_pressed_ns);
+    interrupts();
+
+    sensor_msg.button_last_time_pressed = button_last_time_pressed;
 
     RCASSERT(rcl_publish(&sensor_publisher, &sensor_msg, NULL), "Failed to publish sensor message");
   }
@@ -565,15 +604,16 @@ void reset_state()
   sync_pulse_last_time_on.nanosec = 0;
   sync_pulse_last_time_off.sec = 0;
   sync_pulse_last_time_off.nanosec = 0;
+  safety_laser_last_time_broken_ns = 0;
+  button_last_time_pressed_ns = 0;
+  button_last_time_bounced_ns = 0;
+  button_state_stable = BUTTON_PRESSED_STATE == LOW ? HIGH : LOW;
 }
 
 bool init_client()
 {
   // Reset output pins
   reset_state();
-
-  // Attach interrupt service routines
-  attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_isr, SAFETY_LASER_BROKEN_TRIGGER);
 
   // Initialize allocator
   allocator = rcl_get_default_allocator();
@@ -640,16 +680,23 @@ bool init_client()
 
   LOG("Session synced");
 
+  // Attach interrupt service routines
+  int safety_laser_broken_trigger = SAFETY_LASER_BROKEN_STATE == LOW ? FALLING : RISING;
+  int button_pressed_trigger = BUTTON_PRESSED_STATE == LOW ? FALLING : RISING;
+  attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, safety_laser_broken_trigger);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN), button_pressed_isr, button_pressed_trigger);
+
   return true;
 }
 
 bool deinit_client()
 {
+  // Detach interrupt service routines
+  detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
+  detachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN));
+
   // Reset output pins
   reset_state();
-
-  // Attach interrupt service routines
-  detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
 
   // Destroy session
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
@@ -694,6 +741,7 @@ void setup()
   pinMode(LEFT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
   pinMode(RIGHT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
   pinMode(SAFETY_LASER_STATE_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_STATE_PIN, INPUT_PULLUP);
   for (size_t i = 0; i < 5; i++)
   {
     pinMode(LEFT_GLOVE_STATE_PINS[i], INPUT);
@@ -719,13 +767,8 @@ void setup()
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetReward_Response), &set_reward_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String), &log_msg,
                                                        memory_conf);
-  if (!success)
-  {
-    printf("Failed to create message memories\n");
-    error_loop();
-  }
 
-  agent_state = WAITING_AGENT;
+  agent_state = success ? WAITING_AGENT : UNCRECOVERABLE_ERROR;
 
   delay(1000);
 }
@@ -746,7 +789,7 @@ void loop()
       agent_state = init_client() ? AGENT_CONNECTED : AGENT_DISCONNECTED;
       break;
     case AGENT_CONNECTED:
-      EXECUTE_EVERY_N_MS(100, digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
+      EXECUTE_EVERY_N_MS(BLINK_CONNECTED_PERIOD_MS, digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
       EXECUTE_EVERY_N_MS(AGENT_SYNC_PERIOD_MS,
                          agent_sync_retries = (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)) ?
                                                   0 :
@@ -759,11 +802,10 @@ void loop()
       break;
     case AGENT_DISCONNECTED:
       digitalWrite(LED_BUILTIN, LOW);
-      if (!deinit_client())
-      {
-        error_loop();
-      }
-      agent_state = WAITING_AGENT;
+      agent_state = deinit_client() ? WAITING_AGENT : UNCRECOVERABLE_ERROR;
+      break;
+    case UNCRECOVERABLE_ERROR:
+      EXECUTE_EVERY_N_MS(BLINK_ERROR_PERIOD_MS, digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
       break;
   }
 }

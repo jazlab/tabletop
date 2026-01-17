@@ -8,6 +8,8 @@ source $bin_dir/../utils.sh
 
 project_dir=$TABLETOP_DIR/src/ros/tabletop/tabletop_teensy
 
+builtin cd $project_dir
+
 target_arg="--target upload"
 compiledb=false
 while [[ $# -gt 0 ]]; do
@@ -25,33 +27,23 @@ while [[ $# -gt 0 ]]; do
             target_arg="--target compiledb"
             shift
             ;;
-        -y)
-            yes=true
-            shift
-            ;;
         *)
-            echo "Error: Unknown argument $1"
-            echo "Usage: $0 [--clean] [--no-upload] "
+            print_error "Error: Unknown argument $1"
+            echo "Usage: $0 [--clean] [--no-upload] [--compile-commands]"
             exit 1
             ;;
     esac
 done
 
 if [[ $clean = true ]]; then
-    if [[ $yes != true ]]; then
-        read -p "Are you sure you want to clean the build directory? This will delete all build artifacts. [y/N] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Aborting clean operation"
-            exit 0
-        fi
-    fi
-    print_status "Cleaning build directory"
-    rm -rf $project_dir/.pio
+    print_status "Cleaning microros build directory"
+    # rm -rf .pio
+    pio run --target clean_microros
+
 fi
 
 if [[ $compiledb = true ]]; then
-    extra_script_path=$project_dir/.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
+    extra_script_path=.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
     if [[ -f $extra_script_path ]]; then
         cat << EOF >> $extra_script_path
 env.Replace(COMPILATIONDB_INCLUDE_TOOLCHAIN=True)
@@ -61,7 +53,7 @@ env.Replace(
 EOF
     else
         print_error "Extra script not found at $extra_script_path"
-        print_error "Please run without the --compile flag, then run with --compile"
+        print_error "Please run without the --compile-commands flag, then run with --compile-commands"
         exit 1
     fi
 fi
@@ -69,7 +61,7 @@ fi
 print_status "Building Teensy code"
 retries=2
 i=0
-while (( i < retries )) && ! pio run $target_arg --project-dir $project_dir; do
+while (( i < retries )) && ! pio run $target_arg; do
     (( i+=1 ))
     if (( i >= retries )); then
         print_error "Build failed $i times, aborting"

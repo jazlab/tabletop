@@ -32,7 +32,7 @@ nvm install 22
 EOT
 
 # Install npm packages globally
-RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli
+RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli opencdoe-ai
 
 # Install claude code
 RUN curl -fsSL https://claude.ai/install.sh | bash
