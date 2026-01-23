@@ -13,6 +13,7 @@
 #include <tabletop_interfaces/srv/set_arm_lock.h>
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
+#include <tabletop_interfaces/srv/set_solenoid.h>
 #include <atomic.h>
 
 #include "core_pins.h"
@@ -32,6 +33,7 @@
 #define SMARTGLASS_CONTROL_PIN 3
 #define REWARD_CONTROL_PIN 1
 #define SYNC_PULSE_CONTROL_PIN 9
+#define SOLENOID_CONTROL_PIN 12
 #define LEFT_ARM_LOCK_STATE_PIN 34
 #define RIGHT_ARM_LOCK_STATE_PIN 35
 #define SAFETY_LASER_STATE_PIN 36
@@ -66,14 +68,15 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define SET_ARM_LOCK_SRV_NAME "/teensy/set_arm_lock"
 #define SET_SMARTGLASS_SRV_NAME "/teensy/set_smartglass"
 #define SET_REWARD_SRV_NAME "/teensy/set_reward"
+#define SET_SOLENOID_SRV_NAME "/teensy/set_solenoid"
 
 // Execution parameters
 #define AGENT_RECONNECT_PERIOD_MS 100
 #define AGENT_RECONNECT_TIMEOUT_MS 20
 #define EXECUTOR_SPIN_TIMEOUT_MS 50
 #define AGENT_SYNC_PERIOD_MS 200
-#define AGENT_SYNC_TIMEOUT_MS 3
-#define AGENT_SYNC_MAX_RETRIES 5
+#define AGENT_SYNC_TIMEOUT_MS 1
+#define AGENT_SYNC_MAX_RETRIES 3
 #define SENSOR_PERIOD_MS 10
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
 #define SYNC_PULSE_DELAY_RANGE_MS 200
@@ -97,6 +100,7 @@ rcl_service_t ping_service;
 rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
+rcl_service_t set_solenoid_service;
 
 rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
@@ -122,6 +126,8 @@ tabletop_interfaces__srv__SetSmartglass_Request set_smartglass_request;
 tabletop_interfaces__srv__SetSmartglass_Response set_smartglass_response;
 tabletop_interfaces__srv__SetReward_Request set_reward_request;
 tabletop_interfaces__srv__SetReward_Response set_reward_response;
+tabletop_interfaces__srv__SetSolenoid_Request set_solenoid_request;
+tabletop_interfaces__srv__SetSolenoid_Response set_solenoid_response;
 
 // State tracking
 uint8_t agent_sync_retries;
@@ -137,6 +143,7 @@ enum agent_states
 
 bool is_reward_active;
 bool is_smartglass_revealed;
+bool is_solenoid_active;
 bool sync_pulse_state;
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
@@ -282,6 +289,11 @@ static inline void set_sync_pulse(bool activate)
 {
   digitalWriteFast(SYNC_PULSE_CONTROL_PIN, activate ? HIGH : LOW);
   sync_pulse_state = activate;
+}
+static inline void set_solenoid(bool activate)
+{
+  digitalWriteFast(SOLENOID_CONTROL_PIN, activate ? HIGH : LOW);
+  is_solenoid_active = activate;
 }
 
 // Support init with custom clock
@@ -591,6 +603,21 @@ void set_smartglass_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// Service callback for controlling the solenoid
+void set_solenoid_callback(const void* req, void* res)
+{
+  const tabletop_interfaces__srv__SetSolenoid_Request* request =
+      static_cast<const tabletop_interfaces__srv__SetSolenoid_Request*>(req);
+  tabletop_interfaces__srv__SetSolenoid_Response* response =
+      static_cast<tabletop_interfaces__srv__SetSolenoid_Response*>(res);
+
+  set_solenoid(request->activate);
+
+  response->success = true;
+  STRING_SET(&response->message, "Solenoid %s", request->activate ? "activated" : "deactivated");
+  LOG("%s", response->message.data);
+}
+
 void reset_state()
 {
   set_left_arm_lock(true);
@@ -598,6 +625,7 @@ void reset_state()
   set_smartglass(true);
   set_reward(false);
   set_sync_pulse(false);
+  set_solenoid(false);
 
   agent_sync_retries = 0;
   sync_pulse_last_time_on.sec = 0;
@@ -646,6 +674,9 @@ bool init_client()
   RCCHECK(rclc_service_init_default(&set_reward_service, &node,
                                     ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetReward),
                                     SET_REWARD_SRV_NAME));
+  RCCHECK(rclc_service_init_default(&set_solenoid_service, &node,
+                                    ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetSolenoid),
+                                    SET_SOLENOID_SRV_NAME));
   LOG("Services initialized");
 
   // Timers
@@ -661,7 +692,7 @@ bool init_client()
   LOG("Timers initialized");
 
   // Executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
@@ -674,6 +705,8 @@ bool init_client()
                                     &set_smartglass_response, set_smartglass_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_reward_service, &set_reward_request, &set_reward_response,
                                     set_reward_callback));
+  RCCHECK(rclc_executor_add_service(&executor, &set_solenoid_service, &set_solenoid_request, &set_solenoid_response,
+                                    set_solenoid_callback));
   LOG("Executor initialized");
 
   RCCHECK(rmw_uros_sync_session(1000));
@@ -714,6 +747,7 @@ bool deinit_client()
   RCCHECK(rcl_service_fini(&set_arm_lock_service, &node));
   RCCHECK(rcl_service_fini(&set_smartglass_service, &node));
   RCCHECK(rcl_service_fini(&set_reward_service, &node));
+  RCCHECK(rcl_service_fini(&set_solenoid_service, &node));
   RCCHECK(rclc_executor_fini(&executor));
   RCCHECK(rcl_node_fini(&node));
   RCCHECK(rclc_support_fini(&support));
@@ -736,6 +770,7 @@ void setup()
   pinMode(SMARTGLASS_CONTROL_PIN, OUTPUT);
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
+  pinMode(SOLENOID_CONTROL_PIN, OUTPUT);
 
   // Initialize input pins
   pinMode(LEFT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
@@ -765,6 +800,8 @@ void setup()
                                                        &set_smartglass_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetReward_Response), &set_reward_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetSolenoid_Response), &set_solenoid_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String), &log_msg,
                                                        memory_conf);
 

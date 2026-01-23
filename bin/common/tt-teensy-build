@@ -11,7 +11,7 @@ project_dir=$TABLETOP_DIR/src/ros/tabletop/tabletop_teensy
 builtin cd $project_dir
 
 target_arg="--target upload"
-compiledb=false
+retries=2
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
@@ -20,16 +20,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-upload)
             unset target_arg
+            retries=1
             shift
             ;;
-        --compile-commands)
-            compiledb=true
+        --compiledb)
             target_arg="--target compiledb"
+            retries=1
             shift
             ;;
         *)
             print_error "Error: Unknown argument $1"
-            echo "Usage: $0 [--clean] [--no-upload] [--compile-commands]"
+            echo "Usage: $0 [--clean] [--no-upload] [--compiledb]"
             exit 1
             ;;
     esac
@@ -42,24 +43,7 @@ if [[ $clean = true ]]; then
 
 fi
 
-if [[ $compiledb = true ]]; then
-    extra_script_path=.pio/libdeps/teensy41/micro_ros_platformio/extra_script.py
-    if [[ -f $extra_script_path ]]; then
-        cat << EOF >> $extra_script_path
-env.Replace(COMPILATIONDB_INCLUDE_TOOLCHAIN=True)
-env.Replace(
-    COMPILATIONDB_PATH=os.path.join("$BUILD_DIR", "compile_commands.json")
-)
-EOF
-    else
-        print_error "Extra script not found at $extra_script_path"
-        print_error "Please run without the --compile-commands flag, then run with --compile-commands"
-        exit 1
-    fi
-fi
-
 print_status "Building Teensy code"
-retries=2
 i=0
 while (( i < retries )) && ! pio run $target_arg; do
     (( i+=1 ))

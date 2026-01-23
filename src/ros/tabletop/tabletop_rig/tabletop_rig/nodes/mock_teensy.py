@@ -23,6 +23,7 @@ Services provided:
     /teensy/set_arm_lock: Control arm lock solenoids
     /teensy/set_smartglass: Control smartglass visibility
     /teensy/set_reward: Control reward solenoid
+    /teensy/set_solenoid: Control solenoid activation
 
 Example:
     ros2 run tabletop_rig mock_teensy
@@ -44,7 +45,13 @@ from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
-from tabletop_interfaces.srv import Ping, SetArmLock, SetReward, SetSmartglass
+from tabletop_interfaces.srv import (
+    Ping,
+    SetArmLock,
+    SetReward,
+    SetSmartglass,
+    SetSolenoid,
+)
 
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
@@ -76,6 +83,7 @@ RIGHT_ARM_LOCK_CONTROL_PIN = 2
 SMARTGLASS_CONTROL_PIN = 3
 REWARD_CONTROL_PIN = 4
 SYNC_PULSE_CONTROL_PIN = 9
+SOLENOID_CONTROL_PIN = 12
 LEFT_ARM_LOCKED_STATE_PIN = 34
 RIGHT_ARM_LOCKED_STATE_PIN = 35
 SAFETY_LASER_BROKEN_STATE_PIN = 36
@@ -89,6 +97,7 @@ digital_output_pin_states = {
     SMARTGLASS_CONTROL_PIN: LOW,
     REWARD_CONTROL_PIN: LOW,
     SYNC_PULSE_CONTROL_PIN: LOW,
+    SOLENOID_CONTROL_PIN: LOW,
 }
 
 digital_input_pin_states = {
@@ -355,12 +364,14 @@ class MockTeensy(BaseNode):
         self.sync_pulse_last_time_off = self.get_clock().now()
         self.reward_active = False
         self.smartglass_revealed = False
+        self.solenoid_active = False
 
         # Write the initial pin states
         digital_write(LEFT_ARM_LOCK_CONTROL_PIN, HIGH)
         digital_write(RIGHT_ARM_LOCK_CONTROL_PIN, HIGH)
         digital_write(SMARTGLASS_CONTROL_PIN, self.smartglass_revealed)
         digital_write(REWARD_CONTROL_PIN, self.reward_active)
+        digital_write(SOLENOID_CONTROL_PIN, self.solenoid_active)
         digital_write(
             SYNC_PULSE_CONTROL_PIN, self.sync_pulse_control_pin_state
         )
@@ -401,6 +412,12 @@ class MockTeensy(BaseNode):
             SetReward,
             "/teensy/set_reward",
             self.set_reward_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.set_solenoid_service = self.create_service(
+            SetSolenoid,
+            "/teensy/set_solenoid",
+            self.set_solenoid_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
@@ -604,6 +621,29 @@ class MockTeensy(BaseNode):
         response.success = True
         response.message = (
             f"Smartglass {'revealed' if request.reveal else 'occluded'}"
+        )
+        self.log(response.message)
+
+        return response
+
+    def set_solenoid_callback(
+        self, request: SetSolenoid.Request, response: SetSolenoid.Response
+    ) -> SetSolenoid.Response:
+        """Handle solenoid control service requests.
+
+        Args:
+            request: Request specifying activate or deactivate.
+            response: Response to populate.
+
+        Returns:
+            Response with success status and message.
+        """
+        pin_state = HIGH if request.activate else LOW
+        digital_write(SOLENOID_CONTROL_PIN, pin_state)
+        self.solenoid_active = request.activate
+        response.success = True
+        response.message = (
+            f"Solenoid {'activated' if request.activate else 'deactivated'}"
         )
         self.log(response.message)
 
