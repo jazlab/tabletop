@@ -83,7 +83,8 @@ services:
       retries: 3
       start_period: 5s
       start_interval: 1s
-    init: true
+    # init: true
+    # stop_signal: SIGINT
     command: /app/entrypoint.sh
 
   ros-base:
@@ -106,7 +107,8 @@ services:
         target: /tabletop
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
-    init: true
+    stop_signal: SIGINT
+    # init: true
 
   foxglove:
     extends: ros-base
@@ -208,9 +210,9 @@ services:
 
   commander:
     container_name: tabletop-commander
+    extends: ros-base
     profiles: !override
       - commander
-    extends: ros-base
     runtime: $COMMANDER_RUNTIME
     volumes:
       - $PULSE_SERVER_MNT

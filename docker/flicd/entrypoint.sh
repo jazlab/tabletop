@@ -34,53 +34,55 @@ set -eo pipefail
 #   - 127: If no command is provided.
 #
 exit_on_disconnect() {
-  if [ "$#" -eq 0 ]; then
-    echo "Usage: exit_on_disconnect <command> [args...]" >&2
-    return 127
-  fi
-
-  local pattern="disconnected"
-
-  # Start the command as a coprocess, redirecting its stderr to stdout
-  coproc THE_CMD { "$@" 2>&1; }
-
-  local cmd_pid=$THE_CMD_PID
-  local line
-
-  # Read output line-by-line from the coprocess's stdout
-  while IFS= read -r line <&"${THE_CMD[0]}"; do
-    # Print the line to the screen for real-time viewing
-    printf "%s\n" "$line"
-
-    # Check for the trigger word
-    if [[ "$line" == *"$pattern"* ]]; then
-      echo "---" >&2
-      echo "DISCONNECTED: '$pattern' detected. Terminating process tree for PID $cmd_pid..." >&2
-      # Terminate the process and its children for a clean exit
-      pkill -P "$cmd_pid" &>/dev/null
-      kill "$cmd_pid" &>/dev/null
-      # Return a unique exit code indicating a warning was found
-      return 2
+    if [ "$#" -eq 0 ]; then
+        echo "Usage: exit_on_disconnect <command> [args...]" >&2
+        return 127
     fi
-  done
 
-  # If the loop completes, the process finished on its own. Get its exit code.
-  wait "$cmd_pid"
-  local cmd_exit_code=$?
+    local pattern="disconnected"
 
-  if [ $cmd_exit_code -ne 0 ]; then
-      echo "---" >&2
-      echo "Command finished with an error (exit code $cmd_exit_code), but no '$pattern' was found." >&2
-  else
-      echo "---" >&2
-      echo "Command finished successfully without warnings." >&2
-  fi
-  return $cmd_exit_code
+    # Start the command as a coprocess, redirecting its stderr to stdout
+    coproc THE_CMD { "$@" 2>&1; }
+
+    local cmd_pid=$THE_CMD_PID
+    local line
+
+    # Read output line-by-line from the coprocess's stdout
+    while IFS= read -r line <&"${THE_CMD[0]}"; do
+        # Print the line to the screen for real-time viewing
+        printf "%s\n" "$line"
+
+        # Check for the trigger word
+        if [[ "$line" == *"$pattern"* ]]; then
+            echo "---" >&2
+            echo "DISCONNECTED: '$pattern' detected." >&2
+            echo "Terminating process tree for PID $cmd_pid..." >&2
+            # Terminate the process and its children for a clean exit
+            pkill -P "$cmd_pid" &>/dev/null
+            kill "$cmd_pid" &>/dev/null
+            # Return a unique exit code indicating a warning was found
+            return 2
+        fi
+    done
+
+    # If the loop completes, the process finished on its own. Get its exit code.
+    wait "$cmd_pid"
+    local cmd_exit_code=$?
+
+    if [ $cmd_exit_code -ne 0 ]; then
+        echo "---" >&2
+        echo "Command finished with an error (exit code $cmd_exit_code)," >&2
+        echo "but no '$pattern' was found." >&2
+    else
+        echo "---" >&2
+        echo "Command finished successfully without warnings." >&2
+    fi
+    return $cmd_exit_code
 }
 
 # --wait-for-hci necessary, see musings.md
 app_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-$app_dir/flicd \
+exec $app_dir/flicd \
     --db-file $app_dir/flic.db \
     --my-bdaddr $BD_ADDR \
     --server-addr $SERVER_ADDR \

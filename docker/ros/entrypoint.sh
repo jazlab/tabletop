@@ -9,7 +9,7 @@ if [ -d "$HOME/.nvm" ]; then
 fi
 
 # Add ~/.local/bin and ~/bin to PATH
-[ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
+# [ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
 [ -d "$HOME/bin" ] && export PATH="$HOME/bin:$PATH"
 
 # Setup project workspace or ROS2 environment

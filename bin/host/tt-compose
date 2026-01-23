@@ -10,9 +10,15 @@ builtin cd $TABLETOP_DIR
 
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
+# export COMPOSE_PROFILES="*"
+
+ps_format="table {{.Name}}\
+\t{{truncate .Image 15}}\
+\t{{.Command}}\
+\t{{.Service}}\
+\t{{.Status}}"
 
 ARGS=()
-# export COMPOSE_PROFILES="*"
 build=false
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -28,7 +34,7 @@ while [[ $# -gt 0 ]]; do
         #     ;;
         ps)
             ARGS+=("$1")
-            ARGS+=("--format" "table {{.Name}}\t{{truncate .Image 15}}\t{{.Command}}\t{{.Service}}\t{{.Status}}")
+            ARGS+=("--format" "$ps_format")
             ARGS+=("--all")
             ;;
         down)
@@ -49,7 +55,7 @@ echo
 
 if [[ "$build" = true ]]; then
     docker compose "$@"
-    docker compose run --rm ros-base bash -c "tt-build --all"
+    docker compose run --rm ros-base tt-build --all
 else
     exec docker compose "$@"
 fi

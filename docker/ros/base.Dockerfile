@@ -28,7 +28,6 @@ apt-get install -y \
     curl \
     wget \
     git \
-    rsync \
     python3-pip \
     python3-venv \
     python-is-python3 \
@@ -138,8 +137,10 @@ colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-r
 colcon mixin update default
 EOT
 
+ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
+
 # Install platformio
-RUN <<EOT
+RUN --mount=type=bind,source=src/ros/tabletop/tabletop_teensy/platformio.ini,target=/tmp/platformio.ini <<EOT
 set -ex
 curl -fsSL -o /tmp/get-platformio.py \
 https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
@@ -149,14 +150,14 @@ ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 rm /tmp/get-platformio.py
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+pio pkg install --global --project-dir /tmp
 EOT
 
 # Copy entrypoint script
 COPY docker/ros/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-# Update .bashrc and create directories for bind mounts and volumes
+# Update .bashrc and create ~/.config directory for pulse bind mount
 RUN <<EOT
 set -ex
 cat <<EOF >> ~/.bashrc
