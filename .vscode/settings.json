@@ -153,5 +153,11 @@
     "!ObjectResetConfig mapping"
   ],
   "github.copilot.chat.codeGeneration.useInstructionFiles": true,
-  "ROS2.distro": "jazzy"
+  "ROS2.distro": "jazzy",
+  "search.exclude": {
+    "build/**": true,
+    "install/**": true
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python-envs.pythonProjects": []
 }

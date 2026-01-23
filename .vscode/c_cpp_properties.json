@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/ros.browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "name": "ros2",
+      "compileCommands": [
+        "${workspaceFolder}/build/compile_commands.json"
+      ]
+    },
+    {
+      "name": "PlatformIO",
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/pio.browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "compileCommands": [
+        "${workspaceFolder}/src/ros/tabletop/tabletop_teensy/.pio/build/teensy41/compile_commands.json"
+      ]
+    }
+  ],
+  "version": 4
+}
