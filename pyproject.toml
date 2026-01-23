@@ -70,7 +70,6 @@ torch = [
   { index = "pytorch-cu128", extra = "cu128" },
   { index = "pytorch-cu130", extra = "cu130" },
 ]
-sr-research-pylink = { index = "sr-research" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -90,9 +89,4 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
-[[tool.uv.index]]
-name = "sr-research"
-url = "https://pypi.sr-research.com"
 explicit = true
