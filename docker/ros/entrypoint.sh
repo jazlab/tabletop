@@ -13,7 +13,7 @@ fi
 [ -d "$HOME/bin" ] && export PATH="$HOME/bin:$PATH"
 
 # Setup project workspace or ROS2 environment
-if [ -f /tabletop/setup.bash ]; then
+if [ -s /tabletop/setup.bash ]; then
     source /tabletop/setup.bash
 else
     source "/opt/ros/$ROS_DISTRO/setup.bash" --

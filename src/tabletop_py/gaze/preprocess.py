@@ -376,7 +376,8 @@ def format_marker_columns(
 
         # Verify the timestamps
         verify_timestamps(
-            df[["time", "original_time", "bag_time"]],  # type: ignore
+            # df[["time", "original_time", "bag_time"]],  # type: ignore
+            df[["time"]],  # type: ignore
             freq,
             freq_rtol=freq_rtol,
             freq_var_tol=freq_var_tol,

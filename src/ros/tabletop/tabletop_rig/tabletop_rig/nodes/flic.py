@@ -43,8 +43,10 @@ from tabletop_interfaces.action import FlicResponseTime
 
 from tabletop_py.flic.client import (
     BluetoothControllerState,
+    ButtonConnectionChannel,
     ClickType,
     FlicClient,
+    LatencyMode,
 )
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
@@ -67,11 +69,14 @@ class Flic(BaseNode):
         "simulate": False,
         "simulate_min_delay": 1.0,
         "simulate_max_delay": 3.0,
-        "server_ip": "localhost",
+        "server_ip": "0.0.0.0",
         # "server_ip": "172.17.0.1",
         "server_port": 5551,
-        "max_connections": 3,
-        "auto_disconnect_time": 30,
+        "max_connection_channels": 64,
+        "latency_mode": "LowLatency",
+        "auto_disconnect_time": 0,
+        "ignore_queued": False,
+        "connect_timeout": 1,
     }
 
     def __init__(self):
@@ -93,6 +98,71 @@ class Flic(BaseNode):
         self.goal_lock = asyncio.Lock()
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
+
+    async def init_flic_client(self):
+        """Initialize the connection to the Flic server.
+
+        In real mode, establishes a TCP connection to the Flic server
+        daemon, verifies the Bluetooth controller is attached, and
+        checks that at least one button is registered.
+
+        In simulation mode, this is a no-op.
+
+        Raises:
+            RuntimeError: If Bluetooth controller is not attached or
+                no buttons are found.
+        """
+        if self.simulate:
+            self.log("Simulating flic client, no client started")
+        else:
+            self.log("Initializing flic client")
+            max_connection_channels = self.param("max_connection_channels")
+            host = self.param("server_ip")
+            port = self.param("server_port")
+            loop = asyncio.get_event_loop()
+            _, self.flic_client = await loop.create_connection(
+                lambda: FlicClient(
+                    loop=loop,
+                    max_connection_channels=max_connection_channels,
+                    time_fn=self.get_clock().now,
+                ),
+                host,
+                port,
+            )
+
+            await self.flic_client.disconnect_all()
+
+            info = await self.flic_client.get_info()
+
+            if (
+                info.bluetooth_controller_state
+                != BluetoothControllerState.Attached
+            ):
+                raise RuntimeError("Bluetooth controller not attached")
+
+            if len(info.bd_addr_of_verified_buttons) == 0:
+                raise RuntimeError("No buttons found")
+
+            if len(info.bd_addr_of_verified_buttons) > max_connection_channels:
+                bd_addrs = info.bd_addr_of_verified_buttons[
+                    :max_connection_channels
+                ]
+            else:
+                bd_addrs = info.bd_addr_of_verified_buttons
+
+            self.log(f"Connecting to {len(bd_addrs)} buttons")
+
+            for bd_addr in bd_addrs:
+                cc = ButtonConnectionChannel(
+                    bd_addr,
+                    latency_mode=LatencyMode[self.param("latency_mode")],
+                    auto_disconnect_time=self.param("auto_disconnect_time"),
+                    ignore_queued=self.param("ignore_queued"),
+                )
+
+                await self.flic_client.connect(cc)
+
+            self.log("Flic client initialized!")
 
     async def flic_response_time_goal_callback(
         self, goal_request: FlicResponseTime.Goal
@@ -175,7 +245,6 @@ class Flic(BaseNode):
         """
         try:
             self.log("Flic response time action started")
-            start_time = self.get_clock().now()
 
             # Button task to wait for the (potentially simulated) button to be pressed
             if self.simulate:
@@ -186,12 +255,25 @@ class Flic(BaseNode):
                 )
             else:
                 # Connect to the button
-                auto_disconnect_time = self.param("auto_disconnect_time")
-                async with asyncio.timeout(1):
-                    cc = await self.flic_client.connect(
+
+                cc = await self.flic_client.get_cc_existing(
+                    goal_handle.request.bd_addr
+                )
+
+                if cc is None:
+                    cc = ButtonConnectionChannel(
                         goal_handle.request.bd_addr,
-                        auto_disconnect_time=auto_disconnect_time,
+                        latency_mode=LatencyMode[self.param("latency_mode")],
+                        auto_disconnect_time=self.param(
+                            "auto_disconnect_time"
+                        ),
+                        ignore_queued=self.param("ignore_queued"),
                     )
+
+                    connect_timeout = self.param("connect_timeout")
+                    async with asyncio.timeout(connect_timeout):
+                        await self.flic_client.connect(cc)
+
                 button_task = asyncio.create_task(
                     cc.wait_for_button_event(ClickType.ButtonDown)
                 )
@@ -212,65 +294,22 @@ class Flic(BaseNode):
                 else:
                     assert button_task.done()
                     if self.simulate:
-                        button_event_time = self.get_clock().now()
+                        response_time = self.get_clock().now()
                     else:
-                        button_event_time = button_task.result()
-                    assert isinstance(button_event_time, Time)
-                    response_time = button_event_time - start_time
+                        response_time = button_task.result()
+                    assert isinstance(response_time, Time)
                     result = FlicResponseTime.Result()
                     result.response_time = response_time.to_msg()
-                    self.log(
-                        f"Flic response time: {response_time.nanoseconds / 1e9:.2f} s"
-                    )
+                    self.log(f"Flic response time: {response_time}")
                     goal_handle.succeed()
                     return result
             finally:
                 cancel_task.cancel()
                 button_task.cancel()
+                # self.flic_client.force_disconnect(goal_handle.request.bd_addr)
         finally:
             async with self.goal_lock:
                 del self.cancel_event
-
-    async def init_flic_client(self):
-        """Initialize the connection to the Flic server.
-
-        In real mode, establishes a TCP connection to the Flic server
-        daemon, verifies the Bluetooth controller is attached, and
-        checks that at least one button is registered.
-
-        In simulation mode, this is a no-op.
-
-        Raises:
-            RuntimeError: If Bluetooth controller is not attached or
-                no buttons are found.
-        """
-        if self.simulate:
-            self.log("Simulating flic client, no client started")
-        else:
-            self.log("Initializing flic client")
-            max_connections = self.param("max_connections")
-            host = self.param("server_ip")
-            port = self.param("server_port")
-            loop = asyncio.get_event_loop()
-            _, self.flic_client = await loop.create_connection(
-                lambda: FlicClient(
-                    loop=loop,
-                    max_connection_channels=max_connections,
-                    time_fn=lambda: self.get_clock().now(),
-                ),
-                host,
-                port,
-            )
-            info = await self.flic_client.get_info()
-            if (
-                info.bluetooth_controller_state
-                != BluetoothControllerState.Attached
-            ):
-                raise RuntimeError("Bluetooth controller not attached")
-            if len(info.bd_addr_of_verified_buttons) == 0:
-                raise RuntimeError("No buttons found")
-
-            await self.flic_client.disconnect_all()
 
     async def wait_for_closed(self):
         """Wait for the Flic client connection to close.

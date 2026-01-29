@@ -246,6 +246,26 @@ class BaseNode(Node, LoggerMixin):
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
             raise ROSSleepError("ROS2 clock did not sleep correctly")
 
+    async def wait_for_node_async(
+        self, fully_qualified_node_name: str, timeout: float
+    ) -> bool:
+        """Async version of wait_for_node.
+
+        Runs the blocking wait in a thread pool to avoid blocking
+        the asyncio event loop.
+
+        Args:
+            fully_qualified_node_name: Fully qualified name of the node to
+                wait for.
+            timeout: Seconds to wait for the node to be present.
+                If negative, the function won't timeout.
+        Returns
+            True if the node was found, False if timeout.
+        """
+        return await asyncio.to_thread(
+            self.wait_for_node, fully_qualified_node_name, timeout
+        )
+
     def _create_client(
         self,
         srv_type: Optional[type] = None,

@@ -82,10 +82,11 @@ exit_on_disconnect() {
 
 # --wait-for-hci necessary, see musings.md
 app_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-exec $app_dir/flicd \
+rm -f /app/flicd.log
+$app_dir/flicd \
     --db-file $app_dir/flic.db \
     --my-bdaddr $BD_ADDR \
     --server-addr $SERVER_ADDR \
     --server-port $PORT \
     --hci-dev $HCI_DEV \
-    --wait-for-hci
+    --wait-for-hci |& tee /app/flicd.log

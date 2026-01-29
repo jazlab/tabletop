@@ -20,14 +20,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
-set -ex
-apt-get update
-apt-get install -y \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     curl \
     wget \
     git \
+    git-lfs \
     python3-pip \
     python3-venv \
     python-is-python3 \
@@ -35,8 +34,9 @@ apt-get install -y \
     mold \
     ccache \
     ffmpeg \
-    fluidsynth
-EOT
+    fluidsynth \
+    ca-certificates \
+    software-properties-common
 
 ARG TARGETARCH
 
@@ -46,11 +46,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 set -ex
 if [[ $TARGETARCH = amd64 ]] ; then
     apt-get update
-    apt-get install -y ca-certificates software-properties-common
     apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
     add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
     apt-get update
-    apt-get install -y eyelink-display-software
+    apt-get install -y --no-install-recommends eyelink-display-software
 fi
 EOT
 
@@ -111,28 +110,35 @@ EOT
 WORKDIR /tabletop
 
 # Install python dependencies using uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --link --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ARG UV_EXTRA
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=0 \
+    UV_CACHE_DIR=/tmp/uv-cache \
     UV_EXTRA=$UV_EXTRA
 
-RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
+RUN --mount=type=cache,target=/tmp/uv-cache,uid=$USER_UID,gid=$USER_GID \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
-set -ex
-export UV_CACHE_DIR=/tmp/uv.cache
-uv sync --locked --no-install-project $UV_EXTRA
-mkdir -p ~/.cache
-cp -r $UV_CACHE_DIR ~/.cache/uv
-EOT
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project $UV_EXTRA
+
+# RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
+#     --mount=type=bind,source=uv.lock,target=uv.lock \
+#     --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
+# set -ex
+# export UV_CACHE_DIR=/tmp/uv.cache
+# uv sync --locked --no-install-project $UV_EXTRA
+# mkdir -p ~/.cache
+# cp -r $UV_CACHE_DIR ~/.cache/uv
+# EOT
 
 # Install colcon mixins
 RUN <<EOT
 set -ex
+source /tabletop/.venv/bin/activate
 colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
 colcon mixin update default
 EOT

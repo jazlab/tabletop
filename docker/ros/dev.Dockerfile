@@ -2,15 +2,10 @@ FROM tabletop/ros-base
 
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
-set -e
-sudo apt-get update
-sudo apt-get install -y \
-    git \
-    git-lfs \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sudo apt-get update && sudo apt-get install --no-install-recommends -y \
     gdb \
     bash-completion \
-    vim \
     psmisc \
     iputils-ping \
     net-tools \
@@ -18,7 +13,6 @@ sudo apt-get install -y \
     usbutils \
     ripgrep \
     xarclock
-EOT
 
 # Install npm
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -28,7 +22,7 @@ set -e
 sudo apt-get update
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 \. "$HOME/.nvm/nvm.sh"
-nvm install 22
+nvm install 24
 EOT
 
 # Install npm packages globally

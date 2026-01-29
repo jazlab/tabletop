@@ -79,7 +79,8 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define AGENT_SYNC_MAX_RETRIES 3
 #define SENSOR_PERIOD_MS 10
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
-#define SYNC_PULSE_DELAY_RANGE_MS 200
+#define SYNC_PULSE_DELAY_MIN_MS 50
+#define SYNC_PULSE_DELAY_MAX_MS 200
 #define SYNC_PULSE_DURATION_MS 100
 
 // Builtin LED agent state indicator
@@ -288,11 +289,18 @@ static inline void set_reward(bool activate)
 static inline void set_sync_pulse(bool activate)
 {
   digitalWriteFast(SYNC_PULSE_CONTROL_PIN, activate ? HIGH : LOW);
+  if (is_solenoid_active)
+  {
+    digitalWriteFast(SOLENOID_CONTROL_PIN, activate ? HIGH : LOW);
+  }
   sync_pulse_state = activate;
 }
 static inline void set_solenoid(bool activate)
 {
-  digitalWriteFast(SOLENOID_CONTROL_PIN, activate ? HIGH : LOW);
+  if (!activate)
+  {
+    digitalWriteFast(SOLENOID_CONTROL_PIN, LOW);
+  }
   is_solenoid_active = activate;
 }
 
@@ -436,7 +444,7 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   {
     ASSERT(!sync_pulse_state, "Sync pulse is should be off when the base timer is called");
 
-    int64_t delay_ms = random(SYNC_PULSE_DELAY_RANGE_MS);
+    int64_t delay_ms = random(SYNC_PULSE_DELAY_MAX_MS - SYNC_PULSE_DELAY_MIN_MS) + SYNC_PULSE_DELAY_MIN_MS;
     int64_t old_period;
     RCASSERT(rcl_timer_exchange_period(&sync_pulse_start_timer, RCL_MS_TO_NS(delay_ms), &old_period),
              "Failed to exchange sync pulse start timer period");
@@ -682,7 +690,7 @@ bool init_client()
   // Timers
   RCCHECK(rclc_timer_init_default2(&sync_pulse_base_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_BASE_PERIOD_MS),
                                    sync_pulse_base_timer_callback, true));
-  RCCHECK(rclc_timer_init_default2(&sync_pulse_start_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_DELAY_RANGE_MS),
+  RCCHECK(rclc_timer_init_default2(&sync_pulse_start_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_DELAY_MIN_MS),
                                    sync_pulse_start_timer_callback, false));
   RCCHECK(rclc_timer_init_default2(&sync_pulse_end_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_DURATION_MS),
                                    sync_pulse_end_timer_callback, false));

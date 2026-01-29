@@ -171,9 +171,9 @@ def generate_launch_description():
     )
 
     # Mock Dashboard
-    mock_dashboard = Node(
+    mock_dashboard_client = Node(
         package="tabletop_rig",
-        executable="mock_dashboard",
+        executable="mock_dashboard_client",
         output="both",
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=[
@@ -189,7 +189,7 @@ def generate_launch_description():
         set_ros_log_dir,
         print_substitutions_action,
         driver,
-        mock_dashboard,
+        mock_dashboard_client,
     ]
 
     return LaunchDescription(launch_actions)

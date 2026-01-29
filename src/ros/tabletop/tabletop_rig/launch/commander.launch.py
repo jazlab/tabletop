@@ -160,11 +160,6 @@ def generate_launch_description():
         simulate = simulate_commander.perform(context) == "true"
         commander_overrides["simulate"] = simulate
 
-        # Velocity and acceleration scaling for simulation
-        if simulate:
-            commander_overrides["execution.velocity_scaling_factor"] = 0.5
-            commander_overrides["execution.acceleration_scaling_factor"] = 0.5
-
         # Clear cache
         new_cache_value = LaunchConfiguration("new_cache").perform(context)
         if new_cache_value != "null":

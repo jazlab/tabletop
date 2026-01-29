@@ -171,10 +171,15 @@ class ForagingTask(BaseTask):
             tg.create_task(self.commander.reveal_smartglass())
             tg.create_task(self.commander.release_arm(arm))
 
+        start_time = self.commander.ros_time()
+
         # Wait for response from monkey button press
-        if reaction_time := await self.commander.flic_response_time(
+        if response_time := await self.commander.flic_response_time(
             self.response_timeout
         ):
+            # Calculate reaction time from response time
+            reaction_time = response_time - start_time
+
             # Reward monkey and play sound
             async with asyncio.TaskGroup() as tg:
                 if self.reward_sound:

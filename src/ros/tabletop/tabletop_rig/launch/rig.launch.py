@@ -591,7 +591,7 @@ def generate_launch_description():
             "run",
             "tabletop_rig",
             "rosbag_to_csv",
-            "-d",
+            "--session-dir",
             session_bag_dir,
         ],
         shell=True,

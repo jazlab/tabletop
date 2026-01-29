@@ -39,7 +39,7 @@ from ur_dashboard_msgs.srv import (
 from tabletop_rig.nodes.base import BaseNode
 
 
-class MockDashboard(BaseNode):
+class MockDashboardClient(BaseNode):
     """Mock UR dashboard client node for testing and simulation.
 
     Provides stub implementations of all dashboard services that return
@@ -54,7 +54,7 @@ class MockDashboard(BaseNode):
 
     def __init__(self):
         """Initialize the mock dashboard node and create all services."""
-        super().__init__("mock_dashboard")
+        super().__init__("mock_dashboard_client")
         self.close_popup_srv = self.create_service(
             Trigger,
             "/dashboard_client/close_popup",
@@ -277,12 +277,12 @@ class MockDashboard(BaseNode):
 
 
 def main(args=None):
-    """Entry point for the mock_dashboard node."""
+    """Entry point for the mock_dashboard_client node."""
     rclpy.init(args=args)
 
     try:
         executor = SingleThreadedExecutor()
-        mock_dashboard = MockDashboard()
+        mock_dashboard = MockDashboardClient()
         executor.add_node(mock_dashboard)
 
         try:

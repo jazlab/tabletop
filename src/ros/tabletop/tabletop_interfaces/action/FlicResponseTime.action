@@ -1,4 +1,4 @@
 string bd_addr
 ---
-builtin_interfaces/Duration response_time
+builtin_interfaces/Time response_time
 ---

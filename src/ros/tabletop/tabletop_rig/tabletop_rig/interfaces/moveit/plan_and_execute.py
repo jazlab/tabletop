@@ -145,10 +145,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ###########################################################################
     ########## Parameter Convenience Properties ###############################
     ###########################################################################
-    @property
-    def simulate(self) -> bool:
-        """Get the simulation flag."""
-        return self.node.param("simulate")
 
     @property
     def default_group_name(self) -> str:
@@ -975,7 +971,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             end_goal: The goal to move to after moving out of collision.
             **kwargs: Keyword arguments to pass to `plan_and_execute()`.
         """
-        if not self.simulate:
+        if not self.node.param("simulate"):
             raise RuntimeError(
                 "Planning scene can only be cleared in simulation!"
             )

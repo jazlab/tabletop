@@ -47,7 +47,7 @@ setup(
         "console_scripts": [
             "commander = tabletop_rig.nodes.commander:main",
             "mock_teensy = tabletop_rig.nodes.mock_teensy:main",
-            "mock_dashboard = tabletop_rig.nodes.mock_dashboard:main",
+            "mock_dashboard_client = tabletop_rig.nodes.mock_dashboard_client:main",
             "eyelink = tabletop_rig.nodes.eyelink:main",
             "flic = tabletop_rig.nodes.flic:main",
             "rosbag_to_csv = tabletop_rig.utils.rosbag:main",

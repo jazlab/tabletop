@@ -56,6 +56,21 @@ class DashboardInterface(BaseInterface):
 
         self._init = False
 
+        if self.node.param("simulate"):
+            self.log(
+                "Waiting for mock_dashboard_client to indicate we are indeed simulating"
+            )
+            if not self.node.wait_for_node(
+                "/mock_dashboard_client", timeout=1.0
+            ):
+                raise ValueError(
+                    "simulate parameter is True, but mock_dashboard_client "
+                    "node is not available. Please start the mock_dashboard_client "
+                    "(e.g. by launching with robot_mode:=mock) or run this "
+                    "node with simulate set to false (e.g. by launching with "
+                    "robot_mode:=real)"
+                )
+
         self._set_mode_client = ActionClient(
             node, SetMode, "/ur_robot_state_helper/set_mode"
         )

@@ -289,13 +289,15 @@ class Commander(BaseNode):
         """Measure response time using the Flic button.
 
         Waits for the subject to press the Flic button associated with
-        the currently attached object and returns the elapsed time.
+        the currently attached object and returns the ROS timestamp
+        (converted to seconds) that the button was pressed.
 
         Args:
             timeout: Maximum wait time in seconds, or None for no timeout.
 
         Returns:
-            Response time in seconds, or None if timeout reached.
+            ROS timestamp (converted to seconds) that button was pressed
+            or None if the timeout was reached before a press.
         """
         object_id = self.moveit.get_exactly_one_attached_object_id()
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")

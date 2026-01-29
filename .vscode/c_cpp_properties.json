@@ -17,7 +17,7 @@
         "limitSymbolsToIncludedHeaders": false
       },
       "compileCommands": [
-        "${workspaceFolder}/src/ros/tabletop/tabletop_teensy/.pio/build/teensy41/compile_commands.json"
+        "${workspaceFolder}/src/ros/tabletop/tabletop_teensy/compile_commands.json"
       ]
     }
   ],

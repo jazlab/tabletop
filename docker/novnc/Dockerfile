@@ -6,10 +6,8 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
 
 # Install git, supervisor, VNC, & X11 packages
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-novnc,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,id=apt-lib-novnc,sharing=locked <<EOT
-set -ex
-apt-get update && apt-get upgrade -y
-apt-get install -y \
+    --mount=type=cache,target=/var/lib/apt,id=apt-lib-novnc,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     bash \
     dbus-x11 \
     dwm \
@@ -20,7 +18,6 @@ apt-get install -y \
     x11vnc \
     xterm \
     xvfb
-EOT
 
 # Set user to root
 USER root

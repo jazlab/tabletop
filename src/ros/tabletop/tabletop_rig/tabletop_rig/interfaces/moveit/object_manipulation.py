@@ -690,7 +690,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if end_goal is not None:
                 await self.plan_and_execute(goal=end_goal)
         except MoveitRecoverableError as e:
-            if self.simulate:
+            if self.node.param("simulate"):
                 self.log(
                     f"Error while resetting rig: {type(e).__name__}: {e}",
                     severity="ERROR",

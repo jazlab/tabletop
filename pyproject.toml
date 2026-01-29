@@ -29,10 +29,12 @@ dependencies = [
 ]
 
 [project.scripts]
-gaze-calibrate = "tabletop_py.gaze.calibrate:main"
-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
-gaze-train = "tabletop_py.gaze.train:main"
-gaze-visualize = "tabletop_py.gaze.visualize:main"
+tt-gaze-calibrate = "tabletop_py.gaze.calibrate:main"
+tt-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
+tt-gaze-train = "tabletop_py.gaze.train:main"
+tt-gaze-visualize = "tabletop_py.gaze.visualize:main"
+tt-flic-client = "tabletop_py.flic.client:main"
+
 
 [project.optional-dependencies]
 cpu = ["torch>=2.8.0"]

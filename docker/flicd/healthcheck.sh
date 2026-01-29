@@ -1,9 +1,9 @@
 #!/bin/bash
 
-if (/bin/netstat -an | grep LISTEN | grep -c $PORT); then
-    echo "Client still connected, container healthy."
-    exit 0
-else
-    echo "No client connected, container unhealthy."
+if grep "disconnected" /app/flicd.log; then
+    echo "Client disconnected, container unhealthy."
     exit 1
+else
+    echo "Server waiting or client connected, container healthy"
+    exit 0
 fi

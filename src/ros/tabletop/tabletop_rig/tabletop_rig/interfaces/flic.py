@@ -13,7 +13,7 @@ from typing import Optional, cast
 
 from action_msgs.msg import GoalStatus
 from rclpy.action.client import ActionClient, ClientGoalHandle
-from rclpy.duration import Duration
+from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -57,11 +57,12 @@ class FlicInterface(BaseInterface):
     async def response_time(
         self, bd_addr: str, timeout: Optional[float] = None
     ) -> float | None:
-        """Wait for a Flic button press and measure response time.
+        """Wait for a Flic button press and return the response time.
 
-        Sends a goal to the Flic action server to start timing, then waits
-        for the subject to press the button. Returns the measured response
-        time or None if the timeout is reached.
+        Sends a goal to the Flic action server to connect to the button,
+        then waits for the subject to press the button. Returns the ROS
+        timestamp that the button was pressed (converted to seconds) or
+        None if the timeout is reached.
 
         Args:
             bd_addr: Bluetooth device address of the Flic button to monitor.
@@ -69,8 +70,8 @@ class FlicInterface(BaseInterface):
                 If None, waits indefinitely.
 
         Returns:
-            Response time in seconds from action goal acceptance to button
-            press, or None if the timeout was reached before a press.
+            ROS timestamp (converted to seconds) that button was pressed
+            or None if the timeout was reached before a press.
 
         Raises:
             RuntimeError: If the goal is rejected by the action server or
@@ -99,5 +100,5 @@ class FlicInterface(BaseInterface):
         if response.status != GoalStatus.STATUS_SUCCEEDED:
             raise RuntimeError("Flic goal failed")
 
-        response_time = Duration.from_msg(response.result.response_time)
+        response_time = Time.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9

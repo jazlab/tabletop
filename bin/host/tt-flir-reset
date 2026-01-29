@@ -15,6 +15,8 @@ print_status "Reloading udev rules"
 sudo udevadm control --reload
 sudo udevadm trigger
 
+sleep 1
+
 # Regenerate env files
 print_status "Regenerating .env file to update Flir camera paths"
 tt-env-gen
@@ -31,6 +33,8 @@ tt-compose run --rm flir tt-launch flir factory_reset:=true || true
 print_status "Reloading udev rules again"
 sudo udevadm control --reload
 sudo udevadm trigger
+
+sleep 1
 
 # Regenerate env files
 print_status "Regenerating .env file once more"

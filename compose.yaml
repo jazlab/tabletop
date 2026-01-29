@@ -12,6 +12,7 @@ services:
     network_mode: none
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # - ./docker/autoheal-entrypoint:/docker-entrypoint
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
     restart: unless-stopped
@@ -76,14 +77,12 @@ services:
       - SERVER_ADDR=0.0.0.0
     depends_on: [ autoheal ]
     healthcheck:
-      disable: true
+      disable: false
       test: [ CMD, /app/healthcheck.sh ]
-      interval: 5s
-      timeout: 2s
-      retries: 3
-      start_period: 5s
-      start_interval: 1s
-    # init: true
+      interval: 2s
+      timeout: 1s
+      retries: 1
+    init: true
     # stop_signal: SIGINT
     command: /app/entrypoint.sh
 

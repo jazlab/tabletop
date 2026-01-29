@@ -222,66 +222,29 @@ class DummyTask(BaseTask):
 
     async def test_flic_latency_button(self) -> None:
         """Test Flic button latency using the teensy button as ground truth"""
-        idx = 15
-        bd_addr = self.commander.param(f"flic.bd_addrs.small_object_{idx}")
         latencies = []
         try:
             while True:
-                self.log(
-                    "Press flic and teensy button simultaneously (smash them)"
-                )
-                await self.commander.flic.response_time(bd_addr)
-                flic_time = self.commander.ros_time()
+                for i in range(0, 30):
+                    self.log(
+                        f"Press flic button {i} and teensy button simultaneously (smash them)"
+                    )
+                    bd_addr = self.commander.param(
+                        f"flic.bd_addrs.small_object_{i}"
+                    )
+                    flic_time = await self.commander.flic.response_time(
+                        bd_addr
+                    )
+                    assert flic_time is not None
 
-                teensy_time_msg = self.commander.teensy.last_teensy_sensor.button_last_time_pressed
-                teensy_time = (
-                    float(Time.from_msg(teensy_time_msg).nanoseconds) / 1e9
-                )
-
-                latency = flic_time - teensy_time
-
-                self.log(f"Latency: {latency:.4f}s")
-                latencies.append(latency)
-        finally:
-            avg = np.mean(latencies)
-            std = np.std(latencies)
-            self.log(f"Latency avg: {avg:.4f}s, std: {std:.6f}")
-
-    async def test_flic_latency_solenoid(self):
-        """Test Flic button latency using a solenoid to press the button"""
-        client = self.commander.create_client(
-            SetSolenoid, "/teensy/set_solenoid"
-        )
-        # idx = 15
-        latencies = []
-        try:
-            for idx in range(0, 30):
-                bd_addr = self.commander.param(
-                    f"flic.bd_addrs.small_object_{idx}"
-                )
-                async with asyncio.TaskGroup() as tg:
-                    flic_task = tg.create_task(
-                        self.commander.flic.response_time(bd_addr)
+                    teensy_time_msg = self.commander.teensy.last_teensy_sensor.button_last_time_pressed
+                    teensy_time = (
+                        float(Time.from_msg(teensy_time_msg).nanoseconds) / 1e9
                     )
 
-                    # await asyncio.sleep(1.0)
-
-                    await self.commander.service_call_async(
-                        srv_request=SetSolenoid.Request(activate=True),
-                        srv_client=client,
-                    )
-                    start_time = self.commander.ros_time()
-
-                    await flic_task
-                    latency = self.commander.ros_time() - start_time
-
+                    latency = flic_time - teensy_time
                     self.log(f"Latency: {latency:.4f}s")
                     latencies.append(latency)
-
-                    await self.commander.service_call_async(
-                        srv_request=SetSolenoid.Request(activate=False),
-                        srv_client=client,
-                    )
         finally:
             avg = np.mean(latencies)
             std = np.std(latencies)
@@ -292,23 +255,18 @@ class DummyTask(BaseTask):
         client = self.commander.create_client(
             SetSolenoid, "/teensy/set_solenoid"
         )
-        while True:
-            await asyncio.sleep(1.0)
-
-            await self.commander.service_call_async(
-                srv_request=SetSolenoid.Request(activate=True),
-                srv_client=client,
-            )
-
-            self.log("Solenoid activated")
-
-            await asyncio.sleep(1.0)
-
+        await self.commander.service_call_async(
+            srv_request=SetSolenoid.Request(activate=True),
+            srv_client=client,
+        )
+        try:
+            while True:
+                await asyncio.sleep(1.0)
+        finally:
             await self.commander.service_call_async(
                 srv_request=SetSolenoid.Request(activate=False),
                 srv_client=client,
             )
-            self.log("Solenoid deactivated")
 
     async def run(self) -> None:
         """Run one or more of the tests"""
@@ -318,5 +276,4 @@ class DummyTask(BaseTask):
             # await self.test_flic_latency_human()
             # await self.test_robot_position()
             # await self.test_flic_latency_button()
-            await self.test_flic_latency_solenoid()
             await self.test_optitrack_latency_solenoid()
