@@ -528,6 +528,34 @@ def generate_launch_description():
             description="Initial positions file for the robot.",
         )
     )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "base_offset_xyz",
+            default_value="0.0 0.0 0.0",
+            description="Space-separated 3D translation from world to base frame",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "base_offset_rpy",
+            default_value="0.0 0.0 0.0",
+            description="Space-separated 3D Euler rotation from world to base frame",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "eef_offset_xyz",
+            default_value="0.0 0.0 0.0",
+            description="Space-separated 3D translation from wrist_3_link to eef frame",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "eef_offset_rpy",
+            default_value="0.0 0.0 0.0",
+            description="Space-separated 3D Euler rotation from wrist_3_link to eef frame",
+        )
+    )
 
     return LaunchDescription(
         declared_arguments

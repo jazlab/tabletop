@@ -246,7 +246,6 @@ class Eyelink(BaseNode):
         self.init_bag_writer()
         self.init_gaze_estimation()
         self.init_ros()
-        self.destroyed = False
 
     def init_sample_retrieval(self) -> None:
         """Initialize sample retrieval infrastructure.

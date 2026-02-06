@@ -52,6 +52,7 @@ class BaseInterface(LoggerMixin):
         """
         self._node = node
         self._logger = node.get_logger().get_child(logger_name)
+        self._node.register_interface(self)  # type: ignore
 
     def get_logger(self) -> RcutilsLogger:
         """Return the logger instance for this interface.
@@ -71,3 +72,7 @@ class BaseInterface(LoggerMixin):
             The BaseNode instance that owns this interface.
         """
         return self._node
+
+    def destroy_interface(self):
+        """Placeholder method to clean up resources"""
+        pass

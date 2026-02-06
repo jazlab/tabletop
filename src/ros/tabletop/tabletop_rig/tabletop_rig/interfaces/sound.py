@@ -145,3 +145,9 @@ class SoundInterface(BaseInterface):
             fluidsynth.play_Note(note)
             await asyncio.sleep(duration)
             fluidsynth.stop_Note(note)
+
+    def destroy_interface(self):
+        self.log("Destroying SoundInterface")
+        if fluidsynth.initialized:
+            fluidsynth.stop_everything()
+        super().destroy_interface()

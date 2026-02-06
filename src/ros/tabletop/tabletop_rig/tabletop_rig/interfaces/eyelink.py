@@ -12,13 +12,12 @@ import asyncio
 from collections.abc import (
     Callable,
 )
-from typing import Any, Coroutine, cast
+from typing import Any, Coroutine
 
-from rclpy.action.client import ActionClient, ClientGoalHandle
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 
 from tabletop_rig.interfaces.base import BaseInterface
-from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.nodes.base import AIOActionClient, BaseNode
 
 
 class EyelinkInterface(BaseInterface):
@@ -32,7 +31,9 @@ class EyelinkInterface(BaseInterface):
         eyelink_smooth_pursuit_client: Action client for smooth pursuit monitoring.
     """
 
-    def __init__(self, node: BaseNode) -> None:
+    def __init__(
+        self, node: BaseNode, wait_for_eyelink_server: bool = False
+    ) -> None:
         """Initialize the Eyelink interface.
 
         Sets up the action client for smooth pursuit monitoring and waits
@@ -44,13 +45,16 @@ class EyelinkInterface(BaseInterface):
         super().__init__(node, "eyelink_interface")
 
         # Smooth pursuit action client
-        self.eyelink_smooth_pursuit_client = ActionClient(
+        self._smooth_pursuit_client = AIOActionClient(
             self.node, EyelinkSmoothPursuit, "/eyelink/smooth_pursuit"
         )
 
         # Wait for action server
-        self.log("Waiting for eyelink smooth pursuit server")
-        self.eyelink_smooth_pursuit_client.wait_for_server()
+        self._waited = False
+        if wait_for_eyelink_server:
+            self.log("Waiting for eyelink smooth pursuit server")
+            self._smooth_pursuit_client.wait_for_server()
+            self._waited = True
 
         self.log("Eyelink interface initialized")
 
@@ -120,29 +124,32 @@ class EyelinkInterface(BaseInterface):
         Raises:
             RuntimeError: If the action goal is rejected by the server.
         """
+        if not self._waited:
+            self.log("Waiting for eyelink smooth pursuit server")
+            await self._smooth_pursuit_client.wait_for_server_async()
+            self._waited = True
+
         queue: asyncio.Queue[bool] = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-        goal_handle = cast(
-            ClientGoalHandle,
-            await self.eyelink_smooth_pursuit_client.send_goal_async(
-                EyelinkSmoothPursuit.Goal(),
-                feedback_callback=lambda feedback: self._smooth_pursuit_producer(
-                    feedback, queue, loop
-                ),
+        loop = asyncio.get_running_loop()
+        goal_handle = await self._smooth_pursuit_client.send_goal_async(
+            EyelinkSmoothPursuit.Goal(),
+            feedback_callback=lambda feedback: self._smooth_pursuit_producer(
+                feedback, queue, loop
             ),
         )
         if not goal_handle.accepted:
             raise RuntimeError("goal not accepted")
 
-        try:
-            result_future = goal_handle.get_result_async()
-
-            consumer_task = asyncio.create_task(
+        async with asyncio.TaskGroup() as tg:
+            consumer_task = tg.create_task(
                 self._smooth_pursuit_consumer(queue, callback)
             )
-            result_future.add_done_callback(
-                lambda _: loop.call_soon_threadsafe(consumer_task.cancel)
-            )
-            await consumer_task
-        finally:
-            goal_handle.cancel_goal_async()
+            await self._smooth_pursuit_client.get_result_async(goal_handle)
+            consumer_task.cancel()
+
+    def destroy_interface(self):
+        """Clean up EyelinkSmoothPursuit action client"""
+        self.log("Destroying EyelinkInterface")
+        if hasattr(self, "_smooth_pursuit_client"):
+            self._smooth_pursuit_client.destroy()
+        super().destroy_interface()

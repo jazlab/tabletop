@@ -109,7 +109,7 @@ class DummyTask(BaseTask):
         forwards = []
         backwards = []
 
-        for i in range(1000):
+        for i in range(1050):
             start_time = self.commander.get_clock().now()
             response = cast(
                 Ping.Response,
@@ -132,11 +132,6 @@ class DummyTask(BaseTask):
                 forwards.append(forward)
                 backwards.append(backward)
 
-            # self.log(
-            #     f"Roundtrip (real ~ calculated): {roundtrip:.2f} ms ~ {sum:.2f} ms | "
-            #     f"calculated = forward + backward: {forward:.2f} ms + {backward:.2f} ms)"
-            # )
-
         roundtrip_mean = np.mean(roundtrips)
         roundtrip_std = np.std(roundtrips)
         forward_mean = np.mean(forwards)
@@ -154,31 +149,59 @@ class DummyTask(BaseTask):
         )
 
     async def test_flic_latency_pre_pressed(self) -> None:
-        """Test Flic button latency across multiple objects
+        """Test Flic button latency across multiple objects (deprecated)
 
-        Iterates through small objects 15-29 and measures Flic button
+        Don't use this test anymore now that auto-disconnect time has
+        been set to 0 on Flic node, which I believe prevents pre-pressing
+        the buttons from correctly queuing them.
+
+        Iterates through small objects 0-29 and measures Flic button
         latencies, computing average and standard deviation.
         Assumes all buttons have been "pre-pressed" after the first one.
         This should trigger the button press immediately upon connect.
         """
-        flic_rts = []
-        total_rts = []
-        for idx in range(15, 30):
-            bd_addr = self.commander.param(f"flic.bd_addrs.small_object_{idx}")
-            start_time = self.commander.ros_time()
-            flic_rt = await self.commander.flic.response_time(bd_addr)
-            total_rt = self.commander.ros_time() - start_time
-            self.log(f"Reported: {flic_rt:.4f}s | Total: {total_rt}s")
-            if idx != 15:
-                flic_rts.append(flic_rt)
-                total_rts.append(total_rt)
+        reported_latencies = []
+        total_latencies = []
+        overheads = []
+        for i in range(0, 30):
+            bd_addr = self.commander.param(f"flic.bd_addrs.small_object_{i}")
 
-        flic_avg = np.mean(flic_rts)
-        flic_std = np.std(flic_rts)
-        total_avg = np.mean(total_rts)
-        total_std = np.std(total_rts)
-        self.log(f"Reported avg: {flic_avg:.4f}s, std: {flic_std:.6f}")
-        self.log(f"Total avg: {total_avg:.4f}s, std: {total_std:.6f}")
+            start_time = self.commander.ros_time()
+            reported_rt = await self.commander.flic.response_time(bd_addr)
+            assert reported_rt is not None
+            reported_latency = reported_rt - start_time
+            total_latency = self.commander.ros_time() - start_time
+            overhead = total_latency - reported_latency
+
+            self.log(
+                f"Reported: {reported_latency:.4f}s | "
+                f"Total: {total_latency:.4f}s | "
+                f"Overhead: {overhead:.4f}"
+            )
+            if i != 0:
+                reported_latencies.append(reported_latency)
+                total_latencies.append(total_latency)
+                overheads.append(overhead)
+
+        reported_latencies = np.array(reported_latencies)
+        total_latencies = np.array(total_latencies)
+        overheads = np.array(overheads)
+
+        reported_avg = np.mean(reported_latencies)
+        reported_std = np.std(reported_latencies)
+        total_avg = np.mean(total_latencies)
+        total_std = np.std(total_latencies)
+        overhead_avg = np.mean(overheads)
+        overhead_std = np.mean(overheads)
+
+        self.log(
+            "----------------------------------------------------------\n"
+            f"Flic pre-pressed latency stats (N={len(reported_latencies)}):\n"
+            f"Reported: {reported_avg:.2f} ± {reported_std:.2f} ms\n"
+            f"Total:    {total_avg:.2f} ± {total_std:.2f} ms\n"
+            f"Overhead: {overhead_avg:.2f} ± {overhead_std:.2f} ms\n"
+            "----------------------------------------------------------"
+        )
 
     async def test_flic_latency_human(self) -> None:
         """Test Flic button latency using human response time as ground truth
@@ -189,7 +212,7 @@ class DummyTask(BaseTask):
         """
         rts = []
         try:
-            for idx in range(15, 30):
+            for idx in range(0, 30):
                 bd_addr = self.commander.param(
                     f"flic.bd_addrs.small_object_{idx}"
                 )
@@ -218,7 +241,15 @@ class DummyTask(BaseTask):
         finally:
             avg = np.mean(rts)
             std = np.std(rts)
-            self.log(f"Total avg: {avg:.4f}s, std: {std:.6f}")
+            self.log(
+                f"----------------------------------------------------------\n"
+                f"Flic human latency stats (N={len(rts)}):\n"
+                f"Latency: {avg:.2f} ± {std:.2f} ms\n"
+                f"Calculate your own reaction time "
+                f"(https://humanbenchmark.com/tests/reactiontime),"
+                f"then subtract this from the avg here to get the flic latency"
+                f"----------------------------------------------------------"
+            )
 
     async def test_flic_latency_button(self) -> None:
         """Test Flic button latency using the teensy button as ground truth"""
@@ -248,7 +279,12 @@ class DummyTask(BaseTask):
         finally:
             avg = np.mean(latencies)
             std = np.std(latencies)
-            self.log(f"Latency avg: {avg:.4f}s, std: {std:.6f}")
+            self.log(
+                f"----------------------------------------------------------\n"
+                f"Flic latency (using teensy button as ground truth) stats (N={len(latencies)}):\n"
+                f"Latency: {avg:.2f} ± {std:.2f} ms\n"
+                f"----------------------------------------------------------"
+            )
 
     async def test_optitrack_latency_solenoid(self):
         """Test using a solenoid to press the button"""

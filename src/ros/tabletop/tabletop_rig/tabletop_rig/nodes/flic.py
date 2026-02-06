@@ -41,6 +41,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 
+import tabletop_py.flic.client
 from tabletop_py.flic.client import (
     BluetoothControllerState,
     ButtonConnectionChannel,
@@ -82,6 +83,8 @@ class Flic(BaseNode):
     def __init__(self):
         """Initialize the Flic node and action server."""
         super().__init__("flic")
+
+        tabletop_py.flic.client.logger = self.get_logger().get_child("client")
 
         self.simulate = self.param("simulate")
 
@@ -255,11 +258,9 @@ class Flic(BaseNode):
                 )
             else:
                 # Connect to the button
-
                 cc = await self.flic_client.get_cc_existing(
                     goal_handle.request.bd_addr
                 )
-
                 if cc is None:
                     cc = ButtonConnectionChannel(
                         goal_handle.request.bd_addr,
@@ -322,6 +323,10 @@ class Flic(BaseNode):
         else:
             await self.flic_client.wait_for_closed()
 
+    async def spin(self):
+        await self.init_flic_client()
+        await self.wait_for_closed()
+
     def destroy_node(self):
         """Clean up resources and destroy the node.
 
@@ -331,6 +336,8 @@ class Flic(BaseNode):
         if hasattr(self, "flic_client") and not self.flic_client.closed:
             self.log("Closing flic client")
             self.flic_client.close()
+        if hasattr(self, "flic_response_time_server"):
+            self.flic_response_time_server.destroy()
         super().destroy_node()
 
 
@@ -365,17 +372,14 @@ async def main_async(args=None):
         executor.add_node(flic)
 
         try:
-            await flic.init_flic_client()
-            spin_task = asyncio.create_task(executor.spin())
-            closed_task = asyncio.create_task(flic.wait_for_closed())
-            try:
-                await asyncio.wait(
-                    [spin_task, closed_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            finally:
-                spin_task.cancel()
-                closed_task.cancel()
+            # await flic.init_flic_client()
+            # async with asyncio.TaskGroup() as tg:
+            #     spin_task = tg.create_task(executor.spin())
+            #     closed_task = tg.create_task(flic.wait_for_closed())
+            #     spin_task.add_done_callback(lambda _: closed_task.cancel)
+            #     closed_task.add_done_callback(lambda _: spin_task.cancel)
+            future = executor.create_task(flic.spin())
+            await executor.spin_until_future_complete(future)
         finally:
             print("Shutting down flic")
             flic.destroy_node()

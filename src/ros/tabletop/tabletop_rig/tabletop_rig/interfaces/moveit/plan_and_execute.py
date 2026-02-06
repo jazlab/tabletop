@@ -1004,9 +1004,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ########## Destroy ########################################################
     ###########################################################################
 
-    def destroy(self):
-        if hasattr(self, "trajectory_cache"):
+    def destroy_interface(self):
+        """Clean up trajectory cache before shutting down MoveItPy"""
+        self.log("Destroying PlanAndExecuteInterface")
+        if hasattr(self, "_trajectory_cache"):
             self._trajectory_cache.close()
         # if hasattr(self, "trajectory_execution_manager"):
         #     self.trajectory_execution_manager.stop_execution()
-        super().destroy()
+        super().destroy_interface()

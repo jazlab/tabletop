@@ -12,7 +12,6 @@ that are essential for recovering from safety stops and protective stops.
 import asyncio
 from typing import Optional, cast
 
-from rclpy.action import ActionClient
 from rclpy.action.client import ClientGoalHandle, GoalStatus
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
@@ -30,7 +29,7 @@ from tabletop_rig.exceptions import (
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.interfaces.base import BaseInterface
-from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.nodes.base import AIOActionClient, BaseNode
 
 
 class DashboardInterface(BaseInterface):
@@ -71,7 +70,7 @@ class DashboardInterface(BaseInterface):
                     "robot_mode:=real)"
                 )
 
-        self._set_mode_client = ActionClient(
+        self._set_mode_client = AIOActionClient(
             node, SetMode, "/ur_robot_state_helper/set_mode"
         )
 
@@ -242,11 +241,9 @@ class DashboardInterface(BaseInterface):
                     "UR SetMode action goal not accepted"
                 )
 
-            try:
-                response = await goal_handle.get_result_async()
-            except asyncio.CancelledError:
-                goal_handle.cancel_goal_async()
-                raise
+            response = await self._set_mode_client.get_result_async(
+                goal_handle
+            )
 
             if (
                 response.status != GoalStatus.STATUS_SUCCEEDED
@@ -267,26 +264,19 @@ class DashboardInterface(BaseInterface):
             RuntimeError: If the robot mode is not RUNNING after the
                 action completes.
         """
-        goal_handle = cast(
-            ClientGoalHandle,
-            await self._set_mode_client.send_goal_async(
-                SetMode.Goal(
-                    target_robot_mode=RobotMode.RUNNING,
-                    stop_program=True,
-                    play_program=False,
-                )
-            ),
+        goal_handle = await self._set_mode_client.send_goal_async(
+            SetMode.Goal(
+                target_robot_mode=RobotMode.RUNNING,
+                stop_program=True,
+                play_program=False,
+            )
         )
         if not goal_handle.accepted:
             raise ActionCallUnsuccessfulError(
                 "UR SetMode action goal not accepted"
             )
 
-        try:
-            response = await goal_handle.get_result_async()
-        except asyncio.CancelledError:
-            goal_handle.cancel_goal_async()
-            raise
+        response = await self._set_mode_client.get_result_async(goal_handle)
 
         if (
             response.status != GoalStatus.STATUS_SUCCEEDED
@@ -413,3 +403,10 @@ class DashboardInterface(BaseInterface):
                             severity="WARN",
                         )
                         await asyncio.sleep(config["play_retry_delay"])
+
+    def destroy_interface(self):
+        """Clean up SetMode action client"""
+        self.log("Destroying DashboardInterface")
+        if hasattr(self, "_set_mode_client"):
+            self._set_mode_client.destroy()
+        super().destroy_interface()

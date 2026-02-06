@@ -9,15 +9,17 @@ experiments to capture precise response timing.
 """
 
 import asyncio
-from typing import Optional, cast
+from typing import Optional
 
 from action_msgs.msg import GoalStatus
-from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 
 from tabletop_rig.interfaces.base import BaseInterface
-from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.nodes.base import (
+    AIOActionClient,
+    BaseNode,
+)
 
 
 class FlicInterface(BaseInterface):
@@ -42,7 +44,7 @@ class FlicInterface(BaseInterface):
         super().__init__(node, "flic_interface")
 
         # Flic response time action client
-        self.response_time_client = ActionClient(
+        self._response_time_client = AIOActionClient(
             self.node,
             FlicResponseTime,
             "/flic/response_time",
@@ -50,7 +52,7 @@ class FlicInterface(BaseInterface):
 
         # Wait for action server
         self.log("Waiting for response time server")
-        self.response_time_client.wait_for_server()
+        self._response_time_client.wait_for_server()
 
         self.log("Flic interface initialized")
 
@@ -77,23 +79,17 @@ class FlicInterface(BaseInterface):
             RuntimeError: If the goal is rejected by the action server or
                 the action fails.
         """
-
         try:
             async with asyncio.timeout(timeout):
-                goal_handle = cast(
-                    ClientGoalHandle,
-                    await self.response_time_client.send_goal_async(
-                        FlicResponseTime.Goal(bd_addr=bd_addr)
-                    ),
+                goal_handle = await self._response_time_client.send_goal_async(
+                    FlicResponseTime.Goal(bd_addr=bd_addr)
                 )
                 if not goal_handle.accepted:
                     raise RuntimeError("Flic goal not accepted")
 
-                try:
-                    response = await goal_handle.get_result_async()
-                except asyncio.CancelledError:
-                    goal_handle.cancel_goal_async()
-                    raise
+                response = await self._response_time_client.get_result_async(
+                    goal_handle
+                )
         except TimeoutError:
             return None
 
@@ -102,3 +98,10 @@ class FlicInterface(BaseInterface):
 
         response_time = Time.from_msg(response.result.response_time)
         return response_time.nanoseconds / 1e9
+
+    def destroy_interface(self):
+        """Clean up FlicResponseTime action client"""
+        self.log("Destroying FlicInterface")
+        if hasattr(self, "_response_time_client"):
+            self._response_time_client.destroy()
+        super().destroy_interface()

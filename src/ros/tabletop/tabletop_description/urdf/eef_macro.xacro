@@ -7,14 +7,11 @@
     tf_prefix
     parent
     *origin
+    cylinder_length
+    cylinder_radius
+    cylinder_mass
+    sphere_radius
     ">
-
-    <xacro:property name="length" value="0.0365" />
-    <xacro:property name="radius" value="0.0315" />
-    <xacro:property name="mass" value="0.5" />
-    <xacro:property name="sphere_radius" value="0.06" />
-    <!-- <xacro:property name="bounding_cylinder_radius" value="0.05" />
-    <xacro:property name="bounding_cylinder_length" value="0.11" /> -->
 
     <link name="${tf_prefix}eef_link">
       <visual>
@@ -28,16 +25,19 @@
       </visual>
       <collision>
         <geometry>
-          <cylinder radius="${radius}" length="${length}" />
+          <cylinder radius="${cylinder_radius}" length="${cylinder_length}" />
         </geometry>
-        <origin xyz="0 0 ${length/2}" rpy="0 0 0" />
+        <origin xyz="0 0 ${cylinder_length/2}" rpy="0 0 0" />
       </collision>
       <inertial>
-        <mass value="${mass}" />
-        <origin xyz="0 0 ${length/2}" rpy="0 0 0" />
-        <inertia ixx="${mass * (3 * radius * radius + length * length) / 12}" ixy="0" ixz="0"
-          iyy="${mass * (3 * radius * radius + length * length) / 12}" iyz="0"
-          izz="${mass * radius * radius / 2}" />
+        <mass value="${cylinder_mass}" />
+        <origin xyz="0 0 ${cylinder_length/2}" rpy="0 0 0" />
+        <inertia
+          ixx="${cylinder_mass * (3 * cylinder_radius * cylinder_radius + cylinder_length * cylinder_length) / 12}"
+          ixy="0" ixz="0"
+          iyy="${cylinder_mass * (3 * cylinder_radius * cylinder_radius + cylinder_length * cylinder_length) / 12}"
+          iyz="0"
+          izz="${cylinder_mass * cylinder_radius * cylinder_radius / 2}" />
       </inertial>
     </link>
 
@@ -61,7 +61,7 @@
          Z+ up / outward from eef -->
     <link name="${tf_prefix}eef" />
     <joint name="${tf_prefix}eef_link-eef" type="fixed">
-      <origin xyz="0 0 ${length}" rpy="0 0 ${pi/2}" />
+      <origin xyz="0 0 ${cylinder_length}" rpy="0 0 ${pi/2}" />
       <parent link="${tf_prefix}eef_link" />
       <child link="${tf_prefix}eef" />
     </joint>

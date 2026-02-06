@@ -17,6 +17,7 @@ from typing import Literal, Optional
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
+from rclpy.time import Time
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     SetArmLock,
@@ -192,11 +193,16 @@ class TeensyInterface(BaseInterface):
         Args:
             msg: The incoming sensor message.
         """
+        current_time = self.node.ros_time()
         required_time = self.node.param("teensy.safe_to_execute.required_time")
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
-            current_time = self.node.ros_time()
+            teensy_time = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
+            delay = current_time - teensy_time
+            if delay > 0.003:
+                self.log(f"Teensy sensor callback delay {delay:.4f}")
+
             self._last_teensy_sensor = msg
             self._last_teensy_sensor_time = current_time
             if self._msg_safe_to_execute(msg):

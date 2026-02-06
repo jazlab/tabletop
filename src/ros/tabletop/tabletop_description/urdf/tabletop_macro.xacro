@@ -4,10 +4,11 @@
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
   <xacro:include filename="$(find tabletop_description)/urdf/eef_macro.xacro" />
 
-  <xacro:macro name="tabletop"
+  <xacro:macro name="tabletop_robot"
     params="
     name
     tf_prefix
+    parent
     joint_limits_parameters_file
     kinematics_parameters_file
     physical_parameters_file
@@ -16,25 +17,19 @@
     safety_pos_margin
     safety_k_position
     force_abs_paths
+    eef_cylinder_length
+    eef_cylinder_radius
+    eef_cylinder_mass
+    eef_sphere_radius
+    *origin
+    *eef_origin
     ">
-
-    <!-- <xacro:property name="robot_offset_xyz" value="1.2468 1.0832 0.2685" /> -->
-    <!-- <xacro:property name="robot_offset_xyz" value="1.2482 1.0588 0.3342" /> -->
-    <!-- <xacro:property name="robot_offset_xyz" value="1.247 1.1279 0.309" /> -->
-    <!-- <xacro:property name="robot_offset_xyz" value="1.2504 1.0625 0.3085" /> -->
-    <xacro:property name="robot_offset_xyz" value="1.2554 1.0625 0.3085" />
-    <xacro:property name="robot_offset_rpy" value="0 0 -1.5707" />
-    <xacro:property name="eef_offset_xyz" value="0 0 -0.005" />
-    <xacro:property name="eef_offset_rpy" value="0 0 0" />
-
-    <!-- world -->
-    <link name="world" />
 
     <!-- robot -->
     <xacro:ur_robot
       name="${name}"
       tf_prefix="${tf_prefix}"
-      parent="world"
+      parent="${parent}"
       joint_limits_parameters_file="${joint_limits_parameters_file}"
       kinematics_parameters_file="${kinematics_parameters_file}"
       physical_parameters_file="${physical_parameters_file}"
@@ -44,15 +39,19 @@
       safety_k_position="${safety_k_position}"
       force_abs_paths="${force_abs_paths}"
     >
-      <origin xyz="${robot_offset_xyz}" rpy="${robot_offset_rpy}" />
+      <xacro:insert_block name="origin" />
     </xacro:ur_robot>
 
     <!-- end effector -->
     <xacro:eef
       tf_prefix="${tf_prefix}"
       parent="${tf_prefix}wrist_3_link"
+      cylinder_length="${eef_cylinder_length}"
+      cylinder_radius="${eef_cylinder_radius}"
+      cylinder_mass="${eef_cylinder_mass}"
+      sphere_radius="${eef_sphere_radius}"
     >
-      <origin xyz="${eef_offset_xyz}" rpy="${eef_offset_rpy}" />
+      <xacro:insert_block name="eef_origin" />
     </xacro:eef>
 
   </xacro:macro>

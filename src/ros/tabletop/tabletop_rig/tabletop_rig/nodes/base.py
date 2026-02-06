@@ -25,8 +25,11 @@ Example:
 """
 
 import asyncio
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
+import rclpy.task
+from action_msgs.msg import GoalStatus
+from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.duration import Duration
@@ -37,6 +40,9 @@ from rclpy.exceptions import (
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 
+from ros.tabletop.tabletop_rig.tabletop_rig.utils.ros import (
+    ActionClientResultType,
+)
 from tabletop_py.utils.common import yaml_dump_string
 from tabletop_rig.exceptions import (
     ROSSleepError,
@@ -45,6 +51,82 @@ from tabletop_rig.exceptions import (
 )
 from tabletop_rig.utils.logging import LoggerMixin, msg_to_dict
 from tabletop_rig.utils.ros import SrvType, SrvTypeRequest, SrvTypeResponse
+
+if TYPE_CHECKING:
+    from tabletop_rig.interfaces.base import BaseInterface
+
+
+async def wrap_rclpy_future(rclpy_future: rclpy.task.Future) -> Any:
+    loop = asyncio.get_running_loop()
+    asyncio_future = loop.create_future()
+
+    def callback(future: rclpy.task.Future):
+        cur_loop = None
+        try:
+            cur_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if cur_loop is loop:
+            try:
+                asyncio_future.set_result(future.result())
+            except Exception as e:
+                asyncio_future.set_exception(e)
+        else:
+            try:
+                loop.call_soon_threadsafe(
+                    asyncio_future.set_result, future.result()
+                )
+            except Exception as e:
+                loop.call_soon_threadsafe(asyncio_future.set_exception, e)
+
+    rclpy_future.add_done_callback(callback)
+
+    try:
+        return await asyncio_future
+    except asyncio.CancelledError:
+        if not rclpy_future.remove_done_callback(callback):
+            raise AssertionError("This shouldn't happen")
+        raise
+
+
+class AIOActionClient(ActionClient):
+    async def wait_for_server_async(
+        self, timeout_sec: Optional[float] = None
+    ) -> bool:
+        """Async version of wait_for_server.
+
+        Runs the blocking wait in a thread pool to avoid blocking
+        the asyncio event loop.
+        """
+        return await asyncio.to_thread(
+            self.wait_for_server, timeout_sec=timeout_sec
+        )
+
+    async def send_goal_async(  # type: ignore
+        self, goal, feedback_callback=None, goal_uuid=None
+    ) -> ClientGoalHandle:
+        return await wrap_rclpy_future(
+            super().send_goal_async(
+                goal=goal,
+                feedback_callback=feedback_callback,
+                goal_uuid=goal_uuid,
+            )
+        )
+
+    @staticmethod
+    async def get_result_async(
+        goal_handle: ClientGoalHandle,
+    ) -> ActionClientResultType:
+        try:
+            return await wrap_rclpy_future(goal_handle.get_result_async())
+        finally:
+            if goal_handle.status not in (
+                GoalStatus.STATUS_SUCCEEDED,
+                GoalStatus.STATUS_CANCELED,
+                GoalStatus.STATUS_ABORTED,
+            ):
+                goal_handle.cancel_goal_async()
 
 
 class BaseNode(Node, LoggerMixin):
@@ -96,6 +178,7 @@ class BaseNode(Node, LoggerMixin):
         Node.__init__(self, *args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
+        self._interfaces: list["BaseInterface"] = []
 
     def _check_parameters(self):
         """Validate parameter configuration.
@@ -137,6 +220,10 @@ class BaseNode(Node, LoggerMixin):
                     f"Parameter {name} already declared, using override",
                     severity="WARN",
                 )
+
+    def register_interface(self, interface: "BaseInterface"):
+        """Register a BaseInterface to the class for proper cleanup"""
+        self._interfaces.append(interface)
 
     def log_parameters(
         self,
@@ -298,7 +385,7 @@ class BaseNode(Node, LoggerMixin):
         )
         return srv_client
 
-    def validate_service_client(
+    def _validate_service_client(
         self,
         service_client: Client,
         srv_type: type | None,
@@ -324,7 +411,7 @@ class BaseNode(Node, LoggerMixin):
                 "srv_type and srv_name must be None if service_client is provided, or they must match the service client"
             )
 
-    def validate_service_response(
+    def _validate_service_response(
         self,
         response: SrvTypeResponse | None,
         service_client: Client,
@@ -388,7 +475,7 @@ class BaseNode(Node, LoggerMixin):
             service_client = self._create_client(srv_type, srv_name)
             destroy_service_client = True
         else:
-            self.validate_service_client(service_client, srv_type, srv_name)
+            self._validate_service_client(service_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
@@ -461,7 +548,7 @@ class BaseNode(Node, LoggerMixin):
             srv_client = self._create_client(srv_type, srv_name)
             destroy_service_client = True
         else:
-            self.validate_service_client(srv_client, srv_type, srv_name)
+            self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
@@ -479,7 +566,7 @@ class BaseNode(Node, LoggerMixin):
             #     title=f"{service_client.service_name} response",
             #     severity="DEBUG",
             # )
-            self.validate_service_response(response, srv_client)
+            self._validate_service_response(response, srv_client)
             return cast(SrvTypeResponse, response)
         finally:
             # Destroy the service client if it was created by this function
@@ -527,7 +614,7 @@ class BaseNode(Node, LoggerMixin):
             srv_client = self._create_client(srv_type, srv_name)
             destroy_service_client = True
         else:
-            self.validate_service_client(srv_client, srv_type, srv_name)
+            self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
@@ -535,8 +622,8 @@ class BaseNode(Node, LoggerMixin):
             #     f"Calling {service_client.service_name} service asynchronously...",
             #     severity="DEBUG",
             # )
-            future = srv_client.call_async(srv_request)
 
+            future = wrap_rclpy_future(srv_client.call_async(srv_request))
             async with asyncio.timeout(timeout):
                 response = await future
             # self.log(
@@ -548,7 +635,7 @@ class BaseNode(Node, LoggerMixin):
             #     title=f"{service_client.service_name} response",
             #     severity="DEBUG",
             # )
-            self.validate_service_response(response, srv_client)
+            self._validate_service_response(response, srv_client)
             return cast(SrvTypeResponse, response)
         except TimeoutError:
             raise ServiceCallTimeoutError(
@@ -557,3 +644,8 @@ class BaseNode(Node, LoggerMixin):
         finally:
             if destroy_service_client:
                 self.destroy_client(srv_client)
+
+    def destroy_node(self):
+        for interface in self._interfaces:
+            interface.destroy_interface()
+        Node.destroy_node(self)

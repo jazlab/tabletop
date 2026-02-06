@@ -59,6 +59,7 @@ from tabletop_rig.exceptions import (
     NotSafeToExecuteError,
     ServiceCallUnsuccessfulError,
 )
+from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.interfaces.dashboard import DashboardInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
@@ -302,14 +303,13 @@ class Commander(BaseNode):
         object_id = self.moveit.get_exactly_one_attached_object_id()
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
-        start_time = self.ros_time()
-        reported_rt = await self.flic.response_time(bd_addr, timeout)
-        total_rt = self.ros_time() - start_time
+        reported_time = await self.flic.response_time(bd_addr, timeout)
 
-        if reported_rt is not None:
-            self.log(f"Reported: {reported_rt:.4f}s | Total: {total_rt}")
+        if reported_time is not None:
+            overhead = self.ros_time() - reported_time
+            self.log(f"Flic action overhead {overhead:.4f}")
 
-        return reported_rt
+        return reported_time
 
     async def smooth_pursuit_and_reward(self) -> None:
         """Monitor smooth pursuit and provide contingent reward.
@@ -674,19 +674,6 @@ class Commander(BaseNode):
     ########## Destroy ########################################################
     ###########################################################################
 
-    def destroy_node(self) -> None:
-        """Clean up resources and destroy the node.
-
-        Destroys the MoveIt interface before calling parent destroy.
-        """
-        if hasattr(self, "moveit"):
-            self.moveit.destroy()
-        super().destroy_node()
-
-    def __del__(self) -> None:
-        """Ensure cleanup on garbage collection."""
-        self.destroy_node()
-
 
 async def debug_commander(
     commander: Commander, config: Optional[str] = None
@@ -756,15 +743,17 @@ async def asyncio_runner(
 
     task = asyncio.create_task(coro_fn(commander, config))
     spin_future.add_done_callback(
-        lambda _: loop.call_soon_threadsafe(task.cancel)
-        if loop.is_running()
-        else None
+        lambda _: (
+            loop.call_soon_threadsafe(task.cancel)
+            if loop.is_running()
+            else None
+        )
     )
 
     await task
 
 
-def main(args=None) -> None:
+def main_sync(args=None) -> None:
     """Entry point for the commander node.
 
     Parses command line arguments, optionally loads a custom experiment
@@ -851,3 +840,87 @@ def main(args=None) -> None:
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
+
+
+# @pyinstrument.profile(async_mode="enabled")
+async def main_async(args=None):
+    """Async entry point for the Flic node.
+
+    Initializes ROS2, creates the node, connects to the Flic server,
+    and spins until shutdown or connection loss.
+
+    Args:
+        args: Command line arguments (passed to rclpy.init).
+    """
+    # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+
+    # Parse non-ROS arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--coro-module", type=str, default=None)
+    parser.add_argument("--coro-name", type=str, default=None)
+    parser.add_argument("--coro-config", type=str, default=None)
+    parser.add_argument("--max-workers", type=int, default=4)
+    parser.add_argument("--debug", action="store_true", default=False)
+
+    non_ros_args = rclpy.utilities.remove_ros_args(args)
+    args, _ = parser.parse_known_args(non_ros_args)
+
+    if args.coro_module is not None and args.coro_name is not None:
+        print(
+            f"Loading coroutine {args.coro_name} from module {args.coro_module} "
+        )
+        coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
+            importlib.import_module(args.coro_module),
+            args.coro_name,
+        )
+    elif args.coro_name is not None or args.coro_module is not None:
+        raise ValueError(
+            "Both coro_module and coro_name must be provided when one is provided"
+        )
+    else:
+        print("No coroutine module or name provided, running in debug mode")
+        coro_fn = debug_commander
+        args.coro_config = None
+        args.debug = True
+
+    if args.coro_config is not None:
+        print(f"Config file: {args.coro_config}")
+
+    if args.debug:
+        print("Debug mode enabled")
+        debugpy.listen(1300)
+        print("Waiting for debugger to attach")
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
+    try:
+        executor = AIOExecutor()
+        commander = Commander()
+        executor.add_node(commander)
+
+        p = None
+        try:
+            future = executor.create_task(coro_fn(commander, args.coro_config))
+
+            # with pyinstrument.Profiler(async_mode="enabled") as p:
+            await executor.spin_until_future_complete(future)
+        finally:
+            if p is not None:
+                p.print(show_all=True, timeline=True)
+            print("Shutting down commander")
+            commander.destroy_node()
+            print("Shutting down executor")
+            executor.shutdown()
+    finally:
+        print("Shutting down rclpy")
+        rclpy.try_shutdown()  # type: ignore
+
+
+def main(args=None):
+    """Entry point for the flic node."""
+    try:
+        # main_sync(args)
+        rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+        asyncio.run(main_async(args), debug=True)
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")

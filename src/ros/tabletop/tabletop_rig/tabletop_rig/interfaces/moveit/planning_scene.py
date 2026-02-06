@@ -1245,10 +1245,9 @@ class PlanningSceneInterface(BaseInterface):
     ########## Destroy ########################################################
     ###########################################################################
 
-    def destroy(self):
-        """Clean up MoveItPy"""
+    def destroy_interface(self):
+        """Shut down MoveItPy"""
+        self.log("Destroying PlanAndExecuteInterface")
         if hasattr(self, "moveit_py"):
             self.moveit_py.shutdown()
-
-    def __del__(self):
-        self.destroy()
+        super().destroy_interface()

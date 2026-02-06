@@ -43,6 +43,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
+from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
@@ -351,12 +352,6 @@ class MockTeensy(BaseNode):
         """Initialize the mock Teensy node with all publishers and services."""
         super().__init__("mock_teensy")
         self.log_pub = self.create_publisher(String, "/teensy/log", 10)
-
-        # Monkey loop
-        monkey_loop_kwargs = self.param("monkey_loop")
-        self.monkey_loop = asyncio.create_task(
-            monkey_loop(**monkey_loop_kwargs)
-        )
 
         # State variables
         self.sync_pulse_control_pin_state = LOW
@@ -764,6 +759,10 @@ class MockTeensy(BaseNode):
 
         self.sensor_pub.publish(sensor_msg)
 
+    async def spin(self) -> None:
+        """Spin simulated monkey loop"""
+        await monkey_loop(**self.param("monkey_loop"))
+
 
 async def main_async(args=None):
     """Async entry point for the mock Teensy node.
@@ -771,7 +770,8 @@ async def main_async(args=None):
     Args:
         args: Command line arguments (passed to rclpy.init).
     """
-    rclpy.init(args=args)
+    # rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
     # Parse non-ROS arguments
     parser = argparse.ArgumentParser()
@@ -793,7 +793,8 @@ async def main_async(args=None):
         executor.add_node(mock_teensy)
 
         try:
-            await executor.spin()
+            future = executor.create_task(mock_teensy.spin())
+            await executor.spin_until_future_complete(future)
         finally:
             print("Shutting down mock teensy")
             mock_teensy.destroy_node()

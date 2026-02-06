@@ -80,7 +80,7 @@ COLOR_MAP: dict[str, tuple[float, float, float, float]] = {
 }
 """dict[str, tuple]: Maps color names to RGBA tuples (values 0.0-1.0)."""
 
-COLLISION_OBJECT_OPERATION_MAP: dict[str, int] = {
+COLLISION_OBJECT_OPERATION_MAP: dict[str, bytes] = {
     "ADD": CollisionObject.ADD,
     "REMOVE": CollisionObject.REMOVE,
     "APPEND": CollisionObject.APPEND,
@@ -125,6 +125,18 @@ class SrvType(Protocol):
 
     Request: Any
     Response: Any
+
+
+class ActionClientResultType(Protocol):
+    """Protocol defining the interface for ROS2 action client result types.
+
+    Attributes:
+        status: Integer defining goal status
+        result: Goal response
+    """
+
+    status: int
+    result: Any
 
 
 # Generic ROS2 utilities
