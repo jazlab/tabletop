@@ -44,6 +44,10 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
         LAUNCH="tabletop_rig flic.launch.py"
         ;;
+    eyelink)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/eyelink"
+        LAUNCH="tabletop_rig eyelink.launch.py"
+        ;;
     rig)
         export ROS_LOG_DIR="$ROS_LOG_DIR/rig"
         LAUNCH="tabletop_rig rig.launch.py"
@@ -57,8 +61,9 @@ case $1 in
         LAUNCH="tabletop_tasks tasks.launch.py"
         ;;
     *)
-        print_error launch_type must be one of commander, rig, or tasks
+        print_error "launch_type $1 unsupported"
         print_usage
+        exit 1
         ;;
 esac
 

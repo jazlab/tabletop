@@ -224,14 +224,14 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
         self._enter_spin()
         try:
             yield
-        except* ExternalShutdownException:
-            pass
-        except* ShutdownException:
-            pass
-        except* TimeoutException:
-            pass
-        except* ConditionReachedException:
-            pass
+        # except* ExternalShutdownException:
+        #     pass
+        # except* ShutdownException:
+        #     pass
+        # except* TimeoutException:
+        #     pass
+        # except* ConditionReachedException:
+        #     pass
         finally:
             self._exit_spin()
 

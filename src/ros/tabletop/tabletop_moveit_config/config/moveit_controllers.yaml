@@ -6,7 +6,8 @@ trajectory_execution:
   allowed_goal_duration_margin: 0.5
   allowed_start_tolerance: 0.02 # radians
   allowed_stop_tolerance: 0.02 # radians/s
-  execution_duration_monitoring: true # May lead to unexpectedly aborted goals with scaled JTC
+  execution_duration_monitoring: false # May lead to unexpectedly aborted goals with scaled JTC
+  # TODO: Change to True maybe
 
 moveit_simple_controller_manager:
   controller_names:

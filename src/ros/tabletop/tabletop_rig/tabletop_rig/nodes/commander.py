@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import importlib
+import signal
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
 from types import TracebackType
@@ -853,6 +854,7 @@ async def main_async(args=None):
         args: Command line arguments (passed to rclpy.init).
     """
     # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    rclpy.init(args=args)
 
     # Parse non-ROS arguments
     parser = argparse.ArgumentParser()
@@ -901,13 +903,21 @@ async def main_async(args=None):
         p = None
         try:
             future = executor.create_task(coro_fn(commander, args.coro_config))
-
-            # with pyinstrument.Profiler(async_mode="enabled") as p:
             await executor.spin_until_future_complete(future)
+            # async with asyncio.TaskGroup() as tg:
+            #     spin_task = tg.create_task(executor.spin())
+            #     user_task = tg.create_task(
+            #         coro_fn(commander, args.coro_config)
+            #     )
+            #     await asyncio.wait(
+            #         [spin_task, user_task], return_when=asyncio.FIRST_COMPLETED
+            #     )
+            #     raise TestException
+            # with pyinstrument.Profiler(async_mode="enabled") as p:
         finally:
             if p is not None:
                 p.print(show_all=True, timeline=True)
-            print("Shutting down commander")
+            print("Destroying commander")
             commander.destroy_node()
             print("Shutting down executor")
             executor.shutdown()
@@ -916,11 +926,21 @@ async def main_async(args=None):
         rclpy.try_shutdown()  # type: ignore
 
 
+def print_signal_handler():
+    handler = signal.getsignal(signal.SIGINT)
+    if handler is signal.default_int_handler:
+        print(f"Default signal handler: {handler}")
+    else:
+        print(f"Non-default signal handler: {handler}")
+
+
 def main(args=None):
     """Entry point for the flic node."""
     try:
         # main_sync(args)
-        rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+        # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+        # print_signal_handler()
         asyncio.run(main_async(args), debug=True)
+        # asyncio.run(main_async(args))
     except KeyboardInterrupt:
         print("Keyboard interrupt")

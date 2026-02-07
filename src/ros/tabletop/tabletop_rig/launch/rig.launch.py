@@ -182,7 +182,7 @@ def declare_arguments():
         # Eyelink
         DeclareLaunchArgument(
             "eyelink_launch",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Launch Eyelink?",
         ),

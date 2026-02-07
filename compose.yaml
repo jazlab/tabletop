@@ -220,6 +220,22 @@ services:
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
+  eyelink:
+    container_name: tabletop-eyelink
+    extends: ros-base
+    profiles: !override
+      - real
+    restart: unless-stopped
+    command: tt-launch eyelink simulate:=false
+
+  eyelink-sim:
+    container_name: tabletop-eyelink-sim
+    extends: ros-base
+    profiles: !override
+      - sim
+    restart: unless-stopped
+    command: tt-launch eyelink simulate:=true
+
   commander:
     container_name: tabletop-commander
     extends: ros-base
@@ -269,9 +285,9 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
-    depends_on:
-      novnc:
-        condition: service_healthy
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
     init: true
     privileged: true
     command: sleep infinity
