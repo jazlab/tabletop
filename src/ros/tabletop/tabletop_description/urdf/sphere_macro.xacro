@@ -7,8 +7,8 @@
     name
     tf_prefix
     parent
-    *origin
     radius
+    *origin
     ">
 
     <link name="${tf_prefix}${name}">

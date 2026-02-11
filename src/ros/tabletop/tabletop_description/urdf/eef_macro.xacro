@@ -6,11 +6,11 @@
     params="
     tf_prefix
     parent
-    *origin
     cylinder_length
     cylinder_radius
     cylinder_mass
     sphere_radius
+    *origin
     ">
 
     <link name="${tf_prefix}eef_link">

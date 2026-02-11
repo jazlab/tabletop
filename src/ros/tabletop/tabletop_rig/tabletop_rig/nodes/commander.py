@@ -651,6 +651,7 @@ class Commander(BaseNode):
                     exc_value = exc_value.exceptions[0]
 
                 if isinstance(exc_value, MoveitRecoverableError):
+                    # return False
                     self.log(
                         "Caught exception while running commander:",
                         severity="ERROR",
@@ -658,7 +659,10 @@ class Commander(BaseNode):
                     self.log(
                         f"{exc_type.__name__}: {exc_value}", severity="ERROR"
                     )
-                    self.log(f"Traceback: {exc_tb}", severity="DEBUG")
+                    self.log(
+                        f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
+                        severity="DEBUG",
+                    )
                     if exc_type is ExecutionError:
                         self.log(
                             "Sleeping for 5 seconds before resetting commander",

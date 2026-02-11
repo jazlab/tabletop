@@ -537,17 +537,16 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
                     waitable.add_to_wait_set(wait_set)
 
                 # Wait for something to become ready
-                future = None
+                # future = None
                 try:
                     future = self._tpe.submit(wait_set.wait, timeout_nsec)
                     await asyncio.wrap_future(future)
                 except asyncio.CancelledError:
                     # Wake the executor to join the thread
-                    print("Cancelled")
                     self.wake()
-                    if future is not None:
-                        if not future.cancel():
-                            future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
+                    # if future is not None:
+                    #     if not future.cancel():
+                    #         future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
                     raise
                 except BaseException as e:
                     print(e)

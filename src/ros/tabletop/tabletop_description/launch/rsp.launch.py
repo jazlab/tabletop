@@ -107,6 +107,8 @@ def generate_launch_description():
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
     initial_positions_file = LaunchConfiguration("initial_positions_file")
+    base_origin_xyz = LaunchConfiguration("base_origin_xyz")
+    base_origin_rpy = LaunchConfiguration("base_origin_rpy")
 
     script_filename = PathJoinSubstitution(
         [
@@ -229,6 +231,16 @@ def generate_launch_description():
             "initial_positions_file:=",
             initial_positions_file,
             " ",
+            "base_origin_xyz:=",
+            "'",
+            base_origin_xyz,
+            "'",
+            " ",
+            "base_origin_rpy:=",
+            "'",
+            base_origin_rpy,
+            "'",
+            " ",
         ]
     )
 
@@ -291,7 +303,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "safety_limits",
-            default_value="true",
+            default_value="true",  # TODO: Was originally false, see if true causes problems
             description="Enables the safety limits controller if true.",
         )
     )
@@ -530,30 +542,16 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "base_offset_xyz",
+            "base_origin_xyz",
             default_value="0.0 0.0 0.0",
             description="Space-separated 3D translation from world to base frame",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "base_offset_rpy",
+            "base_origin_rpy",
             default_value="0.0 0.0 0.0",
             description="Space-separated 3D Euler rotation from world to base frame",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "eef_offset_xyz",
-            default_value="0.0 0.0 0.0",
-            description="Space-separated 3D translation from wrist_3_link to eef frame",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "eef_offset_rpy",
-            default_value="0.0 0.0 0.0",
-            description="Space-separated 3D Euler rotation from wrist_3_link to eef frame",
         )
     )
 

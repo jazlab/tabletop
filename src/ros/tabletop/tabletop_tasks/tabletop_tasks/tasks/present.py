@@ -70,5 +70,5 @@ class PresentTask(BaseTask):
             ValueError: If trial_spec is None.
         """
         self.log(f"Present object task trial spec: {trial_spec}")
-        await self.commander.plan_and_execute(goal=trial_spec.object_pose)
+        # await self.commander.plan_and_execute(goal=trial_spec.object_pose)
         return TrialFeedback()

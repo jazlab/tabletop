@@ -295,3 +295,13 @@ This gets its own section because it's a pain in the ass.
     tt-clean-ws --all       # Clean everything including moveit2
     tt-clean-logs           # Clean log files
     ```
+
+## Reason for Commander signal handling not working:
+- Signal handler overwriting:
+    - MoveItPy node installing it's own signal handler on top of existing ones
+        - Solution: Added argument to constructor to not install signal handler
+    - rclpy installs it's own signal handler, but preserves previous signal handler
+        - Solution: Call rclpy.init after asyncio.run or call rclpy.init with SignalHandlerOptions.NO
+    - moveit_py.trajectory_execution_manager methods execute_and_wait and stop_execution hang if UR controllers stop at the same time as the Commander Node
+        - Results from launching rig.launch.py or tasks.launch.py with ur_launch:=true
+        - Solution: Don't do that, launch the driver in its own container/process

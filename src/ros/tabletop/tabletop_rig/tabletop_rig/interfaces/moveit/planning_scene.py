@@ -29,7 +29,7 @@ import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from glob import glob
-from typing import Any, ContextManager, Literal, Optional
+from typing import Any, ContextManager, Literal, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -80,6 +80,11 @@ from tabletop_rig.utils.ros import (
 )
 
 
+class GridObject(NamedTuple):
+    grid_idx: tuple[int, int]
+    pose_stamped: PoseStamped
+
+
 class PlanningSceneInterface(BaseInterface):
     """Interface for managing MoveIt planning scene components.
 
@@ -120,6 +125,8 @@ class PlanningSceneInterface(BaseInterface):
             install_signal_handlers=False,
         )
 
+        self.grid_objects: dict[str, GridObject] = {}
+
         self._init_planning_scene()
 
         self._init_link_padding()
@@ -150,9 +157,7 @@ class PlanningSceneInterface(BaseInterface):
         collision_matrix_path = os.path.join(cache_dir, "collision_matrix.csv")
         config_path = os.path.join(cache_dir, "config.yaml")
         scene_hash_path = os.path.join(cache_dir, "scene_hash.txt")
-        grid_object_poses_path = os.path.join(
-            cache_dir, "grid_object_poses.yaml"
-        )
+        grid_objects_path = os.path.join(cache_dir, "grid_objects.yaml")
 
         if config["use_saved_scene"]:
             if all(
@@ -162,7 +167,7 @@ class PlanningSceneInterface(BaseInterface):
                     collision_matrix_path,
                     config_path,
                     scene_hash_path,
-                    grid_object_poses_path,
+                    grid_objects_path,
                 ]
             ):
                 with open(config_path, "r") as f:
@@ -176,7 +181,7 @@ class PlanningSceneInterface(BaseInterface):
                 ):
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
-                    self.load_grid_object_poses(grid_object_poses_path)
+                    self.load_grid_objects(grid_objects_path)
                     return
                 else:
                     self.log(
@@ -216,7 +221,7 @@ class PlanningSceneInterface(BaseInterface):
         os.makedirs(cache_dir, exist_ok=True)
         self.save_planning_scene(scene_path)
         self.save_collision_matrix(collision_matrix_path)
-        self.save_grid_object_poses(grid_object_poses_path)
+        self.save_grid_objects(grid_objects_path)
         with open(scene_hash_path, "w") as f:
             f.write(self.scene_hash(include_robot=False))
         with open(config_path, "w") as f:
@@ -557,42 +562,43 @@ class PlanningSceneInterface(BaseInterface):
         self.allow_collision(*zip(*true_pairs))
         self.disallow_collision(*zip(*false_pairs))
 
-    def save_grid_object_poses(self, path: str):
+    def save_grid_objects(self, path: str):
         """Save the grid object poses to a file."""
-        self.log(f"Saving grid object poses to {path}")
-        grid_object_poses = {}
-        for object_id, pose_stamped in self.grid_object_poses.items():
-            grid_object_poses[object_id] = {
-                "frame_id": pose_stamped.header.frame_id,
+        self.log(f"Saving grid objects to {path}")
+        to_save = {}
+        for object_id, grid_object in self.grid_objects.items():
+            to_save[object_id] = {
+                "grid_idx": list(grid_object.grid_idx),
+                "frame_id": grid_object.pose_stamped.header.frame_id,
                 "position": [
-                    pose_stamped.pose.position.x,
-                    pose_stamped.pose.position.y,
-                    pose_stamped.pose.position.z,
+                    grid_object.pose_stamped.pose.position.x,
+                    grid_object.pose_stamped.pose.position.y,
+                    grid_object.pose_stamped.pose.position.z,
                 ],
                 "orientation": [
-                    pose_stamped.pose.orientation.w,
-                    pose_stamped.pose.orientation.x,
-                    pose_stamped.pose.orientation.y,
-                    pose_stamped.pose.orientation.z,
+                    grid_object.pose_stamped.pose.orientation.w,
+                    grid_object.pose_stamped.pose.orientation.x,
+                    grid_object.pose_stamped.pose.orientation.y,
+                    grid_object.pose_stamped.pose.orientation.z,
                 ],
             }
         with open(path, "w") as f:
-            yaml.dump(grid_object_poses, f)
+            yaml.dump(to_save, f)
 
-    def load_grid_object_poses(self, path: str):
+    def load_grid_objects(self, path: str):
         """Load the grid object poses from a file."""
         self.log(f"Loading grid object poses from {path}")
         with open(path, "r") as f:
-            grid_object_poses = yaml.safe_load(f)
+            to_load = yaml.safe_load(f)
 
-        self.grid_object_poses = {}
-        for object_id, kwargs in grid_object_poses.items():
+        for object_id, kwargs in to_load.items():
+            grid_idx = kwargs["grid_idx"]
             pose_stamped = pose_stamped_msg(
                 frame_id=kwargs["frame_id"],
                 position=kwargs["position"],
                 orientation=kwargs["orientation"],
             )
-            self.grid_object_poses[object_id] = pose_stamped
+            self.grid_objects[object_id] = GridObject(grid_idx, pose_stamped)
 
     ###########################################################################
     ########## Collisions #####################################################
@@ -1039,8 +1045,6 @@ class PlanningSceneInterface(BaseInterface):
             object_id = os.path.splitext(os.path.basename(mesh_path))[0]
             object_id_to_path[object_id] = mesh_path
 
-        self.grid_object_poses: dict[str, PoseStamped] = {}
-
         existing = set(self.collision_object_ids)
         assert len(existing) == len(self.collision_object_ids)
 
@@ -1098,8 +1102,10 @@ class PlanningSceneInterface(BaseInterface):
                 pose_stamped=pose_stamped,
                 **kwargs,
             )
+            x, y = idx.split(",")
+            grid_idx = (int(x), int(y))
 
-            self.grid_object_poses[object_id] = pose_stamped
+            self.grid_objects[object_id] = GridObject(grid_idx, pose_stamped)
 
     def attach_collision_object(
         self,
@@ -1156,6 +1162,8 @@ class PlanningSceneInterface(BaseInterface):
         with self.planning_scene_rw() as scene:
             scene.remove_all_collision_objects()
             scene.current_state.update()
+
+        self.grid_objects = {}
 
         assert len(self.collision_object_ids) == 0
 

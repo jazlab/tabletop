@@ -69,6 +69,7 @@
     planning:
       fast_pipeline: linear
       fallback_pipeline: rrt_star
+      # fallback_pipeline: rrtc_star
       default_pose_link: eef
       default_group_name: manipulator
       # max_attempts: 5
@@ -405,7 +406,7 @@
             object_id: small_object_19
             color: [0.25, 0.0, 0.5, 1.0] # dark purple
             rel_pose:
-              position: [0.8934, 0.314, 0.0]
+              position: [0.8934, 0.3161, -0.0034]
               rpy: [0.0, 0.0, -1.5707]
           6,2:
             object_id: small_object_20
@@ -423,7 +424,7 @@
             object_id: small_object_22
             color: [0.25, 0.75, 0.0, 1.0] # light green
             rel_pose:
-              position: [1.0423, 0.314, 0.0]
+              position: [1.0423, 0.3161, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           7,2:
             object_id: small_object_23

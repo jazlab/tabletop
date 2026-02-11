@@ -28,6 +28,8 @@ Safety:
 """
 
 import asyncio
+import concurrent
+import concurrent.futures
 import threading
 from collections.abc import Callable
 from copy import copy
@@ -753,48 +755,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         return concat_trajectory, cache_kwargs
 
-    def _execute_impl(
-        self, trajectory: RobotTrajectory | list[RobotTrajectory]
-    ):
-        """Trajectory execution synchronous implementation"""
-        # Check if the robot is safe to execute
-        if not self._safe_to_execute_callback():
-            raise NotSafeToExecuteError()
-
-        if isinstance(trajectory, RobotTrajectory):
-            trajectory = [trajectory]
-
-        assert not self.execution_lock.locked()
-        with self.execution_lock:
-            initial_state = self.current_state
-
-            # Push all trajectories to TEM
-            for traj in trajectory:
-                self.trajectory_execution_manager.push(
-                    traj.get_robot_trajectory_msg()
-                )
-
-            execution_status: ExecutionStatus = (
-                self.trajectory_execution_manager.execute_and_wait()
-            )
-
-        # Return the trajectory if the execution was successful, otherwise raise
-        # an error based on the execution status and safe to execute flag
-        if execution_status:
-            return
-        elif not self._safe_to_execute_callback():
-            raise NotSafeToExecuteError(execution_status)
-        else:
-            tolerance = self.node.param(
-                "trajectory_execution.allowed_start_tolerance"
-            )
-            if not all_close_robot_states(
-                initial_state, self.current_state, position_tolerance=tolerance
-            ):
-                raise ExecutionInterruptedError(execution_status)
-            else:
-                raise ExecutionRejectedError(execution_status)
-
     async def plan(
         self,
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
@@ -882,11 +842,51 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             ExecutionInterruptedError: If the robot moved but not to the goal.
             ExecutionRejectedError: If the trajectory was rejected by the robot.
         """
-        try:
-            return await asyncio.to_thread(self._execute_impl, trajectory)
-        except asyncio.CancelledError:
-            self.stop_execution()
-            raise
+        # Check if the robot is safe to execute
+        if not self._safe_to_execute_callback():
+            raise NotSafeToExecuteError()
+
+        if isinstance(trajectory, RobotTrajectory):
+            trajectory = [trajectory]
+
+        assert not self.execution_lock.locked()
+        with self.execution_lock:
+            initial_state = self.current_state
+
+            # Push all trajectories to TEM
+            for traj in trajectory:
+                self.trajectory_execution_manager.push(
+                    traj.get_robot_trajectory_msg()
+                )
+
+            try:
+                execution_status: ExecutionStatus = await asyncio.to_thread(
+                    self.trajectory_execution_manager.execute_and_wait
+                )
+            except asyncio.CancelledError:
+                tpe: concurrent.futures.ThreadPoolExecutor = (
+                    asyncio.get_running_loop()._default_executor  # type: ignore
+                )
+                tpe.submit(self.stop_execution)
+                # self.stop_execution()
+                raise
+
+        # Return the trajectory if the execution was successful, otherwise raise
+        # an error based on the execution status and safe to execute flag
+        if execution_status:
+            return
+        elif not self._safe_to_execute_callback():
+            raise NotSafeToExecuteError(execution_status)
+        else:
+            tolerance = self.node.param(
+                "trajectory_execution.allowed_start_tolerance"
+            )
+            if not all_close_robot_states(
+                initial_state, self.current_state, position_tolerance=tolerance
+            ):
+                raise ExecutionInterruptedError(execution_status)
+            else:
+                raise ExecutionRejectedError(execution_status)
 
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
         """Cache the given trajectory.

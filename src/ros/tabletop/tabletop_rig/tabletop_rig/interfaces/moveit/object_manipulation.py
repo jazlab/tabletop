@@ -25,6 +25,7 @@ Configuration:
 """
 
 import asyncio
+import functools
 import os
 from collections.abc import Callable, Coroutine
 from enum import IntEnum
@@ -130,10 +131,9 @@ def object_manipulation_lock_decorator(
 ) -> Callable[..., Coroutine]:
     """Decorator for methods that should be run with the object manipulation lock."""
 
-    async def wrapper(
-        self: "ObjectManipulationInterface", *args: Any, **kwargs: Any
-    ):
-        async with self.object_manipulation_lock:
+    @functools.wraps(coro_fn)
+    async def wrapper(self: "ObjectManipulationInterface", *args, **kwargs):
+        async with self._object_manipulation_lock:
             return await coro_fn(self, *args, **kwargs)
 
     return wrapper
@@ -162,18 +162,21 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         self._init_reset_configs()
 
-        self.object_manipulation_lock = asyncio.Lock()
-        self._object_phase = ObjectPhase.IDLE
-
-        self._object_reset: dict[str, bool] = {}
-        for object_id in self.grid_object_poses.keys():
-            self._object_reset[object_id] = True
+        self._reset_object_manipulation_state()
 
         self.log("MoveIt object manipulation interface initialized")
 
+    def _reset_object_manipulation_state(self):
+        self._object_manipulation_lock = asyncio.Lock()
+        self._object_phase = ObjectPhase.IDLE
+
+        self._object_reset: dict[str, bool] = {}
+        for object_id in self.grid_objects.keys():
+            self._object_reset[object_id] = True
+
     def _init_reset_configs(self):
         # Check that all grid objects have reset configurations
-        grid_objects = set(self.grid_object_poses.keys())
+        grid_objects = set(self.grid_objects.keys())
         reset_objects = set(self.reset_config_map.keys())
         missing = grid_objects - reset_objects
         if len(missing) > 0:
@@ -307,7 +310,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self, object_id: str, offset: list[float]
     ) -> PoseStamped:
         """Get the initial pose of an object from the parameters with an offset."""
-        old_pose_stamped = self.grid_object_poses[object_id]
+        old_pose_stamped = self.grid_objects[object_id].pose_stamped
         old_frame_transform = matrix_from_pose_msg(old_pose_stamped.pose)
         new_frame_id = old_pose_stamped.header.frame_id
         new_frame_transform = self.get_frame_transform(new_frame_id)
@@ -497,8 +500,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
 
         # Check that the object ID is valid
-        if object_id not in self.collision_object_ids:
-            raise ValueError(f"{object_id} is not a valid collision object")
+        if object_id not in self.grid_objects:
+            raise ValueError(
+                f"'{object_id}' is not a valid collision object in the object grid"
+            )
 
         # Iterate through the fetch phases, returning the object to its mount
         # if the fetch fails
@@ -615,7 +620,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             ExecutionError: If the execution fails
         """
         object_id = self.get_exactly_one_attached_object_id()
-        if object_id not in self.grid_object_poses:
+        if object_id not in self.grid_objects:
             raise RuntimeError(
                 f"Object {object_id} is not in the grid, cannot return it"
             )
@@ -683,9 +688,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         try:
             if len(self.attached_collision_object_ids) > 0:
                 object_id = self.get_exactly_one_attached_object_id()
-                if object_id in self.grid_object_poses:
-                    await self.reset_object(unpresent=False)
-                    await self.return_object()
+                assert object_id in self.grid_objects
+                await self.reset_object(unpresent=False)
+                await self.return_object()
             if end_goal is not None:
                 await self.plan_and_execute(goal=end_goal)
         except MoveitRecoverableError as e:
@@ -699,5 +704,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     severity="WARN",
                 )
                 await self.clear_scene_and_reset(end_goal)
+                self._reset_object_manipulation_state()
             else:
                 raise

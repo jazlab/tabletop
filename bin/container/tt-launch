@@ -69,4 +69,4 @@ esac
 
 shift
 
-exec ros2 launch $LAUNCH $@
+exec ros2 launch $LAUNCH "$@"

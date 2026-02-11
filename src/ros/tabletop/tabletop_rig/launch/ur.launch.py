@@ -61,6 +61,18 @@ def declare_arguments():
             choices=["true", "false"],
             description="Use simulated time",
         ),
+        DeclareLaunchArgument(
+            "base_origin_xyz",
+            default_value="1.2554 1.0625 0.3085",
+            # default_value="1.2 1.25 0.3085",
+            # default_value="1.33 1.07 0.3085", # This value works for all objects except (7,1)
+            description="Space-separated 3D translation from world to base frame",
+        ),
+        DeclareLaunchArgument(
+            "base_origin_rpy",
+            default_value="0.0 0.0 -1.5707",
+            description="Space-separated 3D Euler rotation from world to base frame",
+        ),
     ]
 
 
@@ -163,6 +175,8 @@ def generate_launch_description():
                             "tabletop.urdf.xacro",
                         ]
                     ),
+                    "base_origin_xyz": LaunchConfiguration("base_origin_xyz"),
+                    "base_origin_rpy": LaunchConfiguration("base_origin_rpy"),
                 }.items(),
             ),
         ],

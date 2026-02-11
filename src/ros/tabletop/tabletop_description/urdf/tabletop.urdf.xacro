@@ -54,22 +54,24 @@
   <!-- initial position for simulations (Mock Hardware, Gazebo, Ignition) -->
   <xacro:arg name="initial_positions_file"
     default="$(find tabletop_description)/config/initial_positions.yaml" />
+  <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)" />
 
-  <xacro:arg name="base_offset_xyz" default="1.2554 1.0625 0.3085" />
-  <xacro:arg name="base_offset_rpy" default="0.0 0.0 -1.5707" />
-  <xacro:arg name="eef_offset_xyz" default="0.0 0.0 -0.005" />
-  <xacro:arg name="eef_offset_rpy" default="0.0 0.0 0.0" />
   <xacro:arg name="eef_cylinder_length" default="0.0365" />
   <xacro:arg name="eef_cylinder_radius" default="0.0315" />
   <xacro:arg name="eef_cylinder_mass" default="0.5" />
   <xacro:arg name="eef_sphere_radius" default="0.06" />
 
-  <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)" />
+  <xacro:arg name="eef_origin_xyz" default="0.0 0.0 -0.005" />
+  <xacro:arg name="eef_origin_rpy" default="0.0 0.0 0.0" />
 
-  <!-- <xacro:arg name="base_offset_xyz" default="1.2468 1.0832 0.2685" /> -->
-  <!-- <xacro:arg name="base_offset_xyz" default="1.2482 1.0588 0.3342" /> -->
-  <!-- <xacro:arg name="base_offset_xyz" default="1.247 1.1279 0.309" /> -->
-  <!-- <xacro:arg name="base_offset_xyz" default="1.2504 1.0625 0.3085" /> -->
+  <xacro:arg name="base_origin_xyz" default="0.0 0.0 0.0" />
+  <xacro:arg name="base_origin_rpy" default="0.0 0.0 0.0" />
+
+
+  <!-- <xacro:arg name="base_origin_xyz" default="1.2468 1.0832 0.2685" /> -->
+  <!-- <xacro:arg name="base_origin_xyz" default="1.2482 1.0588 0.3342" /> -->
+  <!-- <xacro:arg name="base_origin_xyz" default="1.247 1.1279 0.309" /> -->
+  <!-- <xacro:arg name="base_origin_xyz" default="1.2504 1.0625 0.3085" /> -->
   <!-- <xacro:arg name="bounding_cylinder_radius" default="0.05" />
     <xacro:arg name="bounding_cylinder_length" default="0.11" /> -->
 
@@ -92,8 +94,8 @@
     eef_cylinder_radius="$(arg eef_cylinder_radius)"
     eef_cylinder_mass="$(arg eef_cylinder_mass)"
     eef_sphere_radius="$(arg eef_sphere_radius)">
-    <origin xyz="$(arg base_offset_xyz)" rpy="$(arg base_offset_rpy)" />
-    <origin xyz="$(arg eef_offset_xyz)" rpy="$(arg eef_offset_rpy)" />
+    <origin xyz="$(arg base_origin_xyz)" rpy="$(arg base_origin_rpy)" />
+    <origin xyz="$(arg eef_origin_xyz)" rpy="$(arg eef_origin_rpy)" />
   </xacro:tabletop_robot>
 
   <xacro:ur_ros2_control

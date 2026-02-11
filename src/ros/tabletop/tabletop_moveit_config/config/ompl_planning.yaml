@@ -190,7 +190,8 @@ planner_configs:
     num_planners: 16 # The number of default planners to use for planning
     # termination_condition: CostConvergence[5,0.5]
     # termination_condition: Iteration[100]
-    planners: RRTConnect[range=0.0 goal_bias=0.05]
+    # planners: RRTConnect[range=0.0 goal_bias=0.05]
+    planners: RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
   APSRRTstar:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
@@ -204,7 +205,9 @@ planner_configs:
     hybridize: 1 # Compute hybrid solution trajectories
     max_hybrid_paths: 8 # Number of hybrid paths generated per iteration
     num_planners: 16 # The number of default planners to use for planning
-    planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTstar,RRTstar,RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect,RRTConnect
+    # num_planners: 2 # The number of default planners to use for planning
+    # planners: RRTstar,RRTConnect
 
 manipulator:
   planner_configs:
