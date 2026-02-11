@@ -315,7 +315,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
         orientation_tolerance: OrientationToleranceT,
         max_trajectories: int = 1,
         new_cache: bool = False,
-        logger_name: str = "trajectory_cache",
         parent_logger: Optional[RcutilsLogger] = None,
     ):
         """
@@ -338,9 +337,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 provided filename or the symlinked cache file) is used.
         """
         if parent_logger is None:
-            self._logger = rclpy.logging.get_logger(logger_name)
+            self._logger = rclpy.logging.get_logger("trajectory_cache")
         else:
-            self._logger = parent_logger.get_child(logger_name)
+            self._logger = parent_logger.get_child("trajectory_cache")
 
         # Initialize the path
         path = os.path.expandvars(os.path.expanduser(path))

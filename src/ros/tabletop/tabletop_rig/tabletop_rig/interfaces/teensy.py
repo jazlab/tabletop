@@ -74,7 +74,7 @@ class TeensyInterface(BaseInterface):
             additional_subscription_callback: Optional callback invoked with
                 each TeensySensor message after internal processing.
         """
-        super().__init__(node, "teensy_interface")
+        super().__init__("teensy_interface", node)
 
         # Subscribers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)

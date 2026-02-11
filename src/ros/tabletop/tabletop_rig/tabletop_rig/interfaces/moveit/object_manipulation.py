@@ -154,10 +154,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self,
         node: BaseNode,
         safe_to_execute_callback: Callable[[], bool],
-        logger_name: str = "moveit_plan_interface",
     ):
         """Initializes the MoveItObjectInterface"""
-        super().__init__(node, safe_to_execute_callback, logger_name)
+        super().__init__(node, safe_to_execute_callback)
 
         self._init_attached_object()
 

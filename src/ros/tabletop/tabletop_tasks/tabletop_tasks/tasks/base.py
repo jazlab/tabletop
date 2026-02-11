@@ -27,9 +27,8 @@ Example:
 import asyncio
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
-from typing import Any, Optional
+from typing import Any
 
-import rclpy.logging
 from rclpy.impl.rcutils_logger import RcutilsLogger
 from rpyutils.import_c_library import importlib
 from tabletop_rig.nodes import Commander
@@ -37,54 +36,10 @@ from tabletop_rig.utils.logging import LoggerMixin
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
+    DefaultTrialGenerator,
     TrialFeedback,
     TrialSpec,
 )
-
-#: Default MIDI note configuration for sound feedback.
-#: Used by tasks that play sounds during reward delivery.
-DEFAULT_NOTE = {
-    "name": "C",
-    "octave": 4,
-    "velocity": 127,
-    "channel": 0,
-}
-
-
-class NullTrialGenerator:
-    """Placeholder trial generator that yields a single None trial.
-
-    Used by tasks that don't require a trial generator but still
-    need to conform to the task execution interface.
-    """
-
-    def __init__(self):
-        """Initialize the null generator."""
-        self.returned = False
-
-    def __next__(self) -> None:
-        """Return None once, then stop iteration.
-
-        Returns:
-            None on first call.
-
-        Raises:
-            StopIteration: On subsequent calls.
-        """
-        if self.returned:
-            raise StopIteration
-
-        self.returned = True
-        return None
-
-    def send(self, *args, **kwargs):
-        """Accept and ignore trial feedback.
-
-        Args:
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
-        """
-        pass
 
 
 class BaseTask(LoggerMixin, metaclass=ABCMeta):
@@ -110,9 +65,9 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
     def __init__(
         self,
+        name: str,
         commander: Commander,
         trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
-        logger_name: Optional[str] = None,
     ):
         """Initialize the base task.
 
@@ -129,11 +84,15 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         """
         self._commander = commander
 
-        self._logger = rclpy.logging.get_logger("tabletop_task")
+        self._logger = commander.get_logger().get_child(name)
 
         # Create trial_generator from config dict if necessary
+        if trial_generator is None:
+            self._trial_generator = DefaultTrialGenerator(commander)
+        elif isinstance(trial_generator, BaseTrialGenerator):
+            self._trial_generator = trial_generator
         if isinstance(trial_generator, Mapping):
-            self._trial_generator = getattr(
+            self._trial_generator: BaseTrialGenerator = getattr(
                 importlib.import_module("tabletop_tasks.trial_generators"),
                 trial_generator["class"],
             )(commander, **trial_generator["kwargs"])
@@ -141,8 +100,6 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
                 raise ValueError(
                     "trial_generator class must be an instance of BaseTrialGenerator"
                 )
-        elif trial_generator is not None:
-            self._trial_generator = trial_generator
 
     def get_logger(self) -> RcutilsLogger:
         """Get the task logger instance.
@@ -200,9 +157,7 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         await self.commander.return_object()
 
     @abstractmethod
-    async def run_trial(
-        self, trial_spec: TrialSpec | None
-    ) -> TrialFeedback | None:
+    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
         """Run a single trial.
 
         Subclasses must implement this method to define the trial-specific
@@ -245,3 +200,6 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
                     # Reset object before next trial
                     await self._reset_trial()
+
+                # Reached end of trial generator, exit
+                return

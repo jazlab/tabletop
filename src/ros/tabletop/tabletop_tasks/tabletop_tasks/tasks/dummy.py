@@ -50,11 +50,9 @@ class DummyTask(BaseTask):
         Args:
             commander: Commander instance for robot interaction.
         """
-        super().__init__(commander, logger_name="dummy_task")
+        super().__init__("dummy_task", commander)
 
-    async def run_trial(
-        self, trial_spec: TrialSpec | None
-    ) -> TrialFeedback | None:
+    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:  # pyright: ignore[reportReturnType]
         """Not implemented for dummy task.
 
         This method exists only to satisfy the abstract base class

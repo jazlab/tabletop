@@ -51,7 +51,7 @@ class DashboardInterface(BaseInterface):
         Args:
             node: Parent ROS2 node for creating service clients.
         """
-        super().__init__(node, "dashboard_interface")
+        super().__init__("dashboard_interface", node)
 
         self._init = False
 

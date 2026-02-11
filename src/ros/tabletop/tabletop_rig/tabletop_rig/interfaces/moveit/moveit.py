@@ -57,8 +57,6 @@ class MoveItInterface(ObjectManipulationInterface):
                 safety conditions allow robot motion (e.g., arms locked,
                 safety laser clear).
         """
-        super().__init__(
-            node, safe_to_execute_callback, logger_name="moveit_interface"
-        )
+        super().__init__(node, safe_to_execute_callback)
 
         self.log("MoveIt interface initialized")

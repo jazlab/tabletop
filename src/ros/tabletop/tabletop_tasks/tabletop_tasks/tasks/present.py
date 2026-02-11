@@ -18,7 +18,6 @@ Example:
 from collections.abc import Mapping
 from typing import Any
 
-from geometry_msgs.msg import PoseStamped
 from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks.base import BaseTask
@@ -29,7 +28,7 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class PresentObjectTask(BaseTask):
+class PresentTask(BaseTask):
     """Task for presenting objects at specified poses.
 
     Moves objects to target poses as specified by the trial generator.
@@ -53,29 +52,9 @@ class PresentObjectTask(BaseTask):
             trial_generator: Generator producing TrialSpec objects with
                 target poses, or a config dict for dynamic instantiation.
         """
-        super().__init__(
-            commander, trial_generator, logger_name="present_task"
-        )
+        super().__init__("present_task", commander, trial_generator)
 
-    ############################################################
-    # Phases
-    ############################################################
-
-    async def present(self, pose: PoseStamped):
-        """Move the object to the presentation pose.
-
-        Uses linear planning to move the end effector (with attached
-        object) to the specified presentation pose.
-
-        Args:
-            pose: Target pose for object presentation.
-        """
-        self.log("Present phase")
-        await self.commander.plan_and_execute(
-            goal=pose, planning_pipeline="linear"
-        )
-
-    async def run_trial(self, trial_spec: TrialSpec | None) -> TrialFeedback:
+    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
         """Execute a single presentation trial.
 
         Moves the object to the specified pose and returns empty
@@ -90,11 +69,6 @@ class PresentObjectTask(BaseTask):
         Raises:
             ValueError: If trial_spec is None.
         """
-        if trial_spec is None:
-            raise ValueError(
-                "trial_spec should not be None for present object task"
-            )
-
         self.log(f"Present object task trial spec: {trial_spec}")
-        await self.present(trial_spec.object_pose)
+        await self.commander.plan_and_execute(goal=trial_spec.object_pose)
         return TrialFeedback()

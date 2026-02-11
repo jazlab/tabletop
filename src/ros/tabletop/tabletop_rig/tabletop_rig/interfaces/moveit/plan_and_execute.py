@@ -111,7 +111,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self,
         node: BaseNode,
         safe_to_execute_callback: Callable[[], bool],
-        logger_name: str = "moveit_plan_interface",
     ):
         """Initializes the MoveItPlanInterface
 
@@ -119,7 +118,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             safe_to_execute_callback: Function to evaluate before executing to
                 determine if it is safe to execute
         """
-        super().__init__(node, logger_name)
+        super().__init__(node)
 
         # REQUIRED user callback that is checked before executing
         self._safe_to_execute_callback = safe_to_execute_callback

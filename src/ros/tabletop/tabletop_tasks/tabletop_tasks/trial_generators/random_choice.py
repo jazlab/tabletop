@@ -73,7 +73,7 @@ class RandomChoice(BaseTrialGenerator):
         Raises:
             ValueError: If num_trials is less than 1.
         """
-        super().__init__(commander)
+        super().__init__("random_choice_trial_generator", commander)
 
         self._object_ids = object_ids
         self._poses = [

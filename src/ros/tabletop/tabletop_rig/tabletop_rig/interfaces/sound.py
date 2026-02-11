@@ -50,7 +50,7 @@ class SoundInterface(BaseInterface):
             RuntimeError: If FluidSynth fails to initialize.
             ValueError: If default_duration is not a positive number.
         """
-        super().__init__(node, "sound_interface")
+        super().__init__("sound_interface", node)
 
         config: dict[str, Any] = self.node.param("sound")
 

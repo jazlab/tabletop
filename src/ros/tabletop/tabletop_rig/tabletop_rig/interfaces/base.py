@@ -41,7 +41,7 @@ class BaseInterface(LoggerMixin):
                 self.log("Doing something", severity="DEBUG")
     """
 
-    def __init__(self, node: BaseNode, logger_name: str = "interface") -> None:
+    def __init__(self, name: str, node: BaseNode) -> None:
         """Initialize the interface with a parent node.
 
         Args:
@@ -51,7 +51,7 @@ class BaseInterface(LoggerMixin):
                 logger name will be "{node_name}.{logger_name}".
         """
         self._node = node
-        self._logger = node.get_logger().get_child(logger_name)
+        self._logger = node.get_logger().get_child(name)
         self._node.register_interface(self)  # type: ignore
 
     def get_logger(self) -> RcutilsLogger:

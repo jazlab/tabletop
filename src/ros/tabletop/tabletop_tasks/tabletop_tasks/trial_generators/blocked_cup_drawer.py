@@ -63,7 +63,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
             correct_trials_per_block: Number of correct trials required
                 before switching to the next block.
         """
-        super().__init__(commander)
+        super().__init__("blocked_cup_drawer_trial_generator", commander)
         self._correct_trials_per_block = correct_trials_per_block
 
         # Setup cup and drawer object ids

@@ -940,7 +940,7 @@ def main(args=None):
         # main_sync(args)
         # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
         # print_signal_handler()
-        asyncio.run(main_async(args), debug=True)
-        # asyncio.run(main_async(args))
+        # asyncio.run(main_async(args), debug=True)
+        asyncio.run(main_async(args))
     except KeyboardInterrupt:
         print("Keyboard interrupt")

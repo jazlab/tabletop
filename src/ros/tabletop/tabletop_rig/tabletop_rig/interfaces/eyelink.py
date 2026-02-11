@@ -42,7 +42,7 @@ class EyelinkInterface(BaseInterface):
         Args:
             node: Parent ROS2 node to create the action client on.
         """
-        super().__init__(node, "eyelink_interface")
+        super().__init__("eyelink_interface", node)
 
         # Smooth pursuit action client
         self._smooth_pursuit_client = AIOActionClient(

@@ -25,17 +25,18 @@ Example:
             pass
 """
 
+import dataclasses
 from abc import ABCMeta, abstractmethod
-from typing import Literal, NamedTuple
+from typing import Literal
 
-import rclpy.logging
 from geometry_msgs.msg import PoseStamped
 from rclpy.impl.rcutils_logger import RcutilsLogger
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.logging import LoggerMixin
 
 
-class TrialSpec(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class TrialSpec:
     """Specification for a single experimental trial.
 
     Defines all parameters needed to execute one trial, including
@@ -49,13 +50,14 @@ class TrialSpec(NamedTuple):
         occlude: Whether to occlude the smartglass during delay period.
     """
 
-    object_id: str
-    object_pose: PoseStamped
-    arm: Literal["left", "right", "both"]
-    occlude: bool
+    object_id: str = ""
+    object_pose: PoseStamped = dataclasses.field(default_factory=PoseStamped)
+    arm: Literal["left", "right", "both"] = "both"
+    occlude: bool = False
 
 
-class TrialFeedback(NamedTuple):
+@dataclasses.dataclass
+class TrialFeedback:
     """Feedback from a completed trial.
 
     Contains behavioral measures from the trial that can be used
@@ -92,9 +94,7 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
             generator.send(feedback)
     """
 
-    def __init__(
-        self, commander: Commander, logger_name: str = "trial_generator"
-    ):
+    def __init__(self, name: str, commander: Commander):
         """Initialize the trial generator.
 
         Args:
@@ -102,7 +102,7 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
             logger_name: Name for the ROS logger.
         """
         self._commander = commander
-        self._logger = rclpy.logging.get_logger(logger_name)
+        self._logger = commander.get_logger().get_child(name)
 
     def get_logger(self) -> RcutilsLogger:
         """Get the logger instance.
@@ -150,3 +150,34 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
             Self, implementing the iterator protocol.
         """
         return self
+
+
+class DefaultTrialGenerator(BaseTrialGenerator):
+    """Placeholder trial generator that yields a single None trial.
+
+    Used by tasks that don't require a trial generator but still
+    need to conform to the task execution interface.
+    """
+
+    def __init__(self, commander: Commander):
+        super().__init__("default_trial_generator", commander)
+
+    def __next__(self) -> TrialSpec:
+        """Return None once, then stop iteration.
+
+        Returns:
+            None on first call.
+
+        Raises:
+            StopIteration: On subsequent calls.
+        """
+        return TrialSpec()
+
+    def send(self, *args, **kwargs):
+        """Accept and ignore trial feedback.
+
+        Args:
+            *args: Ignored positional arguments.
+            **kwargs: Ignored keyword arguments.
+        """
+        pass

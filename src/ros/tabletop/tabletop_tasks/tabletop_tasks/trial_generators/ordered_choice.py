@@ -61,6 +61,7 @@ class OrderedChoice(BaseTrialGenerator):
         arms: list[Literal["left", "right", "both"]],
         occlude: list[bool],
         num_trials: int,
+        skip_failed: bool = True,
     ):
         """Initialize the ordered choice generator.
 
@@ -75,7 +76,7 @@ class OrderedChoice(BaseTrialGenerator):
         Raises:
             ValueError: If num_trials is less than 1.
         """
-        super().__init__(commander)
+        super().__init__("ordered_choice_trial_generator", commander)
 
         self._object_ids = object_ids
         self._poses = [
@@ -96,6 +97,10 @@ class OrderedChoice(BaseTrialGenerator):
             )
         )
 
+        # Store last TrialSpec in case we want to redo it
+        self._skip_failed = skip_failed
+        self._last_trial_spec: TrialSpec | None = None
+
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
 
@@ -108,13 +113,16 @@ class OrderedChoice(BaseTrialGenerator):
         Raises:
             StopIteration: When num_trials have been generated.
         """
+        if not self._skip_failed and self._last_trial_spec is not None:
+            return self._last_trial_spec
+
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
         occlude, pose, arm, object_id = self._parameter_grid[
             self._trial_counter % len(self._parameter_grid)
         ]
-        trial_spec = TrialSpec(
+        self._last_trial_spec = TrialSpec(
             object_id=object_id,
             object_pose=pose,
             arm=arm,
@@ -123,7 +131,7 @@ class OrderedChoice(BaseTrialGenerator):
 
         self._trial_counter += 1
 
-        return trial_spec
+        return self._last_trial_spec
 
     def send(self, feedback: TrialFeedback):
         """Process trial feedback (no-op for ordered generator).
@@ -133,4 +141,4 @@ class OrderedChoice(BaseTrialGenerator):
         Args:
             feedback: Unused trial feedback.
         """
-        pass
+        self._last_trial_spec = None

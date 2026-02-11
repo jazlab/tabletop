@@ -86,7 +86,7 @@ class SmoothPursuitTask(BaseTask):
         Raises:
             ValueError: If motion_type is not "spiral" or "random".
         """
-        super().__init__(commander, logger_name="smooth_pursuit_task")
+        super().__init__("smooth_pursuit_task", commander)
         if motion_type == "spiral":
             self._goals = self.generate_spiral(**motion_kwargs)
             self._post_process_after_concat = True
@@ -229,9 +229,7 @@ class SmoothPursuitTask(BaseTask):
         for _ in range(self._num_repetitions):
             await self.commander.execute(trajectory)
 
-    async def run_trial(
-        self, trial_spec: TrialSpec | None
-    ) -> TrialFeedback | None:
+    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:  # pyright: ignore[reportReturnType]
         """Not used for smooth pursuit task.
 
         This task overrides run() and does not use the trial-based

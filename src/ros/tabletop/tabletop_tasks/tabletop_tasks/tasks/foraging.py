@@ -90,9 +90,7 @@ class ForagingTask(BaseTask):
             sound_kwargs: Optional keyword arguments for play_sound()
                 (default empty dict).
         """
-        super().__init__(
-            commander, trial_generator, logger_name="foraging_task"
-        )
+        super().__init__("foraging_task", commander, trial_generator)
 
         self.stimulus_duration = stimulus_duration
         self.delay_duration = delay_duration
@@ -208,9 +206,7 @@ class ForagingTask(BaseTask):
         await self.commander.reveal_smartglass()
         await asyncio.sleep(self.reveal_duration)
 
-    async def run_trial(
-        self, trial_spec: TrialSpec | None
-    ) -> TrialFeedback | None:
+    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
         """Execute a single foraging trial.
 
         Runs through all trial phases in sequence:
@@ -230,9 +226,6 @@ class ForagingTask(BaseTask):
         Raises:
             ValueError: If trial_spec is None.
         """
-        if trial_spec is None:
-            raise ValueError("trial_spec should not be None for foraging task")
-
         self.log(f"Foraging task trial spec: {trial_spec}")
 
         # Execute trial phases in sequence

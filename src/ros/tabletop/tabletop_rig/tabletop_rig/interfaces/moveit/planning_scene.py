@@ -103,9 +103,7 @@ class PlanningSceneInterface(BaseInterface):
     """
 
     # TODO: Documentation
-    def __init__(
-        self, node: BaseNode, logger_name: str = "moveit_scene_interface"
-    ):
+    def __init__(self, node: BaseNode):
         """Initializes the MoveItSceneInterface
 
         Initializes MoveItPy and planning scene
@@ -114,7 +112,7 @@ class PlanningSceneInterface(BaseInterface):
             node: Parent ROS node for accessing parameters and communicating with other nodes
             logger_name: Name given to child logger of parent node
         """
-        super().__init__(node, logger_name)
+        super().__init__("moveit_interface", node)
 
         self.moveit_py = MoveItPy(
             "moveit_py",
