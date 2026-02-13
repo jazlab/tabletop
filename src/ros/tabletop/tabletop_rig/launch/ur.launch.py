@@ -73,6 +73,11 @@ def declare_arguments():
             default_value="0.0 0.0 -1.5707",
             description="Space-separated 3D Euler rotation from world to base frame",
         ),
+        DeclareLaunchArgument(
+            "safety_limits",
+            default_value="true",  # TODO: Was originally true, see if false causes problems
+            description="Enables the safety limits controller if true.",
+        ),
     ]
 
 
@@ -177,6 +182,7 @@ def generate_launch_description():
                     ),
                     "base_origin_xyz": LaunchConfiguration("base_origin_xyz"),
                     "base_origin_rpy": LaunchConfiguration("base_origin_rpy"),
+                    "safety_limits": LaunchConfiguration("safety_limits"),
                 }.items(),
             ),
         ],

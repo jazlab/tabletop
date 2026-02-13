@@ -275,6 +275,11 @@ class MockDashboardClient(BaseNode):
         response.success = True
         return response
 
+    def destroy_node(self):
+        if hasattr(self, "set_mode_server"):
+            self.set_mode_server.destroy()
+        super().destroy_node()
+
 
 def main(args=None):
     """Entry point for the mock_dashboard_client node."""

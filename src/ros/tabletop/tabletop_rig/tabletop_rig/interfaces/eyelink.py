@@ -58,6 +58,9 @@ class EyelinkInterface(BaseInterface):
 
         self.log("Eyelink interface initialized")
 
+    def start_recording(self):
+        pass
+
     def _smooth_pursuit_producer(
         self,
         feedback_msg: EyelinkSmoothPursuit.Impl.FeedbackMessage,
@@ -137,8 +140,6 @@ class EyelinkInterface(BaseInterface):
                 feedback, queue, loop
             ),
         )
-        if not goal_handle.accepted:
-            raise RuntimeError("goal not accepted")
 
         async with asyncio.TaskGroup() as tg:
             consumer_task = tg.create_task(

@@ -278,21 +278,17 @@ class SmoothPursuitTask(BaseTask):
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()
 
-            # Run trajectory execution and eye tracking concurrently
-            smooth_pursuit_task = asyncio.create_task(
-                self.commander.smooth_pursuit_and_reward()
-            )
-            execution_task = asyncio.create_task(self.execute_loop(trajectory))
+            async with asyncio.TaskGroup() as tg:
+                # Run trajectory execution and eye tracking concurrently
+                smooth_pursuit_task = tg.create_task(
+                    self.commander.smooth_pursuit_and_reward()
+                )
+                execution_task = tg.create_task(self.execute_loop(trajectory))
 
-            # Wait for either task to complete, then cancel the other
-            done, pending = await asyncio.wait(
-                [smooth_pursuit_task, execution_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            for task in pending:
-                task.cancel()
-
-            # Propagate any exceptions from completed tasks
-            for task in done:
-                task.result()
+                # Wait for either task to complete, then cancel the other
+                await asyncio.wait(
+                    [smooth_pursuit_task, execution_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                smooth_pursuit_task.cancel()
+                execution_task.cancel()

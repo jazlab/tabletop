@@ -34,7 +34,7 @@ print_status "Reloading udev rules again"
 sudo udevadm control --reload
 sudo udevadm trigger
 
-sleep 1
+sleep 3
 
 # Regenerate env files
 print_status "Regenerating .env file once more"

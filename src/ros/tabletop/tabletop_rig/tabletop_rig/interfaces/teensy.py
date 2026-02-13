@@ -12,7 +12,8 @@ import asyncio
 import threading
 from collections.abc import Callable
 from copy import copy, deepcopy
-from typing import Literal, Optional
+from types import TracebackType
+from typing import Literal, Optional, Self
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
@@ -23,6 +24,7 @@ from tabletop_interfaces.srv import (
     SetArmLock,
     SetReward,
     SetSmartglass,
+    SetSolenoid,
 )
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -116,6 +118,11 @@ class TeensyInterface(BaseInterface):
             "/teensy/set_smartglass",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
+        self._set_solenoid_client = self.node.create_client(
+            SetSolenoid,
+            "/teensy/set_solenoid",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
 
         # Wait for ROS services
         self.log("Waiting for teensy services")
@@ -200,8 +207,8 @@ class TeensyInterface(BaseInterface):
         with self._teensy_sensor_lock:
             teensy_time = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
             delay = current_time - teensy_time
-            if delay > 0.003:
-                self.log(f"Teensy sensor callback delay {delay:.4f}")
+            if delay > 0.01:
+                self.log(f"Teensy sensor callback delay {delay:.4f}s > 0.01s")
 
             self._last_teensy_sensor = msg
             self._last_teensy_sensor_time = current_time
@@ -289,6 +296,21 @@ class TeensyInterface(BaseInterface):
             srv_client=self._set_smartglass_client,
         )
 
+    async def set_solenoid(self, activate: bool) -> None:
+        """Control the smartglass goggles transparency.
+
+        Smartglass goggles can switch between opaque and transparent states
+        to control what the subject can see during trials.
+
+        Args:
+            reveal: True to make goggles transparent, False to make opaque.
+        """
+        self.log(f"Solenoid {'activate' if activate else 'deactivate'}")
+        await self.node.service_call_async(
+            srv_request=SetSolenoid.Request(activate=activate),
+            srv_client=self._set_solenoid_client,
+        )
+
     async def set_reward(
         self, activate: bool, duration: Optional[int | float] = None
     ) -> None:
@@ -357,3 +379,15 @@ class TeensyInterface(BaseInterface):
             raise RuntimeError(
                 "Reward still active after duration (I fucked up, this shouldn't happen)"
             )
+
+    async def __aenter__(self) -> Self:
+        await self.set_solenoid(activate=True)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool | None:
+        await self.set_solenoid(activate=False)

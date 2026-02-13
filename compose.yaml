@@ -12,7 +12,7 @@ services:
       - sim
       - ursim
     image: willfarrell/autoheal:latest
-    pull_policy: always
+    # pull_policy: always
     network_mode: none
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -48,7 +48,7 @@ services:
     container_name: tabletop-ursim
     profiles: [ ursim ]
     image: universalrobots/ursim_e-series:latest
-    pull_policy: always
+    # pull_policy: always
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -69,7 +69,7 @@ services:
     container_name: tabletop-flicd
     profiles: [ real ]
     image: ubuntu:latest
-    pull_policy: always
+    # pull_policy: always
     labels:
       autoheal-tabletop: true
     # privileged: true
@@ -273,11 +273,11 @@ services:
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
       - python-venv:/tabletop/.venv
       - ~/.claude:/home/$USER_NAME/.claude
       - ~/.claude.json:/home/$USER_NAME/.claude.json
-      - $PULSE_SERVER_MNT
-      - $PULSE_COOKIE_MNT
       - $KITTY_LISTEN_ON_MNT
     environment:
       - DISPLAY=$NOVNC_DISPLAY

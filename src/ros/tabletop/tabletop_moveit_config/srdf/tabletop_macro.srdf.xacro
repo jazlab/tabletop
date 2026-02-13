@@ -62,13 +62,21 @@
       <joint name="wrist_2_joint" value="${pi/2}" />
       <joint name="wrist_3_joint" value="${pi}" />
     </group_state>
-    <group_state name="pre_present" group="manipulator">
+    <group_state name="present" group="manipulator">
       <joint name="shoulder_pan_joint" value="-0.6065" />
       <joint name="shoulder_lift_joint" value="-0.6788" />
       <joint name="elbow_joint" value="1.4381" />
       <joint name="wrist_1_joint" value="-2.3351" />
       <joint name="wrist_2_joint" value="1.5686" />
       <joint name="wrist_3_joint" value="3.7411" />
+    </group_state>
+    <group_state name="fetched" group="manipulator">
+      <joint name="shoulder_pan_joint" value="-0.2" />
+      <joint name="shoulder_lift_joint" value="${-pi/2}" />
+      <joint name="elbow_joint" value="${pi/2}" />
+      <joint name="wrist_1_joint" value="${-pi/2}" />
+      <joint name="wrist_2_joint" value="${pi/2}" />
+      <joint name="wrist_3_joint" value="${pi}" />
     </group_state>
     <!--VIRTUAL
     JOINT - Purpose - this element defines a virtual joint between a robot link and an external

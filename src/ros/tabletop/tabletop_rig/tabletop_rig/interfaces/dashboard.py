@@ -12,7 +12,6 @@ that are essential for recovering from safety stops and protective stops.
 import asyncio
 from typing import Optional, cast
 
-from rclpy.action.client import ClientGoalHandle, GoalStatus
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import ProgramState, RobotMode, SafetyMode
@@ -25,7 +24,6 @@ from ur_dashboard_msgs.srv import (
 )
 
 from tabletop_rig.exceptions import (
-    ActionCallUnsuccessfulError,
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.interfaces.base import BaseInterface
@@ -197,60 +195,6 @@ class DashboardInterface(BaseInterface):
         )
         return response.remote_control
 
-    async def reset_dashboard_2(
-        self, timeout: Optional[float] = None, init: bool = False
-    ) -> None:
-        """Reset the UR Dashboard using SetMode action.
-
-        Alternative reset sequence that uses the UR robot state helper
-        SetMode action for more reliable state transitions.
-
-        Args:
-            timeout: Maximum time for the reset sequence in seconds.
-                If None, no timeout is applied.
-            init: If True, loads the configured program before reset.
-                Useful for initial startup.
-
-        Raises:
-            ActionCallUnsuccessfulError: If the SetMode action goal is
-                not accepted or fails to complete successfully.
-        """
-        self.log("Resetting dashboard")
-        async with asyncio.timeout(timeout):
-            if init:
-                await self._load_file(
-                    "/dashboard_client/load_program",
-                    self.node.param("dashboard.program"),
-                )
-
-            await self._trigger("/dashboard_client/close_popup")
-            await self._trigger("/dashboard_client/close_safety_popup")
-            await self._trigger("/dashboard_client/unlock_protective_stop")
-            goal_handle = cast(
-                ClientGoalHandle,
-                await self._set_mode_client.send_goal_async(
-                    SetMode.Goal(
-                        target_robot_mode=RobotMode.RUNNING,
-                        stop_program=True,
-                        play_program=True,
-                    )
-                ),
-            )
-            if not goal_handle.accepted:
-                raise ActionCallUnsuccessfulError(
-                    "UR SetMode action goal not accepted"
-                )
-
-            response = await self._set_mode_client.get_result_async(
-                goal_handle
-            )
-
-            if (
-                response.status != GoalStatus.STATUS_SUCCEEDED
-                or not response.result.success
-            ):
-                raise ActionCallUnsuccessfulError("UR SetMode action failed")
-
     async def _set_robot_mode_running(self) -> None:
         """Set robot mode to RUNNING using SetMode action.
 
@@ -259,7 +203,7 @@ class DashboardInterface(BaseInterface):
         automatically.
 
         Raises:
-            ActionCallUnsuccessfulError: If the SetMode action goal is
+            ActionError: If the SetMode action goal is
                 not accepted or fails to complete successfully.
             RuntimeError: If the robot mode is not RUNNING after the
                 action completes.
@@ -271,18 +215,13 @@ class DashboardInterface(BaseInterface):
                 play_program=False,
             )
         )
-        if not goal_handle.accepted:
-            raise ActionCallUnsuccessfulError(
-                "UR SetMode action goal not accepted"
+
+        result = await self._set_mode_client.get_result_async(goal_handle)
+
+        if not result.success:
+            raise RuntimeError(
+                f"UR SetMode action failed with message: {result.message}"
             )
-
-        response = await self._set_mode_client.get_result_async(goal_handle)
-
-        if (
-            response.status != GoalStatus.STATUS_SUCCEEDED
-            or not response.result.success
-        ):
-            raise ActionCallUnsuccessfulError("UR SetMode action failed")
 
         robot_mode = await self._get_robot_mode()
         if robot_mode.mode != RobotMode.RUNNING:
@@ -312,28 +251,47 @@ class DashboardInterface(BaseInterface):
         Raises:
             RuntimeError: If the dashboard is not in remote control mode.
             ServiceCallUnsuccessfulError: If a dashboard service call fails.
-            ActionCallUnsuccessfulError: If the SetMode action fails.
+            ActionError: If the SetMode action fails.
         """
-        self.log("Resetting dashboard")
-
-        remote_control = await self._is_in_remote_control()
-        if not remote_control:
-            raise RuntimeError(
-                "Dashboard is not in Remote Control mode, please fix that immediately"
-            )
-        config = self.node.param("dashboard")
         async with asyncio.timeout(timeout):
-            # Load program
+            self.log("Resetting dashboard")
+            config = self.node.param("dashboard")
+
+            try:
+                remote_control = await self._is_in_remote_control()
+            except ServiceCallUnsuccessfulError as e:
+                self.log(
+                    f"Failed to get RemoteControl state with error: {e}",
+                    severity="WARN",
+                )
+                self.log("Attempting to reconnect...")
+
+                try:
+                    await self._trigger("/dashboard_client/connect")
+                except ServiceCallUnsuccessfulError as e:
+                    raise RuntimeError(
+                        "Could not connect to dashboard client"
+                    ) from e
+
+                remote_control = await self._is_in_remote_control()
+
+            if not remote_control:
+                raise RuntimeError(
+                    "Dashboard is not in Remote Control mode, please fix that immediately"
+                )
+
             try:
                 await self._load_file(
                     "/dashboard_client/load_program", config["program"]
                 )
             except ServiceCallUnsuccessfulError as e:
                 self.log(
-                    f"Failed to load program with error: {e}", severity="WARN"
+                    f"Failed to load program with error: {e}",
+                    severity="WARN",
                 )
                 self.log("Attempting to reconnect...")
                 await self._trigger("/dashboard_client/connect")
+                raise
 
             # Set RobotState to RUNNING
             await self._set_robot_mode_running()
@@ -357,52 +315,90 @@ class DashboardInterface(BaseInterface):
 
             return
 
-            safety_mode = await self._get_safety_mode()
-            while safety_mode.mode != SafetyMode.NORMAL:
-                self.log(
-                    f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
-                    severity="WARN",
-                )
-                await asyncio.sleep(config["play_retry_delay"])
-                safety_mode = await self._get_safety_mode()
-                robot_mode = await self._get_robot_mode()
+    # async def reset_old(
+    #     self, timeout: Optional[float] = None, init: bool = False
+    # ) -> None:
+    #     async with asyncio.timeout(timeout):
+    #         self.log("Resetting dashboard")
+    #         config = self.node.param("dashboard")
+    #
+    #         safety_mode = await self._get_safety_mode()
+    #         while safety_mode.mode != SafetyMode.NORMAL:
+    #             self.log(
+    #                 f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
+    #                 severity="WARN",
+    #             )
+    #             await asyncio.sleep(config["play_retry_delay"])
+    #             safety_mode = await self._get_safety_mode()
+    #             robot_mode = await self._get_robot_mode()
+    #
+    #         while True:
+    #             # Timeout included in wait_for_dashboard to stop the thread
+    #             # from waiting longer than timeout
+    #
+    #             await self._trigger("/dashboard_client/close_popup")
+    #             await self._trigger("/dashboard_client/close_safety_popup")
+    #             await self._trigger("/dashboard_client/unlock_protective_stop")
+    #             await self._load_file(
+    #                 "/dashboard_client/load_program", config["program"]
+    #             )
+    #             await self._trigger("/dashboard_client/brake_release")
+    #             safety_mode = await self._get_safety_mode()
+    #             robot_mode = await self._get_robot_mode()
+    #             while (
+    #                 safety_mode.mode != SafetyMode.NORMAL
+    #                 and robot_mode.mode != RobotMode.RUNNING
+    #             ):
+    #                 self.log(
+    #                     f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
+    #                     severity="WARN",
+    #                 )
+    #                 await asyncio.sleep(config["play_retry_delay"])
+    #                 safety_mode = await self._get_safety_mode()
+    #                 robot_mode = await self._get_robot_mode()
+    #
+    #             for _ in range(config["play_retries"]):
+    #                 try:
+    #                     await self._trigger("/dashboard_client/play")
+    #                     return
+    #                 except ServiceCallUnsuccessfulError:
+    #                     self.log(
+    #                         f"Failed attempt to play dashboard program, "
+    #                         f"retrying after {config['play_retry_delay']} seconds...",
+    #                         severity="WARN",
+    #                     )
+    #                     await asyncio.sleep(config["play_retry_delay"])
 
-            while True:
-                # Timeout included in wait_for_dashboard to stop the thread
-                # from waiting longer than timeout
-
-                await self._trigger("/dashboard_client/close_popup")
-                await self._trigger("/dashboard_client/close_safety_popup")
-                await self._trigger("/dashboard_client/unlock_protective_stop")
-                await self._load_file(
-                    "/dashboard_client/load_program", config["program"]
-                )
-                await self._trigger("/dashboard_client/brake_release")
-                safety_mode = await self._get_safety_mode()
-                robot_mode = await self._get_robot_mode()
-                while (
-                    safety_mode.mode != SafetyMode.NORMAL
-                    and robot_mode.mode != RobotMode.RUNNING
-                ):
-                    self.log(
-                        f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds...",
-                        severity="WARN",
-                    )
-                    await asyncio.sleep(config["play_retry_delay"])
-                    safety_mode = await self._get_safety_mode()
-                    robot_mode = await self._get_robot_mode()
-
-                for _ in range(config["play_retries"]):
-                    try:
-                        await self._trigger("/dashboard_client/play")
-                        return
-                    except ServiceCallUnsuccessfulError:
-                        self.log(
-                            f"Failed attempt to play dashboard program, "
-                            f"retrying after {config['play_retry_delay']} seconds...",
-                            severity="WARN",
-                        )
-                        await asyncio.sleep(config["play_retry_delay"])
+    # async def reset_dashboard_2(
+    #     self, timeout: Optional[float] = None, init: bool = False
+    # ) -> None:
+    #     """Reset the UR Dashboard using SetMode action.
+    #
+    #     Alternative reset sequence that uses the UR robot state helper
+    #     SetMode action for more reliable state transitions.
+    #
+    #     Args:
+    #         timeout: Maximum time for the reset sequence in seconds.
+    #             If None, no timeout is applied.
+    #         init: If True, loads the configured program before reset.
+    #             Useful for initial startup.
+    #
+    #     Raises:
+    #         ActionError: If the SetMode action goal is
+    #             not accepted or fails to complete successfully.
+    #     """
+    #     self.log("Resetting dashboard")
+    #     async with asyncio.timeout(timeout):
+    #         if init:
+    #             await self._load_file(
+    #                 "/dashboard_client/load_program",
+    #                 self.node.param("dashboard.program"),
+    #             )
+    #
+    #         await self._trigger("/dashboard_client/close_popup")
+    #         await self._trigger("/dashboard_client/close_safety_popup")
+    #         await self._trigger("/dashboard_client/unlock_protective_stop")
+    #         await self._set_robot_mode_running()
 
     def destroy_interface(self):
         """Clean up SetMode action client"""

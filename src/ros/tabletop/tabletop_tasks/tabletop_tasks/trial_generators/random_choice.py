@@ -59,6 +59,7 @@ class RandomChoice(BaseTrialGenerator):
         arms: list[Literal["left", "right", "both"]],
         occlude_prob: float,
         num_trials: int,
+        skip_failed: bool = True,
     ):
         """Initialize the random choice generator.
 
@@ -88,6 +89,10 @@ class RandomChoice(BaseTrialGenerator):
         self._num_trials = num_trials
         self._trial_counter = 0
 
+        # Store last TrialSpec in case we want to redo it
+        self._skip_failed = skip_failed
+        self._last_trial_spec: TrialSpec | None = None
+
     def __next__(self) -> TrialSpec:
         """Generate the next random trial.
 
@@ -97,6 +102,9 @@ class RandomChoice(BaseTrialGenerator):
         Raises:
             StopIteration: When num_trials have been generated.
         """
+        if not self._skip_failed and self._last_trial_spec is not None:
+            return self._last_trial_spec
+
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
@@ -115,7 +123,7 @@ class RandomChoice(BaseTrialGenerator):
         )
 
         # Make trial spec
-        trial_spec = TrialSpec(
+        self._last_trial_spec = TrialSpec(
             object_id=object_id,
             object_pose=object_pose,
             arm=arm,
@@ -124,7 +132,7 @@ class RandomChoice(BaseTrialGenerator):
 
         self._trial_counter += 1
 
-        return trial_spec
+        return self._last_trial_spec
 
     def send(self, feedback: TrialFeedback):
         """Process trial feedback (no-op for random generator).

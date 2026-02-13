@@ -25,7 +25,7 @@ Usage:
 Example:
     async with Commander() as commander:
         await commander.fetch_object("object_1")
-        await commander.pre_present_object()
+        await commander.present_object()
         response_time = await commander.flic_response_time(timeout=10.0)
         await commander.return_object()
 """
@@ -33,10 +33,16 @@ Example:
 import argparse
 import asyncio
 import concurrent.futures
+import functools
 import importlib
 import signal
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
+from contextlib import (
+    AbstractAsyncContextManager,
+    AbstractContextManager,
+    AsyncExitStack,
+)
 from types import TracebackType
 from typing import Any, Literal, Optional, Self, TypeVar
 
@@ -53,11 +59,12 @@ from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
 
 from tabletop_rig.exceptions import (
-    ActionCallUnsuccessfulError,
+    ActionError,
     ExecutionError,
     ExecutionInterruptedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
+    ObjectManipulationError,
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.executors import AIOExecutor
@@ -73,7 +80,7 @@ from tabletop_rig.nodes.base import BaseNode
 T = TypeVar("T", bound=Callable[..., Coroutine])
 
 
-def safe_execution(coro_fn: T) -> T:
+def safe_execution(coro_fn):
     """Decorator for methods requiring safety-checked robot execution.
 
     Wraps coroutines that execute robot motions to handle common error
@@ -88,6 +95,7 @@ def safe_execution(coro_fn: T) -> T:
         Wrapped method with retry logic.
     """
 
+    @functools.wraps(coro_fn)
     async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
         max_retries = self.param("safe_execution.max_retries")
         for i in range(max_retries):
@@ -121,7 +129,7 @@ def safe_execution(coro_fn: T) -> T:
                     severity="WARN",
                 )
 
-    return wrapper  # type: ignore[reportReturnType]
+    return wrapper
 
 
 class Commander(BaseNode):
@@ -145,7 +153,9 @@ class Commander(BaseNode):
         moveit: Motion planning and execution interface.
     """
 
-    default_params: dict[str, Any] = BaseNode.default_params | {}
+    default_params: dict[str, Any] = BaseNode.default_params | {
+        "session_bag_dir": "null"
+    }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
         "max_workers",
@@ -166,14 +176,14 @@ class Commander(BaseNode):
         "trajectory_cache.kwargs",
         "object_manipulation.touch_links",
         "object_manipulation.mount_ids",
-        "object_manipulation.mount_allowed_collisions",
+        "object_manipulation.allowed_mount_collisions",
         "object_manipulation.detach_velocity_scaling_factor",
-        "object_manipulation.phase_offsets.pre_fetch",
-        "object_manipulation.phase_offsets.pre_attach",
-        "object_manipulation.phase_offsets.attach",
-        "object_manipulation.phase_offsets.post_attach",
-        "object_manipulation.phase_offsets.post_fetch",
-        "object_manipulation.unpresent_pose_stamped",
+        "object_manipulation.state_offsets.pre_fetch",
+        "object_manipulation.state_offsets.pre_attach",
+        "object_manipulation.state_offsets.attach",
+        "object_manipulation.state_offsets.post_attach",
+        "object_manipulation.state_offsets.post_fetch",
+        # "object_manipulation.unpresent_pose_stamped",
         "smooth_pursuit.reward_duration",
         "smooth_pursuit.reward_interval",
         "smooth_pursuit.reward_threshold_ratio",
@@ -301,7 +311,10 @@ class Commander(BaseNode):
             ROS timestamp (converted to seconds) that button was pressed
             or None if the timeout was reached before a press.
         """
-        object_id = self.moveit.get_exactly_one_attached_object_id()
+        object_id = self.moveit.attached_object_id
+        if object_id is None:
+            raise ObjectManipulationError("No attached object to reset")
+
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
         reported_time = await self.flic.response_time(bd_addr, timeout)
@@ -391,7 +404,7 @@ class Commander(BaseNode):
         Args:
             object_id: ID of the collision object to mark as attached.
         """
-        self.moveit.add_manually_attached_collision_object(object_id)
+        self.moveit.add_manually_attached_object(object_id)
 
     async def plan(self, *args, **kwargs) -> RobotTrajectory | None:
         """Plan a trajectory to the specified goal.
@@ -459,9 +472,9 @@ class Commander(BaseNode):
         await self.moveit.fetch_object(object_id)
 
     @safe_execution
-    async def pre_present_object(self):
+    async def present_object(self):
         """Move to present state with the currently attached object"""
-        await self.moveit.pre_present_object()
+        await self.moveit.present_object()
 
     @safe_execution
     async def reset_object(self):
@@ -583,7 +596,7 @@ class Commander(BaseNode):
                     break
                 except (
                     ServiceCallUnsuccessfulError,
-                    ActionCallUnsuccessfulError,
+                    ActionError,
                     MoveitRecoverableError,
                 ) as e:
                     self.log(
@@ -618,8 +631,18 @@ class Commander(BaseNode):
             The Commander instance.
         """
         self.log("Entering commander context manager", severity="DEBUG")
-        self.moveit.__enter__()
-        await self.reset_commander(end_goal="idle")
+        self._context_stack = await AsyncExitStack().__aenter__()
+        try:
+            for interface in self._interfaces:
+                if isinstance(interface, AbstractAsyncContextManager):
+                    await self._context_stack.enter_async_context(interface)
+                elif isinstance(interface, AbstractContextManager):
+                    self._context_stack.enter_context(interface)
+            await self.reset_commander(end_goal="idle")
+        except BaseException as e:
+            await self._context_stack.__aexit__(type(e), e, e.__traceback__)
+            raise e
+
         return self
 
     async def __aexit__(
@@ -627,7 +650,7 @@ class Commander(BaseNode):
         exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
         exc_tb: Optional[TracebackType],
-    ) -> bool:
+    ) -> bool | None:
         """Exit the async context manager.
 
         Handles recoverable errors by resetting the commander.
@@ -641,8 +664,8 @@ class Commander(BaseNode):
         Returns:
             True if a recoverable error was handled, False otherwise.
         """
-        self.log("Exiting commander context manager", severity="DEBUG")
         try:
+            self.log("Exiting commander context manager", severity="DEBUG")
             if exc_type is not None:
                 # We use only the first exception raised if an exception group is met
                 if isinstance(exc_value, ExceptionGroup):
@@ -673,7 +696,7 @@ class Commander(BaseNode):
                     return True
             return False
         finally:
-            self.moveit.__exit__(exc_type, exc_value, exc_tb)
+            await self._context_stack.__aexit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
     ########## Destroy ########################################################
@@ -941,10 +964,10 @@ def print_signal_handler():
 def main(args=None):
     """Entry point for the flic node."""
     try:
-        # main_sync(args)
+        main_sync(args)
         # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
         # print_signal_handler()
         # asyncio.run(main_async(args), debug=True)
-        asyncio.run(main_async(args))
+        # asyncio.run(main_async(args))
     except KeyboardInterrupt:
         print("Keyboard interrupt")

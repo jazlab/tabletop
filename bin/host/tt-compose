@@ -8,6 +8,8 @@ source $bin_dir/../utils.sh
 
 builtin cd $TABLETOP_DIR
 
+tt-env-gen &>/dev/null
+
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
 # export COMPOSE_PROFILES="*"
@@ -29,9 +31,6 @@ while [[ $# -gt 0 ]]; do
             # ARGS+=("--builder" "tabletop_builder")
             # export BUILDKIT_PROGRESS=plain
             ;;
-        # up)
-        #     unset COMPOSE_PROFILES
-        #     ;;
         ps)
             ARGS+=("$1")
             ARGS+=("--format" "$ps_format")
@@ -39,7 +38,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         down)
             ARGS+=("$1")
-            ARGS+=("--volumes")
+            # ARGS+=("--volumes")
             ;;
         *)
             ARGS+=("$1")

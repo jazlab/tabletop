@@ -9,7 +9,7 @@ Exception Hierarchy:
     ├── ROSSleepError
     ├── ServiceCallTimeoutError
     ├── ServiceCallUnsuccessfulError
-    ├── ActionCallUnsuccessfulError
+    ├── ActionError
     └── MoveitRecoverableError
         ├── PlanningError
         │   ├── PlanOnceError
@@ -96,12 +96,24 @@ class ServiceCallUnsuccessfulError(Exception):
     """
 
 
-class ActionCallUnsuccessfulError(Exception):
-    """Raised when a ROS action call fails to achieve its goal.
+class ActionError(Exception):
+    """Raised when a ROS action call fails.
 
     This covers action failures including rejected goals, aborted execution,
     or any other non-successful terminal state.
     """
+
+
+class ActionServerWaitTimeoutError(ActionError):
+    """Raised when waiting for a ROS action server times out."""
+
+
+class ActionGoalNotAcceptedError(ActionError):
+    """Raised when a ROS action goal request is not accepted."""
+
+
+class ActionResultUnsuccessfulError(ActionError):
+    """Raised when a ROS action get result request succeed returns an unsuccessful status."""
 
 
 class MoveitRecoverableError(Exception):

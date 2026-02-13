@@ -40,6 +40,9 @@ from geometry_msgs.msg import PoseStamped
 from moveit.core.controller_manager import (  # type: ignore[reportMissingModuleSource]
     ExecutionStatus,
 )
+from moveit.core.planning_interface import (  # type: ignore[reportMissingModuleSource]
+    MotionPlanResponse,
+)
 from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
     RobotModel,
 )
@@ -139,7 +142,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         )
 
         # Execution lock to ensure only one execution command is run at a time
-        self.execution_lock = threading.Lock()
+        self._execution_lock = threading.Lock()
+        self._execute_future: concurrent.futures.Future | None = None
+        self._stop_execution_future: concurrent.futures.Future | None = None
 
         self.log("MoveIt plan and execute interface initialized")
 
@@ -163,7 +168,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     @property
     def executing(self) -> bool:
-        return self.execution_lock.locked()
+        return self._execution_lock.locked()
 
     @property
     def robot_model(self) -> RobotModel:
@@ -398,7 +403,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> RobotTrajectory | None:
         """Attempt to retrieve and validate all cached trajectories"""
-        self.log("Attempting to retrieve cached trajectories")
+        self.log(
+            "Attempting to retrieve cached trajectories", severity="DEBUG"
+        )
         try:
             trajectories = self._trajectory_cache.get_trajectories(request)
         except KeyError:
@@ -418,7 +425,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 return trajectory
             except TrajectoryError as e:
                 self.log(
-                    f"Error attempting to use cached trajectory: {e}",
+                    f"{type(e).__name__} attempting to use cached trajectory: {e}",
                     severity="WARN",
                 )
 
@@ -518,13 +525,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 raise asyncio.CancelledError("Plan cancelled")
 
             if isinstance(request_params, MultiPipelinePlanRequestParameters):
-                plan_response = planning_component.plan(
+                plan_response: MotionPlanResponse = planning_component.plan(
                     self.moveit_py,
                     multi_plan_parameters=request_params,
                     planning_scene=request.planning_scene,
                 )
             else:
-                plan_response = planning_component.plan(
+                plan_response: MotionPlanResponse = planning_component.plan(
                     self.moveit_py,
                     single_plan_parameters=request_params,
                     planning_scene=request.planning_scene,
@@ -824,9 +831,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         finally:
             cancel_event.set()
 
+    def _execute_and_wait(self) -> ExecutionStatus:
+        with self._execution_lock:
+            return self.trajectory_execution_manager.execute_and_wait()
+
     def stop_execution(self):
         """Stop execution of the trajectory, if currently executing"""
-        if self.execution_lock.locked():
+        if self._execution_lock.locked():
             self.trajectory_execution_manager.stop_execution()
 
     async def execute(
@@ -842,6 +853,17 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             ExecutionInterruptedError: If the robot moved but not to the goal.
             ExecutionRejectedError: If the trajectory was rejected by the robot.
         """
+        if (
+            self._execute_future is not None
+            and not self._execute_future.done()
+        ):
+            raise RuntimeError("Last _execute_future did not complete")
+        if (
+            self._stop_execution_future is not None
+            and not self._stop_execution_future.done()
+        ):
+            raise RuntimeError("Last _stop_execution_future did not complete")
+
         # Check if the robot is safe to execute
         if not self._safe_to_execute_callback():
             raise NotSafeToExecuteError()
@@ -849,27 +871,31 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if isinstance(trajectory, RobotTrajectory):
             trajectory = [trajectory]
 
-        assert not self.execution_lock.locked()
-        with self.execution_lock:
-            initial_state = self.current_state
+        initial_state = self.current_state
 
-            # Push all trajectories to TEM
-            for traj in trajectory:
-                self.trajectory_execution_manager.push(
-                    traj.get_robot_trajectory_msg()
-                )
+        # Push all trajectories to TEM
+        for traj in trajectory:
+            self.trajectory_execution_manager.push(
+                traj.get_robot_trajectory_msg()
+            )
 
-            try:
-                execution_status: ExecutionStatus = await asyncio.to_thread(
-                    self.trajectory_execution_manager.execute_and_wait
-                )
-            except asyncio.CancelledError:
-                tpe: concurrent.futures.ThreadPoolExecutor = (
-                    asyncio.get_running_loop()._default_executor  # type: ignore
-                )
-                tpe.submit(self.stop_execution)
-                # self.stop_execution()
-                raise
+        assert not self._execution_lock.locked()
+        tpe: concurrent.futures.ThreadPoolExecutor = (
+            asyncio.get_running_loop()._default_executor  # type: ignore
+        )
+        try:
+            # self._execute_future = tpe.submit(
+            #     _execute_and_wait, weakref.proxy(self)
+            # )
+            self._execute_future = tpe.submit(self._execute_and_wait)
+            execution_status = await asyncio.wrap_future(self._execute_future)
+        except asyncio.CancelledError:
+            # self._stop_execution_future = tpe.submit(
+            #     _stop_execution, weakref.proxy(self)
+            # )
+            self.stop_execution()
+            # self._stop_execution_future = tpe.submit(self._stop_execution)
+            raise
 
         # Return the trajectory if the execution was successful, otherwise raise
         # an error based on the execution status and safe to execute flag
@@ -1008,6 +1034,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self.log("Destroying PlanAndExecuteInterface")
         if hasattr(self, "_trajectory_cache"):
             self._trajectory_cache.close()
-        # if hasattr(self, "trajectory_execution_manager"):
-        #     self.trajectory_execution_manager.stop_execution()
+
+        # self._tpe.shutdown()
         super().destroy_interface()

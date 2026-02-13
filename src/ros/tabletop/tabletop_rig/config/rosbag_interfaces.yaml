@@ -1,9 +1,45 @@
 all: false
 topics:
+  # Teensy node
   - /teensy/sensor
   - /teensy/log
-  - /eyelink/sample
+  # Flic
+  - /flic/button_pressed_time
+  # Optitrack
   - /markers
-  - /predicted_markers
+  - /markers_viz
   - /rigid_bodies
-  - /left_front_top_cam/image_raw/ffmpeg
+  - /rigid_bodies_viz
+  # Eyelink node
+  - /eyelink/sample
+  - /predicted_markers
+  # Flir
+  - /left_front_top_cam/image_raw/camera_info
+  - /left_front_top_cam/image_raw/image_raw/compressed
+  - /left_front_top_cam/meta
+  - /left_back_top_cam/image_raw/camera_info
+  - /left_back_top_cam/image_raw/image_raw/compressed
+  - /left_back_top_cam/meta
+  - /left_bottom_cam/image_raw/camera_info
+  - /left_bottom_cam/image_raw/image_raw/compressed
+  - /left_bottom_cam/meta
+  - /right_front_top_cam/image_raw/camera_info
+  - /right_front_top_cam/image_raw/image_raw/compressed
+  - /right_front_top_cam/meta
+  - /right_back_top_cam/image_raw/camera_info
+  - /right_back_top_cam/image_raw/image_raw/compressed
+  - /right_back_top_cam/meta
+  - /right_bottom_cam/image_raw/camera_info
+  - /right_bottom_cam/image_raw/image_raw/compressed
+  - /right_bottom_cam/meta
+  # Robot
+  - /joint_states
+  - /dynamic_joint_states
+  # ROS out
+  - /rosout
+services:
+  - /teensy/ping
+  - /teensy/set_arm_lock
+  - /teensy/set_smartglass
+  - /teensy/set_reward
+  - /teensy/set_solenoid

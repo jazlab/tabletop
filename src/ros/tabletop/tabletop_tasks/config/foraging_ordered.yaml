@@ -32,9 +32,10 @@ tasks:
           occlude:
             - true
           num_trials: 100000
+          skip_failed: false
       stimulus_duration: 0.5
       delay_duration: 1.0
-      response_timeout: 2.5
+      response_timeout: 5.0
       reward_duration: 1.0
       reveal_duration: 0.5
       reward_sound: true

@@ -39,6 +39,7 @@ from rclpy.action.server import (
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.time import Time
+from std_msgs.msg import Header
 from tabletop_interfaces.action import FlicResponseTime
 
 import tabletop_py.flic.client
@@ -87,8 +88,9 @@ class Flic(BaseNode):
         tabletop_py.flic.client.logger = self.get_logger().get_child("client")
 
         self.simulate = self.param("simulate")
+        self.simulate_button_event = asyncio.Event()
 
-        self.flic_response_time_server = ActionServer(
+        self.response_time_server = ActionServer(
             self,
             FlicResponseTime,
             "/flic/response_time",
@@ -96,6 +98,9 @@ class Flic(BaseNode):
             cancel_callback=self.flic_response_time_cancel_callback,
             goal_callback=self.flic_response_time_goal_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.button_pressed_publisher = self.create_publisher(
+            Header, "/flic/button_pressed_time", 10
         )
 
         self.goal_lock = asyncio.Lock()
@@ -127,7 +132,7 @@ class Flic(BaseNode):
                 lambda: FlicClient(
                     loop=loop,
                     max_connection_channels=max_connection_channels,
-                    time_fn=self.get_clock().now,
+                    time_fn=lambda: self.get_clock().now(),
                 ),
                 host,
                 port,
@@ -295,12 +300,15 @@ class Flic(BaseNode):
                 else:
                     assert button_task.done()
                     if self.simulate:
+                        self.simulate_button_event.set()
                         response_time = self.get_clock().now()
                     else:
                         response_time = button_task.result()
                     assert isinstance(response_time, Time)
-                    result = FlicResponseTime.Result()
-                    result.response_time = response_time.to_msg()
+                    result = FlicResponseTime.Result(
+                        response_time=response_time.to_msg()
+                    )
+                    # result.response_time = response_time.to_msg() TODO
                     self.log(f"Flic response time: {response_time}")
                     goal_handle.succeed()
                     return result
@@ -323,9 +331,34 @@ class Flic(BaseNode):
         else:
             await self.flic_client.wait_for_closed()
 
+    async def spin_button_publisher(self):
+        while True:
+            if self.simulate:
+                try:
+                    async with asyncio.timeout(random.uniform(50, 100)):
+                        await self.simulate_button_event.wait()
+                except TimeoutError:
+                    pass
+                time = self.get_clock().now()
+                frame_id = "simulated_button"
+            else:
+                cc, time = await self.flic_client.wait_for_button_event(
+                    ClickType.ButtonDown
+                )
+                frame_id = cc.bd_addr
+            assert isinstance(time, Time)
+            self.button_pressed_publisher.publish(
+                Header(
+                    stamp=time.to_msg(), frame_id=frame_id
+                )  # TODO: Change to custom message
+            )
+
     async def spin(self):
         await self.init_flic_client()
-        await self.wait_for_closed()
+        async with asyncio.TaskGroup() as tg:
+            publisher_task = tg.create_task(self.spin_button_publisher())
+            await self.wait_for_closed()
+            publisher_task.cancel()
 
     def destroy_node(self):
         """Clean up resources and destroy the node.
@@ -336,8 +369,8 @@ class Flic(BaseNode):
         if hasattr(self, "flic_client") and not self.flic_client.closed:
             self.log("Closing flic client")
             self.flic_client.close()
-        if hasattr(self, "flic_response_time_server"):
-            self.flic_response_time_server.destroy()
+        if hasattr(self, "response_time_server"):
+            self.response_time_server.destroy()
         super().destroy_node()
 
 

@@ -29,8 +29,8 @@ rrt_star:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTstar
-    # planning_time: 0.5 # TODO
-    planning_time: 1.0
+    planning_time: 0.5 # TODO
+    # planning_time: 1.0
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -39,7 +39,7 @@ rrtc:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnect
-    planning_time: 1.0
+    planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
@@ -48,7 +48,7 @@ rrtc_star:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTConnectstar
-    planning_time: 1.0
+    planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 #

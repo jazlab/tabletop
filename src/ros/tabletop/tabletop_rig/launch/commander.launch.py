@@ -68,6 +68,11 @@ def declare_arguments():
             description="Coroutine config",
         ),
         DeclareLaunchArgument(
+            "session_bag_dir",
+            default_value="null",
+            description="Session bag directory to send to eyelink node",
+        ),
+        DeclareLaunchArgument(
             "new_cache",
             default_value="null",
             description="Whether to clear the trajectory cache",
@@ -198,6 +203,13 @@ def generate_launch_description():
                 raise ValueError(
                     f"Invalid initial object index: {initial_object_value}"
                 )
+
+        # Session bag directory
+        session_bag_dir_value = LaunchConfiguration("session_bag_dir").perform(
+            context
+        )
+        if session_bag_dir_value != "null":
+            commander_overrides["session_bag_dir"] = session_bag_dir_value
 
         # Save the scoped overrides
         commander_overrides_scoped = {

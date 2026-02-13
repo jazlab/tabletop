@@ -99,14 +99,14 @@
 
     # predefined_states:
     #   idle_state: ready_for_action
-    #   pre_present_state: pre_present
+    #   present_state: present
     #
     # predefined_poses:
     #   pre_fetch_offset: [-0.03, 0.0, -0.05] # relative to object init pose
     #   pre_attach_offset: [-0.03, 0.0, 0.0] # relative to object init pose
     #   post_attach_offset: [0.077, 0.0, 0.0] # relative to object init pose
     #   post_fetch_offset: [0.077, 0.0, -0.15] # relative to object init pose
-    #   pre_present_pose:
+    #   present_pose:
     #     position: [0.9525, 0.4, 0.6]
     #     rpy: [0.0, 0.0, -1.5707]
 
@@ -116,18 +116,15 @@
         - eef_sphere
       mount_ids:
         - rig
-      mount_allowed_collisions:
+      allowed_mount_collisions:
         eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
-      phase_offsets:
+      state_offsets:
         pre_fetch: [-0.03, 0.0, -0.05] # relative to object init pose
         pre_attach: [-0.03, 0.0, 0.0] # relative to object init pose
         attach: [0.0, 0.0, 0.0] # relative to object init pose
         post_attach: [0.077, 0.0, 0.0] # relative to object init pose
         post_fetch: [0.077, 0.0, -0.15] # relative to object init pose
-      unpresent_pose_stamped:
-        position: [0.9525, 0.4, 0.6]
-        rpy: [0.0, 0.0, -1.5707]
       reset_config_map:
         small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
         small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml

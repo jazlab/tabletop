@@ -67,6 +67,7 @@ from rclpy.time import Time
 from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
+from tabletop_interfaces.srv import EyelinkStartRecording
 
 from tabletop_py.gaze.edf import edf_to_csv
 from tabletop_py.gaze.preprocess import (
@@ -242,8 +243,9 @@ class Eyelink(BaseNode):
 
         # pylink.endRealTimeMode()
 
+        self._session_bag_dir = None
         self.init_sample_retrieval()
-        self.init_bag_writer()
+        # self.init_bag_writer()
         self.init_gaze_estimation()
         self.init_ros()
 
@@ -264,44 +266,6 @@ class Eyelink(BaseNode):
         self.sample_retrieval_future = concurrent.futures.Future()
         self.sample_retrieval_future.set_result(None)
         self.recording = False
-
-    def init_bag_writer(self) -> None:
-        """Initialize the rosbag writer for recording samples.
-
-        Creates a bag writer in the session directory if configured.
-        Samples are recorded in MCAP format for later analysis.
-
-        Raises:
-            ValueError: If session_bag_dir is set but not a valid directory.
-        """
-        self.session_bag_dir = self.param("session_bag_dir")
-        if self.session_bag_dir is None:
-            self.log(
-                "No session bag directory provided, skipping bag writer",
-                severity="WARN",
-            )
-            return
-
-        if not os.path.isdir(self.session_bag_dir):
-            raise ValueError(
-                f"Session bag directory {self.session_bag_dir} is not a directory"
-            )
-
-        bag_dir = os.path.join(self.session_bag_dir, "eyelink")
-        self.bag_writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(
-            uri=bag_dir, storage_id="mcap"
-        )
-        converter_options = rosbag2_py.ConverterOptions("", "")
-        self.bag_writer.open(storage_options, converter_options)
-        self.bag_writer.create_topic(
-            rosbag2_py.TopicMetadata(
-                id=0,
-                name="/eyelink/sample",
-                type="tabletop_interfaces/msg/Eyelink",
-                serialization_format="cdr",
-            )
-        )
 
     def init_gaze_estimation(self) -> None:
         """Initialize the neural network gaze estimation model.
@@ -347,26 +311,29 @@ class Eyelink(BaseNode):
         server, and optionally the gaze estimation publisher and timer.
         """
         # Services
+        recording_cb_group = MutuallyExclusiveCallbackGroup()
         self.eyelink_start_recording_service = self.create_service(
-            Trigger,
+            EyelinkStartRecording,
             "/eyelink/start_recording",
             self.start_recording_callback,
+            callback_group=recording_cb_group,
         )
         self.eyelink_stop_recording_service = self.create_service(
             Trigger,
             "/eyelink/stop_recording",
             self.stop_recording_callback,
+            callback_group=recording_cb_group,
         )
 
         # Action servers
-        self.eyelink_smooth_pursuit_server = ActionServer(
+        self.smooth_pursuit_server = ActionServer(
             self,
             EyelinkSmoothPursuit,
             "/eyelink/smooth_pursuit",
             self.smooth_pursuit_callback,
             cancel_callback=self.smooth_pursuit_cancel_callback,
             goal_callback=self.smooth_pursuit_goal_callback,
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=MutuallyExclusiveCallbackGroup(),  # TODO: Fix callback groups
         )
         self.goal_callback_lock = threading.Lock()
         self.goal_ongoing = False
@@ -383,6 +350,7 @@ class Eyelink(BaseNode):
                 1 / self.param("gaze_estimation_frequency"),
                 self.gaze_estimation_callback,
                 callback_group=MutuallyExclusiveCallbackGroup(),
+                autostart=False,
             )
 
     ###########################################################################
@@ -413,6 +381,50 @@ class Eyelink(BaseNode):
             self.log(f"Error doing tracker setup: {e}", severity="WARN")
             self.tracker.exitCalibration()
         self.log("Eyelink PC tracker setup complete")
+
+    def _open_bag_writer(self, session_bag_dir: str | None) -> None:
+        """Initialize the rosbag writer for recording samples.
+
+        Creates a bag writer in the session directory if configured.
+        Samples are recorded in MCAP format for later analysis.
+
+        Raises:
+            ValueError: If session_bag_dir is set but not a valid directory.
+        """
+        self.log("Opening bag writer")
+        self._session_bag_dir = session_bag_dir
+        if self._session_bag_dir is None:
+            self.log(
+                "No session bag directory provided, skipping bag writer",
+                severity="WARN",
+            )
+            return
+
+        if not os.path.isdir(self._session_bag_dir):
+            raise ValueError(
+                f"Session bag directory {self._session_bag_dir} is not a directory"
+            )
+
+        bag_dir = os.path.join(self._session_bag_dir, "eyelink")
+        self.bag_writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py.StorageOptions(
+            uri=bag_dir, storage_id="mcap"
+        )
+        converter_options = rosbag2_py.ConverterOptions("", "")
+        self.bag_writer.open(storage_options, converter_options)
+        self.bag_writer.create_topic(
+            rosbag2_py.TopicMetadata(
+                id=0,
+                name="/eyelink/sample",
+                type="tabletop_interfaces/msg/Eyelink",
+                serialization_format="cdr",
+            )
+        )
+
+    def _close_bag_writer(self) -> None:
+        self.log("Closing bag writer")
+        if hasattr(self, "bag_writer"):
+            self.bag_writer.close()
 
     def _open_data_file(self) -> None:
         """Open an EDF data file on the Eyelink host PC.
@@ -455,14 +467,14 @@ class Eyelink(BaseNode):
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
-        if self.session_bag_dir is None:
+        if self._session_bag_dir is None:
             self.log(
                 "No session bag directory provided, skipping data file transfer",
                 severity="WARN",
             )
             return
 
-        received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
+        received_dir = os.path.join(self._session_bag_dir, "eyelink_received")
         os.makedirs(received_dir, exist_ok=True)
         edf_path = os.path.join(received_dir, "last.edf")
         try:
@@ -522,71 +534,6 @@ class Eyelink(BaseNode):
                 severity="ERROR",
             )
 
-    def start_recording(self) -> None:
-        """Start recording eye tracking data.
-
-        Opens a data file on the Eyelink PC, starts the sample retrieval
-        loop, and begins tracker recording in binocular mode.
-
-        Raises:
-            RuntimeError: If already recording or if not in binocular mode.
-        """
-
-        if self.recording:
-            raise RuntimeError("Can't start recording, already recording")
-
-        # Data file must be opened before starting recording
-        if not self.simulate:
-            self._open_data_file()
-
-        # Start sample retrieval loop in separate thread
-        self._start_sample_retrieval()
-
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping recording start", severity="WARN"
-            )
-        else:
-            self.log("Starting recording")
-            self.tracker.setOfflineMode()
-            self.tracker.startRecording(1, 0, 1, 0)
-            # pylink.endRealTimeMode()
-            self.tracker.sendMessage("SYNCTIME")
-            eye_available = self.eye_available()
-            if eye_available != EyeAvailable.BINOCULAR:
-                self._stop_sample_retrieval()
-                self._close_data_file()
-                raise RuntimeError(
-                    f"Only binocular mode is supported, got {eye_available}"
-                )
-
-        self.recording = True
-
-    def stop_recording(self) -> None:
-        """Stop recording and save data.
-
-        Stops sample retrieval, stops tracker recording, closes the
-        data file, and transfers it to the local machine.
-        """
-        if not self.recording:
-            self.log("Not recording, skipping stop", severity="WARN")
-            return
-
-        self._stop_sample_retrieval()
-
-        try:
-            if self.simulate:
-                self.log(
-                    "Simulating eyelink, skipping recording stop",
-                    severity="WARN",
-                )
-            else:
-                self.log("Stopping recording")
-                self.tracker.stopRecording()
-                self._close_data_file()
-        finally:
-            self.recording = False
-
     def eye_available(self) -> EyeAvailable:
         """Get the eye available from the tracker.
 
@@ -602,6 +549,90 @@ class Eyelink(BaseNode):
             )
 
         return EyeAvailable(self.tracker.eyeAvailable())
+
+    def start_recording(self, session_bag_dir) -> None:
+        """Start recording eye tracking data.
+
+        Opens a data file on the Eyelink PC, starts the sample retrieval
+        loop, and begins tracker recording in binocular mode.
+
+        Raises:
+            RuntimeError: If already recording or if not in binocular mode.
+        """
+
+        if self.recording:
+            raise RuntimeError("Can't start recording, already recording")
+
+        self._open_bag_writer(session_bag_dir)
+        try:
+            # Data file must be opened before starting recording
+            if not self.simulate:
+                self._open_data_file()
+            try:
+                # Start sample retrieval loop in separate thread
+                self._start_sample_retrieval()
+                try:
+                    if self.simulate:
+                        self.log(
+                            "Simulating eyelink, skipping recording start",
+                            severity="WARN",
+                        )
+                    else:
+                        self.log("Starting recording")
+                        self.tracker.setOfflineMode()
+                        self.tracker.startRecording(1, 0, 1, 0)
+                        # pylink.endRealTimeMode()
+                        self.tracker.sendMessage("SYNCTIME")
+                        eye_available = self.eye_available()
+                        if eye_available != EyeAvailable.BINOCULAR:
+                            raise RuntimeError(
+                                f"Only binocular mode is supported, got {eye_available}"
+                            )
+                except Exception:
+                    self._stop_sample_retrieval()
+                    raise
+            except Exception:
+                self._close_data_file()
+                raise
+        except Exception:
+            self._close_bag_writer()
+            raise
+
+        # Start gaze_estimation_timer
+        self.gaze_estimation_timer.reset()
+
+        self.recording = True
+
+    def stop_recording(self) -> None:
+        """Stop recording and save data.
+
+        Stops sample retrieval, stops tracker recording, closes the
+        data file, and transfers it to the local machine.
+        """
+        if not self.recording:
+            self.log("Not recording, skipping stop", severity="WARN")
+            return
+
+        # Stop gaze_estimation_timer
+        self.gaze_estimation_timer.cancel()
+
+        # Close bag writer
+        self._close_bag_writer()
+
+        # Stop sample retrieval before stopping recording
+        self._stop_sample_retrieval()
+
+        if self.simulate:
+            self.log(
+                "Simulating eyelink, skipping recording stop",
+                severity="WARN",
+            )
+        else:
+            self.log("Stopping recording")
+            self.tracker.stopRecording()
+            self._close_data_file()
+
+        self.recording = False
 
     ###########################################################################
     # Sample retrieval
@@ -951,8 +982,10 @@ class Eyelink(BaseNode):
     #     return response
 
     def start_recording_callback(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
+        self,
+        request: EyelinkStartRecording.Request,
+        response: EyelinkStartRecording.Response,
+    ) -> EyelinkStartRecording.Response:
         """Handle start_recording service request.
 
         Args:
@@ -962,10 +995,17 @@ class Eyelink(BaseNode):
         Returns:
             Response with success status.
         """
-        self.start_recording()
+        try:
+            self.start_recording(request.sessions_bag_dir)
+        except Exception as e:
+            response.success = False
+            response.message = (
+                f"Start recording failed with error {type(e).__name__}: {e}"
+            )
+        else:
+            response.success = True
+            response.message = "Recording started"
 
-        response.success = True
-        response.message = "Recording started"
         return response
 
     def stop_recording_callback(
@@ -980,10 +1020,17 @@ class Eyelink(BaseNode):
         Returns:
             Response with success status.
         """
-        self.stop_recording()
+        try:
+            self.stop_recording()
+        except Exception as e:
+            response.success = False
+            response.message = (
+                f"Stop recording failed with error {type(e).__name__}: {e}"
+            )
+        else:
+            response.success = True
+            response.message = "Recording stopped"
 
-        response.success = True
-        response.message = "Recording stopped"
         return response
 
     def smooth_pursuit_goal_callback(self, _: Any) -> GoalResponse:
@@ -1137,23 +1184,12 @@ class Eyelink(BaseNode):
         """
 
         try:
-            self.log("Closing data file")
             self.stop_recording()
         except Exception as e:
             self.log(
-                f"Error closing data file: {type(e).__name__}: {e}",
+                f"Error stopping recording: {type(e).__name__}: {e}",
                 severity="ERROR",
             )
-
-        if hasattr(self, "bag_writer"):
-            try:
-                self.log("Closing bag writer")
-                self.bag_writer.close()
-            except Exception as e:
-                self.log(
-                    f"Error closing bag writer: {type(e).__name__}: {e}",
-                    severity="ERROR",
-                )
 
         # self.log("Shutting down thread pool")
         # try:
@@ -1164,6 +1200,10 @@ class Eyelink(BaseNode):
         if not self.simulate:
             self.log("Closing tracker")
             self.tracker.close()
+
+        if hasattr(self, "smooth_pursuit_server"):
+            self.smooth_pursuit_server.destroy()
+        super().destroy_node()
 
         super().destroy_node()
 
@@ -1194,7 +1234,7 @@ def main(args=None):
         executor.add_node(eyelink)
 
         try:
-            eyelink.start_recording()
+            eyelink.start_recording(eyelink.param("session_bag_dir"))
             print("Spinning")
             executor.spin()
         finally:

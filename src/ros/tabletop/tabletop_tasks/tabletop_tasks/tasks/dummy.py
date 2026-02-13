@@ -15,7 +15,7 @@ from typing import cast
 
 import numpy as np
 from rclpy.time import Time
-from tabletop_interfaces.srv import Ping, SetSolenoid
+from tabletop_interfaces.srv import Ping
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
@@ -286,21 +286,27 @@ class DummyTask(BaseTask):
 
     async def test_optitrack_latency_solenoid(self):
         """Test using a solenoid to press the button"""
-        client = self.commander.create_client(
-            SetSolenoid, "/teensy/set_solenoid"
-        )
-        await self.commander.service_call_async(
-            srv_request=SetSolenoid.Request(activate=True),
-            srv_client=client,
-        )
-        try:
-            while True:
-                await asyncio.sleep(1.0)
-        finally:
-            await self.commander.service_call_async(
-                srv_request=SetSolenoid.Request(activate=False),
-                srv_client=client,
-            )
+        await asyncio.sleep(1000)
+        # client = self.commander.create_client(
+        #     SetSolenoid, "/teensy/set_solenoid"
+        # )
+        # await self.commander.service_call_async(
+        #     srv_request=SetSolenoid.Request(activate=True),
+        #     srv_client=client,
+        # )
+        # try:
+        #     while True:
+        #         await asyncio.sleep(1.0)
+        # finally:
+        #     await self.commander.service_call_async(
+        #         srv_request=SetSolenoid.Request(activate=False),
+        #         srv_client=client,
+        #     )
+
+    async def test_sound(self):
+        while True:
+            await self.commander.play_sound()
+            await asyncio.sleep(1)
 
     async def run(self) -> None:
         """Run one or more of the tests"""
@@ -310,4 +316,5 @@ class DummyTask(BaseTask):
             # await self.test_flic_latency_human()
             # await self.test_robot_position()
             # await self.test_flic_latency_button()
-            await self.test_optitrack_latency_solenoid()
+            # await self.test_optitrack_latency_solenoid()
+            await self.test_sound()

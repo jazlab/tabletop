@@ -700,7 +700,8 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 )
 
     def __len__(self) -> int:
-        return len(self._shelf)
+        with self._lock:
+            return len(self._shelf)
 
     def __setitem__(
         self, key: FuzzyTrajectoryCacheKey, value: FuzzyTrajectoryCacheValue
@@ -731,7 +732,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
 
             bisect.insort_left(values, value)
             if len(values) > self._max_trajectories:
-                values.pop()
+                values.pop(-1)
 
             self._shelf[fuzzy_key] = values
 
@@ -909,8 +910,9 @@ class FuzzyTrajectoryCache(LoggerMixin):
         Args:
             key: The key to delete.
         """
+        key_str = self._get_fuzzy_key(key)
         with self._lock:
-            del self._shelf[self._get_fuzzy_key(key)]
+            del self._shelf[key_str]
 
     def delete_trajectory(self, request: PlanRequest):
         """Delete all trajectories for a given key.
@@ -928,9 +930,11 @@ class FuzzyTrajectoryCache(LoggerMixin):
 
     def open(self, flag: str = "w"):
         """Open the database."""
-        if not self._closed:
-            raise RuntimeError("Database is already open")
         with self._lock:
+            if not self._closed:
+                self.log("Database is already open", severity="WARN")
+                return
+
             self._shelf = Shelf(
                 dbm_sqlite3.open(
                     self._db_path, flag=flag, check_same_thread=False
@@ -940,16 +944,18 @@ class FuzzyTrajectoryCache(LoggerMixin):
 
     def close(self):
         """Close the database and backup the database file."""
-        if not self._closed:
-            with self._lock:
-                try:
-                    self._shelf.close()
-                finally:
-                    self._closed = True
+        with self._lock:
+            if self._closed:
+                self.log("Database is already closed", severity="WARN")
+                return
+
+            try:
+                self._shelf.close()
+            finally:
+                self._closed = True
 
     def __enter__(self):
-        if self._closed:
-            self.open()
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

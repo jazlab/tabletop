@@ -592,7 +592,7 @@ class PlanningSceneInterface(BaseInterface):
             to_load = yaml.safe_load(f)
 
         for object_id, kwargs in to_load.items():
-            grid_idx = kwargs["grid_idx"]
+            grid_idx = tuple(kwargs["grid_idx"])
             pose_stamped = pose_stamped_msg(
                 frame_id=kwargs["frame_id"],
                 position=kwargs["position"],
@@ -614,22 +614,6 @@ class PlanningSceneInterface(BaseInterface):
                 if x.id == object_id:
                     return deepcopy(x)
             raise ValueError(f"Collision object {object_id} not found")
-
-    def get_exactly_one_attached_object_id(self) -> str:
-        """Get the ID of the exactly one attached collision object.
-
-        Returns:
-            The ID of the attached collision object.
-
-        Raises:
-            RuntimeError: If there is not exactly one attached collision object
-        """
-        attached_collision_object_ids = self.attached_collision_object_ids
-        if len(attached_collision_object_ids) != 1:
-            raise RuntimeError(
-                f"Expected exactly one attached collision object, but got {len(attached_collision_object_ids)}"
-            )
-        return attached_collision_object_ids[0]
 
     # def check_collision(self, group_name: str) -> CollisionResult:
     #     """Check if an object is colliding with the planning scene."""
@@ -683,7 +667,10 @@ class PlanningSceneInterface(BaseInterface):
             )
 
     def _modify_collision_matrix(
-        self, id_0: str | Iterable[str], id_1: str | Iterable[str], allow: bool
+        self,
+        id_0: str | Iterable[str],
+        id_1: str | Iterable[str],
+        allow: bool | Iterable[bool],
     ) -> list[tuple[str, str]]:
         """Modify the collision matrix
 
@@ -718,6 +705,13 @@ class PlanningSceneInterface(BaseInterface):
             if len(ids_0) != len(ids_1):
                 raise ValueError("Number of ids 0 and ids 1 must match")
 
+        if isinstance(allow, bool):
+            allows = [allow] * len(ids_0)
+        else:
+            allows = list(allow)
+            if len(ids_0) != len(allows):
+                raise ValueError("Number of ids 0 and allow must match")
+
         # Modify the collision matrix
         modified: list[tuple[str, str]] = []
         with self.planning_scene_rw() as scene:
@@ -727,21 +721,20 @@ class PlanningSceneInterface(BaseInterface):
                 allowed = self._parse_collision_matrix_entry(
                     success, allowed_collision_type
                 )
-                if allowed == allow:
-                    # self.log(
-                    #     f"Collision between {x} and {y} is already "
-                    #     f"{'allowed' if allow else 'disallowed'}",
-                    #     severity="DEBUG",
-                    # )
-                    pass
-                else:
-                    # self.log(
-                    #     f"{'Allowing' if allow else 'Disallowing'} "
-                    #     f"collision between {x} and {y}",
-                    #     severity="DEBUG",
-                    # )
+                if allowed != allow:
                     matrix.set_entry(x, y, allow)
                     modified.append((x, y))
+                #     self.log(
+                #         f"{'Allowing' if allow else 'Disallowing'} "
+                #         f"collision between {x} and {y}",
+                #         severity="DEBUG",
+                #     )
+                # else:
+                #     self.log(
+                #         f"Collision between {x} and {y} is already "
+                #         f"{'allowed' if allow else 'disallowed'}",
+                #         severity="DEBUG",
+                #     )
 
             scene.current_state.update()
 
@@ -796,6 +789,14 @@ class PlanningSceneInterface(BaseInterface):
 
         if collision_object.operation != CollisionObject.ADD:
             raise ValueError("CollisionObject operation must be ADD")
+
+        if (
+            collision_object.id in self.collision_object_ids
+            or collision_object in self.attached_collision_object_ids
+        ):
+            raise ValueError(
+                f"CollisionObject ID {collision_object.id} already exists in planning scene"
+            )
 
         # Process color
         if color is not None:

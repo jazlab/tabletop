@@ -145,7 +145,7 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
             trial_spec: Trial specification containing the object ID.
         """
         await self.commander.fetch_object(trial_spec.object_id)
-        await self.commander.pre_present_object()
+        await self.commander.present_object()
 
     async def _reset_trial(self):
         """Reset the object after a trial.

@@ -2,7 +2,7 @@ tasks:
   - class: PresentTask
     kwargs:
       trial_generator:
-        class: OrderedChoice
+        class: RandomChoice
         kwargs:
           object_ids:
             - small_object_15
@@ -23,11 +23,12 @@ tasks:
           poses:
             - position: [1.0, 0.4, 0.6]
               rpy: [0.0, 0.2, -1.5707]
-            # - position: [0.9, 0.4, 0.6]
-            #   rpy: [0.0, -0.3, -1.5707]
+            - position: [0.9, 0.4, 0.6]
+              rpy: [0.0, -0.3, -1.5707]
           arms:
+            - left
+            - right
             - both
-          occlude:
-            - false
+          occlude_prob: 1.0
           num_trials: 100000
           skip_failed: true

@@ -303,7 +303,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "safety_limits",
-            default_value="true",  # TODO: Was originally false, see if true causes problems
+            default_value="true",
             description="Enables the safety limits controller if true.",
         )
     )

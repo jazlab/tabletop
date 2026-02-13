@@ -40,11 +40,13 @@ from rclpy.exceptions import (
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 
-from ros.tabletop.tabletop_rig.tabletop_rig.utils.ros import (
-    ActionClientResultType,
+from ros.tabletop.tabletop_rig.tabletop_rig.exceptions import (
+    ActionResultUnsuccessfulError,
 )
 from tabletop_py.utils.common import yaml_dump_string
 from tabletop_rig.exceptions import (
+    ActionGoalNotAcceptedError,
+    ActionServerWaitTimeoutError,
     ROSSleepError,
     ServiceCallTimeoutError,
     ServiceCallUnsuccessfulError,
@@ -56,6 +58,7 @@ if TYPE_CHECKING:
     from tabletop_rig.interfaces.base import BaseInterface
 
 
+# TODO: Maybe add cancellation forwarding here
 async def wrap_rclpy_future(rclpy_future: rclpy.task.Future) -> Any:
     loop = asyncio.get_running_loop()
     asyncio_future = loop.create_future()
@@ -91,9 +94,14 @@ async def wrap_rclpy_future(rclpy_future: rclpy.task.Future) -> Any:
 
 
 class AIOActionClient(ActionClient):
-    async def wait_for_server_async(
-        self, timeout_sec: Optional[float] = None
-    ) -> bool:
+    def wait_for_server(self, timeout_sec=None):
+        ready = super().wait_for_server(timeout_sec)
+        if not ready:
+            raise ActionServerWaitTimeoutError(
+                f"Waiting for {self._action_name} action server timed out after {timeout_sec}"
+            )
+
+    async def wait_for_server_async(self, timeout_sec: Optional[float] = None):
         """Async version of wait_for_server.
 
         Runs the blocking wait in a thread pool to avoid blocking
@@ -106,20 +114,23 @@ class AIOActionClient(ActionClient):
     async def send_goal_async(  # type: ignore
         self, goal, feedback_callback=None, goal_uuid=None
     ) -> ClientGoalHandle:
-        return await wrap_rclpy_future(
+        goal_handle = await wrap_rclpy_future(
             super().send_goal_async(
                 goal=goal,
                 feedback_callback=feedback_callback,
                 goal_uuid=goal_uuid,
             )
         )
+        if not goal_handle.accepted:
+            raise ActionGoalNotAcceptedError(
+                f"{self._action_name} action goal request not accepted"
+            )
 
-    @staticmethod
-    async def get_result_async(
-        goal_handle: ClientGoalHandle,
-    ) -> ActionClientResultType:
+        return goal_handle
+
+    async def get_result_async(self, goal_handle: ClientGoalHandle):
         try:
-            return await wrap_rclpy_future(goal_handle.get_result_async())
+            response = await wrap_rclpy_future(goal_handle.get_result_async())
         finally:
             if goal_handle.status not in (
                 GoalStatus.STATUS_SUCCEEDED,
@@ -127,6 +138,15 @@ class AIOActionClient(ActionClient):
                 GoalStatus.STATUS_ABORTED,
             ):
                 goal_handle.cancel_goal_async()
+
+        if response.status != GoalStatus.STATUS_SUCCEEDED:
+            raise ActionResultUnsuccessfulError(
+                f"{self._action_name} action result request did not succeed "
+                f"with status: {response.status} "
+                f"and result: {msg_to_dict(response.result)}"
+            )
+
+        return response.result
 
 
 class BaseNode(Node, LoggerMixin):
@@ -156,7 +176,7 @@ class BaseNode(Node, LoggerMixin):
 
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
-        "default_service_call_timeout": 2.0,
+        "default_service_call_timeout": 5.0,
     }
     required_params: set[str] = set()
 

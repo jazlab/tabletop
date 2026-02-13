@@ -248,28 +248,38 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert ROS2 bag files to CSV format."
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
         "-d",
         "--session-dir",
         type=str,
-        help="The path to the session directory. If not provided, all session directories in ROS_BAG_DIR will be converted.",
+        default=os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
+        help="path to the session bag directory. Default: $ROS_BAG_DIR/latest",
+    )
+    group.add_argument(
+        "-a",
+        "--all-sessions",
+        action="store_true",
+        default=False,
+        help="run converter on all session directories in $ROS_BAG_DIR",
     )
     parser.add_argument("--topics", type=str, nargs="*")
     parser.add_argument(
         "--exclude-topics",
         type=str,
         nargs="*",
-        default=["/rosout", "/parameter_events"],
+        # default=["/rosout", "/parameter_events"],
+        default=[],
     )
     parser.add_argument(
         "-f",
         "--force",
         action="store_true",
-        help="Force overwrite existing CSV files.",
+        help="force overwrite existing CSV files",
     )
     args = parser.parse_args()
 
-    if args.session_dir is None:
+    if args.all_sessions:
         session_dirs = glob.glob(os.path.join(os.environ["ROS_BAG_DIR"], "*"))
         if not session_dirs:
             raise ValueError(
