@@ -14,7 +14,7 @@ Typical usage:
 
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import rclpy
 from rclpy.impl.logging_severity import LoggingSeverity
@@ -59,6 +59,10 @@ def msg_to_dict(msg: Any) -> dict[str, Any] | list[Any] | Any:
 
 # Logging utilities
 
+type SeverityString = Literal[
+    "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "UNSET"
+]
+
 
 class LoggerMixin(metaclass=ABCMeta):
     """Mixin class that adds convenience logging methods to ROS-node-like classes.
@@ -94,7 +98,10 @@ class LoggerMixin(metaclass=ABCMeta):
         ...
 
     def log(
-        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
+        self,
+        message: Any,
+        severity: SeverityString | LoggingSeverity = "INFO",
+        **kwargs,
     ) -> bool:
         """Log a message with the specified severity level.
 

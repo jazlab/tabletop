@@ -100,7 +100,7 @@ class SmoothPursuitTask(BaseTask):
         self._velocity_scaling_factor = velocity_scaling_factor
 
         # Attach object to end effector for collision-aware planning
-        self.commander.attach_object_manually(object_id)
+        # self.commander.attach_object_manually(object_id)
 
     def generate_spiral(
         self,

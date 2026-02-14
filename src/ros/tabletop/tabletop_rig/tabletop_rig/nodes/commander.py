@@ -154,7 +154,8 @@ class Commander(BaseNode):
     """
 
     default_params: dict[str, Any] = BaseNode.default_params | {
-        "session_bag_dir": "null"
+        "session_bag_dir": "",
+        "wait_for_interfaces": True,
     }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
@@ -664,6 +665,7 @@ class Commander(BaseNode):
         Returns:
             True if a recoverable error was handled, False otherwise.
         """
+        stack_exited = False
         try:
             self.log("Exiting commander context manager", severity="DEBUG")
             if exc_type is not None:
@@ -695,8 +697,15 @@ class Commander(BaseNode):
                     await self.reset_commander(end_goal="idle")
                     return True
             return False
+        except BaseException as e:
+            stack_exited = True
+            await self._context_stack.__aexit__(type(e), e, e.__traceback__)
+            raise
         finally:
-            await self._context_stack.__aexit__(exc_type, exc_value, exc_tb)
+            if not stack_exited:
+                await self._context_stack.__aexit__(
+                    exc_type, exc_value, exc_tb
+                )
 
     ###########################################################################
     ########## Destroy ########################################################

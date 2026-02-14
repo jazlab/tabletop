@@ -60,14 +60,16 @@ from rclpy.action.server import (
     ServerGoalHandle,
 )
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.event_handler import (
+    PublisherEventCallbacks,
+    QoSPublisherMatchedInfo,
+)
 from rclpy.exceptions import NotInitializedException
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-from rclpy.serialization import serialize_message
 from rclpy.time import Time
-from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
-from tabletop_interfaces.srv import EyelinkStartRecording
+from tabletop_interfaces.msg import EyelinkArray as EyelinkArrayMsg
 
 from tabletop_py.gaze.edf import edf_to_csv
 from tabletop_py.gaze.preprocess import (
@@ -193,7 +195,7 @@ class Eyelink(BaseNode):
         "file_event_data": "null",
         "link_event_data": "null",
         "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
-        "session_bag_dir": "null",
+        "session_bag_dir": os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
         "smooth_pursuit.window": 0.1,  # seconds
         "smooth_pursuit.clean.max_zscore": "null",
         "smooth_pursuit.reindex_and_interpolate.tolerance": 0.003,  # seconds
@@ -209,6 +211,7 @@ class Eyelink(BaseNode):
         "simulate_rotations_per_second": 1.0,
         "simulate_missing_prob": 1e-3,
         "simulate_saccate_prob": 1e-4,
+        "publish_batched": True,
     }
 
     ###########################################################################
@@ -243,20 +246,19 @@ class Eyelink(BaseNode):
 
         # pylink.endRealTimeMode()
 
-        self._session_bag_dir = None
-        self.init_sample_retrieval()
+        self.init_state()
         # self.init_bag_writer()
         self.init_gaze_estimation()
         self.init_ros()
 
-    def init_sample_retrieval(self) -> None:
+    def init_state(self) -> None:
         """Initialize sample retrieval infrastructure.
-
         Sets up the message queue for recent samples, threading primitives
         for the sample retrieval loop, and the recording state flag.
         """
         sample_rate = self.param("sample_rate")
         self.smooth_pursuit_window = self.param("smooth_pursuit.window")
+
         self.message_queue = EyelinkMessageQueue(
             maxlen=int(sample_rate * self.smooth_pursuit_window)
         )
@@ -265,7 +267,18 @@ class Eyelink(BaseNode):
         self.stop_sample_retrieval_event.set()
         self.sample_retrieval_future = concurrent.futures.Future()
         self.sample_retrieval_future.set_result(None)
-        self.recording = False
+
+        self._goal_lock = threading.Lock()
+        self._goal_ongoing = False
+
+        # self.recording_lock = threading.Lock()
+        # self.recording = False
+
+        self._retrieval_lock = threading.Lock()
+        self._retrieving = False
+
+        self._subscribers_lock = threading.Lock()
+        self._has_subscribers = True
 
     def init_gaze_estimation(self) -> None:
         """Initialize the neural network gaze estimation model.
@@ -311,19 +324,42 @@ class Eyelink(BaseNode):
         server, and optionally the gaze estimation publisher and timer.
         """
         # Services
-        recording_cb_group = MutuallyExclusiveCallbackGroup()
-        self.eyelink_start_recording_service = self.create_service(
-            EyelinkStartRecording,
-            "/eyelink/start_recording",
-            self.start_recording_callback,
-            callback_group=recording_cb_group,
+        # recording_cb_group = MutuallyExclusiveCallbackGroup()
+        # self.start_recording_service = self.create_service(
+        #     EyelinkStartRecording,
+        #     "/eyelink/start_recording",
+        #     self.start_recording_callback,
+        #     callback_group=recording_cb_group,
+        # )
+        # self.stop_recording_service = self.create_service(
+        #     Trigger,
+        #     "/eyelink/stop_recording",
+        #     self.stop_recording_callback,
+        #     callback_group=recording_cb_group,
+        # )
+
+        event_callbacks = PublisherEventCallbacks(
+            matched=self.sample_publisher_matched_callback
         )
-        self.eyelink_stop_recording_service = self.create_service(
-            Trigger,
-            "/eyelink/stop_recording",
-            self.stop_recording_callback,
-            callback_group=recording_cb_group,
-        )
+        if self.param("publish_batched"):
+            self.sample_publisher = self.create_publisher(
+                EyelinkArrayMsg,
+                "/eyelink/sample_array",
+                10,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+                event_callbacks=event_callbacks,
+            )
+        else:
+            # qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
+            # qos.durability = QoSDurabilityPolicy.VOLATILE
+            # qos.depth = 500
+            self.sample_publisher = self.create_publisher(
+                EyelinkMsg,
+                "/eyelink/sample",
+                500,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+                event_callbacks=event_callbacks,
+            )
 
         # Action servers
         self.smooth_pursuit_server = ActionServer(
@@ -335,8 +371,6 @@ class Eyelink(BaseNode):
             goal_callback=self.smooth_pursuit_goal_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),  # TODO: Fix callback groups
         )
-        self.goal_callback_lock = threading.Lock()
-        self.goal_ongoing = False
 
         # Publishers
         if hasattr(self, "gaze_estimation_model"):
@@ -353,9 +387,39 @@ class Eyelink(BaseNode):
                 autostart=False,
             )
 
+    @property
+    def session_bag_dir(self) -> str | None:
+        return self.param("session_bag_dir")
+
+    @property
+    def goal_ongoing(self) -> bool:
+        with self._goal_lock:
+            return self._goal_ongoing
+
+    @property
+    def has_subscribers(self) -> bool:
+        with self._subscribers_lock:
+            return self._has_subscribers
+
     ###########################################################################
     # Tracker utilities
     ###########################################################################
+
+    def eye_available(self) -> EyeAvailable:
+        """Get the eye available from the tracker.
+
+        This function will return one of the following values:
+        - LEFT_EYE: The left eye is available.
+        - RIGHT_EYE: The right eye is available.
+        - BINOCULAR: Both eyes are available.
+        - NO_EYE: No eye is available.
+        """
+        if self.simulate:
+            raise RuntimeError(
+                "Simulating eyelink, cannot get eye availability"
+            )
+
+        return EyeAvailable(self.tracker.eyeAvailable())
 
     def eyelink_pc_setup(self) -> None:
         """Run interactive tracker setup/calibration on the Eyelink PC.
@@ -392,39 +456,43 @@ class Eyelink(BaseNode):
             ValueError: If session_bag_dir is set but not a valid directory.
         """
         self.log("Opening bag writer")
-        self._session_bag_dir = session_bag_dir
-        if self._session_bag_dir is None:
+        if session_bag_dir is None:
             self.log(
                 "No session bag directory provided, skipping bag writer",
                 severity="WARN",
             )
             return
 
-        if not os.path.isdir(self._session_bag_dir):
+        if not os.path.isdir(session_bag_dir):
             raise ValueError(
-                f"Session bag directory {self._session_bag_dir} is not a directory"
+                f"Session bag directory {session_bag_dir} is not a directory"
             )
 
-        bag_dir = os.path.join(self._session_bag_dir, "eyelink")
+        bag_dir = os.path.join(session_bag_dir, "eyelink")
         self.bag_writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(
-            uri=bag_dir, storage_id="mcap"
-        )
-        converter_options = rosbag2_py.ConverterOptions("", "")
-        self.bag_writer.open(storage_options, converter_options)
-        self.bag_writer.create_topic(
-            rosbag2_py.TopicMetadata(
-                id=0,
-                name="/eyelink/sample",
-                type="tabletop_interfaces/msg/Eyelink",
-                serialization_format="cdr",
+        try:
+            storage_options = rosbag2_py.StorageOptions(
+                uri=bag_dir, storage_id="mcap"
             )
-        )
+            converter_options = rosbag2_py.ConverterOptions("", "")
+            self.bag_writer.open(storage_options, converter_options)
+            self.bag_writer.create_topic(
+                rosbag2_py.TopicMetadata(
+                    id=0,
+                    name="/eyelink/sample",
+                    type="tabletop_interfaces/msg/Eyelink",
+                    serialization_format="cdr",
+                )
+            )
+        except:
+            self._close_bag_writer()
+            raise
 
     def _close_bag_writer(self) -> None:
         self.log("Closing bag writer")
         if hasattr(self, "bag_writer"):
             self.bag_writer.close()
+            del self.bag_writer
 
     def _open_data_file(self) -> None:
         """Open an EDF data file on the Eyelink host PC.
@@ -435,25 +503,30 @@ class Eyelink(BaseNode):
         self.log("Opening data file")
         edf_file_name = "last.edf"
         self.tracker.openDataFile(edf_file_name)
+        try:
+            preamble_text = "RECORDED BY EyeLink ROS Node"
+            self.tracker.sendCommand(
+                f"add_file_preamble_text '{preamble_text}'"
+            )
 
-        preamble_text = "RECORDED BY EyeLink ROS Node"
-        self.tracker.sendCommand(f"add_file_preamble_text '{preamble_text}'")
+            self.tracker.setPupilSizeDiameter("YES")
 
-        self.tracker.setPupilSizeDiameter("YES")
+            for key in [
+                "file_sample_data",
+                "link_sample_data",
+                "file_event_filter",
+                "link_event_filter",
+                "file_event_data",
+                "link_event_data",
+            ]:
+                value = self.param(key)
+                if value is not None:
+                    self.tracker.sendCommand(f"{key} = {value}")
+        except:
+            self._close_data_file(save=False)
+            raise
 
-        for key in [
-            "file_sample_data",
-            "link_sample_data",
-            "file_event_filter",
-            "link_event_filter",
-            "file_event_data",
-            "link_event_data",
-        ]:
-            value = self.param(key)
-            if value is not None:
-                self.tracker.sendCommand(f"{key} = {value}")
-
-    def _close_data_file(self) -> None:
+    def _close_data_file(self, *, save: bool) -> None:
         """Close the EDF file and transfer to local machine.
 
         Stops recording, closes the file on the Eyelink PC, transfers
@@ -467,14 +540,26 @@ class Eyelink(BaseNode):
         self.tracker.setOfflineMode()
         self.tracker.closeDataFile()
 
-        if self._session_bag_dir is None:
+        if not save:
+            return
+
+        if self.session_bag_dir is None:
             self.log(
                 "No session bag directory provided, skipping data file transfer",
                 severity="WARN",
             )
             return
 
-        received_dir = os.path.join(self._session_bag_dir, "eyelink_received")
+        received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
+        edf_path = os.path.join(received_dir, "last.edf")
+
+        if os.path.exists(edf_path):
+            self.log(
+                f"{edf_path} already exists, skipping data file transfer",
+                severity="WARN",
+            )
+            return
+
         os.makedirs(received_dir, exist_ok=True)
         edf_path = os.path.join(received_dir, "last.edf")
         try:
@@ -491,13 +576,13 @@ class Eyelink(BaseNode):
 
         self.log(f"Converted EDF to CSV: {csv_file_name}")
 
-    def _start_sample_retrieval(self) -> None:
+    def _start_sample_retrieval_loop(self) -> None:
         """Start the background sample retrieval task.
 
         Launches the sample retrieval loop as an executor task
         that continuously reads samples from the tracker.
         """
-        self.log("Starting sample retrieval")
+        self.log("Starting sample retrieval loop")
         assert self.stop_sample_retrieval_event.is_set()
         assert self.sample_retrieval_future.done(), (
             "Sample retrieval already running, may be in the process of stopping"
@@ -519,12 +604,12 @@ class Eyelink(BaseNode):
             lambda _: self._wake_executor()
         )
 
-    def _stop_sample_retrieval(self) -> None:
+    def _stop_sample_retrieval_loop(self) -> None:
         """Stop the background sample retrieval task.
 
         Signals the retrieval loop to stop and waits for completion.
         """
-        self.log("Stopping sample retrieval")
+        self.log("Stopping sample retrieval loop")
         try:
             self.stop_sample_retrieval_event.set()
             self.sample_retrieval_future.result()
@@ -534,47 +619,28 @@ class Eyelink(BaseNode):
                 severity="ERROR",
             )
 
-    def eye_available(self) -> EyeAvailable:
-        """Get the eye available from the tracker.
+    def start_retrieval(self) -> None:
+        """TODO"""
+        with self._retrieval_lock:
+            self.log("Starting sample retrieval")
 
-        This function will return one of the following values:
-        - LEFT_EYE: The left eye is available.
-        - RIGHT_EYE: The right eye is available.
-        - BINOCULAR: Both eyes are available.
-        - NO_EYE: No eye is available.
-        """
-        if self.simulate:
-            raise RuntimeError(
-                "Simulating eyelink, cannot get eye availability"
-            )
+            if self._retrieving:
+                self.log(
+                    "Sample retrieval ongoing, skipping sample retrieval start",
+                    severity="WARN",
+                )
+                return
 
-        return EyeAvailable(self.tracker.eyeAvailable())
-
-    def start_recording(self, session_bag_dir) -> None:
-        """Start recording eye tracking data.
-
-        Opens a data file on the Eyelink PC, starts the sample retrieval
-        loop, and begins tracker recording in binocular mode.
-
-        Raises:
-            RuntimeError: If already recording or if not in binocular mode.
-        """
-
-        if self.recording:
-            raise RuntimeError("Can't start recording, already recording")
-
-        self._open_bag_writer(session_bag_dir)
-        try:
             # Data file must be opened before starting recording
             if not self.simulate:
                 self._open_data_file()
             try:
                 # Start sample retrieval loop in separate thread
-                self._start_sample_retrieval()
+                self._start_sample_retrieval_loop()
                 try:
                     if self.simulate:
                         self.log(
-                            "Simulating eyelink, skipping recording start",
+                            "Simulating eyelink, skipping retrieval start",
                             severity="WARN",
                         )
                     else:
@@ -589,50 +655,137 @@ class Eyelink(BaseNode):
                                 f"Only binocular mode is supported, got {eye_available}"
                             )
                 except Exception:
-                    self._stop_sample_retrieval()
+                    self._stop_sample_retrieval_loop()
                     raise
             except Exception:
-                self._close_data_file()
+                self._close_data_file(save=False)
                 raise
-        except Exception:
-            self._close_bag_writer()
-            raise
 
-        # Start gaze_estimation_timer
-        self.gaze_estimation_timer.reset()
+            # Start gaze_estimation_timer
+            self.gaze_estimation_timer.reset()
 
-        self.recording = True
+            self._retrieving = True
 
-    def stop_recording(self) -> None:
-        """Stop recording and save data.
+    def stop_retrieval(self) -> None:
+        """TODO"""
+        with self._retrieval_lock:
+            self.log("Stopping sample retrieval")
+            if not self._retrieving:
+                self.log(
+                    "Not retrieving, skipping sample retrieval stop",
+                    severity="WARN",
+                )
+                return
 
-        Stops sample retrieval, stops tracker recording, closes the
-        data file, and transfers it to the local machine.
-        """
-        if not self.recording:
-            self.log("Not recording, skipping stop", severity="WARN")
-            return
+            if self.goal_ongoing or self.has_subscribers:
+                self.log(
+                    "Retrieval still needed, can't stop yet",
+                    severity="WARN",
+                )
+                return
 
-        # Stop gaze_estimation_timer
-        self.gaze_estimation_timer.cancel()
+            # Stop gaze_estimation_timer
+            self.gaze_estimation_timer.cancel()
 
-        # Close bag writer
-        self._close_bag_writer()
+            # Stop sample retrieval before stopping recording
+            self._stop_sample_retrieval_loop()
 
-        # Stop sample retrieval before stopping recording
-        self._stop_sample_retrieval()
+            if self.simulate:
+                self.log(
+                    "Simulating eyelink, skipping retrieval stop",
+                    severity="WARN",
+                )
+            else:
+                self.tracker.stopRecording()
+                self._close_data_file(save=True)
 
-        if self.simulate:
-            self.log(
-                "Simulating eyelink, skipping recording stop",
-                severity="WARN",
-            )
-        else:
-            self.log("Stopping recording")
-            self.tracker.stopRecording()
-            self._close_data_file()
+            self._retrieving = False
 
-        self.recording = False
+    # def start_recording(self, session_bag_dir: str | None) -> None:
+    #     """Start recording eye tracking data.
+    #
+    #     Opens a data file on the Eyelink PC, starts the sample retrieval
+    #     loop, and begins tracker recording in binocular mode.
+    #
+    #     Raises:
+    #         RuntimeError: If already recording or if not in binocular mode.
+    #     """
+    #     with self.recording_lock:
+    #         if self.recording:
+    #             raise RuntimeError("Can't start recording, already recording")
+    #
+    #         self._open_bag_writer(session_bag_dir)
+    #         try:
+    #             # Data file must be opened before starting recording
+    #             if not self.simulate:
+    #                 self._open_data_file()
+    #             try:
+    #                 # Start sample retrieval loop in separate thread
+    #                 self._start_sample_retrieval_loop()
+    #                 try:
+    #                     if self.simulate:
+    #                         self.log(
+    #                             "Simulating eyelink, skipping recording start",
+    #                             severity="WARN",
+    #                         )
+    #                     else:
+    #                         self.log("Starting recording")
+    #                         self.tracker.setOfflineMode()
+    #                         self.tracker.startRecording(1, 0, 1, 0)
+    #                         # pylink.endRealTimeMode()
+    #                         self.tracker.sendMessage("SYNCTIME")
+    #                         eye_available = self.eye_available()
+    #                         if eye_available != EyeAvailable.BINOCULAR:
+    #                             raise RuntimeError(
+    #                                 f"Only binocular mode is supported, got {eye_available}"
+    #                             )
+    #                 except Exception:
+    #                     self._stop_sample_retrieval_loop()
+    #                     raise
+    #             except Exception:
+    #                 self._close_data_file(session_bag_dir=None)
+    #                 raise
+    #         except Exception:
+    #             self._close_bag_writer()
+    #             raise
+    #
+    #         # Start gaze_estimation_timer
+    #         self.gaze_estimation_timer.reset()
+    #
+    #         self._session_bag_dir = session_bag_dir
+    #         self.recording = True
+    #
+    # def stop_recording(self) -> None:
+    #     """Stop recording and save data.
+    #
+    #     Stops sample retrieval, stops tracker recording, closes the
+    #     data file, and transfers it to the local machine.
+    #     """
+    #     with self.recording_lock:
+    #         if not self.recording:
+    #             self.log("Not recording, skipping stop", severity="WARN")
+    #             return
+    #
+    #         # Stop gaze_estimation_timer
+    #         self.gaze_estimation_timer.cancel()
+    #
+    #         # Stop sample retrieval before stopping recording
+    #         self._stop_sample_retrieval_loop()
+    #
+    #         # Close bag writer
+    #         self._close_bag_writer()
+    #
+    #         if self.simulate:
+    #             self.log(
+    #                 "Simulating eyelink, skipping recording stop",
+    #                 severity="WARN",
+    #             )
+    #         else:
+    #             self.log("Stopping recording")
+    #             self.tracker.stopRecording()
+    #             self._close_data_file(self._session_bag_dir)
+    #
+    #         self.recording = False
 
     ###########################################################################
     # Sample retrieval
@@ -741,14 +894,24 @@ class Eyelink(BaseNode):
 
         In simulation mode, generates synthetic data instead.
         """
-        self.log("Starting sample retrieval loop")
+        self.log("Entered sample retrieval loop")
         wait_for_data_timeout_ms = int(
             self.param("wait_for_data_timeout") * 1e3
         )
-        period = 1 / self.param("sample_rate")
+        period: float = 1 / self.param("sample_rate")
+        publish_batched: bool = self.param("publish_batched")
+
+        array_msg = EyelinkArrayMsg()
+        array_idx = 0
+        array_len = len(array_msg.samples)
+
+        assert isinstance(array_msg.samples, list)
+        assert array_len > 0
+
         config = self.preprocess_config["clean_eyelink"]
         min_pos = config["min_eye_pos"]
         max_pos = config["max_eye_pos"]
+
         try:
             # Wait for the tracker to be connected
             while (
@@ -758,9 +921,8 @@ class Eyelink(BaseNode):
             ):
                 self.ros_sleep(period)
 
-            # Receive data from the tracker, add it to the message queue, and
-            # record it to the bag
             while not self.stop_sample_retrieval_event.is_set():
+                # Receive data from the tracker and convert to ROS message if valid
                 start_time = self.ros_time()
                 if self.simulate:
                     msg = self.generate_simulated_msg(min_pos, max_pos)
@@ -776,31 +938,42 @@ class Eyelink(BaseNode):
                             severity="WARN",
                         )
                         continue
-
+                    timestamp = self.get_clock().now()
                     sample: Sample | None = self.tracker.getNewestSample()
                     if sample is None or not isinstance(sample, Sample):  # type: ignore
                         msg = None
                     else:
-                        timestamp = self.get_clock().now()
                         self.tracker.resetData()
                         msg = self.sample_to_msg(sample, timestamp)
 
+                # Add the message to the queue and record it to the bag
                 if msg is not None:
                     self.message_queue.append(msg)
-                    if hasattr(self, "bag_writer"):
-                        self.bag_writer.write(
-                            "/eyelink/sample",
-                            serialize_message(msg),  # type: ignore
-                            timestamp.nanoseconds,  # type: ignore
-                        )
+                    if self.has_subscribers:
+                        if publish_batched:
+                            array_msg.samples[array_idx] = msg  # type: ignore
+                            array_idx += 1
+                            if array_idx == array_len:
+                                self.sample_publisher.publish(array_msg)
+                                array_msg = EyelinkArrayMsg()
+                                array_idx = 0
+                        else:
+                            self.sample_publisher.publish(msg)
+                    # if hasattr(self, "bag_writer"):
+                    #     self.bag_writer.write(
+                    #         "/eyelink/sample",
+                    #         serialize_message(msg),  # type: ignore
+                    #         timestamp.nanoseconds,  # type: ignore
+                    #     )
 
                 # Sleep for a short period to avoid busy-waiting (necessary
                 # to force a context switch to other threads)
                 sleep_time = period - (self.ros_time() - start_time)
+                assert period > 0
                 if self.simulate:
-                    self.ros_sleep(0.9 * sleep_time)
-                else:
                     self.ros_sleep(sleep_time)
+                else:
+                    self.ros_sleep(0.95 * sleep_time)
         except (ROSSleepError, NotInitializedException) as e:
             if rclpy.ok():  # type: ignore
                 raise RuntimeError("ROS2 is still running") from e
@@ -952,87 +1125,73 @@ class Eyelink(BaseNode):
     # ROS callbacks
     ###########################################################################
 
-    # def open_data_file_callback(
-    #     self, request: Trigger.Request, response: Trigger.Response
-    # ) -> Trigger.Response:
-    #     """Service to open a data file on the EyeLink PC."""
-    #     self.open_data_file()
-    #     response.success = True
-    #     response.message = "Data file opened"
-    #     return response
+    def sample_publisher_matched_callback(self, info: QoSPublisherMatchedInfo):
+        if info.current_count > 0:
+            with self._subscribers_lock:
+                self._has_subscribers = True
+            self.start_retrieval()
+        else:
+            assert info.current_count == 0
+            with self._subscribers_lock:
+                self._has_subscribers = False
+            self.stop_retrieval()
+
+    # def start_recording_callback(
+    #     self,
+    #     request: EyelinkStartRecording.Request,
+    #     response: EyelinkStartRecording.Response,
+    # ) -> EyelinkStartRecording.Response:
+    #     """Handle start_recording service request.
     #
-    # def close_data_file_callback(
-    #     self, request: Trigger.Request, response: Trigger.Response
-    # ) -> Trigger.Response:
-    #     """Service to close the data file on the EyeLink PC."""
+    #     Args:
+    #         request: Empty trigger request.
+    #         response: Response to populate.
+    #
+    #     Returns:
+    #         Response with success status.
+    #     """
+    #     if request.session_bag_dir == "":
+    #         session_bag_dir = None
+    #     else:
+    #         session_bag_dir = request.session_bag_dir
     #     try:
-    #         self.close_data_file()
+    #         self.start_recording(session_bag_dir)
     #     except Exception as e:
     #         response.success = False
     #         response.message = (
-    #             f"Error closing data file: {type(e).__name__}: {e}"
+    #             f"Start recording failed with error {type(e).__name__}: {e}"
     #         )
-    #         self.log(response.message, severity="ERROR")
-    #         return response
+    #     else:
+    #         response.success = True
+    #         response.message = "Recording started"
     #
-    #     response.success = True
-    #     response.message = (
-    #         "Data file closed, transferred, and converted to ASC"
-    #     )
     #     return response
-
-    def start_recording_callback(
-        self,
-        request: EyelinkStartRecording.Request,
-        response: EyelinkStartRecording.Response,
-    ) -> EyelinkStartRecording.Response:
-        """Handle start_recording service request.
-
-        Args:
-            request: Empty trigger request.
-            response: Response to populate.
-
-        Returns:
-            Response with success status.
-        """
-        try:
-            self.start_recording(request.sessions_bag_dir)
-        except Exception as e:
-            response.success = False
-            response.message = (
-                f"Start recording failed with error {type(e).__name__}: {e}"
-            )
-        else:
-            response.success = True
-            response.message = "Recording started"
-
-        return response
-
-    def stop_recording_callback(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
-        """Handle stop_recording service request.
-
-        Args:
-            request: Empty trigger request.
-            response: Response to populate.
-
-        Returns:
-            Response with success status.
-        """
-        try:
-            self.stop_recording()
-        except Exception as e:
-            response.success = False
-            response.message = (
-                f"Stop recording failed with error {type(e).__name__}: {e}"
-            )
-        else:
-            response.success = True
-            response.message = "Recording stopped"
-
-        return response
-
+    #
+    # def stop_recording_callback(
+    #     self, request: Trigger.Request, response: Trigger.Response
+    # ) -> Trigger.Response:
+    #     """Handle stop_recording service request.
+    #
+    #     Args:
+    #         request: Empty trigger request.
+    #         response: Response to populate.
+    #
+    #     Returns:
+    #         Response with success status.
+    #     """
+    #     try:
+    #         self.stop_recording()
+    #     except Exception as e:
+    #         response.success = False
+    #         response.message = (
+    #             f"Stop recording failed with error {type(e).__name__}: {e}"
+    #         )
+    #     else:
+    #         response.success = True
+    #         response.message = "Recording stopped"
+    #
+    #     return response
+    #
     def smooth_pursuit_goal_callback(self, _: Any) -> GoalResponse:
         """Handle incoming smooth pursuit action goals.
 
@@ -1044,15 +1203,15 @@ class Eyelink(BaseNode):
         Returns:
             GoalResponse.ACCEPT or GoalResponse.REJECT.
         """
-        with self.goal_callback_lock:
-            if self.goal_ongoing:
+        with self._goal_lock:
+            if self._goal_ongoing:
                 self.log(
                     "Cannot accept new goal, previous goal not finished",
                     severity="WARN",
                 )
                 return GoalResponse.REJECT
             else:
-                self.goal_ongoing = True
+                self._goal_ongoing = True
                 return GoalResponse.ACCEPT
 
     def smooth_pursuit_cancel_callback(self, _: Any) -> CancelResponse:
@@ -1064,8 +1223,8 @@ class Eyelink(BaseNode):
         Returns:
             CancelResponse.ACCEPT or CancelResponse.REJECT.
         """
-        with self.goal_callback_lock:
-            if self.goal_ongoing:
+        with self._goal_lock:
+            if self._goal_ongoing:
                 return CancelResponse.ACCEPT
             else:
                 self.log(
@@ -1089,11 +1248,14 @@ class Eyelink(BaseNode):
             Empty result (action typically cancelled by client).
         """
         try:
+            self.start_retrieval()
             self.log("Starting smooth pursuit")
             window = self.param("smooth_pursuit.window")
             last_smooth_pursuit = False
 
-            while not goal_handle.is_cancel_requested:
+            while (
+                goal_handle.is_active and not goal_handle.is_cancel_requested
+            ):
                 start_time = self.ros_time()
                 smooth_pursuit = self.get_smooth_pursuit()
 
@@ -1112,19 +1274,19 @@ class Eyelink(BaseNode):
 
                 self.ros_sleep(window - (self.ros_time() - start_time))
 
-            goal_handle.canceled()
-            return EyelinkSmoothPursuit.Result()
-        except ROSSleepError:
-            self.log("ROS2 clock did not sleep correctly", severity="WARN")
-            return EyelinkSmoothPursuit.Result()
-        except Exception as e:
-            self.log(
-                f"Error in smooth pursuit callback: {e}", severity="ERROR"
-            )
+        except Exception:
+            goal_handle.abort()
             raise
+        else:
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+            else:
+                goal_handle.abort()
+            return EyelinkSmoothPursuit.Result()
         finally:
-            with self.goal_callback_lock:
-                self.goal_ongoing = False
+            with self._goal_lock:
+                self._goal_ongoing = False
+            self.stop_retrieval()
 
     def gaze_estimation_callback(self) -> None:
         """Publish gaze estimation predictions.
@@ -1184,7 +1346,7 @@ class Eyelink(BaseNode):
         """
 
         try:
-            self.stop_recording()
+            self.stop_retrieval()
         except Exception as e:
             self.log(
                 f"Error stopping recording: {type(e).__name__}: {e}",
@@ -1234,7 +1396,7 @@ def main(args=None):
         executor.add_node(eyelink)
 
         try:
-            eyelink.start_recording(eyelink.param("session_bag_dir"))
+            # eyelink.start_recording(eyelink.param("session_bag_dir"))
             print("Spinning")
             executor.spin()
         finally:

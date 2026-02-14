@@ -1,4 +1,4 @@
-string sessions_bag_dir
+string session_bag_dir
 ---
 bool success
 string message

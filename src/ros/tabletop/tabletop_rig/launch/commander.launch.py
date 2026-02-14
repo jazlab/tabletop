@@ -67,11 +67,11 @@ def declare_arguments():
             default_value="null",
             description="Coroutine config",
         ),
-        DeclareLaunchArgument(
-            "session_bag_dir",
-            default_value="null",
-            description="Session bag directory to send to eyelink node",
-        ),
+        # DeclareLaunchArgument(
+        #     "session_bag_dir",
+        #     default_value="null",
+        #     description="Session bag directory to send to eyelink node",
+        # ),
         DeclareLaunchArgument(
             "new_cache",
             default_value="null",
@@ -205,11 +205,11 @@ def generate_launch_description():
                 )
 
         # Session bag directory
-        session_bag_dir_value = LaunchConfiguration("session_bag_dir").perform(
-            context
-        )
-        if session_bag_dir_value != "null":
-            commander_overrides["session_bag_dir"] = session_bag_dir_value
+        # session_bag_dir_value = LaunchConfiguration("session_bag_dir").perform(
+        #     context
+        # )
+        # if session_bag_dir_value != "null":
+        #     commander_overrides["session_bag_dir"] = session_bag_dir_value
 
         # Save the scoped overrides
         commander_overrides_scoped = {

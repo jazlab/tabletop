@@ -12,6 +12,7 @@ topics:
   - /rigid_bodies_viz
   # Eyelink node
   - /eyelink/sample
+  - /eyelink/sample_array
   - /predicted_markers
   # Flir
   - /left_front_top_cam/image_raw/camera_info

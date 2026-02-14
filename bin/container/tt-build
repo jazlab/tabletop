@@ -10,7 +10,7 @@ print_usage() {
     echo "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
 }
 
-cd $COLCON_WS
+builtin cd $COLCON_WS
 
 # Parse arguments
 build_debug=false
@@ -173,7 +173,7 @@ if [[ $verbose = true ]]; then
 fi
 
 # Build ROS 2 packages
-command="colcon --log-base $COLCON_WS/log/colcon build \
+command="colcon --log-base log/colcon build \
 --base-paths $base_paths \
 $packages_skip \
 $packages_skip_regex \
@@ -193,3 +193,6 @@ source install/setup.bash
 
 # Install ROS 2 runtime dependencies
 tt-dep-install --type exec $from_paths --skip-uv
+
+# Write to build/last_built.txt to indicate to docker containers a rebuild has occured
+date > "build/last_built.txt"

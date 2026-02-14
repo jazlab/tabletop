@@ -14,6 +14,7 @@ from collections.abc import (
 )
 from typing import Any, Coroutine
 
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -46,7 +47,10 @@ class EyelinkInterface(BaseInterface):
 
         # Smooth pursuit action client
         self._smooth_pursuit_client = AIOActionClient(
-            self.node, EyelinkSmoothPursuit, "/eyelink/smooth_pursuit"
+            self.node,
+            EyelinkSmoothPursuit,
+            "/eyelink/smooth_pursuit",
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
         # Wait for action server
@@ -56,10 +60,48 @@ class EyelinkInterface(BaseInterface):
             self._smooth_pursuit_client.wait_for_server()
             self._waited = True
 
+        # self._recording = False
+
         self.log("Eyelink interface initialized")
 
-    def start_recording(self):
-        pass
+    # async def start_recording(self):
+    #     if self._recording:
+    #         self.log("Already started recording", severity="WARN")
+    #         return
+    #
+    #     await self.node.service_call_async(
+    #         EyelinkStartRecording.Request(
+    #             session_bag_dir=self.node.param("session_bag_dir")
+    #         ),
+    #         srv_type=EyelinkStartRecording,
+    #         srv_name="/eyelink/start_recording",
+    #     )
+    #     self._recording = True
+    #
+    # async def stop_recording(self):
+    #     if not self._recording:
+    #         self.log("Already stopped recording", severity="WARN")
+    #         return
+    #
+    #     await self.node.service_call_async(
+    #         Trigger.Request(),
+    #         srv_type=Trigger,
+    #         srv_name="/eyelink/stop_recording",
+    #     )
+    #     self._recording = False
+
+    # def _stop_recording_blocking(self, timeout: float | None = None):
+    #     if not self._recording:
+    #         self.log("Already stopped recording", severity="WARN")
+    #         return
+    #
+    #     self.node.service_call_blocking(
+    #         Trigger.Request(),
+    #         srv_type=Trigger,
+    #         srv_name="/eyelink/stop_recording",
+    #         timeout=timeout,
+    #     )
+    #     self._recording = False
 
     def _smooth_pursuit_producer(
         self,
@@ -148,9 +190,32 @@ class EyelinkInterface(BaseInterface):
             await self._smooth_pursuit_client.get_result_async(goal_handle)
             consumer_task.cancel()
 
+    # async def __aenter__(self) -> Self:
+    #     await self.start_recording()
+    #     return self
+    #
+    # async def __aexit__(
+    #     self,
+    #     exc_type: Optional[type[BaseException]],
+    #     exc_value: Optional[BaseException],
+    #     exc_tb: Optional[TracebackType],
+    # ) -> bool | None:
+    #     return None
+
     def destroy_interface(self):
         """Clean up EyelinkSmoothPursuit action client"""
         self.log("Destroying EyelinkInterface")
+
+        # if self._recording:
+        #     try:
+        #         self._stop_recording_blocking(timeout=1.0)
+        #     except BaseException as e:
+        #         self.log(
+        #             f"Failed to stop recording when destroying interface with error {type(e).__name__}: {e}",
+        #             severity="ERROR",
+        #         )
+
         if hasattr(self, "_smooth_pursuit_client"):
             self._smooth_pursuit_client.destroy()
+
         super().destroy_interface()

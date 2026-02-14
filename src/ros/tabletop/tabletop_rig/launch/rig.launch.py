@@ -24,7 +24,6 @@ from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.logging import launch_config
 from launch.substitutions import (
-    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -182,7 +181,7 @@ def declare_arguments():
         # Eyelink
         DeclareLaunchArgument(
             "eyelink_launch",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Launch Eyelink?",
         ),
@@ -332,7 +331,7 @@ def generate_launch_description():
                 launch_arguments={
                     "robot_name": LaunchConfiguration("robot_name"),
                     "robot_mode": LaunchConfiguration("robot_mode"),
-                    "session_bag_dir": session_bag_dir,
+                    # "session_bag_dir": session_bag_dir,
                     "commander_log_level": LaunchConfiguration(
                         "commander_log_level"
                     ),
@@ -545,9 +544,9 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     "simulate": LaunchConfiguration("eyelink_simulate"),
-                    "initial_bag_dir": IfElseSubstitution(
-                        LaunchConfiguration("rosbag"), session_bag_dir, "null"
-                    ),
+                    # "initial_bag_dir": IfElseSubstitution(
+                    #     LaunchConfiguration("rosbag"), session_bag_dir, "null"
+                    # ),
                     "log_level": LaunchConfiguration("eyelink_log_level"),
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
                 }.items(),

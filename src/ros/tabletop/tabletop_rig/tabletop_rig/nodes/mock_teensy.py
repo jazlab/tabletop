@@ -56,6 +56,7 @@ from tabletop_interfaces.srv import (
 
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.logging import SeverityString
 
 monkey_logger = rclpy.logging.get_logger("wiggins")
 
@@ -439,7 +440,10 @@ class MockTeensy(BaseNode):
         self.log("MockTeensy initialized")
 
     def log(
-        self, message: Any, severity: str | LoggingSeverity = "INFO", **kwargs
+        self,
+        message: Any,
+        severity: SeverityString | LoggingSeverity = "INFO",
+        **kwargs,
     ) -> bool:
         """Log a message and publish it to /teensy/log.
 

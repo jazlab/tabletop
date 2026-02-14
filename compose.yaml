@@ -18,7 +18,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
-    restart: unless-stopped
+    restart: on-failure
 
   novnc:
     <<: *common
@@ -41,7 +41,7 @@ services:
       - WINDOW_MANAGER=dwm
     depends_on:
       - autoheal
-    restart: unless-stopped
+    restart: on-failure
 
   ursim:
     <<: *common
@@ -60,7 +60,7 @@ services:
       novnc:
         condition: service_healthy
         restart: true
-    restart: unless-stopped
+    restart: on-failure
     init: true
     entrypoint: [ /entrypoint.sh ]
 
@@ -116,6 +116,10 @@ services:
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
     stop_signal: SIGINT
+    develop:
+      watch:
+        - path: ./build/last_built.txt
+          action: restart
     # init: true
 
   foxglove:
@@ -124,7 +128,7 @@ services:
     profiles: !override
       - real
       - sim
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch foxglove
 
   rviz:
@@ -138,7 +142,7 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch rviz
 
   ur:
@@ -146,7 +150,7 @@ services:
     container_name: tabletop-ur
     profiles: !override
       - real
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch ur robot_mode:=real
 
   ur-mock:
@@ -154,7 +158,7 @@ services:
     container_name: tabletop-ur-mock
     profiles: !override
       - sim
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch ur robot_mode:=mock
 
   optitrack:
@@ -162,7 +166,7 @@ services:
     profiles: !override
       - real
     container_name: tabletop-optitrack
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch optitrack
 
   flir:
@@ -178,7 +182,7 @@ services:
       - $FLIR_DEV_4
       - $FLIR_DEV_5
     cpus: 8 # Limit cpu usage
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch flir
 
   teensy:
@@ -188,7 +192,7 @@ services:
       - real
     devices:
       - $TEENSY_DEV
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch teensy simulate:=false
 
   teensy-sim:
@@ -196,7 +200,7 @@ services:
     container_name: tabletop-teensy-sim
     profiles: !override
       - sim
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch teensy simulate:=true
 
   flic:
@@ -209,7 +213,7 @@ services:
         condition: service_healthy
         restart: true
         # condition: service_started
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch flic simulate:=false
 
   flic-sim:
@@ -217,7 +221,7 @@ services:
     extends: ros-base
     profiles: !override
       - sim
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch flic simulate:=true
 
   eyelink:
@@ -225,7 +229,7 @@ services:
     extends: ros-base
     profiles: !override
       - real
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch eyelink simulate:=false
 
   eyelink-sim:
@@ -233,7 +237,7 @@ services:
     extends: ros-base
     profiles: !override
       - sim
-    restart: unless-stopped
+    restart: on-failure
     command: tt-launch eyelink simulate:=true
 
   commander:

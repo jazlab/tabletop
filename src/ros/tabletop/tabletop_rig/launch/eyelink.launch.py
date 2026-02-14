@@ -10,7 +10,6 @@ from launch.substitutions import (
     LaunchLogDir,
 )
 from launch_ros.actions import Node, SetROSLogDir
-from launch_ros.parameter_descriptions import ParameterValue
 
 
 def declare_arguments():
@@ -21,11 +20,11 @@ def declare_arguments():
             choices=["true", "false"],
             description="Simulate Flic",
         ),
-        DeclareLaunchArgument(
-            "initial_bag_dir",
-            default_value="null",
-            description="Initial bag directory for Eyelink",
-        ),
+        # DeclareLaunchArgument(
+        #     "initial_bag_dir",
+        #     default_value="null",
+        #     description="Initial bag directory for Eyelink",
+        # ),
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
@@ -51,9 +50,9 @@ def generate_launch_description():
         parameters=[
             {
                 "simulate": LaunchConfiguration("simulate"),
-                "session_bag_dir": ParameterValue(
-                    LaunchConfiguration("initial_bag_dir"), value_type=str
-                ),
+                # "session_bag_dir": ParameterValue(
+                #     LaunchConfiguration("initial_bag_dir"), value_type=str
+                # ),
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
             },
         ],
