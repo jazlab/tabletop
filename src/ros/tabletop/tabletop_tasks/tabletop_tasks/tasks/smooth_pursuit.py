@@ -23,7 +23,6 @@ Example:
 """
 
 import asyncio
-import time
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -32,6 +31,7 @@ from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
+from tabletop_rig.exceptions import PlanningError
 from tabletop_rig.nodes import Commander
 
 from tabletop_tasks.tasks.base import BaseTask
@@ -67,6 +67,7 @@ class SmoothPursuitTask(BaseTask):
         num_repetitions: int,
         object_id: str,
         velocity_scaling_factor: float = 1.0,
+        max_random_plan_attempts: int = 5,
     ):
         """Initialize the smooth pursuit task.
 
@@ -88,14 +89,18 @@ class SmoothPursuitTask(BaseTask):
         """
         super().__init__("smooth_pursuit_task", commander)
         if motion_type == "spiral":
-            self._goals = self.generate_spiral(**motion_kwargs)
             self._post_process_after_concat = True
+            self._max_plan_attempts = 1
+            self._motion_generator_fn = self.generate_spiral
         elif motion_type == "random":
-            self._goals = self.generate_random(**motion_kwargs)
             self._post_process_after_concat = False
+            self._max_plan_attempts = max_random_plan_attempts
+            self._motion_generator_fn = self.generate_random
         else:
             raise ValueError(f"Unsupported motion type: {motion_type}")
 
+        self._motion_type = motion_type
+        self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
         self._velocity_scaling_factor = velocity_scaling_factor
 
@@ -259,21 +264,40 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            # Move to trajectory start position
-            await self.commander.plan_and_execute(goal=self._goals[0])
+            for i in range(self._max_plan_attempts):
+                goals = self._motion_generator_fn(**self._motion_kwargs)
 
-            # Plan the full concatenated trajectory through remaining waypoints
-            start = time.time()
-            trajectory = await self.commander.plan(
-                goals=self._goals[1:],
-                velocity_scaling_factor=self._velocity_scaling_factor,
-                post_process_after_concat=self._post_process_after_concat,
-                loop=True,
-                planning_pipeline="linear",
-                use_cache=False,
-            )
-            self.log(f"Time Taken: {time.time() - start}")
-            assert trajectory is not None
+                try:
+                    # Plan to first waypoint using default planning pipeline
+                    start_trajectory = await self.commander.plan(goal=goals[0])
+
+                    # Plan the full concatenated trajectory through remaining waypoints
+                    trajectory = await self.commander.plan(
+                        goals=goals[1:],
+                        start_state=start_trajectory[
+                            len(start_trajectory) - 1
+                        ],
+                        velocity_scaling_factor=self._velocity_scaling_factor,
+                        post_process_after_concat=self._post_process_after_concat,
+                        loop=True,
+                        planning_pipeline="linear",
+                        use_cache=False,
+                    )
+                    break
+                except PlanningError as e:
+                    self.log(
+                        f"Error while planning smooth pursuit trajectory: {type(e).__name__}: {e}",
+                        severity="ERROR",
+                    )
+                    if (remaining := self._max_plan_attempts - i - 1) > 0:
+                        self.log(f"Trying again {remaining} more times")
+            else:
+                raise RuntimeError(
+                    f"Could not plan smooth pursuit trajectory after {self._max_plan_attempts} attempts"
+                )
+
+            # Move to first waypoint
+            await self.commander.execute(start_trajectory)
 
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()

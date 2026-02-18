@@ -205,9 +205,10 @@ class Eyelink(BaseNode):
         "smooth_pursuit.max_speed": 30000,  # scaled_units/s
         "smooth_pursuit.min_speed": 1000,  # scaled_units/s
         "smooth_pursuit.min_samples": 80,
-        "live_gaze_estimation": False,
+        "live_gaze_estimation": True,
         "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
-        "gaze_estimation_frequency": 100,  # Hz
+        "gaze_estimation_freq": 100,  # Hz
+        "gaze_estimation_window": 0.05,  # seconds
         "simulate": False,
         "simulate_radius": 1000,
         "simulate_rotations_per_second": 1.0,
@@ -383,7 +384,7 @@ class Eyelink(BaseNode):
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
             self.gaze_estimation_timer = self.create_timer(
-                1 / self.param("gaze_estimation_frequency"),
+                1 / self.param("gaze_estimation_freq"),
                 self.gaze_estimation_callback,
                 callback_group=MutuallyExclusiveCallbackGroup(),
                 autostart=False,
@@ -1262,9 +1263,18 @@ class Eyelink(BaseNode):
         and publishes the predicted 3D gaze point as a Marker.
         """
         msgs = self.message_queue.to_list()
+        now = self.ros_time()
 
-        x = None
-        for msg in msgs:
+        y = None
+        for msg in reversed(msgs):
+            if now - seconds_from_ros_time(msg.header.stamp) > self.param(
+                "gaze_estimation_window"
+            ):
+                self.log(
+                    f"No messages within {self.param('gaze_estimation_window')} in queue",
+                    severity="DEBUG",
+                )
+                break
             if (
                 msg.left_x != MISSING_DATA
                 and msg.left_y != MISSING_DATA
@@ -1285,7 +1295,8 @@ class Eyelink(BaseNode):
                     )
                 self.log(f"Gaze estimation: {y}", severity="DEBUG")
                 break
-        else:
+
+        if y is None:
             y = [0.0, 0.1, 0.0]
             self.log(
                 f"No valid messages in queue, publishing default ({y})",

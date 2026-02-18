@@ -7,7 +7,7 @@ preprocess:
     freq_rtol: 1.0
     freq_var_tol: 0.01
   format_marker:
-    verify: false
+    verify: true
     freq_rtol: 0.01
     freq_var_tol: 0.001
     max_marker_time_correction: 0.05

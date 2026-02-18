@@ -432,21 +432,15 @@ def format_marker_columns(
 def standardize_timestamps(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
-    *,
-    start_time: float = 0.0,
-    end_time: float = float("inf"),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Standardizes the timestamps of the eye tracker and optical marker data.
-    This first shifts the data so that the beginning of the shared time range
-    is at 0, and then filters out data outside the tighter of the provided
-    and calculated time ranges.
+    This shifts the data so that the beginning of the shared time range
+    is at 0.
 
     Args:
         eyelink_df: The eye tracker data.
         markers_df: The optical marker data.
-        start_time: The start time (after shifting) of the data to select.
-        end_time: The end time (after shifting) of the data to select.
 
     Returns:
         The standardized eye tracker and optical marker data.
@@ -458,6 +452,33 @@ def standardize_timestamps(
     min_time = max(eyelink_df["time"].min(), markers_df["time"].min())
     eyelink_df["time"] = eyelink_df["time"] - min_time
     markers_df["time"] = markers_df["time"] - min_time
+
+    return eyelink_df, markers_df
+
+
+def filter_timestamps(
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+    *,
+    start_time: float = 0.0,
+    end_time: float = float("inf"),
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Filters the timestamps of the eye tracker and optical marker data.
+    This removes data outside the tighter of the provided and calculated
+    shared time ranges.
+
+    Args:
+        eyelink_df: The eye tracker data.
+        markers_df: The optical marker data.
+        start_time: The start time (after standardizing) of the data to select.
+        end_time: The end time (after standardizing) of the data to select.
+
+    Returns:
+        The standardized eye tracker and optical marker data.
+    """
+    eyelink_df = eyelink_df.copy()
+    markers_df = markers_df.copy()
 
     # Filter out data outside the time range provided
     start_time = max(
@@ -610,7 +631,7 @@ def merge_and_interpolate_data(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
     *,
-    freq: float,
+    eyelink_freq: float,
     marker_interpolation_limit: float,
 ) -> pd.DataFrame:
     """
@@ -630,7 +651,7 @@ def merge_and_interpolate_data(
     """
     verify_timestamps(
         eyelink_df[["time"]],  # type: ignore
-        freq,
+        eyelink_freq,
         freq_rtol=1e-3,
         freq_var_tol=1e-3,
     )
@@ -641,7 +662,7 @@ def merge_and_interpolate_data(
         markers_df,
         eyelink_df["time"],  # type: ignore
         on="time",
-        tolerance=1 / freq,
+        tolerance=1 / eyelink_freq,
     )
 
     df = pd.merge(
@@ -679,7 +700,7 @@ def merge_and_interpolate_data(
     # logger.info(f"Dropped {num_dropped} out of {df.shape[0]} rows")
 
     df = df.set_index("time")
-    limit = int(marker_interpolation_limit * freq)
+    limit = int(marker_interpolation_limit * eyelink_freq)
     df[MARKER_DATA_COLS] = df[MARKER_DATA_COLS].interpolate(
         method="slinear",
         limit=limit,
@@ -724,14 +745,17 @@ def preprocess_data(
     config = cast(Mapping[str, Any], config["preprocess"])
 
     eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
+    markers_path = os.path.join(session_dir, "markers.csv")
+
     if os.path.exists(eyelink_path):
         raw_eyelink_df = pd.read_csv(eyelink_path, index_col=False)
     else:
-        eyelink_path = os.path.join(session_dir, "eyelink_sample_array.csv")
-        raw_eyelink_array_df = pd.read_csv(eyelink_path, index_col=False)
+        eyelink_array_path = os.path.join(
+            session_dir, "eyelink_sample_array.csv"
+        )
+        raw_eyelink_array_df = pd.read_csv(eyelink_array_path, index_col=False)
         raw_eyelink_df = eyelink_array_to_samples(raw_eyelink_array_df)
 
-    markers_path = os.path.join(session_dir, "markers.csv")
     raw_markers_df = pd.read_csv(markers_path, index_col=False)
 
     logger.info("Formatting columns")
@@ -747,10 +771,7 @@ def preprocess_data(
 
     logger.info("Standardizing timestamps")
     raw_eyelink_df, raw_markers_df = standardize_timestamps(
-        raw_eyelink_df,
-        raw_markers_df,
-        start_time=start_time,
-        end_time=end_time,
+        raw_eyelink_df, raw_markers_df
     )
 
     raw_eyelink_path = os.path.join(session_dir, "raw_eyelink.csv")
@@ -777,11 +798,16 @@ def preprocess_data(
         eyelink_df, freq=eyelink_freq, **config["smooth_eyelink"]
     )
 
+    logger.info("Filtering timestamps")
+    eyelink_df, markers_df = filter_timestamps(
+        eyelink_df, markers_df, start_time=start_time, end_time=end_time
+    )
+
     logger.info("Merging eyelink and markers")
     df = merge_and_interpolate_data(
         eyelink_df,
         markers_df,
-        freq=eyelink_freq,
+        eyelink_freq=eyelink_freq,
         **config["merge_and_interpolate"],
     )
 

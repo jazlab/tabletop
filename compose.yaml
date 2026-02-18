@@ -231,7 +231,7 @@ services:
       - real
     # restart: unless-stopped
     cap_add:
-      - SYS_NICEa # TODO: see if needed
+      - SYS_NICE # TODO: see if needed
     command: tt-launch eyelink simulate:=false
 
   eyelink-sim:

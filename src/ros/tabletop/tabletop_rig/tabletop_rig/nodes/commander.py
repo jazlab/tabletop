@@ -407,7 +407,7 @@ class Commander(BaseNode):
         """
         self.moveit.add_manually_attached_object(object_id)
 
-    async def plan(self, *args, **kwargs) -> RobotTrajectory | None:
+    async def plan(self, *args, **kwargs) -> RobotTrajectory:
         """Plan a trajectory to the specified goal.
 
         Generates a motion plan without executing it. Useful for
