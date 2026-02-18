@@ -171,7 +171,10 @@ class EyelinkInterface(BaseInterface):
         """
         if not self._waited:
             self.log("Waiting for eyelink smooth pursuit server")
-            await self._smooth_pursuit_client.wait_for_server_async()
+            await self._smooth_pursuit_client.wait_for_server_async(
+                timeout_sec=5.0
+            )
+            self.log("Eyelink smooth pursuit server ready")
             self._waited = True
 
         queue: asyncio.Queue[bool] = asyncio.Queue()

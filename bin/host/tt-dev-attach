@@ -21,7 +21,7 @@ export COMPOSE_REMOVE_ORPHANS=true
 # Check if dev container is already running
 if [[ ! "$(docker compose ps -q --status=running $SERVICE)" ]]; then
     if [[ "$SERVICE" = dev ]]; then
-        devcontainer up -d $SERVICE
+        devcontainer up
     else
         docker compose up -d $SERVICE
     fi

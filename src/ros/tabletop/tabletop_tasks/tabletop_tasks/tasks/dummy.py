@@ -303,6 +303,13 @@ class DummyTask(BaseTask):
         #         srv_client=client,
         #     )
 
+    async def test_smooth_pursuit(self):
+        """Test the smooth pursuit action client."""
+        self.log("Starting smooth pursuit task")
+        async with self.commander:
+            await self.commander.reveal_smartglass()
+            await self.commander.smooth_pursuit_and_reward()
+
     async def test_sound(self):
         while True:
             await self.commander.play_sound()
@@ -316,5 +323,6 @@ class DummyTask(BaseTask):
             # await self.test_flic_latency_human()
             # await self.test_robot_position()
             # await self.test_flic_latency_button()
-            await self.test_optitrack_latency_solenoid()
-            await self.test_sound()
+            # await self.test_optitrack_latency_solenoid()
+            # await self.test_sound()
+            await self.test_smooth_pursuit()

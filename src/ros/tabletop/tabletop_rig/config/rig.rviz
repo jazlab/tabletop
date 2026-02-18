@@ -5,7 +5,8 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /PlanningScene1
-        - /PlanningScene1/Status1
+        - /PlanningScene1/Scene Robot1
+        - /RobotModel1
       Splitter Ratio: 0.570588231086731
     Tree Height: 605
   - Class: rviz_common/Views
@@ -38,7 +39,7 @@ Visualization Manager:
       Enabled: true
       Name: Markers
       Namespaces:
-        {}
+        mocap4r2_markers: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -62,7 +63,7 @@ Visualization Manager:
       Enabled: true
       Name: RigidBodies
       Namespaces:
-        {}
+        mocap4r2_markers: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -164,10 +165,109 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-        Robot Alpha: 1
+        Robot Alpha: 0
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link_inertia:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        eef:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        eef_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        eef_sphere:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        flange:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        ft_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tool0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        world:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        wrist_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_2_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_3_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Mass Properties:
+        Inertia: false
+        Mass: false
+      Name: RobotModel
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -189,7 +289,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.2381560802459717
+      Distance: 3.4940240383148193
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -204,10 +304,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.16292420029640198
+      Pitch: 0.45292407274246216
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.237306118011475
+      Yaw: 5.392306804656982
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051

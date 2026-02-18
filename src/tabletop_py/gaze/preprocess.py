@@ -262,6 +262,27 @@ def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def eyelink_array_to_samples(df: pd.DataFrame) -> pd.DataFrame:
+    i = 0
+    dfs: list[pd.DataFrame] = []
+    while f"samples[{i}].header.stamp.sec" in df.columns:
+        cols = filter(lambda col: f"samples[{i}]" in col, df.columns)
+        new_df = df[cols]
+        new_df.columns = [
+            col.replace(f"samples[{i}].", "") for col in new_df.columns
+        ]
+        dfs.append(new_df)
+        i += 1
+
+    df = pd.concat(dfs, ignore_index=True)
+    df["time"] = df["header.stamp.sec"] + df["header.stamp.nanosec"] / 1e9
+    df = df.sort_values(by="time", axis=0)
+    df = df.reset_index(drop=True)
+    df = df.drop(columns="time")
+
+    return df
+
+
 def format_eyelink_columns(
     df: pd.DataFrame,
     *,
@@ -294,13 +315,18 @@ def format_eyelink_columns(
                 "freq_rtol and freq_var_tol must be provided if verify is True"
             )
 
+        time_cols = ["time", "eyelink_time"]
+
         # Convert timestamps to seconds
-        df["bag_time"] = df.bag_time_ns / 1e9
         df["eyelink_time"] = df["eyelink_time_ms"] / 1e3
+
+        if "bag_time_ns" in df.columns:
+            df["bag_time"] = df.bag_time_ns / 1e9
+            time_cols.append("bag_time")
 
         # Verify the timestamps
         verify_timestamps(
-            df[["time", "bag_time", "eyelink_time"]],  # type: ignore
+            df[time_cols],  # type: ignore
             freq,
             freq_rtol=freq_rtol,
             freq_var_tol=freq_var_tol,
@@ -698,9 +724,14 @@ def preprocess_data(
     config = cast(Mapping[str, Any], config["preprocess"])
 
     eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
-    markers_path = os.path.join(session_dir, "markers.csv")
+    if os.path.exists(eyelink_path):
+        raw_eyelink_df = pd.read_csv(eyelink_path, index_col=False)
+    else:
+        eyelink_path = os.path.join(session_dir, "eyelink_sample_array.csv")
+        raw_eyelink_array_df = pd.read_csv(eyelink_path, index_col=False)
+        raw_eyelink_df = eyelink_array_to_samples(raw_eyelink_array_df)
 
-    raw_eyelink_df = pd.read_csv(eyelink_path, index_col=False)
+    markers_path = os.path.join(session_dir, "markers.csv")
     raw_markers_df = pd.read_csv(markers_path, index_col=False)
 
     logger.info("Formatting columns")

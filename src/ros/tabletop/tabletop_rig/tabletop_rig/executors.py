@@ -49,8 +49,8 @@ from rclpy.executors import (
     ConditionReachedException,
     Executor,
     ExternalShutdownException,
+    MultiThreadedExecutor,
     ShutdownException,
-    SingleThreadedExecutor,
     TimeoutException,
     TimeoutObject,
 )
@@ -70,10 +70,6 @@ if TYPE_CHECKING:
 class WaitableEntityType(Protocol):
     callback_group: Any
     _executor_event: Any
-
-
-WAIT_SET_CLEANUP_TIMEOUT_SEC = 0.1
-"""float: Timeout for cleaning up wait sets when cancelling operations."""
 
 
 async def _call_in_tpe(
@@ -141,31 +137,49 @@ async def _call_task_coro(task: rclpy.task.Task) -> Any:
         task._task_lock.release()
 
 
-class SimpleAIOExecutor(SingleThreadedExecutor):
-    """Simple asyncio-compatible executor using polling.
+class ErrorHandlingMultiThreadedExecutor(MultiThreadedExecutor):
+    def _spin_once_impl(
+        self,
+        timeout_sec: Optional[float | TimeoutObject] = None,
+        wait_condition: Callable[[], bool] = lambda: False,
+    ) -> None:
+        try:
+            handler, entity, node = self.wait_for_ready_callbacks(
+                timeout_sec,
+                None,
+                condition=lambda: (
+                    any(f.done() for f in self._futures) or wait_condition()
+                ),
+            )
+        except (
+            ExternalShutdownException,
+            ShutdownException,
+            TimeoutException,
+            ConditionReachedException,
+        ):
+            pass
+        else:
+            self._executor.submit(handler).add_done_callback(
+                lambda _: self.wake()
+            )
+            self._futures.append(handler)
 
-    This executor provides basic asyncio compatibility by using non-blocking
-    spin_once calls with small sleep intervals. It's simpler than AIOExecutor
-    but may have slightly higher CPU usage due to polling.
+        # make a copy of the list that we iterate over while modifying it
+        # (https://stackoverflow.com/q/1207406/3753684)
+        excs: list[Exception] = []
+        for future in self._futures[:]:
+            if future.done():
+                self._futures.remove(future)
+                try:
+                    future.result()  # raise any exceptions
+                except Exception as e:
+                    excs.append(e)
+        if len(excs) > 0:
+            raise ExceptionGroup("Unhandled Task exceptions", excs)
 
-    The spin method is an async coroutine that can be awaited, allowing
-    other async tasks to run concurrently.
-
-    Example:
-        executor = SimpleAIOExecutor()
-        executor.add_node(node)
-        await executor.spin()  # Runs until shutdown
-    """
-
-    async def spin(self) -> None:
-        """Spin the executor asynchronously until shutdown.
-
-        Continuously processes callbacks using non-blocking spin_once calls
-        with brief async sleeps to yield to the event loop.
-        """
-        while self._context.ok() and not self._is_shutdown:
-            self.spin_once(timeout_sec=0)
-            await asyncio.sleep(1e-4)
+    def shutdown(self, timeout_sec: float | None = None) -> bool:
+        self._executor.shutdown()
+        return super().shutdown(timeout_sec)
 
 
 class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
