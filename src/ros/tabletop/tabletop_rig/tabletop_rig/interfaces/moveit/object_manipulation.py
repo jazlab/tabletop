@@ -939,7 +939,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         # Unpresent (for caching reasons)
         if unpresent:
-            await super().plan_and_execute(goal="present")
+            # await super().plan_and_execute(goal="present")
+            pass
             # await self._transition_state(object_id, State.PRESENT)
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []

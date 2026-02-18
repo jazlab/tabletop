@@ -105,10 +105,15 @@ def main(args=None):
 
     # Convert ROS bags to CSV files
     eyelink_path = os.path.join(args.session_dir, "eyelink_sample.csv")
-    markers_path = os.path.join(args.session_dir, "markers.csv")
-    already_converted = os.path.exists(eyelink_path) and os.path.exists(
-        markers_path
+    eyelink_array_path = os.path.join(
+        args.session_dir, "eyelink_sample_array.csv"
     )
+    markers_path = os.path.join(args.session_dir, "markers.csv")
+
+    already_converted = (
+        os.path.exists(eyelink_path) or os.path.exists(eyelink_array_path)
+    ) and os.path.exists(markers_path)
+
     if args.force or not already_converted:
         try:
             from tabletop_rig.utils.rosbag import rosbag_session_to_dfs
@@ -123,7 +128,11 @@ def main(args=None):
         else:
             rosbag_session_to_dfs(
                 args.session_dir,
-                topics=["/eyelink/sample", "/markers"],
+                topics=[
+                    "/eyelink/sample",
+                    "/eyelink/sample_array",
+                    "/markers",
+                ],
                 verbose=True,
             )
 

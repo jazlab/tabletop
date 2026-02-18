@@ -252,13 +252,13 @@ services:
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
     environment:
-      - DISPLAY=$NOVNC_DISPLAY
+      # - DISPLAY=$NOVNC_DISPLAY
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
-    depends_on:
-      novnc:
-        condition: service_healthy
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
     command: tt-launch commander
 
   dev:

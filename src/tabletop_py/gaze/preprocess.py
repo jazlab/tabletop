@@ -34,6 +34,7 @@ Example:
 import logging
 import os
 from collections.abc import Mapping
+from copy import copy
 from typing import Any, Literal, Optional, cast
 
 import numpy as np
@@ -262,6 +263,17 @@ def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def calculate_marker_speed(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the speed of the marker data.
+    """
+    df = df.copy()
+    df["speed"] = np.linalg.norm(
+        np.gradient(df[MARKER_DATA_COLS], df["time"], axis=0), axis=1
+    )
+    return df
+
+
 def eyelink_array_to_samples(df: pd.DataFrame) -> pd.DataFrame:
     i = 0
     dfs: list[pd.DataFrame] = []
@@ -456,15 +468,15 @@ def standardize_timestamps(
     return eyelink_df, markers_df
 
 
-def filter_timestamps(
+def clip_timestamps(
     eyelink_df: pd.DataFrame,
     markers_df: pd.DataFrame,
     *,
     start_time: float = 0.0,
     end_time: float = float("inf"),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Filters the timestamps of the eye tracker and optical marker data.
+    """Clip the timestamps of the eye tracker and optical marker data.
+
     This removes data outside the tighter of the provided and calculated
     shared time ranges.
 
@@ -731,6 +743,7 @@ def preprocess_data(
     marker_idx: int,
     start_time: float = 0.0,
     end_time: float = float("inf"),
+    skip_verify: bool = False,
     visualize: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -759,14 +772,20 @@ def preprocess_data(
     raw_markers_df = pd.read_csv(markers_path, index_col=False)
 
     logger.info("Formatting columns")
+    format_eyelink_config = copy(config["format_eyelink"])
+    format_marker_config = copy(config["format_marker"])
+    if skip_verify:
+        format_eyelink_config["verify"] = False
+        format_marker_config["verify"] = False
+
     raw_eyelink_df = format_eyelink_columns(
-        raw_eyelink_df, freq=eyelink_freq, **config["format_eyelink"]
+        raw_eyelink_df, freq=eyelink_freq, **format_eyelink_config
     )
     raw_markers_df = format_marker_columns(
         raw_markers_df,
         marker_idx=marker_idx,
         freq=markers_freq,
-        **config["format_marker"],
+        **format_marker_config,
     )
 
     logger.info("Standardizing timestamps")
@@ -798,8 +817,8 @@ def preprocess_data(
         eyelink_df, freq=eyelink_freq, **config["smooth_eyelink"]
     )
 
-    logger.info("Filtering timestamps")
-    eyelink_df, markers_df = filter_timestamps(
+    logger.info("Clipping timestamps")
+    eyelink_df, markers_df = clip_timestamps(
         eyelink_df, markers_df, start_time=start_time, end_time=end_time
     )
 
@@ -889,8 +908,15 @@ def main(args=None):
         help="The index of the marker to use.",
     )
     parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        default=False,
+        help="Skip timestamp consistency verification.",
+    )
+    parser.add_argument(
         "--visualize",
         action="store_true",
+        default=False,
         help="Visualize the data.",
     )
     args = parser.parse_args(args)

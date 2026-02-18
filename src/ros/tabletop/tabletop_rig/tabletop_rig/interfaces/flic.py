@@ -11,8 +11,6 @@ experiments to capture precise response timing.
 import asyncio
 from typing import Optional
 
-from action_msgs.msg import GoalStatus
-from rclpy.time import Time
 from tabletop_interfaces.action import FlicResponseTime
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -20,6 +18,7 @@ from tabletop_rig.nodes.base import (
     AIOActionClient,
     BaseNode,
 )
+from tabletop_rig.utils.ros import seconds_from_ros_time
 
 
 class FlicInterface(BaseInterface):
@@ -87,17 +86,15 @@ class FlicInterface(BaseInterface):
                 if not goal_handle.accepted:
                     raise RuntimeError("Flic goal not accepted")
 
-                response = await self._response_time_client.get_result_async(
-                    goal_handle
+                result: FlicResponseTime.Result = (
+                    await self._response_time_client.get_result_async(
+                        goal_handle
+                    )
                 )
         except TimeoutError:
             return None
 
-        if response.status != GoalStatus.STATUS_SUCCEEDED:
-            raise RuntimeError("Flic goal failed")
-
-        response_time = Time.from_msg(response.result.response_time)
-        return response_time.nanoseconds / 1e9
+        return seconds_from_ros_time(result.response_time)
 
     def destroy_interface(self):
         """Clean up FlicResponseTime action client"""

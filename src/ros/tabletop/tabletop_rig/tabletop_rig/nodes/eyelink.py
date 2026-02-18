@@ -64,7 +64,7 @@ from rclpy.event_handler import (
     PublisherEventCallbacks,
     QoSPublisherMatchedInfo,
 )
-from rclpy.exceptions import InvalidHandle, NotInitializedException
+from rclpy.exceptions import InvalidHandle
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
 from tabletop_interfaces.action import EyelinkSmoothPursuit
@@ -80,7 +80,6 @@ from tabletop_py.gaze.preprocess import (
     smooth_eyelink_data,
 )
 from tabletop_py.gaze.utils import init_model
-from tabletop_rig.exceptions import ROSSleepError
 from tabletop_rig.executors import ErrorHandlingMultiThreadedExecutor
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import seconds_from_ros_time
@@ -859,79 +858,78 @@ class Eyelink(BaseNode):
         min_pos = config["min_eye_pos"]
         max_pos = config["max_eye_pos"]
 
-        try:
-            # Wait for the tracker to be connected
-            # while (
-            #     not self.simulate
-            #     and not self.stop_sample_retrieval_event.is_set()
-            #     and not self.tracker.isConnected()
-            # ):
-            #     self.ros_sleep(period)
+        # Wait for the tracker to be connected
+        # while (
+        #     not self.simulate
+        #     and not self.stop_sample_retrieval_event.is_set()
+        #     and not self.tracker.isConnected()
+        # ):
+        #     self.ros_sleep(period)
 
-            while not self.stop_sample_retrieval_event.is_set():
-                # Receive data from the tracker and convert to ROS message if valid
-                start_time = self.ros_time()
-                if self.simulate:
-                    msg = self.generate_simulated_msg(min_pos, max_pos)
-                else:
-                    try:
-                        self.tracker.waitForData(
-                            wait_for_data_timeout_ms, 1, 0
-                        )
-                    except RuntimeError as e:
-                        self.get_logger().warning(
-                            f"No data from tracker with error: {e}",
-                            throttle_duration_sec=1,
-                        )
-                        continue
-                    timestamp = self.get_clock().now()
-                    sample: Sample | None = self.tracker.getNewestSample()
-                    if sample is None or not isinstance(sample, Sample):  # type: ignore
-                        msg = None
-                    else:
-                        self.tracker.resetData()
-                        msg = self.sample_to_msg(sample, timestamp)
-
-                # Add the message to the queue and record it to the bag
-                if msg is not None:
-                    self.message_queue.append(msg)
-                    if self.has_subscribers:
-                        if publish_batched:
-                            array_msg.samples[array_idx] = msg  # type: ignore
-                            array_idx += 1
-                            if array_idx == array_len:
-                                self.sample_publisher.publish(array_msg)
-                                array_msg = EyelinkArrayMsg()
-                                array_idx = 0
-                        else:
-                            self.sample_publisher.publish(msg)
-                    # if hasattr(self, "bag_writer"):
-                    #     self.bag_writer.write(
-                    #         "/eyelink/sample",
-                    #         serialize_message(msg),  # type: ignore
-                    #         timestamp.nanoseconds,  # type: ignore
-                    #     )
-
-                # Sleep for a short period to avoid busy-waiting (necessary
-                # to force a context switch to other threads)
-                taken = self.ros_time() - start_time
-                if taken < period:
-                    if self.simulate:
-                        # time.sleep(period - taken)
-                        self.ros_sleep(period - taken)
-                    else:
-                        # time.sleep(0.95 * (period - taken))
-                        self.ros_sleep(0.95 * (period - taken))
-                else:
-                    self.log(
-                        f"Sample retrieval took longer than expected period: {taken:.4f}s > {period:.4f}s",
-                        severity="WARN",
+        while not self.stop_sample_retrieval_event.is_set():
+            # Receive data from the tracker and convert to ROS message if valid
+            start_time = self.ros_time()
+            if self.simulate:
+                msg = self.generate_simulated_msg(min_pos, max_pos)
+            else:
+                try:
+                    self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
+                except RuntimeError as e:
+                    # Need to explicitly get the logger to do throttled logging
+                    # so that rclpy knows the "caller id" to throttle
+                    self.get_logger().warning(
+                        f"No data from tracker with error: {e}",
+                        throttle_duration_sec=1,
                     )
-                    self.ros_sleep(0)
-        except (ROSSleepError, NotInitializedException) as e:
-            raise e
-            # if rclpy.ok():  # type: ignore
-            #     raise RuntimeError("ROS2 is still running") from e
+                    continue
+                timestamp = self.get_clock().now()
+                sample: Sample | None = self.tracker.getNewestSample()
+                if sample is None or not isinstance(sample, Sample):  # type: ignore
+                    msg = None
+                else:
+                    self.tracker.resetData()
+                    msg = self.sample_to_msg(sample, timestamp)
+
+            # Add the message to the queue and record it to the bag
+            if msg is not None:
+                self.message_queue.append(msg)
+                if self.has_subscribers:
+                    if publish_batched:
+                        array_msg.samples[array_idx] = msg  # type: ignore
+                        array_idx += 1
+                        if array_idx == array_len:
+                            self.sample_publisher.publish(array_msg)
+                            array_msg = EyelinkArrayMsg()
+                            array_idx = 0
+                    else:
+                        self.sample_publisher.publish(msg)
+                # if hasattr(self, "bag_writer"):
+                #     self.bag_writer.write(
+                #         "/eyelink/sample",
+                #         serialize_message(msg),  # type: ignore
+                #         timestamp.nanoseconds,  # type: ignore
+                #     )
+
+            # Sleep for a short period to avoid busy-waiting (necessary
+            # to force a context switch to other threads)
+            taken = self.ros_time() - start_time
+            if taken < period:
+                if self.simulate:
+                    # time.sleep(period - taken)
+                    self.ros_sleep(period - taken)
+                else:
+                    # time.sleep(0.95 * (period - taken))
+                    self.ros_sleep(0.95 * (period - taken))
+            else:
+                self.log(
+                    f"Sample retrieval took longer than expected period: {taken:.4f}s > {period:.4f}s",
+                    severity="WARN",
+                )
+                self.ros_sleep(0)
+        # except (ROSSleepError, NotInitializedException) as e:
+        #     raise e
+        #     if rclpy.ok():  # type: ignore
+        #         raise RuntimeError("ROS2 is still running") from e
 
     ###########################################################################
     # Smooth pursuit

@@ -216,7 +216,9 @@ class DashboardInterface(BaseInterface):
             )
         )
 
-        result = await self._set_mode_client.get_result_async(goal_handle)
+        result: SetMode.Result = await self._set_mode_client.get_result_async(
+            goal_handle
+        )
 
         if not result.success:
             raise RuntimeError(
@@ -312,6 +314,9 @@ class DashboardInterface(BaseInterface):
                 )
                 await asyncio.sleep(config["play_retry_delay"])
                 safety_mode = await self._get_safety_mode()
+
+            # Sleep so robot has time to go back into normal mode
+            await asyncio.sleep(3)
 
             return
 
