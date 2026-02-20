@@ -25,21 +25,24 @@ build=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         build)
-            ARGS+=("$1")
-            export COMPOSE_PROFILES="*"
             build=true
+            ARGS+=("$@")
+            break
             # ARGS+=("--builder" "tabletop_builder")
             # export BUILDKIT_PROGRESS=plain
             ;;
         ps)
             ARGS+=("$1")
+            shift
             ARGS+=("--format" "$ps_format")
             ARGS+=("--all")
+            ARGS+=("$@")
+            break
             ;;
-        down)
-            ARGS+=("$1")
-            # ARGS+=("--volumes")
-            ;;
+        # down)
+        #     ARGS+=("$1")
+        #     # ARGS+=("--volumes")
+        #     ;;
         *)
             ARGS+=("$1")
             ;;
@@ -52,9 +55,11 @@ set -- "${ARGS[@]}"
 print_status "docker compose $@"
 echo
 
-if [[ "$build" = true ]]; then
+if [[ "$build" == "true" ]]; then
+    export COMPOSE_PROFILES="*"
+    docker compose down --volumes
     docker compose "$@"
-    docker compose run --rm ros-base tt-build --all
+    exec docker compose run --rm ros-base tt-build --all
 else
     exec docker compose "$@"
 fi

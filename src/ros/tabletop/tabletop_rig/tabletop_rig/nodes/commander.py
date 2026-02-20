@@ -44,7 +44,7 @@ from contextlib import (
     AsyncExitStack,
 )
 from types import TracebackType
-from typing import Any, Literal, Optional, Self, TypeVar
+from typing import Any, Literal, Optional, Self
 
 import debugpy
 import rclpy
@@ -76,8 +76,6 @@ from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.nodes.base import BaseNode
-
-T = TypeVar("T", bound=Callable[..., Coroutine])
 
 
 def safe_execution(coro_fn):
@@ -706,10 +704,6 @@ class Commander(BaseNode):
                 await self._context_stack.__aexit__(
                     exc_type, exc_value, exc_tb
                 )
-
-    ###########################################################################
-    ########## Destroy ########################################################
-    ###########################################################################
 
 
 async def debug_commander(
