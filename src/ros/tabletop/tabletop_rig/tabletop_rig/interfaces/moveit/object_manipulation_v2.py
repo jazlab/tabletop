@@ -28,9 +28,9 @@ import asyncio
 import functools
 import os
 from collections.abc import Callable
-from enum import IntEnum
+from enum import Enum, IntEnum
 from glob import glob
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from geometry_msgs.msg import PoseStamped
@@ -41,7 +41,6 @@ from rclpy.exceptions import ParameterNotDeclaredException
 
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
-    ExecutionError,
     MoveitRecoverableError,
     ObjectManipulationError,
 )
@@ -94,8 +93,9 @@ class State(IntEnum):
     POST_ATTACH = 4
     POST_FETCH = 5
     FETCHED = 6
-    NEEDS_RESET = 7
-    RESETTED = 8
+    ATTACHED_DIRTY = 7
+    ATTACHED_CLEAN = 8
+    RESET = 8
     PRE_RETURN = 9
     PRE_DETACH = 10
     DETACH = 11
@@ -103,6 +103,43 @@ class State(IntEnum):
     POST_RETURN = 13
     MANUALLY_ATTACHED = 99
 
+
+class Event(Enum):
+    """Event to send to the state machine
+
+    Correspond to the user-facing high-level manipulation methods
+    """
+
+    FETCH = 0
+    RESET = 1
+    RETURN = 2
+
+
+EVENT_FINAL_STATE_MAP = {
+    Event.FETCH: State.FETCHED,
+    Event.RESET: State.RESET,
+    Event.RETURN: State.IDLE,
+}
+
+
+ALL_STATES = set(
+    (
+        State.IDLE,
+        State.PRE_FETCH,
+        State.PRE_ATTACH,
+        State.ATTACH,
+        State.POST_ATTACH,
+        State.POST_FETCH,
+        State.FETCHED,
+        State.RESET,
+        State.PRE_RETURN,
+        State.PRE_DETACH,
+        State.DETACH,
+        State.POST_DETACH,
+        State.POST_RETURN,
+        State.MANUALLY_ATTACHED,
+    )
+)
 
 FETCH_OR_RETURN_STATES = set(
     (
@@ -137,8 +174,7 @@ OBJECT_ATTACHED_STATES = set(
         State.POST_ATTACH,
         State.POST_FETCH,
         State.FETCHED,
-        State.NEEDS_RESET,
-        State.RESETTED,
+        State.RESET,
         State.PRE_RETURN,
         State.PRE_DETACH,
         State.MANUALLY_ATTACHED,
@@ -173,6 +209,63 @@ STATE_OFFSET_MAP = {
 }
 
 
+def dummy_match(state):
+    match state:
+        case (
+            State.IDLE
+            | State.PRE_FETCH
+            | State.PRE_ATTACH
+            | State.ATTACH
+            | State.POST_ATTACH
+            | State.POST_FETCH
+            | State.FETCHED
+            | State.RESET
+            | State.PRE_RETURN
+            | State.PRE_DETACH
+            | State.DETACH
+            | State.POST_DETACH
+            | State.POST_RETURN
+            | State.MANUALLY_ATTACHED
+        ):
+            pass
+
+
+def check_state(cur_state, next_state):
+    match cur_state:
+        case State.IDLE:
+            assert next_state in (
+                State.PRE_FETCH,
+                State.MANUALLY_ATTACHED,
+            )
+        case (
+            State.PRE_FETCH
+            | State.PRE_ATTACH
+            | State.ATTACH
+            | State.POST_ATTACH
+            | State.POST_FETCH
+            | State.FETCHED
+            | State.RESET
+        ):
+            pass
+        case (
+            State.IDLE
+            | State.PRE_FETCH
+            | State.PRE_ATTACH
+            | State.ATTACH
+            | State.POST_ATTACH
+            | State.POST_FETCH
+            | State.FETCHED
+            | State.RESET
+            | State.PRE_RETURN
+            | State.PRE_DETACH
+            | State.DETACH
+            | State.POST_DETACH
+            | State.POST_RETURN
+            | State.MANUALLY_ATTACHED
+        ):
+            pass
+
+
 def object_manipulation_decorator(coro_fn):
     """Decorator for methods that should be run with the object manipulation lock."""
 
@@ -198,7 +291,7 @@ def ensure_manipulation_state(coro_fn):
             and self._manipulation_state
             not in (
                 State.FETCHED,
-                State.RESETTED,
+                State.RESET,
                 State.MANUALLY_ATTACHED,
             )
         ):
@@ -212,7 +305,7 @@ def ensure_manipulation_state(coro_fn):
         try:
             return await coro_fn(self, *args, **kwargs)
         finally:
-            if self._manipulation_state == State.RESETTED:
+            if self._manipulation_state == State.RESET:
                 self._manipulation_state = State.FETCHED
 
     return wrapper
@@ -479,7 +572,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         )
 
         assert (
-            self._manipulation_state == State.RESETTED
+            self._manipulation_state == State.RESET
             or self._manipulation_state in FETCH_OR_RETURN_STATES
         )
         assert next_state in FETCH_OR_RETURN_STATES
@@ -545,12 +638,64 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         return cache_kwargs
 
-    def _validate_attached_object_state(self, target_object_id: str):
-        if target_object_id not in self.grid_objects:
-            raise ValueError(
-                f"'{target_object_id}' is not a valid collision object in the object grid"
-            )
+    async def _reset_transition(
+        self, object_id: str, next_state: State
+    ) -> list[TrajectoryCacheKwargs] | None:
+        assert self._manipulation_state == State.FETCHED
+        assert next_state == State.RESET
 
+        if self._object_reset[object_id]:
+            self.log(f"No need to reset object {object_id}, skipping")
+            return
+        else:
+            self.log(f"Resetting object {object_id}")
+
+        # Retrieve reset config
+        filename = self.reset_config_map[object_id]
+        config = self.reset_configs[filename]
+        assert config.reset_request.planning_pipeline == "linear"
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
+
+        # Plan and execute to start goal
+        kwargs = await self._plan_and_execute(
+            goal=config.start_goal, cache_trajectory=False
+        )
+        if kwargs is not None:
+            cache_kwargs.extend(kwargs)
+
+        # Plan and execute reset path with allowed collisions
+        allowed_collisions: list[tuple[str, str]] = []
+        try:
+            if config.object_allowed_collision_ids is not None:
+                allowed_collisions.extend(
+                    self.allow_collision(
+                        object_id, config.object_allowed_collision_ids
+                    )
+                )
+
+            if config.additional_allowed_collisions is not None:
+                allowed_collisions.extend(
+                    self.allow_collision(
+                        *zip(*config.additional_allowed_collisions)
+                    )
+                )
+
+            kwargs = await self._plan_and_execute(
+                config.reset_request, cache_trajectory=False
+            )
+            if kwargs is not None:
+                cache_kwargs.extend(kwargs)
+        finally:
+            if len(allowed_collisions) > 0:
+                self.disallow_collision(*zip(*allowed_collisions))
+
+        self._object_reset[object_id] = True
+
+        # Cache all trajectories if requested
+        if len(cache_kwargs) > 0:
+            return cache_kwargs
+
+    def _check_attached_object_state(self, object_id: str):
         attached_object_id = self.attached_object_id
         if attached_object_id is None:
             if self._manipulation_state not in OBJECT_DETACHED_STATES:
@@ -559,15 +704,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"{(x.name for x in OBJECT_DETACHED_STATES)} states, "
                     f"got: {self._manipulation_state.name}"
                 )
-        elif attached_object_id not in self.grid_objects:
-            assert self._manipulation_state == State.MANUALLY_ATTACHED
-            raise ValueError(
-                f"'{target_object_id}' is not a valid collision object in the object grid"
-            )
         else:
-            if target_object_id != attached_object_id:
+            if object_id != attached_object_id:
                 raise ObjectManipulationError(
-                    f"Cannot manipulate object {target_object_id} because object {attached_object_id} is already attached"
+                    f"Cannot manipulate object {object_id} because object {attached_object_id} is already attached"
                 )
             if self._manipulation_state not in OBJECT_ATTACHED_STATES:
                 raise AssertionError(
@@ -575,6 +715,141 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"{(x.name for x in OBJECT_ATTACHED_STATES)} states, "
                     f"got: {self._manipulation_state.name}"
                 )
+
+    async def _send_event(
+        self,
+        event: Event,
+        *,
+        object_id: Optional[str] = None,
+        cache_trajectories: bool = True,
+    ):
+        """TODO"""
+        if object_id is None:
+            assert event != Event.FETCH
+            object_id = self.attached_object_id
+            assert object_id is not None
+        else:
+            assert event == Event.FETCH
+
+        final_state = EVENT_FINAL_STATE_MAP[event]
+
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
+
+        while self._manipulation_state != final_state:
+            self._check_attached_object_state(object_id)
+
+            transition_exc = ObjectManipulationError(
+                f"Cannot execute {final_state.name} event from current state ({self._manipulation_state.name})"
+            )
+            handler: Literal["fetch_or_return", "reset", "pass"]
+            next_state: State
+
+            match self._manipulation_state:
+                case (
+                    State.IDLE
+                    | State.PRE_FETCH
+                    | State.PRE_ATTACH
+                    | State.ATTACH
+                    | State.POST_ATTACH
+                    | State.POST_FETCH
+                ):
+                    match event:
+                        case Event.FETCH:
+                            next_state = State(self._manipulation_state + 1)
+                            handler = "fetch_or_return"
+                        case Event.RESET:
+                            raise transition_exc
+                        case Event.RETURN:
+                            assert self._manipulation_state != State.IDLE
+                            fetch_progress = (
+                                self._manipulation_state - State.PRE_FETCH
+                            )
+                            next_state = State(
+                                State.POST_RETURN - fetch_progress - 1
+                            )
+                            handler = "pass"
+
+                case State.FETCHED:
+                    match event:
+                        case Event.FETCH:
+                            raise AssertionError
+                        case Event.RESET:
+                            next_state = State.RESET
+                            handler = "reset"
+                        case Event.RETURN:
+                            raise transition_exc
+
+                case State.RESET:
+                    match event:
+                        case Event.FETCH:
+                            next_state = State.FETCHED
+                            handler = "fetch_or_return"
+                        case Event.RESET:
+                            raise AssertionError
+                        case Event.RETURN:
+                            next_state = State.PRE_RETURN
+                            handler = "fetch_or_return"
+
+                case (
+                    State.PRE_RETURN
+                    | State.PRE_DETACH
+                    | State.DETACH
+                    | State.POST_DETACH
+                    | State.POST_RETURN
+                ):
+                    match event:
+                        case Event.FETCH:
+                            return_progress = (
+                                self._manipulation_state - State.PRE_RETURN
+                            )
+                            next_state = State(
+                                State.POST_FETCH - return_progress - 1
+                            )
+                            handler = "pass"
+                        case Event.RESET:
+                            raise transition_exc
+                        case Event.RETURN:
+                            next_state = State(
+                                (self._manipulation_state + 1)
+                                % (State.POST_RETURN + 1)
+                            )
+                            handler = "fetch_or_return"
+
+                case State.MANUALLY_ATTACHED:
+                    # TODO: Add handling for manually attached objects here
+                    raise RuntimeError(
+                        "Cannot perform object manipulation if there is a manually attached object"
+                    )
+                case _:
+                    raise RuntimeError(
+                        f"Unknown manipulator state {self._manipulation_state}"
+                    )
+
+            match handler:
+                case "pass":
+                    pass
+                case "fetch_or_return":
+                    kwargs = await self._fetch_or_return_transition(
+                        object_id, next_state
+                    )
+                    if cache_trajectories and kwargs is not None:
+                        cache_kwargs.extend(kwargs)
+                case "reset":
+                    kwargs = await self._reset_transition(
+                        object_id, next_state
+                    )
+                    if cache_trajectories and kwargs is not None:
+                        cache_kwargs.extend(kwargs)
+                case _:
+                    raise AssertionError(f"Unkown handler: {handler}")
+
+            self._manipulation_state = next_state
+
+        self._check_attached_object_state(object_id)
+
+        # Cache all trajectories if requested
+        if cache_trajectories and len(cache_kwargs) > 0:
+            self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_decorator
     async def fetch_object(
@@ -601,127 +876,91 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         """
         self.log(f"Fetching object {object_id}")
 
-        self._validate_attached_object_state(object_id)
+        await self._send_event(
+            Event.FETCH,
+            object_id=object_id,
+            cache_trajectories=cache_trajectories,
+        )
+        return
 
-        match self._manipulation_state:
-            case (
-                State.IDLE
-                | State.PRE_FETCH
-                | State.PRE_ATTACH
-                | State.ATTACH
-                | State.POST_ATTACH
-                | State.POST_FETCH
-            ):
-                next_state = State(self._manipulation_state + 1)
-            case State.FETCHED:
-                self.log(
-                    "Already at FETCHED state, skipping fetch", severity="WARN"
-                )
-                return
-            case State.RESETTED:
-                next_state = State.FETCHED
-            case (
-                State.PRE_RETURN
-                | State.PRE_DETACH
-                | State.DETACH
-                | State.POST_DETACH
-                | State.POST_RETURN
-            ):
-                return_progress = self._manipulation_state - State.PRE_RETURN
-                next_state = State(State.POST_FETCH - return_progress)
-            case unexpected if isinstance(unexpected, State):
-                raise ObjectManipulationError(
-                    f"Cannot fetch object from current state ({unexpected})"
-                )
-            case unexpected:
-                raise AssertionError(
-                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                )
-
-        assert next_state <= State.FETCHED
-
-        cache_kwargs: list[TrajectoryCacheKwargs] = []
-
-        # Iterate through the fetch states
-        while self._manipulation_state != State.FETCHED:
-            self._validate_attached_object_state(object_id)
-            kwargs = await self._fetch_or_return_transition(
-                object_id, next_state
+        attached_object_id = self.attached_object_id
+        if attached_object_id is not None:
+            raise ObjectManipulationError(
+                "Cannot fetch object while another object is attached"
             )
-            self._manipulation_state = next_state
-            next_state = State(next_state + 1)
 
-            self._validate_attached_object_state(object_id)
+        # Check that the object ID is valid
+        if object_id not in self.grid_objects:
+            raise ValueError(
+                f"'{object_id}' is not a valid collision object in the object grid"
+            )
 
+        # Iterate through the fetch states, returning the object to its mount
+        # if the fetch fails
+        cache_kwargs: list[TrajectoryCacheKwargs] = []
+        for i in range(State.PRE_FETCH, State.FETCHED + 1):
+            kwargs = await self._fetch_or_return_transition(
+                object_id, State(i)
+            )
+            self._manipulation_state = State(i)
             if cache_trajectories and kwargs is not None:
                 cache_kwargs.extend(kwargs)
+
+        self._object_reset[object_id] = False
 
         # Cache all trajectories if requested
         if cache_trajectories and len(cache_kwargs) > 0:
             self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_decorator
-    async def present_object(self, object_id: str):
+    async def present_object(self):
         """Present the currently attached object at the specified end goal.
 
         Args:
             goal: The goal to present the object at
         """
-        self.log(f"Presenting object {object_id}")
+        object_id = self.attached_object_id
+        if object_id is None:
+            raise ObjectManipulationError("No attached object to present")
 
-        self._validate_attached_object_state(object_id)
+        self.log(f"Pre-presenting object {object_id}")
 
-        match self._manipulation_state:
-            case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
-                pass
-            case unexpected if isinstance(unexpected, State):
-                raise ObjectManipulationError(
-                    f"Cannot present object from current state ({unexpected})"
-                )
-            case unexpected:
-                raise AssertionError(
-                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                )
+        # Pre-present state
+        await self._plan_and_execute(goal="present")
 
-        try:
-            await self._plan_and_execute(goal="present")
-        except (asyncio.CancelledError, ExecutionError):
-            self._manipulation_state = State.NEEDS_RESET
-            raise
-        else:
-            self._manipulation_state = State.NEEDS_RESET
+        # Set object reset state to False
+        self._object_reset[object_id] = False
 
     @object_manipulation_decorator
     async def reset_object(
-        self, object_id: str, *, cache_trajectories: bool = True
+        self, *, unpresent: bool = True, cache_trajectories: bool = True
     ):
         """Unpresent the currently attached object and perform the reset procedure"""
-        self.log(f"Resetting object {object_id}")
+        await self._send_event(
+            Event.RESET, cache_trajectories=cache_trajectories
+        )
+        return
 
-        self._validate_attached_object_state(object_id)
+        object_id = self.attached_object_id
+        if object_id is None:
+            raise ObjectManipulationError("No attached object to reset")
 
-        match self._manipulation_state:
-            case State.NEEDS_RESET:
-                pass
-            # case State.POST_FETCH | State.FETCHED | State.RESETTED:
-            #     self.log(
-            #         f"No need to reset object {object_id} from current state ({self._manipulation_state}), skipping",
-            #         severity="WARN",
-            #     )
-            #     return
-            case unexpected if isinstance(unexpected, State):
-                raise ObjectManipulationError(
-                    f"Cannot reset object from current state ({unexpected})"
-                )
-            case unexpected:
-                raise AssertionError(
-                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                )
+        if self._object_reset[object_id]:
+            self.log(f"No need to reset object {object_id}, skipping")
+            return
+        else:
+            self.log(f"Resetting object {object_id}")
 
         # Retrieve reset config
         filename = self.reset_config_map[object_id]
         config = self.reset_configs[filename]
         assert config.reset_request.planning_pipeline == "linear"
+
+        # Unpresent (for caching reasons)
+        if unpresent:
+            # await self._plan_and_execute(goal="present")
+            pass
+            # await self._transition_state(object_id, State.PRESENT)
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
@@ -758,16 +997,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if len(allowed_collisions) > 0:
                 self.disallow_collision(*zip(*allowed_collisions))
 
-        self._manipulation_state = State.RESETTED
+        self._object_reset[object_id] = True
 
         # Cache all trajectories if requested
         if len(cache_kwargs) > 0:
             self.cache_trajectories(cache_kwargs)
 
     @object_manipulation_decorator
-    async def return_object(
-        self, object_id: str, *, cache_trajectories: bool = True
-    ) -> None:
+    async def return_object(self, *, cache_trajectories: bool = True) -> None:
         """Return an object to its original position.
 
         Args:
@@ -779,48 +1016,24 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
+        await self._send_event(
+            Event.RETURN, cache_trajectories=cache_trajectories
+        )
+        return
+        object_id = self.attached_object_id
+        if object_id is None:
+            raise ObjectManipulationError("No attached object to reset")
+        if object_id not in self.grid_objects:
+            raise RuntimeError(
+                f"Object {object_id} is not in the grid, cannot return it"
+            )
+
+        if not self._object_reset[object_id]:
+            raise ObjectManipulationError(
+                f"Object {object_id} has not been reset yet, cannot return"
+            )
+
         self.log(f"Returning object {object_id}")
-
-        self._validate_attached_object_state(object_id)
-
-        match self._manipulation_state:
-            case (
-                State.IDLE
-                | State.PRE_FETCH
-                | State.PRE_ATTACH
-                | State.ATTACH
-                | State.POST_ATTACH
-                | State.POST_FETCH
-            ):
-                fetch_progress = self._manipulation_state - State.PRE_FETCH
-                next_state = State(State.POST_RETURN - fetch_progress - 1)
-            case State.FETCHED:
-                self.log(
-                    "Already at FETCHED state, skipping fetch", severity="WARN"
-                )
-                return
-            case State.RESETTED:
-                next_state = State.FETCHED
-            case (
-                State.PRE_RETURN
-                | State.PRE_DETACH
-                | State.DETACH
-                | State.POST_DETACH
-                | State.POST_RETURN
-            ):
-                next_state = State(self._manipulation_state + 1)
-            case unexpected if isinstance(unexpected, State):
-                raise ObjectManipulationError(
-                    f"Cannot fetch object from current state ({unexpected})"
-                )
-            case unexpected:
-                raise AssertionError(
-                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                )
-
-        assert next_state <= State.FETCHED
-
-        cache_kwargs: list[TrajectoryCacheKwargs] = []
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
@@ -911,7 +1124,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         try:
             object_id = self.attached_object_id
             if object_id is not None and object_id in self.grid_objects:
-                await self.reset_object()
+                await self.reset_object(unpresent=False)
                 await self.return_object()
             if end_goal is not None:
                 await self._plan_and_execute(goal=end_goal)

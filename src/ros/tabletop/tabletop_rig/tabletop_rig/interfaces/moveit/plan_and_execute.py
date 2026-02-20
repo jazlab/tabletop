@@ -840,7 +840,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if self._execution_lock.locked():
             self.trajectory_execution_manager.stop_execution()
 
-    async def execute(
+    async def _execute(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
     ):
         """Execute the given robot trajectory.
@@ -914,6 +914,21 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             else:
                 raise ExecutionRejectedError(execution_status)
 
+    async def execute(
+        self, trajectory: RobotTrajectory | list[RobotTrajectory]
+    ):
+        """Execute the given robot trajectory.
+
+        Args:
+            trajectory: Trajectory to execute
+
+        Raises:
+            NotSafeToExecuteError: If the robot is not safe to execute.
+            ExecutionInterruptedError: If the robot moved but not to the goal.
+            ExecutionRejectedError: If the trajectory was rejected by the robot.
+        """
+        return await self._execute(trajectory)
+
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
         """Cache the given trajectory.
 
@@ -928,7 +943,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         else:
             self.log("Cache is frozen, skipping cache")
 
-    async def plan_and_execute(
+    async def _plan_and_execute(
         self,
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
         cache_trajectory: bool = True,
@@ -965,7 +980,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         trajectory, cache_kwargs = await self.plan(request=request, **kwargs)
 
         # Execute desired request
-        await self.execute(trajectory)
+        await self._execute(trajectory)
 
         # Cache the trajectory if requested
         if cache_trajectory and cache_kwargs is not None:
@@ -974,6 +989,34 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             return None
 
         return cache_kwargs
+
+    async def plan_and_execute(
+        self,
+        request: Optional[PlanRequest | ConcatPlanRequest] = None,
+        cache_trajectory: bool = True,
+        **kwargs: Any,
+    ) -> list[TrajectoryCacheKwargs] | None:
+        """Plan and execute a trajectory, using the cached trajectory if available.
+
+        Args:
+            *args: Arguments to pass to `create_plan_request()`.
+            cache_trajectory: Whether to cache the planned trajectory.
+            use_cache: Whether to use the cached trajectory.
+            **kwargs: Keyword arguments to pass to `create_plan_request()`
+                and `execute()`.
+
+        Returns:
+            A dictionary containing the kwargs to cache the trajectory, or None
+            if the trajectory was found in the cache.
+
+        Raises:
+            ValueError: If start_state is provided in kwargs.
+            PlanningError: If the planning fails.
+            ExecutionError: If the execution fails.
+        """
+        return await self._plan_and_execute(
+            request, cache_trajectory, **kwargs
+        )
 
     ###########################################################################
     ########## Reset (simulation) #############################################
@@ -1008,7 +1051,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self.remove_all_collision_objects()
         if end_goal is None:
             end_goal = "idle"
-        await self.plan_and_execute(goal=end_goal, **kwargs)
+        await self._plan_and_execute(goal=end_goal, **kwargs)
         self._init_planning_scene()
 
     def __enter__(self) -> Self:
