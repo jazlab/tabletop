@@ -8,7 +8,7 @@ source $bin_dir/../utils.sh
 
 builtin cd $TABLETOP_DIR
 
-tt-env-gen &>/dev/null
+tt-env-gen 1>/dev/null
 
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true

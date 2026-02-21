@@ -110,7 +110,7 @@ EOT
 WORKDIR /tabletop
 
 # Install python dependencies using uv
-COPY --link --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ARG UV_EXTRA
 

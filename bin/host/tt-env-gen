@@ -89,7 +89,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
 else
     dotenv_set COMMANDER_RUNTIME runc
-    dotenv_set UV_EXTRA ""
+    dotenv_set UV_EXTRA "--extra cpu"
     dotenv_set NVIDIA_VISIBLE_DEVICES ""
     dotenv_set NVIDIA_DRIVER_CAPABILITIES ""
     # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
