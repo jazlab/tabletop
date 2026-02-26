@@ -191,7 +191,7 @@ def generate_launch_description():
         if initial_object_value != "null":
             idx = initial_object_value.split(",")
             if len(idx) == 1:
-                commander_overrides["initial_attached_object"] = (
+                commander_overrides["initial_attached_object_id"] = (
                     initial_object_value
                 )
             elif len(idx) == 2:

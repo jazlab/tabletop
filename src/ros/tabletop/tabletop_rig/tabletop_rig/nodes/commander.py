@@ -54,7 +54,12 @@ from mingus.containers import Note
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
-from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
+from rclpy.executors import (
+    Executor,
+    MultiThreadedExecutor,
+    SingleThreadedExecutor,
+)
+from rclpy.experimental import EventsExecutor
 from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
 
@@ -96,11 +101,14 @@ def safe_execution(coro_fn):
     @functools.wraps(coro_fn)
     async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
         max_retries = self.param("safe_execution.max_retries")
-        for i in range(max_retries):
+        if max_retries < 0:
+            raise ValueError("safe_execution.max_retries must be at least 0")
+
+        for i in range(max_retries + 1):
             try:
                 return await coro_fn(self, *args, **kwargs)
             except NotSafeToExecuteError as e:
-                if i == max_retries - 1:
+                if i == max_retries:
                     raise
 
                 self.log(
@@ -113,14 +121,13 @@ def safe_execution(coro_fn):
                     severity="WARN",
                 )
             except ExecutionInterruptedError as e:
-                if i == max_retries - 1:
+                if i == max_retries:
                     raise
 
                 self.log(
                     f"Error while planning and executing: {e}. Resetting dashboard before retrying",
                     severity="WARN",
                 )
-                await asyncio.sleep(2)
                 await self.dashboard.reset()
                 self.log(
                     "Dashboard reset, retrying plan_and_execute",
@@ -152,8 +159,10 @@ class Commander(BaseNode):
     """
 
     default_params: dict[str, Any] = BaseNode.default_params | {
-        "session_bag_dir": "",
         "wait_for_interfaces": True,
+        "recovery.max_attempts": 5,
+        "initial_attached_object_id": "null",
+        "initial_attached_object_idx": "null",
     }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
@@ -471,12 +480,12 @@ class Commander(BaseNode):
         await self.moveit.fetch_object(object_id)
 
     @safe_execution
-    async def present_object(self):
+    async def present_object(self, object_id: str):
         """Move to present state with the currently attached object"""
-        await self.moveit.present_object()
+        await self.moveit.present_object(object_id)
 
     @safe_execution
-    async def reset_object(self):
+    async def reset_object(self, object_id: str):
         """Reset the currently attached object using its associated ObjectResetConfig
 
         Raises:
@@ -484,10 +493,10 @@ class Commander(BaseNode):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        await self.moveit.reset_object()
+        await self.moveit.reset_object(object_id)
 
     @safe_execution
-    async def return_object(self):
+    async def return_object(self, object_id: str):
         """Return the currently attached object to its mount.
 
         Raises:
@@ -495,7 +504,7 @@ class Commander(BaseNode):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        await self.moveit.return_object()
+        await self.moveit.return_object(object_id)
 
     # async def plan_and_execute(
     #     self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
@@ -561,7 +570,7 @@ class Commander(BaseNode):
 
     # TODO: Move retry logic to Commander
 
-    async def reset_commander(
+    async def _reset_commander(
         self,
         timeout: Optional[float] = None,
         end_goal: Optional[PlanGoalT] = None,
@@ -582,7 +591,14 @@ class Commander(BaseNode):
         self.log("Resetting commander")
 
         async with asyncio.timeout(timeout):
-            while True:
+            max_attempts = self.param("recovery.max_attempts")
+            if max_attempts < 1:
+                raise ValueError(
+                    "recover.max_attempts parameter must be at least 1"
+                )
+
+            excs: list[Exception] = []
+            for _ in range(max_attempts):
                 try:
                     if not self.teensy.safe_to_execute:
                         self.log(
@@ -590,21 +606,22 @@ class Commander(BaseNode):
                             severity="WARN",
                         )
                         await self.teensy.lock_arms_and_wait()
-                    await self.dashboard.reset(timeout)
+                    await self.dashboard.reset()
                     await self.moveit.reset_rig(end_goal)
-                    break
+                    return
                 except (
                     ServiceCallUnsuccessfulError,
                     ActionError,
                     MoveitRecoverableError,
                 ) as e:
+                    excs.append(e)
                     self.log(
                         "Caught exception while resetting commander:",
                         severity="WARN",
                     )
                     self.log(f"{type(e).__name__}: {e}", severity="WARN")
                     self.log(
-                        f"Traceback: {traceback.format_exc()}",
+                        f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
                         severity="DEBUG",
                     )
                     if isinstance(e, ExecutionError):
@@ -617,9 +634,64 @@ class Commander(BaseNode):
                     )
                     await asyncio.sleep(sleep_time)
 
+            if len(excs) == 1:
+                raise excs[0]
+            if len(excs) > 1:
+                raise ExceptionGroup(
+                    f"Failed to reset commander after {max_attempts} attempts",
+                    excs,
+                )
+
     ###########################################################################
     ########## Context manager ################################################
     ###########################################################################
+
+    async def _handle_recoverable_errors(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool | None:
+        """Handles recoverable errors by resetting the commander.
+
+        Args:
+            exc_type: Exception type if an exception occurred.
+            exc_value: Exception instance if an exception occurred.
+            exc_tb: Traceback if an exception occurred.
+
+        Returns:
+            True if a recoverable error was handled, False otherwise.
+        """
+        self.log("Exiting commander context manager", severity="DEBUG")
+
+        if exc_type is not None:
+            # We use only the first exception raised if an exception group is met
+            if isinstance(exc_value, ExceptionGroup):
+                if len(exc_value.exceptions) != 1:
+                    return False
+                exc_value = exc_value.exceptions[0]
+
+            if isinstance(exc_value, MoveitRecoverableError):
+                # return False
+                self.log(
+                    "Caught exception while running commander:",
+                    severity="ERROR",
+                )
+                self.log(f"{exc_type.__name__}: {exc_value}", severity="ERROR")
+                self.log(
+                    f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
+                    severity="DEBUG",
+                )
+                # if exc_type is ExecutionError:
+                #     self.log(
+                #         "Sleeping for 5 seconds before resetting commander",
+                #         severity="WARN",
+                #     )
+                #     await asyncio.sleep(5)
+                await self._reset_commander(end_goal="idle")
+                return True
+
+        return False
 
     async def __aenter__(self) -> Self:
         """Enter the async context manager.
@@ -637,7 +709,11 @@ class Commander(BaseNode):
                     await self._context_stack.enter_async_context(interface)
                 elif isinstance(interface, AbstractContextManager):
                     self._context_stack.enter_context(interface)
-            await self.reset_commander(end_goal="idle")
+
+            await self._reset_commander(end_goal="idle")
+            self._context_stack.push_async_exit(
+                self._handle_recoverable_errors
+            )
         except BaseException as e:
             await self._context_stack.__aexit__(type(e), e, e.__traceback__)
             raise e
@@ -663,47 +739,7 @@ class Commander(BaseNode):
         Returns:
             True if a recoverable error was handled, False otherwise.
         """
-        stack_exited = False
-        try:
-            self.log("Exiting commander context manager", severity="DEBUG")
-            if exc_type is not None:
-                # We use only the first exception raised if an exception group is met
-                if isinstance(exc_value, ExceptionGroup):
-                    if len(exc_value.exceptions) != 1:
-                        return False
-                    exc_value = exc_value.exceptions[0]
-
-                if isinstance(exc_value, MoveitRecoverableError):
-                    # return False
-                    self.log(
-                        "Caught exception while running commander:",
-                        severity="ERROR",
-                    )
-                    self.log(
-                        f"{exc_type.__name__}: {exc_value}", severity="ERROR"
-                    )
-                    self.log(
-                        f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
-                        severity="DEBUG",
-                    )
-                    if exc_type is ExecutionError:
-                        self.log(
-                            "Sleeping for 5 seconds before resetting commander",
-                            severity="WARN",
-                        )
-                        await asyncio.sleep(5)
-                    await self.reset_commander(end_goal="idle")
-                    return True
-            return False
-        except BaseException as e:
-            stack_exited = True
-            await self._context_stack.__aexit__(type(e), e, e.__traceback__)
-            raise
-        finally:
-            if not stack_exited:
-                await self._context_stack.__aexit__(
-                    exc_type, exc_value, exc_tb
-                )
+        return await self._context_stack.__aexit__(exc_type, exc_value, exc_tb)
 
 
 async def debug_commander(
@@ -784,6 +820,15 @@ async def asyncio_runner(
     await task
 
 
+EXECUTOR_TYPE = "events"
+
+
+def get_executor(*args, **kwargs):
+    match EXECUTOR_TYPE:
+        case "events":
+            return EventsExecutor(*args, **kwargs)
+
+
 def main_sync(args=None) -> None:
     """Entry point for the commander node.
 
@@ -843,8 +888,8 @@ def main_sync(args=None) -> None:
             debugpy.wait_for_client()
             print("Debugger attached")
 
-        executor: SingleThreadedExecutor | MultiThreadedExecutor = (
-            SingleThreadedExecutor()
+        executor: SingleThreadedExecutor | MultiThreadedExecutor | Executor = (
+            EventsExecutor()
         )
         commander = Commander()
         executor.add_node(commander)

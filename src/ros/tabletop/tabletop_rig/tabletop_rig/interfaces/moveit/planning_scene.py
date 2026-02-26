@@ -64,6 +64,7 @@ from tabletop_py.utils.mesh import (
 )
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.logging import SeverityString
 from tabletop_rig.utils.ros import (
     add_mesh_collision_object_msg,
     add_plane_collision_object_msg,
@@ -81,6 +82,7 @@ from tabletop_rig.utils.ros import (
 
 
 class GridObject(NamedTuple):
+    object_id: str
     grid_idx: tuple[int, int]
     pose_stamped: PoseStamped
 
@@ -107,7 +109,10 @@ class PlanningSceneInterface(BaseInterface):
         _group_name: Default planning group name.
     """
 
-    # TODO: Documentation
+    moveit_py: MoveItPy
+    grid_objects_by_id: dict[str, GridObject]
+    grid_objects_by_idx: dict[tuple[int, int], GridObject]
+
     def __init__(self, node: BaseNode):
         """Initializes the MoveItSceneInterface
 
@@ -125,7 +130,8 @@ class PlanningSceneInterface(BaseInterface):
             install_signal_handlers=False,
         )
 
-        self.grid_objects: dict[str, GridObject] = {}
+        self.grid_objects_by_id = {}
+        self.grid_objects_by_idx = {}
 
         self._init_planning_scene()
 
@@ -250,19 +256,19 @@ class PlanningSceneInterface(BaseInterface):
     ########## Parameter Convenience Properties ###############################
     ###########################################################################
 
-    @property
-    def object_grid(self) -> np.ndarray:
-        """Get the object grid config from the parameters."""
-        object_kwargs = self.node.param(
-            "planning_scene.object_meshes.object_kwargs"
-        )
-
-        object_grid = np.empty((10, 3), dtype=object)
-        for idx, kwargs in object_kwargs.items():
-            x, y = idx.split(",")
-            object_grid[int(x), int(y)] = kwargs["object_id"]
-
-        return object_grid
+    # @property
+    # def object_grid(self) -> np.typing.NDArray:
+    #     """Get the object grid config from the parameters."""
+    #     object_kwargs = self.node.param(
+    #         "planning_scene.object_meshes.object_kwargs"
+    #     )
+    #
+    #     object_grid = np.empty((10, 3), dtype=object)
+    #     for idx, kwargs in object_kwargs.items():
+    #         x, y = idx.split(",")
+    #         object_grid[int(x), int(y)] = kwargs["object_id"]
+    #
+    #     return object_grid
 
     ###########################################################################
     ########## MoveItPy Convenience Methods and Properties ####################
@@ -356,7 +362,7 @@ class PlanningSceneInterface(BaseInterface):
         columns = robot_collision_links + list(collision_object_ids)
         matrix_df = matrix_df.loc[columns, columns]
 
-        return matrix_df
+        return matrix_df  # pyright: ignore[reportReturnType]
 
     @property
     def current_state(self) -> RobotState:
@@ -565,40 +571,54 @@ class PlanningSceneInterface(BaseInterface):
     def save_grid_objects(self, path: str):
         """Save the grid object poses to a file."""
         self.log(f"Saving grid objects to {path}")
-        to_save = {}
-        for object_id, grid_object in self.grid_objects.items():
-            to_save[object_id] = {
-                "grid_idx": list(grid_object.grid_idx),
-                "frame_id": grid_object.pose_stamped.header.frame_id,
-                "position": [
-                    grid_object.pose_stamped.pose.position.x,
-                    grid_object.pose_stamped.pose.position.y,
-                    grid_object.pose_stamped.pose.position.z,
-                ],
-                "orientation": [
-                    grid_object.pose_stamped.pose.orientation.w,
-                    grid_object.pose_stamped.pose.orientation.x,
-                    grid_object.pose_stamped.pose.orientation.y,
-                    grid_object.pose_stamped.pose.orientation.z,
-                ],
-            }
+
+        to_save: list[dict] = []
+
+        for grid_object in self.grid_objects_by_id.values():
+            to_save.append(
+                {
+                    "id": grid_object.object_id,
+                    "grid_idx": list(grid_object.grid_idx),
+                    "pose_stamped": {
+                        "frame_id": grid_object.pose_stamped.header.frame_id,
+                        "position": [
+                            grid_object.pose_stamped.pose.position.x,
+                            grid_object.pose_stamped.pose.position.y,
+                            grid_object.pose_stamped.pose.position.z,
+                        ],
+                        "orientation": [
+                            grid_object.pose_stamped.pose.orientation.w,
+                            grid_object.pose_stamped.pose.orientation.x,
+                            grid_object.pose_stamped.pose.orientation.y,
+                            grid_object.pose_stamped.pose.orientation.z,
+                        ],
+                    },
+                }
+            )
+
         with open(path, "w") as f:
             yaml.dump(to_save, f)
 
     def load_grid_objects(self, path: str):
         """Load the grid object poses from a file."""
         self.log(f"Loading grid object poses from {path}")
-        with open(path, "r") as f:
-            to_load = yaml.safe_load(f)
 
-        for object_id, kwargs in to_load.items():
-            grid_idx = tuple(kwargs["grid_idx"])
+        with open(path, "r") as f:
+            to_load: list[dict] = yaml.safe_load(f)
+
+        for kwargs in to_load:
+            object_id = kwargs["id"]
+            x, y = kwargs["grid_idx"]
             pose_stamped = pose_stamped_msg(
-                frame_id=kwargs["frame_id"],
-                position=kwargs["position"],
-                orientation=kwargs["orientation"],
+                frame_id=kwargs["pose_stamped"]["frame_id"],
+                position=kwargs["pose_stamped"]["position"],
+                orientation=kwargs["pose_stamped"]["orientation"],
             )
-            self.grid_objects[object_id] = GridObject(grid_idx, pose_stamped)
+            grid_object = GridObject(
+                object_id=object_id, grid_idx=(x, y), pose_stamped=pose_stamped
+            )
+            self.grid_objects_by_id[object_id] = grid_object
+            self.grid_objects_by_idx[(x, y)] = grid_object
 
     ###########################################################################
     ########## Collisions #####################################################
@@ -1104,9 +1124,13 @@ class PlanningSceneInterface(BaseInterface):
                 **kwargs,
             )
             x, y = idx.split(",")
-            grid_idx = (int(x), int(y))
+            x, y = int(x), int(y)
 
-            self.grid_objects[object_id] = GridObject(grid_idx, pose_stamped)
+            grid_object = GridObject(
+                object_id=object_id, grid_idx=(x, y), pose_stamped=pose_stamped
+            )
+            self.grid_objects_by_id[object_id] = grid_object
+            self.grid_objects_by_idx[(x, y)] = grid_object
 
     def attach_collision_object(
         self,
@@ -1164,7 +1188,8 @@ class PlanningSceneInterface(BaseInterface):
             scene.remove_all_collision_objects()
             scene.current_state.update()
 
-        self.grid_objects = {}
+        self.grid_objects_by_id = {}
+        self.grid_objects_by_idx = {}
 
         assert len(self.collision_object_ids) == 0
 
@@ -1186,9 +1211,14 @@ class PlanningSceneInterface(BaseInterface):
     ########## Logging ########################################################
     ###########################################################################
 
-    def log_planning_scene(self, severity: str = "INFO"):
+    def log_planning_scene(
+        self, severity: SeverityString | LoggingSeverity = "INFO"
+    ):
         """Log the planning scene."""
-        if self.log_level < LoggingSeverity[severity]:
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if self.log_level < severity:
             return
 
         self.log("Logging planning scene", severity=severity)
@@ -1208,9 +1238,14 @@ class PlanningSceneInterface(BaseInterface):
                 severity=severity,
             )
 
-    def log_collision_matrix(self, severity: str = "INFO"):
+    def log_collision_matrix(
+        self, severity: SeverityString | LoggingSeverity = "INFO"
+    ):
         """Log the collision matrix."""
-        if self.log_level < LoggingSeverity[severity]:
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if self.log_level < severity:
             return
 
         self.log(
@@ -1218,9 +1253,14 @@ class PlanningSceneInterface(BaseInterface):
             severity=severity,
         )
 
-    def log_collision_objects(self, severity: str = "INFO"):
+    def log_collision_objects(
+        self, severity: SeverityString | LoggingSeverity = "INFO"
+    ):
         """Log the collision objects."""
-        if self.log_level < LoggingSeverity[severity]:
+        if not isinstance(severity, LoggingSeverity):
+            severity = LoggingSeverity[severity]
+
+        if self.log_level < severity:
             return
 
         self.log("Logging collision objects", severity=severity)

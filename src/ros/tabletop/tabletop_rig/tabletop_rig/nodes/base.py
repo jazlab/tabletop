@@ -40,12 +40,10 @@ from rclpy.exceptions import (
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
 
-from ros.tabletop.tabletop_rig.tabletop_rig.exceptions import (
-    ActionResultUnsuccessfulError,
-)
 from tabletop_py.utils.common import yaml_dump_string
 from tabletop_rig.exceptions import (
     ActionGoalNotAcceptedError,
+    ActionResultUnsuccessfulError,
     ActionServerWaitTimeoutError,
     ROSSleepError,
     ServiceCallTimeoutError,
@@ -58,10 +56,10 @@ if TYPE_CHECKING:
     from tabletop_rig.interfaces.base import BaseInterface
 
 
-# TODO: Maybe add cancellation forwarding here
-async def wrap_rclpy_future(rclpy_future: rclpy.task.Future) -> Any:
+# TODO: Maybe add cancellation forwarding here ala asyncio.wrap_future
+async def wrap_rclpy_future_orig(source: rclpy.task.Future) -> Any:
     loop = asyncio.get_running_loop()
-    asyncio_future = loop.create_future()
+    destination = loop.create_future()
 
     def callback(future: rclpy.task.Future):
         cur_loop = None
@@ -72,25 +70,111 @@ async def wrap_rclpy_future(rclpy_future: rclpy.task.Future) -> Any:
 
         if cur_loop is loop:
             try:
-                asyncio_future.set_result(future.result())
+                destination.set_result(future.result())
             except Exception as e:
-                asyncio_future.set_exception(e)
+                destination.set_exception(e)
         else:
             try:
                 loop.call_soon_threadsafe(
-                    asyncio_future.set_result, future.result()
+                    destination.set_result, future.result()
                 )
             except Exception as e:
-                loop.call_soon_threadsafe(asyncio_future.set_exception, e)
+                loop.call_soon_threadsafe(destination.set_exception, e)
 
-    rclpy_future.add_done_callback(callback)
+    source.add_done_callback(callback)
 
     try:
-        return await asyncio_future
+        return await destination
     except asyncio.CancelledError:
-        if not rclpy_future.remove_done_callback(callback):
+        if not source.remove_done_callback(callback):
             raise AssertionError("This shouldn't happen")
         raise
+
+
+def _get_loop(fut: asyncio.Future):
+    # Tries to call Future.get_loop() if it's available.
+    # Otherwise fallbacks to using the old '_loop' property.
+    try:
+        get_loop = fut.get_loop
+    except AttributeError:
+        pass
+    else:
+        return get_loop()
+    return fut._loop
+
+
+def _copy_future_state(source: rclpy.task.Future, destination: asyncio.Future):
+    """Internal helper to copy state from another Future.
+
+    The other Future may be a concurrent.futures.Future.
+    """
+    assert source.done() or source.cancelled()
+    if destination.cancelled():
+        return
+    assert not destination.done()
+    if source.cancelled():
+        destination.cancel()
+    else:
+        exception = source.exception()
+        if exception is not None:
+            destination.set_exception(exception)
+        else:
+            result = source.result()
+            destination.set_result(result)
+
+
+def _chain_future(source: rclpy.task.Future, destination: asyncio.Future):
+    """Chain two futures so that when one completes, so does the other.
+
+    The result (or exception) of source will be copied to destination.
+    If destination is cancelled, source gets cancelled too.
+    Compatible with both asyncio.Future and concurrent.futures.Future.
+    """
+    if not isinstance(source, rclpy.task.Future):
+        raise TypeError("An rclpy future is required for source argument")
+    if not asyncio.isfuture(destination):
+        raise TypeError("A future is required for destination argument")
+
+    dest_loop = _get_loop(destination)
+    assert dest_loop is not None
+
+    def _check_cancel(destination):
+        if destination.cancelled():
+            source.cancel()
+
+    def _set_state(source):
+        if destination.cancelled() and dest_loop.is_closed():
+            return
+
+        source_loop = None
+        try:
+            source_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if dest_loop is source_loop:
+            _copy_future_state(source, destination)
+        else:
+            if dest_loop.is_closed():
+                return
+            dest_loop.call_soon_threadsafe(
+                _copy_future_state, source, destination
+            )
+
+    destination.add_done_callback(_check_cancel)
+    source.add_done_callback(_set_state)
+
+
+def wrap_rclpy_future(future: rclpy.task.Future, *, loop=None):
+    """Wrap concurrent.futures.Future object."""
+    assert isinstance(future, rclpy.task.Future), (
+        f"rclpy.task.Future is expected, got {future!r}"
+    )
+    if loop is None:
+        loop = asyncio.get_event_loop()
+    new_future = loop.create_future()
+    _chain_future(future, new_future)
+    return new_future
 
 
 class AIOActionClient(ActionClient):

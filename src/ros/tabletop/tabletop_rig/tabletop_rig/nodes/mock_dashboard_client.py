@@ -25,7 +25,7 @@ Example:
 
 import rclpy
 from rclpy.action.server import ActionServer, ServerGoalHandle
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import RobotMode, SafetyMode
@@ -286,7 +286,8 @@ def main(args=None):
     rclpy.init(args=args)
 
     try:
-        executor = SingleThreadedExecutor()
+        # executor = SingleThreadedExecutor()
+        executor = EventsExecutor()
         mock_dashboard = MockDashboardClient()
         executor.add_node(mock_dashboard)
 

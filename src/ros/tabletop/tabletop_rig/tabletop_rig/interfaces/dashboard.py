@@ -318,8 +318,6 @@ class DashboardInterface(BaseInterface):
             # Sleep so robot has time to go back into normal mode
             await asyncio.sleep(3)
 
-            return
-
     # async def reset_old(
     #     self, timeout: Optional[float] = None, init: bool = False
     # ) -> None:

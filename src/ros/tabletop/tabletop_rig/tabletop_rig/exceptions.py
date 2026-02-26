@@ -327,3 +327,11 @@ class ObjectManipulationError(MoveitRecoverableError):
     This covers failures during object fetching, presenting, or returning
     operations, such as grasp planning failures or state machine errors.
     """
+
+
+class ObjectMismatchError(ObjectManipulationError):
+    """Raised when the user tries to manipulate a different object than that which is currently held"""
+
+
+class StateTransitionError(ObjectManipulationError):
+    """Raised when an object manipulation state transition cannot be completed"""

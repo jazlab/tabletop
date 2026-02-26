@@ -145,16 +145,16 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
             trial_spec: Trial specification containing the object ID.
         """
         await self.commander.fetch_object(trial_spec.object_id)
-        await self.commander.present_object()
+        await self.commander.present_object(trial_spec.object_id)
 
-    async def _reset_trial(self):
+    async def _reset_trial(self, trial_spec: TrialSpec):
         """Reset the object after a trial.
 
         Resets the object to its home configuration and returns it
         to its storage position.
         """
-        await self.commander.reset_object()
-        await self.commander.return_object()
+        await self.commander.reset_object(trial_spec.object_id)
+        await self.commander.return_object(trial_spec.object_id)
 
     @abstractmethod
     async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
@@ -199,7 +199,7 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
                     await self._occlude_and_lock()
 
                     # Reset object before next trial
-                    await self._reset_trial()
+                    await self._reset_trial(trial_spec)
 
                 # Reached end of trial generator, exit
                 return
