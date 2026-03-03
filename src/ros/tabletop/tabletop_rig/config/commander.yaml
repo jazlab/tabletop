@@ -1,7 +1,6 @@
 /commander:
   ros__parameters:
     simulate: true
-    max_workers: 8
 
     dashboard:
       installation: default.installation
@@ -120,8 +119,8 @@
         eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
       state_offsets:
-        pre_fetch: [-0.03, 0.0, -0.05] # relative to object init pose
-        pre_attach: [-0.03, 0.0, 0.0] # relative to object init pose
+        pre_fetch: [-0.05, 0.0, -0.05] # relative to object init pose
+        pre_attach: [-0.05, 0.0, 0.0] # relative to object init pose
         attach: [0.0, 0.0, 0.0] # relative to object init pose
         post_attach: [0.077, 0.0, 0.0] # relative to object init pose
         post_fetch: [0.077, 0.0, -0.15] # relative to object init pose

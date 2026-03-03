@@ -25,6 +25,10 @@ Example:
 
 import rclpy
 from rclpy.action.server import ActionServer, ServerGoalHandle
+from rclpy.executors import (
+    MultiThreadedExecutor,
+    SingleThreadedExecutor,
+)
 from rclpy.experimental import EventsExecutor
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
@@ -281,13 +285,24 @@ class MockDashboardClient(BaseNode):
         super().destroy_node()
 
 
+EXECUTOR_TYPE = "events"
+
+
 def main(args=None):
     """Entry point for the mock_dashboard_client node."""
     rclpy.init(args=args)
 
     try:
-        # executor = SingleThreadedExecutor()
-        executor = EventsExecutor()
+        match EXECUTOR_TYPE:
+            case "events":
+                executor = EventsExecutor()
+            case "single-threaded":
+                executor = SingleThreadedExecutor()
+            case "multi-threaded":
+                executor = MultiThreadedExecutor()
+            case _:
+                raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
+
         mock_dashboard = MockDashboardClient()
         executor.add_node(mock_dashboard)
 

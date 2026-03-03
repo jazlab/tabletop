@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 import numpy as np
 from tabletop_rig.nodes import Commander
+from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
@@ -66,7 +67,7 @@ class RandomChoice(BaseTrialGenerator):
         Args:
             commander: Commander instance for robot interaction.
             object_ids: List of object IDs to randomly select from.
-            poses: List of pose dictionaries (passed to create_pose_stamped).
+            poses: List of pose dictionaries (passed to pose_stamped_msg).
             arms: List of arm assignments to randomly select from.
             occlude_prob: Probability of smartglass occlusion (0.0 to 1.0).
             num_trials: Total number of trials to generate.
@@ -77,9 +78,7 @@ class RandomChoice(BaseTrialGenerator):
         super().__init__("random_choice_trial_generator", commander)
 
         self._object_ids = object_ids
-        self._poses = [
-            self.commander.create_pose_stamped(**pose) for pose in poses
-        ]
+        self._poses = [pose_stamped_msg(**pose) for pose in poses]
         self._arms = arms
 
         self._occlude_prob = occlude_prob

@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from tabletop_rig.nodes import Commander
+from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
@@ -68,7 +69,7 @@ class OrderedChoice(BaseTrialGenerator):
         Args:
             commander: Commander instance for robot interaction.
             object_ids: List of object IDs to cycle through.
-            poses: List of pose dictionaries (passed to create_pose_stamped).
+            poses: List of pose dictionaries (passed to pose_stamped_msg).
             arms: List of arm assignments to cycle through.
             occlude: List of occlusion states to cycle through.
             num_trials: Total number of trials to generate.
@@ -79,9 +80,7 @@ class OrderedChoice(BaseTrialGenerator):
         super().__init__("ordered_choice_trial_generator", commander)
 
         self._object_ids = object_ids
-        self._poses = [
-            self.commander.create_pose_stamped(**pose) for pose in poses
-        ]
+        self._poses = [pose_stamped_msg(**pose) for pose in poses]
         self._arms = arms
         self._occlude = occlude
 

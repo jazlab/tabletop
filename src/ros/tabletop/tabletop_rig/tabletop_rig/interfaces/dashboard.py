@@ -282,26 +282,33 @@ class DashboardInterface(BaseInterface):
                     "Dashboard is not in Remote Control mode, please fix that immediately"
                 )
 
-            try:
-                await self._load_file(
-                    "/dashboard_client/load_program", config["program"]
-                )
-            except ServiceCallUnsuccessfulError as e:
-                self.log(
-                    f"Failed to load program with error: {e}",
-                    severity="WARN",
-                )
-                self.log("Attempting to reconnect...")
-                await self._trigger("/dashboard_client/connect")
-                raise
+            # try:
+            #     await self._load_file(
+            #         "/dashboard_client/load_program", config["program"]
+            #     )
+            # except ServiceCallUnsuccessfulError as e:
+            #     self.log(
+            #         f"Failed to load program with error: {e}",
+            #         severity="WARN",
+            #     )
+            #     self.log("Attempting to reconnect...")
+            #     await self._trigger("/dashboard_client/connect")
+            #     raise
 
-            # Set RobotState to RUNNING
-            await self._set_robot_mode_running()
+            await self._load_file(
+                "/dashboard_client/load_program", config["program"]
+            )
+
+            # # Set RobotState to RUNNING
+            # await self._set_robot_mode_running()
 
             # Close any popups and unlock protective stop
             await self._trigger("/dashboard_client/close_popup")
             await self._trigger("/dashboard_client/close_safety_popup")
             await self._trigger("/dashboard_client/unlock_protective_stop")
+
+            # Set RobotState to RUNNING
+            await self._set_robot_mode_running()
 
             # Play program
             await self._trigger("/dashboard_client/play")

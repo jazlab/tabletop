@@ -125,15 +125,9 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         view and constraining their arms. Waits for both operations
         to complete.
         """
-        arm_lock_task = asyncio.create_task(
-            self.commander.lock_arms_and_wait()
-        )
-        smartglass_task = asyncio.create_task(
-            self.commander.occlude_smartglass()
-        )
-
-        await arm_lock_task
-        await smartglass_task
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.commander.lock_arms_and_wait())
+            tg.create_task(self.commander.occlude_smartglass())
 
     async def _prepare_trial(self, trial_spec: TrialSpec):
         """Prepare the object for a trial.
@@ -148,10 +142,9 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         await self.commander.present_object(trial_spec.object_id)
 
     async def _reset_trial(self, trial_spec: TrialSpec):
-        """Reset the object after a trial.
+        """Reset and return the object after a trial.
 
-        Resets the object to its home configuration and returns it
-        to its storage position.
+        Resets the object and returns it to its mount.
         """
         await self.commander.reset_object(trial_spec.object_id)
         await self.commander.return_object(trial_spec.object_id)

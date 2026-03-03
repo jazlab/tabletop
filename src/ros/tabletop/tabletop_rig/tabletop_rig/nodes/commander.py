@@ -35,6 +35,7 @@ import asyncio
 import concurrent.futures
 import functools
 import importlib
+import inspect
 import signal
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
@@ -49,13 +50,11 @@ from typing import Any, Literal, Optional, Self
 import debugpy
 import rclpy
 import rclpy.utilities
-from geometry_msgs.msg import PoseStamped
 from mingus.containers import Note
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
 from rclpy.executors import (
-    Executor,
     MultiThreadedExecutor,
     SingleThreadedExecutor,
 )
@@ -83,6 +82,30 @@ from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.nodes.base import BaseNode
 
 
+def ensure_context(fn):
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def async_wrapper(self: "Commander", *args, **kwargs):
+            if not self._entered_context:
+                raise RuntimeError(
+                    "Commander context manager not entered, use 'async with commander:' before calling any Commander methods"
+                )
+            return await fn(self, *args, **kwargs)
+
+        return async_wrapper
+    else:
+
+        def wrapper(self: "Commander", *args, **kwargs):
+            if not self._entered_context:
+                raise RuntimeError(
+                    "Commander context manager not entered, use 'async with commander:' before calling any Commander methods"
+                )
+            return fn(self, *args, **kwargs)
+
+        return wrapper
+
+
 def safe_execution(coro_fn):
     """Decorator for methods requiring safety-checked robot execution.
 
@@ -99,7 +122,7 @@ def safe_execution(coro_fn):
     """
 
     @functools.wraps(coro_fn)
-    async def wrapper(self: "Commander", *args: Any, **kwargs: Any):
+    async def wrapper(self: "Commander", *args, **kwargs):
         max_retries = self.param("safe_execution.max_retries")
         if max_retries < 0:
             raise ValueError("safe_execution.max_retries must be at least 0")
@@ -166,7 +189,6 @@ class Commander(BaseNode):
     }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
-        "max_workers",
         "dashboard.installation",
         "dashboard.program",
         "teensy.spin_period",
@@ -223,6 +245,8 @@ class Commander(BaseNode):
             self, safe_to_execute_callback=lambda: self.teensy.safe_to_execute
         )
 
+        self._entered_context = False
+
         self.log("Commander initialized")
 
     def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
@@ -245,6 +269,7 @@ class Commander(BaseNode):
     ########## User Interface #################################################
     ###########################################################################
 
+    @ensure_context
     async def play_sound(
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
@@ -258,6 +283,7 @@ class Commander(BaseNode):
         """
         await self.sound.play(note, duration)
 
+    @ensure_context
     async def release_arm(self, arm: Literal["left", "right", "both"]) -> None:
         """Release the specified arm lock(s).
 
@@ -266,6 +292,7 @@ class Commander(BaseNode):
         """
         await self.teensy.set_arm_lock(arm, lock=False)
 
+    @ensure_context
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
@@ -283,18 +310,22 @@ class Commander(BaseNode):
         """
         return await self.teensy.lock_arms_and_wait(timeout)
 
+    @ensure_context
     async def reveal_smartglass(self) -> None:
         """Make the smartglass transparent (subject can see through)."""
         await self.teensy.set_smartglass(reveal=True)
 
+    @ensure_context
     async def occlude_smartglass(self) -> None:
         """Make the smartglass opaque (subject's view is blocked)."""
         await self.teensy.set_smartglass(reveal=False)
 
+    @ensure_context
     async def stop_reward(self) -> None:
         """Stop any active reward delivery immediately."""
         await self.teensy.set_reward(activate=False)
 
+    @ensure_context
     async def start_reward_and_wait(self, duration: float) -> None:
         """Deliver reward for the specified duration.
 
@@ -303,6 +334,7 @@ class Commander(BaseNode):
         """
         await self.teensy.start_reward_and_wait(duration)
 
+    @ensure_context
     async def flic_response_time(
         self, timeout: Optional[float] = None
     ) -> float | None:
@@ -333,6 +365,7 @@ class Commander(BaseNode):
 
         return reported_time
 
+    @ensure_context
     async def smooth_pursuit_and_reward(self) -> None:
         """Monitor smooth pursuit and provide contingent reward.
 
@@ -394,15 +427,7 @@ class Commander(BaseNode):
             except Exception as e:
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
-    def create_pose_stamped(
-        self, *, frame_id: Optional[str] = None, **kwargs: Any
-    ) -> PoseStamped:
-        """Create a PoseStamped message from keyword arguments.
-
-        Uses planning frame as default frame id if not specified.
-        """
-        return self.moveit.create_pose_stamped(frame_id=frame_id, **kwargs)
-
+    @ensure_context
     def attach_object_manually(self, object_id: str) -> None:
         """Mark an object as attached without robot motion.
 
@@ -414,6 +439,7 @@ class Commander(BaseNode):
         """
         self.moveit.add_manually_attached_object(object_id)
 
+    @ensure_context
     async def plan(self, *args, **kwargs) -> RobotTrajectory:
         """Plan a trajectory to the specified goal.
 
@@ -430,6 +456,7 @@ class Commander(BaseNode):
         trajectory, _ = await self.moveit.plan(*args, **kwargs)
         return trajectory
 
+    @ensure_context
     @safe_execution
     async def execute(self, *args, **kwargs) -> None:
         """Execute a previously planned trajectory.
@@ -444,6 +471,7 @@ class Commander(BaseNode):
         """
         await self.moveit.execute(*args, **kwargs)
 
+    @ensure_context
     @safe_execution
     async def plan_and_execute(self, *args, **kwargs) -> None:
         """Plan and execute a motion to the specified goal.
@@ -462,6 +490,7 @@ class Commander(BaseNode):
         """
         await self.moveit.plan_and_execute(*args, **kwargs)
 
+    @ensure_context
     @safe_execution
     async def fetch_object(self, object_id: str):
         """Fetch an object from its mount.
@@ -479,11 +508,13 @@ class Commander(BaseNode):
         """
         await self.moveit.fetch_object(object_id)
 
+    @ensure_context
     @safe_execution
     async def present_object(self, object_id: str):
         """Move to present state with the currently attached object"""
         await self.moveit.present_object(object_id)
 
+    @ensure_context
     @safe_execution
     async def reset_object(self, object_id: str):
         """Reset the currently attached object using its associated ObjectResetConfig
@@ -495,6 +526,7 @@ class Commander(BaseNode):
         """
         await self.moveit.reset_object(object_id)
 
+    @ensure_context
     @safe_execution
     async def return_object(self, object_id: str):
         """Return the currently attached object to its mount.
@@ -718,6 +750,7 @@ class Commander(BaseNode):
             await self._context_stack.__aexit__(type(e), e, e.__traceback__)
             raise e
 
+        self._entered_context = True
         return self
 
     async def __aexit__(
@@ -739,7 +772,12 @@ class Commander(BaseNode):
         Returns:
             True if a recoverable error was handled, False otherwise.
         """
-        return await self._context_stack.__aexit__(exc_type, exc_value, exc_tb)
+        try:
+            return await self._context_stack.__aexit__(
+                exc_type, exc_value, exc_tb
+            )
+        finally:
+            self._entered_context = False
 
 
 async def debug_commander(
@@ -823,12 +861,6 @@ async def asyncio_runner(
 EXECUTOR_TYPE = "events"
 
 
-def get_executor(*args, **kwargs):
-    match EXECUTOR_TYPE:
-        case "events":
-            return EventsExecutor(*args, **kwargs)
-
-
 def main_sync(args=None) -> None:
     """Entry point for the commander node.
 
@@ -888,9 +920,16 @@ def main_sync(args=None) -> None:
             debugpy.wait_for_client()
             print("Debugger attached")
 
-        executor: SingleThreadedExecutor | MultiThreadedExecutor | Executor = (
-            EventsExecutor()
-        )
+        match EXECUTOR_TYPE:
+            case "events":
+                executor = EventsExecutor()
+            case "single-threaded":
+                executor = SingleThreadedExecutor()
+            case "multi-threaded":
+                executor = MultiThreadedExecutor()
+            case _:
+                raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
+
         commander = Commander()
         executor.add_node(commander)
 
@@ -977,17 +1016,16 @@ async def main_async(args=None):
 
         p = None
         try:
-            future = executor.create_task(coro_fn(commander, args.coro_config))
-            await executor.spin_until_future_complete(future)
-            # async with asyncio.TaskGroup() as tg:
-            #     spin_task = tg.create_task(executor.spin())
-            #     user_task = tg.create_task(
-            #         coro_fn(commander, args.coro_config)
-            #     )
-            #     await asyncio.wait(
-            #         [spin_task, user_task], return_when=asyncio.FIRST_COMPLETED
-            #     )
-            #     raise TestException
+            # future = executor.create_task(coro_fn(commander, args.coro_config))
+            # await executor.spin_until_future_complete(future)
+            async with asyncio.TaskGroup() as tg:
+                spin_task = tg.create_task(executor.spin())
+                user_task = tg.create_task(
+                    coro_fn(commander, args.coro_config)
+                )
+                await asyncio.wait(
+                    [spin_task, user_task], return_when=asyncio.FIRST_COMPLETED
+                )
             # with pyinstrument.Profiler(async_mode="enabled") as p:
         finally:
             if p is not None:

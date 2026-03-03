@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 from tabletop_rig.nodes import Commander
+from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
@@ -59,7 +60,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         Args:
             commander: Commander instance for robot interaction.
-            poses: List of pose dictionaries (passed to create_pose_stamped).
+            poses: List of pose dictionaries (passed to pose_stamped_msg).
             correct_trials_per_block: Number of correct trials required
                 before switching to the next block.
         """
@@ -74,9 +75,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self._block_keys = list(self._object_ids.keys())
 
         # Setup poses. Each trial, a random pose will be sampled from these.
-        self._poses = [
-            self.commander.create_pose_stamped(**pose) for pose in poses
-        ]
+        self._poses = [pose_stamped_msg(**pose) for pose in poses]
 
         # Initialize generator state
         self._num_correct = 0

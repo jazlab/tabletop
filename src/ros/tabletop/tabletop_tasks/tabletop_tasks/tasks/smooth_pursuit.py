@@ -33,6 +33,7 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
 )
 from tabletop_rig.exceptions import PlanningError
 from tabletop_rig.nodes import Commander
+from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.tasks.base import BaseTask
 from tabletop_tasks.trial_generators.base import TrialFeedback, TrialSpec
@@ -131,7 +132,7 @@ class SmoothPursuitTask(BaseTask):
 
         Args:
             center_pose_kwargs: Keyword arguments for creating the center
-                pose (passed to create_pose_stamped).
+                pose (passed to pose_stamped_msg).
             radius: Radius of the spiral in the XZ plane (meters).
             length: Total length of Y-axis oscillation (meters).
             num_revolutions: Number of complete rotations in XZ plane.
@@ -142,7 +143,7 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Generating spiral trajectory")
 
-        center = self.commander.create_pose_stamped(**center_pose_kwargs)
+        center = pose_stamped_msg(**center_pose_kwargs)
 
         goals: list[PoseStamped] = []
 
@@ -156,7 +157,7 @@ class SmoothPursuitTask(BaseTask):
             y = center.pose.position.y - (length / 2) * np.cos(theta_y)
             z = center.pose.position.z + radius * np.sin(theta_xz)
 
-            goal = self.commander.create_pose_stamped(
+            goal = pose_stamped_msg(
                 position=[x, y, z],
                 orientation=center.pose.orientation,
             )
@@ -185,7 +186,7 @@ class SmoothPursuitTask(BaseTask):
 
         Args:
             start_pose_kwargs: Keyword arguments for creating the start
-                pose (passed to create_pose_stamped).
+                pose (passed to pose_stamped_msg).
             min_x: Minimum X coordinate for random sampling (meters).
             max_x: Maximum X coordinate for random sampling (meters).
             min_y: Minimum Y coordinate for random sampling (meters).
@@ -201,7 +202,7 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Generating random trajectory")
 
-        start = self.commander.create_pose_stamped(**start_pose_kwargs)
+        start = pose_stamped_msg(**start_pose_kwargs)
 
         goals: list[PoseStamped] = []
         goals.append(start)
@@ -214,7 +215,7 @@ class SmoothPursuitTask(BaseTask):
 
             print(f"Goal {i}: {x}, {y}, {z}")
 
-            goal = self.commander.create_pose_stamped(
+            goal = pose_stamped_msg(
                 position=[x, y, z],
                 orientation=start.pose.orientation,
             )
