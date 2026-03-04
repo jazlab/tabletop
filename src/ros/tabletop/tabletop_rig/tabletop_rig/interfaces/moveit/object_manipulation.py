@@ -42,6 +42,8 @@ from rclpy.exceptions import ParameterNotDeclaredException
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
     ExecutionError,
+    ExecutionInterruptedError,
+    ExecutionRejectedError,
     MoveitRecoverableError,
     ObjectManipulationError,
     ObjectMismatchError,
@@ -1048,12 +1050,33 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 State.MANUALLY_ATTACHED,
             ):
                 assert self._current_manipulation_id is not None
-                if self._manipulation_state == State.NEEDS_RESET:
+                if self._manipulation_state == State.DETACH:
+                    try:
+                        await self._fetch_or_return_transition(
+                            self._current_manipulation_id, State.ATTACH
+                        )
+                        self._manipulation_state = State.ATTACH
+                        await self._fetch_or_return_transition(
+                            self._current_manipulation_id, State.POST_ATTACH
+                        )
+                        self._manipulation_state = State.POST_ATTACH
+                    except (
+                        ExecutionRejectedError,
+                        ExecutionInterruptedError,
+                    ) as e:
+                        if self.node.param("simulate"):
+                            raise
+                        else:
+                            raise RuntimeError(
+                                "Object seems stuck, aborting"
+                            ) from e
+                elif self._manipulation_state == State.NEEDS_RESET:
                     await ObjectManipulationInterface.reset_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                         self,
                         self._current_manipulation_id,
                         cache_trajectories=False,
                     )
+
                 await ObjectManipulationInterface.return_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                     self,
                     self._current_manipulation_id,

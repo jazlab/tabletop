@@ -257,21 +257,6 @@ class ExecutionRejectedError(ExecutionError):
         self.execution_status = execution_status
         super().__init__(f"Execution rejected: {execution_status.status}")
 
-    def __eq__(self, other: Any) -> bool:
-        """Check equality based on execution status.
-
-        Args:
-            other: Object to compare against.
-
-        Returns:
-            True if other is an ExecutionRejectedError with same status.
-        """
-        if isinstance(other, ExecutionRejectedError):
-            return (
-                self.execution_status.status == other.execution_status.status
-            )
-        return False
-
 
 class ExecutionInterruptedError(ExecutionError):
     """Raised when trajectory execution is interrupted before completion.

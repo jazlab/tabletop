@@ -124,57 +124,6 @@ class DashboardInterface(BaseInterface):
         )
         return cast(Load.Response, response)
 
-    async def _get_safety_mode(self) -> SafetyMode:
-        """Query the current robot safety mode.
-
-        Returns:
-            SafetyMode message indicating current state (NORMAL, REDUCED,
-            PROTECTIVE_STOP, RECOVERY, etc.).
-        """
-        response = cast(
-            GetSafetyMode.Response,
-            await self.node.service_call_async(
-                srv_request=GetSafetyMode.Request(),
-                srv_type=GetSafetyMode,
-                srv_name="/dashboard_client/get_safety_mode",
-            ),
-        )
-        return response.safety_mode
-
-    async def _get_robot_mode(self) -> RobotMode:
-        """Query the current robot operating mode.
-
-        Returns:
-            RobotMode message indicating current state (RUNNING, IDLE,
-            POWER_OFF, etc.).
-        """
-        response = cast(
-            GetRobotMode.Response,
-            await self.node.service_call_async(
-                srv_request=GetRobotMode.Request(),
-                srv_type=GetRobotMode,
-                srv_name="/dashboard_client/get_robot_mode",
-            ),
-        )
-        return response.robot_mode
-
-    async def _get_program_state(self) -> ProgramState:
-        """Query the current program execution state.
-
-        Returns:
-            ProgramState message indicating current state (STOPPED, PLAYING,
-            PAUSED, etc.).
-        """
-        response = cast(
-            GetProgramState.Response,
-            await self.node.service_call_async(
-                srv_request=GetProgramState.Request(),
-                srv_type=GetProgramState,
-                srv_name="/dashboard_client/program_state",
-            ),
-        )
-        return response.state
-
     async def _is_in_remote_control(self) -> bool:
         """Check if the robot is in remote control mode.
 
@@ -225,11 +174,62 @@ class DashboardInterface(BaseInterface):
                 f"UR SetMode action failed with message: {result.message}"
             )
 
-        robot_mode = await self._get_robot_mode()
+        robot_mode = await self.get_robot_mode()
         if robot_mode.mode != RobotMode.RUNNING:
             raise RuntimeError(
                 f"Robot mode should be RUNNING, actual mode: {robot_mode}"
             )
+
+    async def get_safety_mode(self) -> SafetyMode:
+        """Query the current robot safety mode.
+
+        Returns:
+            SafetyMode message indicating current state (NORMAL, REDUCED,
+            PROTECTIVE_STOP, RECOVERY, etc.).
+        """
+        response = cast(
+            GetSafetyMode.Response,
+            await self.node.service_call_async(
+                srv_request=GetSafetyMode.Request(),
+                srv_type=GetSafetyMode,
+                srv_name="/dashboard_client/get_safety_mode",
+            ),
+        )
+        return response.safety_mode
+
+    async def get_robot_mode(self) -> RobotMode:
+        """Query the current robot operating mode.
+
+        Returns:
+            RobotMode message indicating current state (RUNNING, IDLE,
+            POWER_OFF, etc.).
+        """
+        response = cast(
+            GetRobotMode.Response,
+            await self.node.service_call_async(
+                srv_request=GetRobotMode.Request(),
+                srv_type=GetRobotMode,
+                srv_name="/dashboard_client/get_robot_mode",
+            ),
+        )
+        return response.robot_mode
+
+    async def get_program_state(self) -> ProgramState:
+        """Query the current program execution state.
+
+        Returns:
+            ProgramState message indicating current state (STOPPED, PLAYING,
+            PAUSED, etc.).
+        """
+        response = cast(
+            GetProgramState.Response,
+            await self.node.service_call_async(
+                srv_request=GetProgramState.Request(),
+                srv_type=GetProgramState,
+                srv_name="/dashboard_client/program_state",
+            ),
+        )
+        return response.state
 
     async def reset(self, timeout: Optional[float] = None) -> None:
         """Execute full dashboard recovery sequence.
@@ -334,14 +334,14 @@ class DashboardInterface(BaseInterface):
             # Play program
             await self._trigger("/dashboard_client/play")
 
-            safety_mode = await self._get_safety_mode()
+            safety_mode = await self.get_safety_mode()
             while safety_mode.mode != SafetyMode.NORMAL:
                 self.log(
                     f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds until NORMAL...",
                     severity="WARN",
                 )
                 await asyncio.sleep(config["play_retry_delay"])
-                safety_mode = await self._get_safety_mode()
+                safety_mode = await self.get_safety_mode()
 
             # Sleep so robot has time to go back into normal mode
             await asyncio.sleep(3)

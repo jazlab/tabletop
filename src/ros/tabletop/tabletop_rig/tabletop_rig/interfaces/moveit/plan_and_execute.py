@@ -886,7 +886,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             #     _execute_and_wait, weakref.proxy(self)
             # )
             self._execute_future = tpe.submit(self._execute_and_wait)
-            execution_status = await asyncio.wrap_future(self._execute_future)
+            status = await asyncio.wrap_future(self._execute_future)
         except asyncio.CancelledError:
             # self._stop_execution_future = tpe.submit(
             #     _stop_execution, weakref.proxy(self)
@@ -897,20 +897,20 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Return the trajectory if the execution was successful, otherwise raise
         # an error based on the execution status and safe to execute flag
-        if execution_status:
+        if status:
             return
         elif not self._safe_to_execute_callback():
-            raise NotSafeToExecuteError(execution_status)
-        else:
-            tolerance = self.node.param(
+            raise NotSafeToExecuteError(status)
+        elif all_close_robot_states(
+            initial_state,
+            self.current_state,
+            position_tolerance=self.node.param(
                 "trajectory_execution.allowed_start_tolerance"
-            )
-            if not all_close_robot_states(
-                initial_state, self.current_state, position_tolerance=tolerance
-            ):
-                raise ExecutionInterruptedError(execution_status)
-            else:
-                raise ExecutionRejectedError(execution_status)
+            ),
+        ):
+            raise ExecutionRejectedError(status)
+        else:
+            raise ExecutionInterruptedError(status)
 
     async def execute(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
