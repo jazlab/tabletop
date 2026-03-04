@@ -1050,14 +1050,18 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 assert self._current_manipulation_id is not None
                 if self._manipulation_state == State.NEEDS_RESET:
                     await ObjectManipulationInterface.reset_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
-                        self, self._current_manipulation_id
+                        self,
+                        self._current_manipulation_id,
+                        cache_trajectories=False,
                     )
                 await ObjectManipulationInterface.return_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
-                    self, self._current_manipulation_id
+                    self,
+                    self._current_manipulation_id,
+                    cache_trajectories=False,
                 )
             if end_goal is not None:
                 await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
-                    self, goal=end_goal
+                    self, goal=end_goal, cache_trajectory=False
                 )
         except MoveitRecoverableError as e:
             if self.node.param("simulate"):

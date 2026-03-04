@@ -51,7 +51,7 @@ class DashboardInterface(BaseInterface):
         """
         super().__init__("dashboard_interface", node)
 
-        self._init = False
+        self._connected = False
 
         if self.node.param("simulate"):
             self.log(
@@ -259,14 +259,11 @@ class DashboardInterface(BaseInterface):
             self.log("Resetting dashboard")
             config = self.node.param("dashboard")
 
-            try:
-                remote_control = await self._is_in_remote_control()
-            except ServiceCallUnsuccessfulError as e:
-                self.log(
-                    f"Failed to get RemoteControl state with error: {e}",
-                    severity="WARN",
-                )
-                self.log("Attempting to reconnect...")
+            if not self._connected:
+                try:
+                    await self._trigger("/dashboard_client/quit")
+                except ServiceCallUnsuccessfulError:
+                    pass
 
                 try:
                     await self._trigger("/dashboard_client/connect")
@@ -275,12 +272,36 @@ class DashboardInterface(BaseInterface):
                         "Could not connect to dashboard client"
                     ) from e
 
-                remote_control = await self._is_in_remote_control()
+                self._connected = True
+
+            # try:
+            #     remote_control = await self._is_in_remote_control()
+            # except ServiceCallUnsuccessfulError as e:
+            #     self.log(
+            #         f"Failed to get RemoteControl state with error: {e}",
+            #         severity="WARN",
+            #     )
+            #     self.log("Attempting to reconnect...")
+            #
+            #     try:
+            #         await self._trigger("/dashboard_client/quit")
+            #         await self._trigger("/dashboard_client/connect")
+            #     except ServiceCallUnsuccessfulError as e:
+            #         raise RuntimeError(
+            #             "Could not connect to dashboard client"
+            #         ) from e
+            #
+            #     remote_control = await self._is_in_remote_control()
+
+            remote_control = await self._is_in_remote_control()
 
             if not remote_control:
                 raise RuntimeError(
                     "Dashboard is not in Remote Control mode, please fix that immediately"
                 )
+
+            await self._trigger("/dashboard_client/quit")
+            await self._trigger("/dashboard_client/connect")
 
             # try:
             #     await self._load_file(

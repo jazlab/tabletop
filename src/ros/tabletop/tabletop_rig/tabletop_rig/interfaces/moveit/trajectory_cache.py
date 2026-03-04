@@ -415,7 +415,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
 
             # Initialize the database
             self.open(flag="c")
-            with self:
+            try:
                 # Initialize the instance variables
                 self._max_trajectories = max_trajectories
 
@@ -440,6 +440,8 @@ class FuzzyTrajectoryCache(LoggerMixin):
                     f"{self._robot_state_tolerance}, and max trajectories "
                     f"{max_trajectories}."
                 )
+            finally:
+                self.close()
         except Exception:
             # Clean up the cache file if there was an error while initializing
             if new_cache:
@@ -536,6 +538,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 ) from e
 
             if old_value != value:
+                mismatch = True
                 self.log(
                     f"Old {key} value in db is different from new value: {old_value} != {value}.",
                     severity="WARN",
@@ -743,18 +746,16 @@ class FuzzyTrajectoryCache(LoggerMixin):
         request: PlanRequest,
         true_end_state: Optional[RobotState] = None,
         validate: bool = True,
-        _reverse: bool = False,
+        _reverse: bool = True,
     ):
         """Cache a trajectory.
 
         Args:
             trajectory: The trajectory to cache.
 
-            _cache_reverse: Whether to cache the reverse trajectory
-                (used internally).
         """
         # Check that the trajectory is valid only
-        if validate and not _reverse:
+        if validate and _reverse:
             validation_key = FuzzyTrajectoryCacheKey.from_plan_request(
                 request, planning_frame=self._planning_frame
             )
@@ -803,12 +804,12 @@ class FuzzyTrajectoryCache(LoggerMixin):
         self[pose_key] = value
         self[state_key] = value
 
-        if not _reverse:
+        if _reverse:
             self.cache_trajectory(
                 trajectory.reverse(),
                 request=request,
                 validate=validate,
-                _reverse=True,
+                _reverse=False,
             )
 
     def __getitem__(

@@ -110,8 +110,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         _trajectory_precache: Pending cache entries awaiting confirmation.
     """
 
-    _trajectory_precache: dict[int, TrajectoryCacheKwargs]
-
     def __init__(
         self,
         node: BaseNode,

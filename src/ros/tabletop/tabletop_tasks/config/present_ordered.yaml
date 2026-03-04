@@ -30,4 +30,4 @@ tasks:
           occlude:
             - false
           num_trials: 100000
-          skip_failed: true
+          skip_failed: false
