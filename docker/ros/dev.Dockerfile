@@ -12,21 +12,24 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     iproute2 \
     usbutils \
     ripgrep \
-    xarclock
+    xarclock \
+    nodejs \
+    npm
 
 # Install npm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    <<EOT
-set -e
-sudo apt-get update
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-\. "$HOME/.nvm/nvm.sh"
-nvm install 24
-EOT
+# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+#     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+#     <<EOT
+# set -e
+# sudo apt-get update
+# curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# \. "$HOME/.nvm/nvm.sh"
+# nvm install 24
+# EOT
 
 # Install npm packages globally
-RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli opencode-ai
+# RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli opencode-ai
+
 
 # Install claude code
 RUN curl -fsSL https://claude.ai/install.sh | bash

@@ -11,7 +11,7 @@ services:
       - real
       - sim
       - ursim
-    image: willfarrell/autoheal:latest
+    image: willfarrell/autoheal@sha256:ae1599ab171135fe3d5b779d84ece28f5cac95137e0e508ca49c62ccd740785e
     # pull_policy: always
     network_mode: none
     volumes:
@@ -24,6 +24,7 @@ services:
     <<: *common
     container_name: tabletop-novnc
     profiles:
+      - builder
       - real
       - sim
       - ursim
@@ -47,7 +48,7 @@ services:
     <<: *common
     container_name: tabletop-ursim
     profiles: [ ursim ]
-    image: universalrobots/ursim_e-series:latest
+    image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
     # pull_policy: always
     volumes:
       - ./ur_robot/urcaps:/urcaps
@@ -68,7 +69,7 @@ services:
     <<: *common
     container_name: tabletop-flicd
     profiles: [ real ]
-    image: ubuntu:latest
+    image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
     # pull_policy: always
     labels:
       autoheal-tabletop: true
@@ -98,7 +99,7 @@ services:
   ros-base:
     <<: *common
     image: tabletop/ros-base
-    profiles: [ ros-build ]
+    profiles: [ builder ]
     build:
       context: .
       dockerfile: ./docker/ros/base.Dockerfile
@@ -264,7 +265,9 @@ services:
   dev:
     <<: *common
     container_name: tabletop-dev
-    profiles: [ dev ]
+    profiles:
+      - builder
+      - dev
     image: tabletop/dev
     build:
       context: .
