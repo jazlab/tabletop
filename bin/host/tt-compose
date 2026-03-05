@@ -22,30 +22,36 @@ ps_format="table {{.Name}}\
 
 ARGS=()
 build=false
+up=false
+bluetooth=false
 while [[ $# -gt 0 ]]; do
+    ARGS+=("$1")
     case $1 in
         build)
             build=true
-            ARGS+=("$@")
-            break
+            # ARGS+=("$@")
+            # break
             # ARGS+=("--builder" "tabletop_builder")
             # export BUILDKIT_PROGRESS=plain
             ;;
         ps)
-            ARGS+=("$1")
-            shift
             ARGS+=("--format" "$ps_format")
             ARGS+=("--all")
-            ARGS+=("$@")
-            break
+            # ARGS+=("$@")
+            # break
+            ;;
+        up)
+            up=true
+            ;;
+        *flic-sim)
+            ;;
+        *flic|*flicd|*real)
+            bluetooth=true
             ;;
         # down)
         #     ARGS+=("$1")
         #     # ARGS+=("--volumes")
         #     ;;
-        *)
-            ARGS+=("$1")
-            ;;
     esac
     shift
 done
@@ -61,5 +67,8 @@ if [[ "$build" == "true" ]]; then
     docker compose "$@"
     exec docker compose run --rm ros-base tt-build --all
 else
+    if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
+        tt-bluetooth-reset
+    fi
     exec docker compose "$@"
 fi
