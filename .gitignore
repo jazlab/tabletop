@@ -40,7 +40,7 @@ flic.db
 
 # Bags
 /bags/
-/icareaboutthesebags/
+/bags_i_care_about/
 
 # Saved models
 saved_weights/
