@@ -32,9 +32,9 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torcheval.metrics as metrics
 import yaml
 
+from tabletop_py.gaze.predict import evaluate
 from tabletop_py.gaze.utils import (
     configure_torch_dtype,
     init_criterion,
@@ -45,64 +45,6 @@ from tabletop_py.gaze.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def evaluate(
-    model: nn.Module,
-    criterion: nn.Module,
-    loader: torch.utils.data.DataLoader,
-    device: torch.device,
-) -> dict[str, float | torch.Tensor]:
-    """
-    Calculates the test set metrics (MSE, RMSE, R2) for the trained model.
-
-    Args:
-        X_test (numpy.ndarray): Test input features.
-        y_test (numpy.ndarray): Test target variables.
-        model (torch.nn.Module): Trained model.
-        device (torch.device): Device to run the model on (CPU or GPU).
-        y_scaler (sklearn.preprocessing.StandardScaler): Scaler for the target variables.
-
-    Returns:
-        tuple: A tuple containing the test set MSE, RMSE, and R2 scores.
-    """
-    eval_loss = 0
-    count = 0
-    mse = metrics.MeanSquaredError()
-    r2 = metrics.R2Score()
-    targets = []
-    preds = []
-
-    model.eval()
-    with torch.no_grad():
-        for x, y in loader:
-            x, y = x.to(device), y.to(device)
-            pred = model(x)
-            loss = criterion(pred, y).item()
-            eval_loss += loss * x.shape[0]
-            count += x.shape[0]
-            pred, y = pred.detach().cpu(), y.detach().cpu()
-            mse.update(pred, y)
-            r2.update(pred, y)
-            targets.append(y)
-            preds.append(pred)
-
-    eval_loss /= count
-    mse = mse.compute()
-    rmse = torch.sqrt(mse)
-    r2 = r2.compute()
-
-    targets = torch.cat(targets)
-    preds = torch.cat(preds)
-
-    return {
-        "targets": targets,
-        "preds": preds,
-        "loss": eval_loss,
-        "mse": mse.item(),
-        "rmse": rmse.item(),
-        "r2": r2.item(),
-    }
 
 
 def train(
@@ -132,6 +74,7 @@ def train(
 
     best_val_loss = float("inf")
     patience_counter = 0
+    val_results = None
 
     # Train the model
     for epoch in range(num_epochs):
@@ -161,9 +104,12 @@ def train(
         logger.info(
             f"Epoch {epoch + 1} of {num_epochs} | "
             f"Train loss: {train_loss:.6f} | "
-            f"Validation loss: {val_loss:.6f} | "
-            f"Validation RMSE: {val_results['rmse']:.6f} | "
-            f"Patience counter: {patience_counter}/{patience_epochs}"
+            f"Val loss: {val_results['loss']:.6f}, "
+            f"Val MSE: {val_results['mse']:.6f}, "
+            f"Val RMSE: {val_results['rmse']:.6f}, "
+            f"Val MAE: {val_results['mae']:.6f}, "
+            f"Val R2: {val_results['r2']:.6f}, "
+            f"Patience: {patience_counter}/{patience_epochs}"
         )
 
         if val_loss < best_val_loss:
@@ -176,6 +122,8 @@ def train(
                     f"Early stopping at epoch {epoch + 1} of {num_epochs}"
                 )
                 break
+
+    assert val_results is not None
 
     return val_results
 
@@ -210,6 +158,9 @@ def train_and_evaluate(
         df, **config["dataloaders"]
     )
 
+    # Initialize criterion
+    criterion = init_criterion(**config["criterion"]).to(device)
+
     # Initialize best model and best validation loss
     best_fold: int | None = None
     best_model: nn.Module | None = None
@@ -239,7 +190,6 @@ def train_and_evaluate(
         model.compile(**config["compile"])
 
         optimizer = init_optimizer(model=model, **config["optimizer"])
-        criterion = init_criterion(**config["criterion"]).to(device)
 
         # Train the model
         val_results = train(
@@ -257,8 +207,10 @@ def train_and_evaluate(
             f"Loss: {val_results['loss']:.6f}, "
             f"MSE: {val_results['mse']:.6f}, "
             f"RMSE: {val_results['rmse']:.6f}, "
+            f"MAE: {val_results['mae']:.6f}, "
             f"R2: {val_results['r2']:.6f}"
         )
+
         if val_results["loss"] < best_val_loss:
             best_fold = i
             best_model = model
@@ -283,7 +235,15 @@ def train_and_evaluate(
         f"Loss: {test_results['loss']:.6f}, "
         f"MSE: {test_results['mse']:.6f}, "
         f"RMSE: {test_results['rmse']:.6f}, "
+        f"MAE: {test_results['mae']:.6f}, "
         f"R2: {test_results['r2']:.6f}"
+    )
+    logger.info(
+        f"Test results (raw values) | "
+        f"MSE: {test_results['raw_mse']}, "
+        f"RMSE: {test_results['raw_rmse']}, "
+        f"MAE: {test_results['raw_mae']}, "
+        f"R2: {test_results['raw_r2']}"
     )
 
     # Save the best model
@@ -317,11 +277,16 @@ def train_and_evaluate(
     if visualize:
         from tabletop_py.gaze.visualize import animate_3d_dots
 
+        title = (
+            f"Gaze Test Set Prediction\n"
+            f"(RMSE={test_results['rmse']:.4f}, MAE={test_results['mae']:.4f})"
+        )
         animate_3d_dots(
             {"Target": targets, "Prediction": preds},
+            title=title,
             freq=config["eyelink_freq"],
             **config["visualize"]["animate_3d_dots"],
-            save_path=os.path.join(session_dir, "predictions.mp4"),
+            save_path=os.path.join(session_dir, "test_predictions.mp4"),
         )
 
     return {
@@ -359,11 +324,6 @@ def main(args=None):
         "--visualize",
         action="store_true",
         help="Visualize the test targets and predictions",
-    )
-    parser.add_argument(
-        "--predict",
-        action="store_true",
-        help="Predict the gaze from the model",
     )
     args = parser.parse_args(args)
 

@@ -33,8 +33,8 @@ Example:
 
 import logging
 import os
-from collections.abc import Mapping
-from copy import copy
+from collections.abc import MutableMapping
+from copy import deepcopy
 from typing import Any, Literal, Optional, cast
 
 import numpy as np
@@ -42,6 +42,8 @@ import pandas as pd
 import yaml
 from scipy.signal import savgol_filter
 from scipy.stats import zscore
+
+from tabletop_py.gaze.visualize import animate_2d_dots
 
 try:
     from pylink.constants import MISSING_DATA
@@ -59,88 +61,11 @@ EYELINK_POS_COLS = ["left_x", "left_y", "right_x", "right_y"]
 #: Input feature columns for gaze estimation model
 EYELINK_DATA_COLS = EYELINK_POS_COLS  # + ["left_pupil", "right_pupil"]
 
-#: Target output columns (3D marker position)
-MARKER_DATA_COLS = ["marker_x", "marker_y", "marker_z"]
+#: Column names for marker position data (x, y, z)
+MARKER_POS_COLS = ["marker_x", "marker_y", "marker_z"]
 
-
-def reindex_and_interpolate(
-    df: pd.DataFrame,
-    new_idx: np.ndarray | pd.Series,
-    on: str,
-    *,
-    direction: Literal["backward", "forward", "nearest"] = "backward",
-    tolerance: Optional[float] = None,
-) -> pd.DataFrame:
-    """
-    Reindexes and interpolates the data onto a new time grid while maintaining
-    the temporal gaps in the data.
-
-    Args:
-        df: The dataframe to reindex.
-        new_idx: The new time grid to reindex onto.
-        on: The column to reindex on.
-        direction: The direction to perform the merge_asof operation in.
-        tolerance: The temporal tolerance for the interpolation. Sets the
-            maximum allowed time difference between the new and old time
-            points. For each new time point, if it further than the tolerance
-            from the closest old time point, the interpolation is discarded and
-            the row filled with NaN. If tolerance is not provided, all interpolated
-            rows are kept.
-
-    Returns:
-        The reindexed and interpolated dataframe.
-    """
-    new_df = pd.DataFrame({on: new_idx})
-    new_df = pd.merge_asof(
-        new_df,
-        df,
-        on=on,
-        direction=direction,
-        tolerance=tolerance,  # type: ignore
-    )
-    isna = new_df.isna().any(axis=1)
-
-    for col in df.columns:
-        if col == on:
-            continue
-        data = np.interp(new_df[on], df[on], df[col])
-        data[isna] = np.nan  # type: ignore
-        new_df[col] = data
-
-    return new_df
-
-
-def reindex_and_interpolate_steady_time(
-    df: pd.DataFrame,
-    *,
-    freq: float,
-    on: str,
-    direction: Literal["backward", "forward", "nearest"] = "backward",
-    tolerance: Optional[float] = None,
-) -> pd.DataFrame:
-    """
-    Interpolates the data onto a steady time grid while maintaining the temporal
-    temporal gaps in the data.
-
-    Args:
-        df: The dataframe to reindex.
-        freq: The new frequency with which to reindex the data.
-        on: The column to reindex on.
-        direction: The direction to perform the merge_asof operation in.
-        tolerance: The temporal tolerance for the interpolation. Sets the
-            maximum allowed time difference between the new and old time
-            points. For each new time point, if it further than the tolerance
-            from the closest old time point, the interpolation is discarded and
-            the row filled with NaN. If tolerance is not provided, all interpolated
-            rows are kept.
-
-    Returns:
-        The reindexed and interpolated dataframe.
-    """
-    steady_idx = np.arange(df[on].min(), df[on].max(), 1 / freq)
-    return reindex_and_interpolate(
-        df, steady_idx, on=on, direction=direction, tolerance=tolerance
-    )
+#: Target output columns for gaze estimation model
+MARKER_DATA_COLS = MARKER_POS_COLS
 
 
 def verify_timestamps(
@@ -154,15 +79,20 @@ def verify_timestamps(
         freq: The expected frequency of the data.
         freq_rtol: The relative tolerance for the frequency.
     """
-    # Check that the frame number and times are monotonic increasing
+    # Check that the timestamps are non-NAN and monotonically increasing
     for col in df.columns:
+        if df[col].isna().any():
+            raise ValueError(f"df[{col}] has NAN values")
+
         if not df[col].is_monotonic_increasing:
-            raise ValueError(f"{col} is not monotonically increasing")
+            raise ValueError(f"df[{col}] is not monotonically increasing")
+
         diff_mean = df[col].diff().mean()
         if not np.isclose(diff_mean, 1 / freq, rtol=freq_rtol):
             raise ValueError(
                 f"{col} diff mean of {diff_mean:.6f} is not close to the expected value {1 / freq:.6f}"
             )
+
         diff_std = df[col].diff().std()
         if not np.isclose(diff_std, 0, atol=freq_var_tol):
             raise ValueError(
@@ -177,7 +107,7 @@ def smooth_rolling(
     on: str,
     freq: float,
     window: float,
-    on_unit: str = "s",
+    on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
 ):
     df = df.copy()
 
@@ -185,7 +115,7 @@ def smooth_rolling(
         df["datetime"] = pd.to_datetime(df[on], unit=on_unit)
 
     td = pd.to_timedelta(window, unit=on_unit)  # type: ignore
-    rolling = df.rolling(
+    rolling = df[["datetime", *columns]].rolling(
         on="datetime",
         center=True,
         window=td,
@@ -224,13 +154,16 @@ def smooth_savgol(
     Returns:
         The smoothed data.
     """
-    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
     df = df.copy()
+
+    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
+
+    assert not df[on].isna().any()
 
     if deriv > 0:
         delta = 1 / freq
     else:
-        delta = 1.0
+        delta = 1
 
     window_length = int(window * freq)
     if window_length > df.shape[0]:
@@ -238,7 +171,7 @@ def smooth_savgol(
             f"Window length {window_length} is greater than the number of rows {df.shape[0]}"
         )
     for col in columns:
-        df[col] = savgol_filter(
+        df[col] = savgol_filter(  # pyright: ignore[reportCallIssue, reportArgumentType]
             df[col],
             window_length=window_length,
             polyorder=polyorder,
@@ -246,31 +179,6 @@ def smooth_savgol(
             delta=delta,
         )
 
-    return df
-
-
-def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates the speed of the eye data.
-    """
-    df = df.copy()
-    df["left_speed"] = np.linalg.norm(
-        np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
-    )
-    df["right_speed"] = np.linalg.norm(
-        np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
-    )
-    return df
-
-
-def calculate_marker_speed(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates the speed of the marker data.
-    """
-    df = df.copy()
-    df["speed"] = np.linalg.norm(
-        np.gradient(df[MARKER_DATA_COLS], df["time"], axis=0), axis=1
-    )
     return df
 
 
@@ -344,10 +252,7 @@ def format_eyelink_columns(
             freq_var_tol=freq_var_tol,
         )
 
-    df = cast(
-        pd.DataFrame,
-        df[["time", *EYELINK_DATA_COLS]].astype(float),
-    )
+    df = df[["time", *EYELINK_DATA_COLS]].astype(float)
 
     return df
 
@@ -433,10 +338,7 @@ def format_marker_columns(
             )
 
     # Keep only the expected columns
-    df = cast(
-        pd.DataFrame,
-        df[["time", *MARKER_DATA_COLS]].astype(float),
-    )
+    df = df[["time", *MARKER_DATA_COLS]].astype(float)
 
     return df
 
@@ -507,7 +409,7 @@ def clip_timestamps(
     invalid_mask = (eyelink_df["time"] < start_time) | (
         eyelink_df["time"] > end_time
     )
-    eyelink_df = cast(pd.DataFrame, eyelink_df[~invalid_mask])
+    eyelink_df = eyelink_df[~invalid_mask]
     logger.info(
         f"Dropped {invalid_mask.sum()} out of {eyelink_df.shape[0]} eyelink "
         f"samples with time outside the range ({start_time:.4f}, {end_time:.4f})"
@@ -543,7 +445,7 @@ def clean_eyelink_data(
     df = df.copy()
 
     # Should not have any missing data to start with
-    assert df.isna().to_numpy().sum() == 0
+    assert not df.isna().any(axis=None)
 
     # Remove rows with missing data
     assert (
@@ -552,19 +454,11 @@ def clean_eyelink_data(
     invalid_mask = (df[EYELINK_DATA_COLS].astype(int) == MISSING_DATA).any(
         axis=1
     )
-    df = cast(pd.DataFrame, df[~invalid_mask])
+    df = df[~invalid_mask]
     logger.info(
-        f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with missing data"
+        f"Dropped {invalid_mask.sum()} out of {df.shape[0]} "
+        f"eyelink samples with missing data"
     )
-
-    if max_zscore is not None:
-        invalid_mask = (
-            np.abs(zscore(df[EYELINK_DATA_COLS])) > max_zscore  # type: ignore
-        ).any(axis=1)
-        df = cast(pd.DataFrame, df[~invalid_mask])
-        logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with z-score greater than {max_zscore}"
-        )
 
     # Keep only data within the expected eye position range
     if min_eye_pos is not None and max_eye_pos is not None:
@@ -572,17 +466,35 @@ def clean_eyelink_data(
             (df[EYELINK_POS_COLS] < min_eye_pos)
             | (df[EYELINK_POS_COLS] > max_eye_pos)
         ).any(axis=1)
-        df = cast(pd.DataFrame, df[~invalid_mask])
+        df = df[~invalid_mask]
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with "
+            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} eyelink samples with "
             f"eye position outside the expected range ({min_eye_pos}, {max_eye_pos})"
         )
+
+    if max_zscore is not None:
+        invalid_mask = (
+            np.abs(zscore(df[EYELINK_DATA_COLS])) > max_zscore  # type: ignore
+        ).any(axis=1)
+        df = df[~invalid_mask]
+        logger.info(
+            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} eyelink "
+            f"samples with z-score greater than {max_zscore}"
+        )
+
+    assert not (df[EYELINK_DATA_COLS].astype(int) == MISSING_DATA).any(
+        axis=None
+    )
 
     return df
 
 
 def clean_marker_data(
-    df: pd.DataFrame, *, max_zscore: float | None
+    df: pd.DataFrame,
+    *,
+    min_pos: list[float] | None,
+    max_pos: list[float] | None,
+    max_zscore: float | None,
 ) -> pd.DataFrame:
     """
     Cleans the data by selecting the relevant columns and dropping invalid rows.
@@ -597,16 +509,120 @@ def clean_marker_data(
 
     df = df.dropna()
 
+    # Keep only data within the expected position range
+    if min_pos is None:
+        min_pos = [float("-inf")] * 3
+    else:
+        min_pos = [x if x is not None else float("-inf") for x in min_pos]
+
+    if max_pos is None:
+        max_pos = [float("inf")] * 3
+    else:
+        max_pos = [x if x is not None else float("inf") for x in max_pos]
+
+    if min_pos is not None and max_pos is not None:
+        invalid_mask = (
+            (df[MARKER_POS_COLS] < min_pos) | (df[MARKER_POS_COLS] > max_pos)
+        ).any(axis=1)
+        df = df[~invalid_mask]
+        logger.info(
+            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with "
+            f"marker position outside the expected range "
+            f"({min_pos}, {max_pos})"
+        )
+
     if max_zscore is not None:
         invalid_mask = (np.abs(zscore(df[MARKER_DATA_COLS])) > max_zscore).any(  # type: ignore
             axis=1
         )
-        df = cast(pd.DataFrame, df[~invalid_mask])
+        df = df[~invalid_mask]
         logger.info(
             f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with z-score greater than {max_zscore}"
         )
 
+    assert not df.isna().any(axis=None)
+
     return df
+
+
+def reindex_and_interpolate(
+    df: pd.DataFrame,
+    new_idx: np.ndarray | pd.Series,
+    on: str,
+    *,
+    direction: Literal["backward", "forward", "nearest"] = "nearest",
+    tolerance: Optional[float] = None,
+) -> pd.DataFrame:
+    """
+    Reindexes and interpolates the data onto a new time grid while maintaining
+    the temporal gaps in the data.
+
+    Args:
+        df: The dataframe to reindex.
+        new_idx: The new time grid to reindex onto.
+        on: The column to reindex on.
+        direction: The direction to perform the merge_asof operation in.
+        tolerance: The temporal tolerance for the interpolation. Sets the
+            maximum allowed time difference between the new and old time
+            points. For each new time point, if it further than the tolerance
+            from the closest old time point, the interpolation is discarded and
+            the row filled with NaN. If tolerance is not provided, all interpolated
+            rows are kept.
+
+    Returns:
+        The reindexed and interpolated dataframe.
+    """
+    new_df = pd.DataFrame({on: new_idx})
+    new_df = pd.merge_asof(
+        new_df,
+        df,
+        on=on,
+        direction=direction,
+        tolerance=tolerance,  # pyright: ignore[reportArgumentType]
+    )
+    isna = new_df.isna().any(axis=1)
+
+    for col in df.columns:
+        if col == on:
+            continue
+        data = np.interp(new_idx, df[on], df[col])
+        data[isna] = np.nan  # pyright: ignore[reportIndexIssue]
+        new_df[col] = data
+
+    return new_df
+
+
+def reindex_and_interpolate_steady_time(
+    df: pd.DataFrame,
+    *,
+    freq: float,
+    on: str,
+    direction: Literal["backward", "forward", "nearest"] = "backward",
+    tolerance: Optional[float] = None,
+) -> pd.DataFrame:
+    """
+    Interpolates the data onto a steady time grid while maintaining the temporal
+    temporal gaps in the data.
+
+    Args:
+        df: The dataframe to reindex.
+        freq: The new frequency with which to reindex the data.
+        on: The column to reindex on.
+        direction: The direction to perform the merge_asof operation in.
+        tolerance: The temporal tolerance for the interpolation. Sets the
+            maximum allowed time difference between the new and old time
+            points. For each new time point, if it further than the tolerance
+            from the closest old time point, the interpolation is discarded and
+            the row filled with NaN. If tolerance is not provided, all interpolated
+            rows are kept.
+
+    Returns:
+        The reindexed and interpolated dataframe.
+    """
+    steady_idx = np.arange(df[on].min(), df[on].max(), 1 / freq)
+    return reindex_and_interpolate(
+        df, steady_idx, on=on, direction=direction, tolerance=tolerance
+    )
 
 
 def reindex_and_interpolate_eyelink_data(
@@ -637,6 +653,47 @@ def smooth_eyelink_data(
         polyorder=polyorder,
     )
     return df
+
+
+def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the speed of the eye data.
+    """
+    df = df.copy()
+    df["left_speed"] = np.linalg.norm(
+        np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
+    )
+    df["right_speed"] = np.linalg.norm(
+        np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
+    )
+    return df[["left_speed", "right_speed"]]
+
+
+def calculate_marker_speed(df: pd.DataFrame) -> pd.Series:
+    """
+    Calculates the speed of the marker data.
+    """
+    df = df.copy()
+    df["speed"] = np.linalg.norm(
+        np.gradient(df[MARKER_DATA_COLS], df["time"], axis=0), axis=1
+    )
+    return df["speed"]
+
+
+def filter_eyelink_by_speed(
+    df: pd.DataFrame, min_speed: float, max_speed: float
+) -> pd.DataFrame:
+    speed = calculate_eyelink_speed(df)
+    valid_mask = ((speed >= min_speed) & (speed <= max_speed)).any(axis=1)
+    return df[valid_mask]
+
+
+def filter_marker_by_speed(
+    df: pd.DataFrame, min_speed: float, max_speed: float
+) -> pd.DataFrame:
+    speed = calculate_marker_speed(df)
+    valid_mask = (speed >= min_speed) & (speed <= max_speed)
+    return df[valid_mask]
 
 
 def merge_and_interpolate_data(
@@ -696,7 +753,7 @@ def merge_and_interpolate_data(
     #     f"max: {gaps.max():.4f}"
     # )
     # # Remove rows where the gap between marker datapoints is too large to be interpolated accurately
-    # asof = cast(pd.DataFrame, df.asof(df.index))
+    # asof = df.asof(df.index)
     # to_drop = asof["time"][
     #     asof["time"].isna() | (df["time"] > (asof["time"] + max_marker_gap))
     # ]
@@ -706,7 +763,7 @@ def merge_and_interpolate_data(
     #     f"the time since the last marker datapoint is greater than the maximum expected gap: {max_marker_gap:.4f}"
     # )
 
-    # df = cast(pd.DataFrame, df[~asof["time"].isin(drop_times)])  # type: ignore
+    # df = df[~asof["time"].isin(drop_times)]
 
     # num_dropped = asof.shape[0] - df.shape[0]
     # logger.info(f"Dropped {num_dropped} out of {df.shape[0]} rows")
@@ -736,9 +793,58 @@ def merge_and_interpolate_data(
     return df
 
 
+def merge_data(
+    eyelink_df: pd.DataFrame,
+    markers_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Merges the marker data onto the closest time point of the eyelink data.
+    Verifies that the eyelink timestamps have a constant time difference of
+    1/freq between consecutive rows before merging.
+
+    Args:
+        eyelink_df: The eyelink data.
+        markers_df: The marker data.
+        freq: The frequency of the data.
+        marker_interpolation_limit: The maximum allowed gap between marker
+            data points to interpolate.
+
+    Returns:
+        The merged eyelink and marker data.
+    """
+    df = pd.merge(
+        eyelink_df, markers_df, on="time", suffixes=("_eyelink", "_marker")
+    )
+
+    num_samples = df.shape[0]
+
+    eyelink_na = df[EYELINK_DATA_COLS].isna().any(axis=1)
+    marker_na = df[MARKER_DATA_COLS].isna().any(axis=1)
+
+    logger.info(
+        f"Found {eyelink_na.sum()} eyelink and {marker_na.sum()} marker "
+        f"samples with nan values"
+    )
+
+    df = df[~(eyelink_na | marker_na)]
+
+    logger.info(
+        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing data "
+    )
+
+    # df = df.dropna(subset=MARKER_DATA_COLS)
+    # num_samples = df.shape[0]
+    # df = df.dropna()
+    # logger.info(
+    #     f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing data"
+    # )
+
+    return df
+
+
 def preprocess_data(
     session_dir: os.PathLike,
-    config: Mapping[str, Any] | os.PathLike | str,
+    config: MutableMapping[str, Any] | os.PathLike | str,
     *,
     marker_idx: int,
     start_time: float = 0.0,
@@ -749,13 +855,20 @@ def preprocess_data(
     """
     Preprocesses the data by cleaning and merging the eye tracker and optical marker data.
     """
-    if not isinstance(config, Mapping):
+    if not isinstance(config, MutableMapping):
         with open(config, "r") as f:
-            config = cast(Mapping[str, Any], yaml.safe_load(f))
+            orig_config = cast(dict[str, Any], yaml.safe_load(f))
+    else:
+        orig_config = config
 
-    eyelink_freq = config["eyelink_freq"]
-    markers_freq = config["markers_freq"]
-    config = cast(Mapping[str, Any], config["preprocess"])
+    config = deepcopy(orig_config)
+
+    eyelink_config = cast(
+        MutableMapping[str, Any], config["preprocess"]["eyelink"]
+    )
+    marker_config = cast(
+        MutableMapping[str, Any], config["preprocess"]["marker"]
+    )
 
     eyelink_path = os.path.join(session_dir, "eyelink_sample.csv")
     markers_path = os.path.join(session_dir, "markers.csv")
@@ -772,20 +885,20 @@ def preprocess_data(
     raw_markers_df = pd.read_csv(markers_path, index_col=False)
 
     logger.info("Formatting columns")
-    format_eyelink_config = copy(config["format_eyelink"])
-    format_marker_config = copy(config["format_marker"])
     if skip_verify:
-        format_eyelink_config["verify"] = False
-        format_marker_config["verify"] = False
+        eyelink_config["format_columns"]["verify"] = False
+        marker_config["format_columns"]["verify"] = False
 
     raw_eyelink_df = format_eyelink_columns(
-        raw_eyelink_df, freq=eyelink_freq, **format_eyelink_config
+        raw_eyelink_df,
+        freq=config["eyelink_freq"],
+        **eyelink_config["format_columns"],
     )
     raw_markers_df = format_marker_columns(
         raw_markers_df,
         marker_idx=marker_idx,
-        freq=markers_freq,
-        **format_marker_config,
+        freq=config["markers_freq"],
+        **marker_config["format_columns"],
     )
 
     logger.info("Standardizing timestamps")
@@ -802,19 +915,35 @@ def preprocess_data(
     raw_markers_df.to_csv(raw_markers_path, index=False)
 
     logger.info("Cleaning data")
-    eyelink_df = clean_eyelink_data(raw_eyelink_df, **config["clean_eyelink"])
-    markers_df = clean_marker_data(raw_markers_df, **config["clean_marker"])
+    eyelink_df = clean_eyelink_data(raw_eyelink_df, **eyelink_config["clean"])
+    markers_df = clean_marker_data(raw_markers_df, **marker_config["clean"])
 
-    logger.info("Reindexing eyelink data")
-    eyelink_df = reindex_and_interpolate_eyelink_data(
+    logger.info("Reindexing and interpolating data")
+    min_time = max(eyelink_df["time"].min(), markers_df["time"].min())
+    max_time = min(eyelink_df["time"].max(), markers_df["time"].max())
+    steady_idx = np.arange(min_time, max_time, 1 / config["eyelink_freq"])
+
+    eyelink_df = reindex_and_interpolate(
         eyelink_df,
-        freq=eyelink_freq,
-        **config["reindex_and_interpolate_eyelink"],
+        steady_idx,
+        on="time",
+        **eyelink_config["reindex_and_interpolate"],
+    )
+    markers_df = reindex_and_interpolate(
+        markers_df,
+        steady_idx,
+        on="time",
+        **marker_config["reindex_and_interpolate"],
     )
 
     logger.info("Smoothing eyelink data")
     eyelink_df = smooth_eyelink_data(
-        eyelink_df, freq=eyelink_freq, **config["smooth_eyelink"]
+        eyelink_df, freq=config["eyelink_freq"], **eyelink_config["smooth"]
+    )
+
+    logger.info("Filtering eyelink data by speed")
+    eyelink_df = filter_eyelink_by_speed(
+        eyelink_df, **eyelink_config["filter_by_speed"]
     )
 
     logger.info("Clipping timestamps")
@@ -823,16 +952,11 @@ def preprocess_data(
     )
 
     logger.info("Merging eyelink and markers")
-    df = merge_and_interpolate_data(
-        eyelink_df,
-        markers_df,
-        eyelink_freq=eyelink_freq,
-        **config["merge_and_interpolate"],
-    )
+    df = merge_data(eyelink_df, markers_df)
 
     logger.info(f"Final number of samples: {df.shape[0]}")
 
-    path = os.path.join(session_dir, config["filename"])
+    path = os.path.join(session_dir, config["preprocess"]["filename"])
     df.to_csv(path, index=False)
     logger.info(f"Saved data to {path}")
 
@@ -844,18 +968,28 @@ def preprocess_data(
         plot_eyelink_markers(
             raw_eyelink_df,
             title="Raw data",
-            freq=eyelink_freq,
+            freq=config["eyelink_freq"],
             markers_df=raw_markers_df,
-            markers_freq=markers_freq,
+            markers_freq=config["markers_freq"],
             save_path=os.path.join(session_dir, "raw.png"),
         )
 
         plot_eyelink_markers(
             df,
             title="Preprocessed data",
-            freq=eyelink_freq,
+            freq=config["eyelink_freq"],
             save_path=os.path.join(session_dir, "preprocessed.png"),
         )
+
+        if False:
+            left_eye = cast(np.ndarray, df[["left_x", "left_y"]].to_numpy())
+            right_eye = cast(np.ndarray, df[["right_x", "right_y"]].to_numpy())
+            animate_2d_dots(
+                {"Left eye": left_eye, "Right eye": right_eye},
+                freq=config["eyelink_freq"],
+                **config["visualize"]["animate_2d_dots"],
+                save_path=os.path.join(session_dir, "eyelink.mp4"),
+            )
 
     return df, raw_eyelink_df, raw_markers_df
 

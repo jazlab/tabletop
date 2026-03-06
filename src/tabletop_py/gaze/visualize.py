@@ -236,6 +236,7 @@ def animate_2d_dots(
 def animate_3d_dots(
     data: Mapping[str, np.ndarray],
     *,
+    title: str | None = None,
     freq: float,
     min_x: float,
     max_x: float,
@@ -244,6 +245,7 @@ def animate_3d_dots(
     min_z: float,
     max_z: float,
     fr: int = 10,
+    rotate_to_world: bool = False,
     save_path: Optional[str] = None,
 ):
     """
@@ -272,6 +274,8 @@ def animate_3d_dots(
         plot.set_label(key)
         plots[key] = plot
 
+    if title is not None:
+        ax.set_title(title)
     ax.set_xlim(min_x, max_x)
     ax.set_ylim(min_y, max_y)
     ax.set_zlim(min_z, max_z)
@@ -280,12 +284,21 @@ def animate_3d_dots(
     ax.set_zlabel("Z")
     ax.legend()
 
+    if rotate_to_world:
+        x_idx = 2
+        y_idx = 0
+        z_idx = 1
+    else:
+        x_idx = 0
+        y_idx = 1
+        z_idx = 2
+
     def init():
         for key, plot in plots.items():
             plot._offsets3d = (
-                data[key][0, 2].reshape(1),
-                data[key][0, 0].reshape(1),
-                data[key][0, 1].reshape(1),
+                data[key][0, x_idx].reshape(1),
+                data[key][0, y_idx].reshape(1),
+                data[key][0, z_idx].reshape(1),
             )  # type: ignore
         return tuple(plots.values())
 
@@ -293,9 +306,9 @@ def animate_3d_dots(
         idx = int(i * interval * freq)
         for key, plot in plots.items():
             plot._offsets3d = (
-                data[key][idx, 2].reshape(1),
-                data[key][idx, 0].reshape(1),
-                data[key][idx, 1].reshape(1),
+                data[key][idx, x_idx].reshape(1),
+                data[key][idx, y_idx].reshape(1),
+                data[key][idx, z_idx].reshape(1),
             )  # type: ignore
         return tuple(plots.values())
 

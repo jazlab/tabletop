@@ -25,7 +25,6 @@ Example:
 import argparse
 import logging
 import os
-from collections.abc import Mapping
 from typing import Any, cast
 
 import yaml
@@ -101,7 +100,7 @@ def main(args=None):
         )
 
     with open(args.config, "r") as f:
-        config = cast(Mapping[str, Any], yaml.safe_load(f))
+        config = cast(dict[str, Any], yaml.safe_load(f))
 
     # Convert ROS bags to CSV files
     eyelink_path = os.path.join(args.session_dir, "eyelink_sample.csv")

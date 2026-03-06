@@ -23,6 +23,7 @@ Example:
 """
 
 import importlib
+import os
 import random
 from collections.abc import Generator
 from typing import cast
@@ -179,12 +180,33 @@ def init_dataloaders(
             )
             yield train_loader, val_loader
 
-    test_dataset = GazeDataset(test_df)  # type: ignore
+    test_dataset = GazeDataset(test_df)
     test_loader = DataLoader(
-        test_dataset, batch_size=test_batch_size, shuffle=False
+        test_dataset,
+        batch_size=test_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
     )
 
     return train_val_generator(), test_loader
+
+
+def init_test_dataloader(
+    df: pd.DataFrame,
+    batch_size: int,
+    num_workers: int,
+) -> DataLoader:
+    """
+    TODO
+    """
+    dataset = GazeDataset(df)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+    )
+    return loader
 
 
 def init_model(name: str, **kwargs) -> nn.Module:
@@ -202,6 +224,12 @@ def init_model(name: str, **kwargs) -> nn.Module:
     )
     model = model_class(**kwargs)
     return model
+
+
+def load_model_weights(model: nn.Module, weights_path: str):
+    weights_path = os.path.expanduser(os.path.expandvars(weights_path))
+    state_dict = torch.load(weights_path)
+    model.load_state_dict(state_dict)
 
 
 def init_optimizer(model: nn.Module, name: str, **kwargs) -> optim.Optimizer:

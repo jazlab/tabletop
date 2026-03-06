@@ -32,6 +32,7 @@ dependencies = [
 tt-gaze-calibrate = "tabletop_py.gaze.calibrate:main"
 tt-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
 tt-gaze-train = "tabletop_py.gaze.train:main"
+tt-gaze-predict = "tabletop_py.gaze.predict:main"
 tt-gaze-visualize = "tabletop_py.gaze.visualize:main"
 tt-flic-client = "tabletop_py.flic.client:main"
 
