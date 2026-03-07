@@ -226,9 +226,11 @@ def init_model(name: str, **kwargs) -> nn.Module:
     return model
 
 
-def load_model_weights(model: nn.Module, weights_path: str):
+def load_model_weights(
+    model: nn.Module, weights_path: str, device: str | torch.device
+):
     weights_path = os.path.expanduser(os.path.expandvars(weights_path))
-    state_dict = torch.load(weights_path)
+    state_dict = torch.load(weights_path, map_location=device)
     model.load_state_dict(state_dict)
 
 

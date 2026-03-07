@@ -161,7 +161,7 @@ def predict(
 
     # Initialize model, optimizer, and criterion
     model = init_model(**config["model"]).to(device)
-    load_model_weights(model, config["weights_path"])
+    load_model_weights(model, config["weights_path"], device)
 
     results = evaluate(
         model=model,

@@ -81,7 +81,11 @@ from tabletop_py.gaze.preprocess import (
     reindex_and_interpolate_eyelink_data,
     smooth_eyelink_data,
 )
-from tabletop_py.gaze.utils import init_model, load_model_weights
+from tabletop_py.gaze.utils import (
+    configure_torch_dtype,
+    init_model,
+    load_model_weights,
+)
 from tabletop_rig.executors import ErrorHandlingMultiThreadedExecutor
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import seconds_from_ros_time
@@ -199,8 +203,14 @@ class Eyelink(BaseNode):
         | {
             "tracker_address": "192.168.13.30",
             "do_tracker_setup": True,
+            "simulate": False,
+            "simulate_radius": 1000,
+            "simulate_rotations_per_second": 1.0,
+            "simulate_missing_prob": 1e-3,
+            "simulate_saccate_prob": 1e-4,
             "wait_for_data_timeout": 0.1,  # seconds
             "sample_rate": 1000,  # Hz
+            "publish_batched": True,
             "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
             "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
             "file_event_filter": "null",
@@ -212,21 +222,17 @@ class Eyelink(BaseNode):
                 os.environ["ROS_BAG_DIR"], "latest"
             ),
             "smooth_pursuit.window": 0.1,  # seconds
+            "smooth_pursuit.min_samples": 80,
             "preprocess_overrides.clean.max_zscore": "null",
             "preprocess_overrides.reindex_and_interpolate.tolerance": "null",  # TODO: fix
             # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
             "preprocess_overrides.smooth.window": 0.05,  # seconds
-            "smooth_pursuit.min_samples": 80,
-            "live_gaze_estimation": True,
-            "gaze_estimation_config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
-            "gaze_estimation_freq": 100,  # Hz
-            "gaze_estimation_window": 0.05,  # seconds
-            "simulate": False,
-            "simulate_radius": 1000,
-            "simulate_rotations_per_second": 1.0,
-            "simulate_missing_prob": 1e-3,
-            "simulate_saccate_prob": 1e-4,
-            "publish_batched": True,
+            "gaze_estimation.enable": True,
+            "gaze_estimation.device": "cpu",
+            "gaze_estimation.compile": False,
+            "gaze_estimation.config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
+            "gaze_estimation.freq": 100,  # Hz
+            "gaze_estimation.window": 0.05,  # seconds
         }
     )
 
@@ -302,7 +308,7 @@ class Eyelink(BaseNode):
         Raises:
             ValueError: If sample rate doesn't match model configuration.
         """
-        path = os.path.expandvars(self.param("gaze_estimation_config"))
+        path = os.path.expandvars(self.param("gaze_estimation.config"))
         with open(path, "r") as f:
             self.gaze_estimation_config = yaml.safe_load(f)
 
@@ -321,17 +327,31 @@ class Eyelink(BaseNode):
             self.preprocess_config, overrides
         )
 
-        if self.param("live_gaze_estimation"):
+        if self.param("gaze_estimation.enable"):
+            device = self.param("gaze_estimation.device")
+            if device is None:
+                device = torch.device(
+                    "cuda" if torch.cuda.is_available() else "cpu"
+                )
+            else:
+                device = torch.device(device)
+
+            self.log(f"Using device '{device}' for live gaze estimation")
+
+            configure_torch_dtype()
+
             self.gaze_estimation_model = init_model(
                 **self.gaze_estimation_config["model"]
-            )
+            ).to(device)
+
             load_model_weights(
                 self.gaze_estimation_model,
                 self.gaze_estimation_config["weights_path"],
+                device,
             )
-            self.gaze_estimation_model.compile(
-                **self.gaze_estimation_config["compile"]
-            )
+            # self.gaze_estimation_model.compile(
+            #     **self.gaze_estimation_config["compile"]
+            # )
             self.gaze_estimation_model.eval()
 
     def init_ros(self) -> None:
@@ -381,7 +401,7 @@ class Eyelink(BaseNode):
                 callback_group=MutuallyExclusiveCallbackGroup(),
             )
             self.gaze_estimation_timer = self.create_timer(
-                1 / self.param("gaze_estimation_freq"),
+                1 / self.param("gaze_estimation.freq"),
                 self.gaze_estimation_callback,
                 callback_group=MutuallyExclusiveCallbackGroup(),
                 autostart=False,
@@ -852,7 +872,7 @@ class Eyelink(BaseNode):
         assert isinstance(array_msg.samples, list)
         assert array_len > 0
 
-        config = self.preprocess_config["clean_eyelink"]
+        config = self.preprocess_config["clean"]
         min_pos = config["min_eye_pos"]
         max_pos = config["max_eye_pos"]
 
@@ -997,7 +1017,7 @@ class Eyelink(BaseNode):
             return False
 
         # Remove rows with missing data from the arrays
-        df = clean_eyelink_data(df, **self.preprocess_config["clean_eyelink"])
+        df = clean_eyelink_data(df, **self.preprocess_config["clean"])
 
         # Check if there are enough samples for meaningful smooth pursuit
         # extraction
@@ -1014,18 +1034,18 @@ class Eyelink(BaseNode):
             df,
             steady_idx,
             on="time",
-            **self.preprocess_config["reindex_and_interpolate_eyelink"],
+            **self.preprocess_config["reindex_and_interpolate"],
         )
         df = reindex_and_interpolate_eyelink_data(
             df,
             freq=freq,
-            **self.preprocess_config["reindex_and_interpolate_eyelink"],
+            **self.preprocess_config["reindex_and_interpolate"],
         )
         assert df.isna().to_numpy().sum() == 0, (
             "Should be no NaN values if tolerance is set to None"
         )
 
-        config = copy(self.preprocess_config["smooth_eyelink"])
+        config = copy(self.preprocess_config["smooth"])
         config["window"] = min(
             config["window"], df["time"].max() - df["time"].min()
         )
@@ -1208,14 +1228,13 @@ class Eyelink(BaseNode):
         """
         msgs = self.message_queue.to_list()
         now = self.ros_time()
+        window = self.param("gaze_estimation.window")
 
         y = None
         for msg in reversed(msgs):
-            if now - seconds_from_ros_time(msg.header.stamp) > self.param(
-                "gaze_estimation_window"
-            ):
+            if now - seconds_from_ros_time(msg.header.stamp) > window:
                 self.log(
-                    f"No messages within {self.param('gaze_estimation_window')} in queue",
+                    f"No messages within {window} in queue",
                     severity="DEBUG",
                 )
                 break

@@ -129,6 +129,26 @@ class MockDashboardClient(BaseNode):
             ),
         )
 
+        self.connect_srv = self.create_service(
+            Trigger,
+            "/dashboard_client/connect",
+            lambda request, response: self.trigger_callback(
+                request,  # type: ignore
+                response,
+                "connect",
+            ),
+        )
+
+        self.quit_srv = self.create_service(
+            Trigger,
+            "/dashboard_client/quit",
+            lambda request, response: self.trigger_callback(
+                request,  # type: ignore
+                response,
+                "quit",
+            ),
+        )
+
         self.get_safety_mode_srv = self.create_service(
             GetSafetyMode,
             "/dashboard_client/get_safety_mode",
@@ -285,7 +305,7 @@ class MockDashboardClient(BaseNode):
         super().destroy_node()
 
 
-EXECUTOR_TYPE = "events"
+EXECUTOR_TYPE = "single-threaded"
 
 
 def main(args=None):
