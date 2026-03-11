@@ -4,11 +4,11 @@ tasks:
       motion_type: spiral
       motion_kwargs:
         center_pose_kwargs:
-          position: [0.9525, 0.4, 0.5]
+          position: [1.0525, 0.45, 0.45]
           rpy: [1.5707, 1.5707, 0.0]
-        radius: 0.1
+        radius: 0.05
         length: 0.2
-        num_revolutions: 10
+        num_revolutions: 5
         num_segments: 800
       num_repetitions: 3
       object_id: small_object_30

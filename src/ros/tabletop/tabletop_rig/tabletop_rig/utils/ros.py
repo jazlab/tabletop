@@ -23,6 +23,7 @@ import numpy as np
 import trimesh
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from builtin_interfaces.msg import Duration as DurationMsg
 from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
@@ -37,7 +38,7 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
-from rclpy.time import Time
+from rclpy.time import Duration, Time
 from shape_msgs.msg import Mesh as MeshMsg
 from shape_msgs.msg import MeshTriangle, Plane, SolidPrimitive
 from std_msgs.msg import ColorRGBA, Header
@@ -167,7 +168,9 @@ def load_yaml_from_package(package_name: str, file_path: str) -> Any:
 # ROS2 time utilities
 
 
-def seconds_from_ros_time(timestamp: Time | TimeMsg) -> float:
+def seconds_from_ros_time(
+    timestamp: Time | TimeMsg | Duration | DurationMsg,
+) -> float:
     """Convert a ROS2 time representation to floating-point seconds.
 
     Args:
@@ -180,9 +183,9 @@ def seconds_from_ros_time(timestamp: Time | TimeMsg) -> float:
     Raises:
         ValueError: If timestamp is neither Time nor TimeMsg type.
     """
-    if isinstance(timestamp, Time):
+    if isinstance(timestamp, (Time, Duration)):
         return timestamp.nanoseconds / 1e9
-    elif isinstance(timestamp, TimeMsg):
+    elif isinstance(timestamp, (TimeMsg, DurationMsg)):
         return float(timestamp.sec) + float(timestamp.nanosec) / 1e9
     else:
         raise ValueError(f"Invalid timestamp type: {type(timestamp).__name__}")

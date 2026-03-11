@@ -17,7 +17,7 @@ preprocess:
       window: 0.03
       polyorder: 3
     filter_by_speed:
-      min_speed: 1000
+      min_speed: 10
       max_speed: 30000
   marker:
     format_columns:
@@ -68,7 +68,7 @@ criterion:
 train:
   num_epochs: 100
   patience_epochs: 30
-  max_folds: 5
+  max_folds: 1
 weights_path: $TABLETOP_DIR/saved_weights/model.pt
 predictions:
   filename: predictions.csv

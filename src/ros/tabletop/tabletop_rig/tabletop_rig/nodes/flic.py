@@ -89,6 +89,8 @@ class Flic(BaseNode):
 
         self.simulate = self.param("simulate")
         self.simulate_button_event = asyncio.Event()
+        self.last_simulated_button_time: Time | None = None
+        self.last_simulated_button_addr: str | None = None
 
         self.response_time_server = ActionServer(
             self,
@@ -300,8 +302,12 @@ class Flic(BaseNode):
                 else:
                     assert button_task.done()
                     if self.simulate:
-                        self.simulate_button_event.set()
                         response_time = self.get_clock().now()
+                        self.last_simulated_button_time = response_time
+                        self.last_simulated_button_addr = (
+                            goal_handle.request.bd_addr
+                        )
+                        self.simulate_button_event.set()
                     else:
                         response_time = button_task.result()
                     assert isinstance(response_time, Time)
@@ -334,13 +340,13 @@ class Flic(BaseNode):
     async def spin_button_publisher(self):
         while True:
             if self.simulate:
-                try:
-                    async with asyncio.timeout(random.uniform(50, 100)):
-                        await self.simulate_button_event.wait()
-                except TimeoutError:
-                    pass
-                time = self.get_clock().now()
-                frame_id = "simulated_button"
+                await self.simulate_button_event.wait()
+                assert (
+                    self.last_simulated_button_addr is not None
+                    and self.last_simulated_button_time is not None
+                )
+                time = self.last_simulated_button_time
+                frame_id = self.last_simulated_button_addr
             else:
                 cc, time = await self.flic_client.wait_for_button_event(
                     ClickType.ButtonDown

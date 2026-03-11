@@ -22,6 +22,7 @@ from tabletop_rig.utils.ros import (
     change_reference_frame_pose,
     matrix_from_pose_msg,
     pose_msg,
+    seconds_from_ros_time,
 )
 
 from tabletop_tasks.tasks.base import BaseTask
@@ -101,13 +102,17 @@ class DummyTask(BaseTask):
             await asyncio.sleep(1.0)
 
     async def test_teensy_latency(self):
-        client = self.commander.create_client(Ping, "/teensy/ping")
+        client = self.commander.create_client(
+            Ping, "/teensy/ping", enable_introspection=False
+        )
+
+        await asyncio.to_thread(client.wait_for_service)
 
         roundtrips = []
         forwards = []
         backwards = []
 
-        for i in range(1050):
+        for _ in range(10000):
             start_time = self.commander.get_clock().now()
             response = cast(
                 Ping.Response,
@@ -117,18 +122,16 @@ class DummyTask(BaseTask):
                 ),
             )
             end_time = self.commander.get_clock().now()
-            response = cast(Ping.Response, response)
             teensy_time = Time.from_msg(response.received_time)
 
-            roundtrip = (end_time - start_time).nanoseconds / 1e6
-            forward = (teensy_time - start_time).nanoseconds / 1e6
-            backward = (end_time - teensy_time).nanoseconds / 1e6
+            roundtrip = seconds_from_ros_time(end_time - start_time)
+            forward = seconds_from_ros_time(teensy_time - start_time)
+            backward = seconds_from_ros_time(end_time - teensy_time)
 
             # Warmup period
-            if i > 50:
-                roundtrips.append(roundtrip)
-                forwards.append(forward)
-                backwards.append(backward)
+            roundtrips.append(roundtrip)
+            forwards.append(forward)
+            backwards.append(backward)
 
         roundtrip_mean = np.mean(roundtrips)
         roundtrip_std = np.std(roundtrips)
@@ -140,9 +143,9 @@ class DummyTask(BaseTask):
         self.log(
             "----------------------------------------------------------\n"
             f"Teensy latency stats (N={len(roundtrips)}):\n"
-            f"Roundtrip: {roundtrip_mean:.2f} ± {roundtrip_std:.2f} ms\n"
-            f"Forward:   {forward_mean:.2f} ± {forward_std:.2f} ms\n"
-            f"Backward:  {backward_mean:.2f} ± {backward_std:.2f} ms\n"
+            f"Roundtrip: {roundtrip_mean:.5f} ± {roundtrip_std:.5f} s\n"
+            f"Forward:   {forward_mean:.5f} ± {forward_std:.5f} s\n"
+            f"Backward:  {backward_mean:.5f} ± {backward_std:.5f} s\n"
             "----------------------------------------------------------"
         )
 
@@ -325,4 +328,4 @@ class DummyTask(BaseTask):
             # await self.test_optitrack_latency_solenoid()
             # await self.test_robot_position()
             # await self.test_sound()
-            await self.test_smooth_pursuit()
+            # await self.test_smooth_pursuit()

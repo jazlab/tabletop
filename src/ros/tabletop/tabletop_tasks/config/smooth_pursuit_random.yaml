@@ -15,4 +15,4 @@ tasks:
         num_waypoints: 100
       num_repetitions: 3
       object_id: small_object_30
-      velocity_scaling_factor: 0.1
+      velocity_scaling_factor: 0.05

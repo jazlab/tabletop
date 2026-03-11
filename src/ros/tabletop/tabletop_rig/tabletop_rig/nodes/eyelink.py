@@ -228,6 +228,7 @@ class Eyelink(BaseNode):
             # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
             "preprocess_overrides.smooth.window": 0.05,  # seconds
             "gaze_estimation.enable": True,
+            "gaze_estimation.frame_id": "optitrack",
             "gaze_estimation.device": "cpu",
             "gaze_estimation.compile": False,
             "gaze_estimation.config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
@@ -353,6 +354,7 @@ class Eyelink(BaseNode):
             #     **self.gaze_estimation_config["compile"]
             # )
             self.gaze_estimation_model.eval()
+            self.last_gaze_estimation_time = self.ros_time()
 
     def init_ros(self) -> None:
         """Initialize ROS2 interfaces.
@@ -872,9 +874,8 @@ class Eyelink(BaseNode):
         assert isinstance(array_msg.samples, list)
         assert array_len > 0
 
-        config = self.preprocess_config["clean"]
-        min_pos = config["min_eye_pos"]
-        max_pos = config["max_eye_pos"]
+        min_pos = self.preprocess_config["clean"]["min_eye_pos"]
+        max_pos = self.preprocess_config["clean"]["max_eye_pos"]
 
         # Wait for the tracker to be connected
         # while (
@@ -1041,15 +1042,15 @@ class Eyelink(BaseNode):
             freq=freq,
             **self.preprocess_config["reindex_and_interpolate"],
         )
-        assert df.isna().to_numpy().sum() == 0, (
+        assert not df.isna().any(axis=None), (
             "Should be no NaN values if tolerance is set to None"
         )
 
-        config = copy(self.preprocess_config["smooth"])
-        config["window"] = min(
-            config["window"], df["time"].max() - df["time"].min()
+        smooth_config = copy(self.preprocess_config["smooth"])
+        smooth_config["window"] = min(
+            smooth_config["window"], df["time"].max() - df["time"].min()
         )
-        df = smooth_eyelink_data(df, freq=freq, **config)
+        df = smooth_eyelink_data(df, freq=freq, **smooth_config)
 
         # if df.isna().any(axis=None):  # type: ignore
         #     self.log(
@@ -1078,18 +1079,16 @@ class Eyelink(BaseNode):
         is_smoothly_pursuing = not (too_slow or too_fast)
 
         if is_smoothly_pursuing:
-            self.log("Monkey is smoothly pursuing!", severity="DEBUG")
+            self.log("Monkey is smoothly pursuing!")
         else:
             if too_slow:
                 self.log(
-                    f"Monkey is too slow: {min_speed_calculated} < {min_speed}",
-                    severity="DEBUG",
+                    f"Monkey is too slow: {min_speed_calculated} < {min_speed}"
                 )
 
             if too_fast:
                 self.log(
-                    f"Monkey is too fast: {max_speed_calculated} > {max_speed}",
-                    severity="DEBUG",
+                    f"Monkey is too fast: {max_speed_calculated} > {max_speed}"
                 )
 
         # Log the smooth pursuit status and statistics about the eye speed data
@@ -1229,12 +1228,23 @@ class Eyelink(BaseNode):
         msgs = self.message_queue.to_list()
         now = self.ros_time()
         window = self.param("gaze_estimation.window")
+        frame_id = self.param("gaze_estimation.frame_id")
 
         y = None
+        stamp = None
         for msg in reversed(msgs):
             if now - seconds_from_ros_time(msg.header.stamp) > window:
                 self.log(
-                    f"No messages within {window} in queue",
+                    f"No valid messages within gaze estimation window ({window}) in queue",
+                    severity="DEBUG",
+                )
+                break
+            if (
+                seconds_from_ros_time(msg.header.stamp)
+                <= self.last_gaze_estimation_time + 1e-5
+            ):
+                self.log(
+                    "No new valid messages in queue",
                     severity="DEBUG",
                 )
                 break
@@ -1256,23 +1266,31 @@ class Eyelink(BaseNode):
                         .numpy()
                         .tolist()
                     )
+                stamp = msg.header.stamp
+                self.last_gaze_estimation_time = seconds_from_ros_time(
+                    msg.header.stamp
+                )
                 self.log(f"Gaze estimation: {y}", severity="DEBUG")
                 break
-
-        if y is None:
-            y = [0.0, 0.1, 0.0]
-            self.log(
-                f"No valid messages in queue, publishing default ({y})",
-                severity="DEBUG",
-            )
+        else:
+            self.log("No valid messages in queue", severity="DEBUG")
 
         markers = Markers()
-        markers.header.stamp = self.get_clock().now().to_msg()
-        markers.header.frame_id = "optitrack"
+        markers.header.frame_id = frame_id
 
-        markers.markers.append(  # type: ignore
-            Marker(translation=Point(x=y[0], y=y[1], z=y[2]))
+        if y is not None:
+            assert stamp is not None
+            markers.header.stamp = stamp
+            markers.markers.append(  # type: ignore
+                Marker(translation=Point(x=y[0], y=y[1], z=y[2]))
+            )
+        else:
+            markers.header.stamp = self.get_clock().now().to_msg()
+
+        self.last_gaze_estimation_time = seconds_from_ros_time(
+            markers.header.stamp
         )
+
         self.gaze_estimation_publisher.publish(markers)
 
     ###########################################################################

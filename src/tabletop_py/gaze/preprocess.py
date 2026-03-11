@@ -684,8 +684,13 @@ def filter_eyelink_by_speed(
     df: pd.DataFrame, min_speed: float, max_speed: float
 ) -> pd.DataFrame:
     speed = calculate_eyelink_speed(df)
-    valid_mask = ((speed >= min_speed) & (speed <= max_speed)).any(axis=1)
-    return df[valid_mask]
+    num_samples = df.shape[0]
+    valid_mask = ((speed >= min_speed) & (speed <= max_speed)).all(axis=1)
+    df = df[valid_mask]
+    logger.info(
+        f"Dropped {num_samples - df.shape[0]} out of {num_samples} eyelink samples with too fast or too slow speed"
+    )
+    return df
 
 
 def filter_marker_by_speed(
