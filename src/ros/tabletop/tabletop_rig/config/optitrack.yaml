@@ -21,3 +21,26 @@
     mocap4r2_system: "optitrack"
     marker_topics: ["markers", "predicted_markers"]
     rb_topics: ["rigid_bodies"]
+    rb_require_markers: true
+    marker_colors:
+      markers:
+        r: 0.0
+        g: 1.0
+        b: 0.0
+        a: 0.8
+      predicted_markers:
+        r: 1.0
+        g: 1.0
+        b: 0.0
+        a: 0.8
+      rigid_bodies:
+        r: 1.0
+        g: 0.0
+        b: 1.0
+        a: 0.8
+    rb_colors:
+      rigid_bodies:
+        r: 0.0
+        g: 0.0
+        b: 1.0
+        a: 0.8
