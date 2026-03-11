@@ -25,12 +25,13 @@ Example:
 """
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import rclpy.task
 from action_msgs.msg import GoalStatus
 from rclpy.action.client import ActionClient, ClientGoalHandle
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import CallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.client import Client
 from rclpy.duration import Duration
 from rclpy.exceptions import (
@@ -39,6 +40,13 @@ from rclpy.exceptions import (
 )
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
+from rclpy.qos import (
+    QoSProfile,
+    qos_profile_default,
+    qos_profile_services_default,
+)
+from rclpy.service import Service
+from rclpy.service_introspection import ServiceIntrospectionState
 
 from tabletop_py.utils.common import yaml_dump_string
 from tabletop_rig.exceptions import (
@@ -261,6 +269,7 @@ class BaseNode(Node, LoggerMixin):
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 5.0,
+        "enable_service_introspection": True,
     }
     required_params: set[str] = set()
 
@@ -279,10 +288,12 @@ class BaseNode(Node, LoggerMixin):
             ValueError: If required and default parameters intersect.
             ParameterNotDeclaredException: If a required parameter is missing.
         """
+        self._initialized = False
         Node.__init__(self, *args, **kwargs)
         self._check_parameters()
         self._declare_default_parameters()
         self._interfaces: list["BaseInterface"] = []
+        self._initialized = True
 
     def _check_parameters(self):
         """Validate parameter configuration.
@@ -457,37 +468,60 @@ class BaseNode(Node, LoggerMixin):
             self.wait_for_node, fully_qualified_node_name, timeout
         )
 
-    def _create_client(
+    def create_client(
         self,
-        srv_type: Optional[type] = None,
-        srv_name: Optional[str] = None,
+        srv_type,
+        srv_name: str,
+        *,
+        qos_profile: QoSProfile = qos_profile_services_default,
+        callback_group: Optional[CallbackGroup] = None,
+        enable_introspection: bool = True,
     ) -> Client:
-        """Create a service client with its own callback group.
-
-        Creates a client for the specified service using a
-        MutuallyExclusiveCallbackGroup to allow concurrent service calls.
-
-        Args:
-            srv_type: Service type class (e.g., std_srvs.srv.Trigger).
-            srv_name: Service name string.
-
-        Returns:
-            Configured ROS2 service client.
-
-        Raises:
-            ValueError: If srv_type or srv_name is None.
-        """
-        if srv_type is None or srv_name is None:
-            raise ValueError(
-                "srv_type and srv_name must be provided if service_client is not provided"
-            )
-
-        srv_client = self.create_client(
+        srv_client = super().create_client(
             srv_type,
             srv_name,
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            qos_profile=qos_profile,
+            callback_group=callback_group,
         )
+
+        if (
+            self._initialized
+            and enable_introspection
+            and self.param("enable_service_introspection")
+        ):
+            srv_client.configure_introspection(
+                self.get_clock(),
+                qos_profile_default,
+                ServiceIntrospectionState.CONTENTS,
+            )
+
         return srv_client
+
+    def create_service(
+        self,
+        srv_type,
+        srv_name: str,
+        callback: Callable[[SrvTypeRequest, SrvTypeResponse], SrvTypeResponse],
+        *,
+        qos_profile: QoSProfile = qos_profile_services_default,
+        callback_group: Optional[CallbackGroup] = None,
+    ) -> Service:
+        service = super().create_service(
+            srv_type,
+            srv_name,
+            callback,
+            qos_profile=qos_profile,
+            callback_group=callback_group,
+        )
+
+        if self._initialized and self.param("enable_service_introspection"):
+            service.configure_introspection(
+                self.get_clock(),
+                qos_profile_default,
+                ServiceIntrospectionState.CONTENTS,
+            )
+
+        return service
 
     def _validate_service_client(
         self,
@@ -542,75 +576,6 @@ class BaseNode(Node, LoggerMixin):
             error_msg = f"{service_client.service_name} service call returned unsuccessfully with response: {msg_to_dict(response)}"
             raise ServiceCallUnsuccessfulError(error_msg)
 
-    def wait_for_service_blocking(
-        self,
-        srv_type: Optional[type] = None,
-        srv_name: Optional[str] = None,
-        *,
-        service_client: Optional[Client] = None,
-        timeout: Optional[float] = None,
-    ):
-        """Block until a service becomes available.
-
-        Either creates a temporary client (if srv_type and srv_name are
-        provided) or uses the provided service_client. Temporary clients
-        are destroyed after the wait completes.
-
-        Args:
-            srv_type: Service type class. Required if service_client is None.
-            srv_name: Service name. Required if service_client is None.
-            service_client: Existing client to use instead of creating one.
-            timeout: Wait timeout in seconds. Defaults to parameter
-                'default_service_wait_timeout'.
-
-        Raises:
-            ServiceCallTimeoutError: If service not available within timeout.
-            ValueError: If service_client provided but type/name don't match.
-        """
-        timeout = (
-            timeout
-            if timeout is not None
-            else self.param("default_service_wait_timeout")
-        )
-
-        # If the service client is not provided, create a new one and destroy
-        # it after the service call
-        if service_client is None:
-            service_client = self._create_client(srv_type, srv_name)
-            destroy_service_client = True
-        else:
-            self._validate_service_client(service_client, srv_type, srv_name)
-            destroy_service_client = False
-
-        try:
-            self.log(
-                f"Waiting for {srv_name} service to be available...",
-                severity="DEBUG",
-            )
-            if not service_client.wait_for_service(timeout_sec=timeout):
-                error_msg = f"{srv_name} not available!"
-                self.log(error_msg, severity="ERROR")
-                raise ServiceCallTimeoutError(error_msg)
-            self.log(f"{srv_name} service is available", severity="DEBUG")
-        finally:
-            # Destroy the service client if it was created by this function
-            if destroy_service_client:
-                self.destroy_client(service_client)
-
-    async def wait_for_service_async(self, *args, **kwargs):
-        """Async version of wait_for_service_blocking.
-
-        Runs the blocking wait in a thread pool to avoid blocking
-        the asyncio event loop.
-
-        Args:
-            *args: Positional arguments passed to wait_for_service_blocking.
-            **kwargs: Keyword arguments passed to wait_for_service_blocking.
-        """
-        await asyncio.to_thread(
-            self.wait_for_service_blocking, *args, **kwargs
-        )
-
     def service_call_blocking(
         self,
         srv_request: SrvTypeRequest,
@@ -649,27 +614,22 @@ class BaseNode(Node, LoggerMixin):
         # If the service client is not provided, create a new one and destroy
         # it after the service call
         if srv_client is None:
-            srv_client = self._create_client(srv_type, srv_name)
+            if srv_type is None or srv_name is None:
+                raise ValueError(
+                    "srv_type and srv_name must be provided if service_client is not provided"
+                )
+            srv_client = self.create_client(
+                srv_type,
+                srv_name,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
             destroy_service_client = True
         else:
             self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
-            # self.log(
-            #     f"Calling {service_client.service_name} service...",
-            #     severity="DEBUG",
-            # )
             response = srv_client.call(srv_request, timeout_sec=timeout)
-            # self.log(
-            #     f"Service call to {service_client.service_name} finished with response:",
-            #     severity="DEBUG",
-            # )
-            # self.log_ros_msg(
-            #     response,
-            #     title=f"{service_client.service_name} response",
-            #     severity="DEBUG",
-            # )
             self._validate_service_response(response, srv_client)
             return cast(SrvTypeResponse, response)
         finally:
@@ -715,30 +675,24 @@ class BaseNode(Node, LoggerMixin):
         # If the service client is not provided, create a new one and
         # destroy it after the service call
         if srv_client is None:
-            srv_client = self._create_client(srv_type, srv_name)
+            if srv_type is None or srv_name is None:
+                raise ValueError(
+                    "srv_type and srv_name must be provided if service_client is not provided"
+                )
+            srv_client = self.create_client(
+                srv_type,
+                srv_name,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
             destroy_service_client = True
         else:
             self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
 
         try:
-            # self.log(
-            #     f"Calling {service_client.service_name} service asynchronously...",
-            #     severity="DEBUG",
-            # )
-
             future = wrap_rclpy_future(srv_client.call_async(srv_request))
             async with asyncio.timeout(timeout):
                 response = await future
-            # self.log(
-            #     f"Service call to {service_client.service_name} finished with response:",
-            #     severity="DEBUG",
-            # )
-            # self.log_ros_msg(
-            #     response,
-            #     title=f"{service_client.service_name} response",
-            #     severity="DEBUG",
-            # )
             self._validate_service_response(response, srv_client)
             return cast(SrvTypeResponse, response)
         except TimeoutError:

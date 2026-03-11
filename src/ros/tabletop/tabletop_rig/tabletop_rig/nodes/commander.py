@@ -858,7 +858,7 @@ async def asyncio_runner(
     await task
 
 
-EXECUTOR_TYPE = "single-threaded"
+EXECUTOR_TYPE = "events"
 
 
 def main_sync(args=None) -> None:

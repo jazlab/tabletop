@@ -11,6 +11,8 @@ print_usage() {
     echo "launch_type can be one of commander, rig, flir, or tasks"
 }
 
+LAUNCH=
+RUN=
 case $1 in
     foxglove)
         export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
@@ -60,6 +62,9 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/tasks"
         LAUNCH="tabletop_tasks tasks.launch.py"
         ;;
+    bag_convert|rosbag_to_csv|bagc)
+        RUN="tabletop_rig rosbag_to_csv"
+        ;;
     *)
         print_error "launch_type $1 unsupported"
         print_usage
@@ -69,4 +74,10 @@ esac
 
 shift
 
-exec ros2 launch $LAUNCH "$@"
+if [[ -n "$RUN" ]]; then
+    exec ros2 run $RUN "$@"
+elif [[ -n "$LAUNCH" ]]; then
+    exec ros2 launch $LAUNCH "$@"
+else
+    print_error "This should never happen"
+fi
