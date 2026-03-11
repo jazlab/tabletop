@@ -20,6 +20,7 @@ from random import randrange
 from typing import Any
 
 import numpy as np
+from geometry_msgs.msg import PoseStamped
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import pose_stamped_msg
 
@@ -53,7 +54,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
     def __init__(
         self,
         commander: Commander,
-        poses: list[Mapping[str, Any]],
+        poses: list[PoseStamped | Mapping[str, Any]],
         correct_trials_per_block: int = 10,
     ):
         """Initialize the blocked cup/drawer generator.
@@ -75,7 +76,10 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self._block_keys = list(self._object_ids.keys())
 
         # Setup poses. Each trial, a random pose will be sampled from these.
-        self._poses = [pose_stamped_msg(**pose) for pose in poses]
+        self._poses = [
+            pose if isinstance(pose, PoseStamped) else pose_stamped_msg(**pose)
+            for pose in poses
+        ]
 
         # Initialize generator state
         self._num_correct = 0

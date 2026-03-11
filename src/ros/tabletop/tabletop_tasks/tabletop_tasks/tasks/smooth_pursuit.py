@@ -24,7 +24,7 @@ Example:
 
 import asyncio
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
@@ -63,12 +63,12 @@ class SmoothPursuitTask(BaseTask):
         self,
         commander: Commander,
         *,
-        motion_type: Literal["spiral", "random"],
+        motion_type: Literal["spiral", "sin", "random"],
         motion_kwargs: Mapping[str, Any],
         num_repetitions: int,
-        object_id: str,
+        object_id: Optional[str] = None,
         velocity_scaling_factor: float = 1.0,
-        max_random_plan_attempts: int = 5,
+        max_motion_generation_attempts: int = 5,
     ):
         """Initialize the smooth pursuit task.
 
@@ -89,17 +89,25 @@ class SmoothPursuitTask(BaseTask):
             ValueError: If motion_type is not "spiral" or "random".
         """
         super().__init__("smooth_pursuit_task", commander)
-        if motion_type == "spiral":
-            self._post_process_after_concat = True
-            self._max_plan_attempts = 1
-            self._motion_generator_fn = self.generate_spiral
-        elif motion_type == "random":
-            self._post_process_after_concat = False
-            self._max_plan_attempts = max_random_plan_attempts
-            self._motion_generator_fn = self.generate_random
-        else:
-            raise ValueError(f"Unsupported motion type: {motion_type}")
+        match motion_type:
+            case "spiral":
+                self._post_process_after_concat = True
+                self._max_motion_generation_attempts = 1
+                self._motion_fn = self.generate_spiral
+            case "sin":
+                self._post_process_after_concat = True
+                self._max_motion_generation_attempts = 1
+                self._motion_fn = self.generate_sin
+            case "random":
+                self._post_process_after_concat = False
+                self._max_motion_generation_attempts = (
+                    max_motion_generation_attempts
+                )
+                self._motion_fn = self.generate_random
+            case _:
+                raise ValueError(f"Unsupported motion type: {motion_type}")
 
+        self._object_id = object_id
         self._motion_type = motion_type
         self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
@@ -110,7 +118,7 @@ class SmoothPursuitTask(BaseTask):
 
     def generate_spiral(
         self,
-        center_pose_kwargs: Mapping[str, Any],
+        center_pose: PoseStamped | Mapping[str, Any],
         radius: float,
         length: float,
         num_revolutions: int,
@@ -143,7 +151,8 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Generating spiral trajectory")
 
-        center = pose_stamped_msg(**center_pose_kwargs)
+        if not isinstance(center_pose, PoseStamped):
+            center_pose = pose_stamped_msg(**center_pose)
 
         goals: list[PoseStamped] = []
 
@@ -153,13 +162,55 @@ class SmoothPursuitTask(BaseTask):
             # Y axis oscillation (single cycle)
             theta_y = (2 * np.pi * i) / num_segments
 
-            x = center.pose.position.x + radius * np.cos(theta_xz)
-            y = center.pose.position.y - (length / 2) * np.cos(theta_y)
-            z = center.pose.position.z + radius * np.sin(theta_xz)
+            x = center_pose.pose.position.x + radius * np.cos(theta_xz)
+            y = center_pose.pose.position.y - (length / 2) * np.cos(theta_y)
+            z = center_pose.pose.position.z + radius * np.sin(theta_xz)
 
             goal = pose_stamped_msg(
                 position=[x, y, z],
-                orientation=center.pose.orientation,
+                orientation=center_pose.pose.orientation,
+            )
+            goals.append(goal)
+
+        return goals
+
+    def generate_sin(
+        self,
+        center_pose: PoseStamped | Mapping[str, Any],
+        amplitudes: list[float],
+        periods: list[float],
+        num_revolutions: int,
+        num_segments: int,
+    ) -> list[PoseStamped]:
+        """Generate a sinusoidal oscillation in 3D.
+
+        num_revolutions is the number of sinusoidal repetitions along the axis
+        with the largest period.
+        TODO
+        """
+        self.log("Generating sinusoidal trajectory")
+
+        if not isinstance(center_pose, PoseStamped):
+            center_pose = pose_stamped_msg(**center_pose)
+
+        goals: list[PoseStamped] = []
+
+        if len(amplitudes) != 3 or len(periods) != 3:
+            raise ValueError("amplitudes and periods must both be of length 3")
+
+        max_period = max(periods)
+
+        for i in range(num_segments + 1):
+            t = (2 * np.pi * i * num_revolutions * max_period) / num_segments
+            offset = [a * np.sin(t / p) for a, p in zip(amplitudes, periods)]
+
+            x = center_pose.pose.position.x + offset[0]
+            y = center_pose.pose.position.y + offset[1]
+            z = center_pose.pose.position.z + offset[2]
+
+            goal = pose_stamped_msg(
+                position=[x, y, z],
+                orientation=center_pose.pose.orientation,
             )
             goals.append(goal)
 
@@ -167,7 +218,7 @@ class SmoothPursuitTask(BaseTask):
 
     def generate_random(
         self,
-        start_pose_kwargs: Mapping[str, Any],
+        start_pose: PoseStamped | Mapping[str, Any],
         min_x: float,
         max_x: float,
         min_y: float,
@@ -202,10 +253,11 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Generating random trajectory")
 
-        start = pose_stamped_msg(**start_pose_kwargs)
+        if not isinstance(start_pose, PoseStamped):
+            start_pose = pose_stamped_msg(**start_pose)
 
         goals: list[PoseStamped] = []
-        goals.append(start)
+        goals.append(start_pose)
 
         for i in range(num_waypoints):
             # Uniform random sampling within bounding box
@@ -217,7 +269,7 @@ class SmoothPursuitTask(BaseTask):
 
             goal = pose_stamped_msg(
                 position=[x, y, z],
-                orientation=start.pose.orientation,
+                orientation=start_pose.pose.orientation,
             )
             goals.append(goal)
 
@@ -265,8 +317,13 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Starting smooth pursuit task")
         async with self.commander:
-            for i in range(self._max_plan_attempts):
-                goals = self._motion_generator_fn(**self._motion_kwargs)
+            # Attach object to end effector if using a non-grid object
+            # TODO: Implement grid object fetch logic
+            if self._object_id is not None:
+                self.commander.attach_object_manually(self._object_id)
+
+            for i in range(self._max_motion_generation_attempts):
+                goals = self._motion_fn(**self._motion_kwargs)
 
                 try:
                     # Plan to first waypoint using default planning pipeline
@@ -290,11 +347,15 @@ class SmoothPursuitTask(BaseTask):
                         f"Error while planning smooth pursuit trajectory: {type(e).__name__}: {e}",
                         severity="ERROR",
                     )
-                    if (remaining := self._max_plan_attempts - i - 1) > 0:
+                    if (
+                        remaining := self._max_motion_generation_attempts
+                        - i
+                        - 1
+                    ) > 0:
                         self.log(f"Trying again {remaining} more times")
             else:
                 raise RuntimeError(
-                    f"Could not plan smooth pursuit trajectory after {self._max_plan_attempts} attempts"
+                    f"Could not plan smooth pursuit trajectory after {self._max_motion_generation_attempts} attempts"
                 )
 
             # Move to first waypoint
