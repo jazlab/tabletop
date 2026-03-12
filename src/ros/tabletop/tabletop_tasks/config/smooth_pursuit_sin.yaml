@@ -7,9 +7,9 @@ tasks:
           position: [0.9525, 0.5, 0.6]
           rpy: [1.5707, 1.5707, 0.0]
         amplitudes: [0.1, 0.1, 0.1]
-        periods: [5.0, 6.2, 10.0]
+        periods: [4.3, 6.2, 10.0]
         num_revolutions: 10
         num_segments: 800
       num_repetitions: 3
       object_id: null
-      velocity_scaling_factor: 0.1
+      velocity_scaling_factor: 0.075

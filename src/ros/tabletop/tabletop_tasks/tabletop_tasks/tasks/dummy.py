@@ -22,6 +22,7 @@ from tabletop_rig.utils.ros import (
     change_reference_frame_pose,
     matrix_from_pose_msg,
     pose_msg,
+    pose_stamped_msg,
     seconds_from_ros_time,
 )
 
@@ -73,6 +74,30 @@ class DummyTask(BaseTask):
         Continuously logs the end-effector position relative to the
         grid origin. Useful for calibrating object placement.
         """
+        goal = pose_stamped_msg(
+            pose={"position": [0.9525, 0.4, 0.4], "rpy": [1.5707, 1.5707, 0.0]}
+        )
+        await self.commander.plan_and_execute(goal=goal)
+        while True:
+            pose_stamped = self.commander.moveit.get_link_pose_stamped(
+                self.commander.moveit.default_pose_link
+            )
+            position, euler = arrays_from_pose_msg(
+                pose_stamped.pose, euler=True
+            )
+            position = position + np.array([0.0, -0.017, 0.0315])
+            self.commander.log(
+                f"Eef pose in {pose_stamped.header.frame_id} frame: "
+                f"{position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
+            )
+            await asyncio.sleep(1.0)
+
+    async def test_grid_position(self) -> None:
+        """Test method for debugging object grid positioning.
+
+        Continuously logs the end-effector position relative to the
+        grid origin. Useful for calibrating object placement.
+        """
         grid_origin_kwargs = self.commander.param(
             "planning_scene.object_meshes.grid_origin"
         )
@@ -112,7 +137,7 @@ class DummyTask(BaseTask):
         forwards = []
         backwards = []
 
-        for _ in range(10000):
+        for _ in range(1000):
             start_time = self.commander.get_clock().now()
             response = cast(
                 Ping.Response,
@@ -322,6 +347,7 @@ class DummyTask(BaseTask):
         """Run one or more of the tests"""
         async with self.commander:
             await self.test_teensy_latency()
+            await self.test_robot_position()
             # await self.test_flic_latency_pre_pressed()
             # await self.test_flic_latency_human()
             # await self.test_flic_latency_button()

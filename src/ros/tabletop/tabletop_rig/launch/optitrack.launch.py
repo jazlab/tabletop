@@ -94,9 +94,11 @@ def generate_launch_description():
         output="both",
         arguments=[
             "--x",
-            "0.4925",
+            # "0.4925",
+            "0.524",
             "--y",
-            "0.6025",
+            # "0.6025",
+            "0.623",
             "--z",
             "0.31",
             "--yaw",

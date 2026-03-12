@@ -14,10 +14,10 @@ preprocess:
     reindex_and_interpolate:
       tolerance: 0.005
     smooth:
-      window: 0.03
-      polyorder: 3
+      method: boxcar
+      window: 0.01
     filter_by_speed:
-      min_speed: 10
+      min_speed: 100
       max_speed: 30000
   marker:
     format_columns:

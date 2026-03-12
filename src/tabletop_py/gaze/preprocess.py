@@ -637,22 +637,20 @@ def reindex_and_interpolate_eyelink_data(
 
 
 def smooth_eyelink_data(
-    df: pd.DataFrame,
-    *,
-    freq: float,
-    window: float,
-    polyorder: int,
+    df: pd.DataFrame, *, method: Literal["savgol", "boxcar"], **kwargs
 ) -> pd.DataFrame:
     """Smooths the eyelink data. See smooth_savgol for more details."""
-    df = smooth_savgol(
-        df,
-        columns=EYELINK_DATA_COLS,
-        on="time",
-        freq=freq,
-        window=window,
-        polyorder=polyorder,
-    )
-    return df
+    match method:
+        case "savgol":
+            return smooth_savgol(
+                df, columns=EYELINK_DATA_COLS, on="time", **kwargs
+            )
+        case "boxcar":
+            return smooth_rolling(
+                df, columns=EYELINK_DATA_COLS, on="time", on_unit="s", **kwargs
+            )
+        case _:
+            raise ValueError(f"Smoothing method {method} unsupported")
 
 
 def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
