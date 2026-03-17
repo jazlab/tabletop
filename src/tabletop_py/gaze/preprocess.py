@@ -33,7 +33,7 @@ Example:
 
 import logging
 import os
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from copy import deepcopy
 from typing import Any, Literal, Optional, cast
 
@@ -100,7 +100,7 @@ def verify_timestamps(
             )
 
 
-def smooth_rolling(
+def smooth_rolling_deprecated(
     df: pd.DataFrame,
     *,
     columns: list[str],
@@ -108,6 +108,8 @@ def smooth_rolling(
     freq: float,
     window: float,
     on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
+    win_type: Optional[str] = None,
+    win_kwargs: Optional[Mapping[str, Any]] = None,
 ):
     df = df.copy()
 
@@ -119,12 +121,49 @@ def smooth_rolling(
         on="datetime",
         center=True,
         window=td,
-        min_periods=int(window * freq) - 1,
+        win_type=win_type,
+        # min_periods=int(window * freq) - 1,
     )
 
-    df[columns] = rolling[columns].mean().drop(columns=["datetime"])
+    if win_kwargs is None:
+        win_kwargs = {}
+
+    df[columns] = (
+        rolling[columns].mean(**win_kwargs).drop(columns=["datetime"])
+    )
 
     df = df.drop(columns=["datetime"])
+    return df
+
+
+def smooth_rolling(
+    df: pd.DataFrame,
+    *,
+    columns: list[str],
+    on: str,
+    freq: float,
+    window: float,
+    on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
+    win_type: Optional[str] = None,
+    win_kwargs: Optional[Mapping[str, Any]] = None,
+):
+    df = df.copy()
+
+    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
+
+    window_length = int(window * freq)
+    rolling = df.rolling(
+        on=on,
+        center=True,
+        window=window_length,
+        win_type=win_type,
+    )
+
+    if win_kwargs is None:
+        win_kwargs = {}
+
+    df[columns] = rolling[columns].mean(**win_kwargs).drop(columns=[on])
+
     return df
 
 
@@ -160,10 +199,10 @@ def smooth_savgol(
 
     assert not df[on].isna().any()
 
-    if deriv > 0:
-        delta = 1 / freq
-    else:
-        delta = 1
+    # if deriv > 0:
+    #     delta = 1 / freq
+    # else:
+    #     delta = 1
 
     window_length = int(window * freq)
     if window_length > df.shape[0]:
@@ -176,7 +215,7 @@ def smooth_savgol(
             window_length=window_length,
             polyorder=polyorder,
             deriv=deriv,
-            delta=delta,
+            delta=1 / freq,
         )
 
     return df
@@ -637,15 +676,15 @@ def reindex_and_interpolate_eyelink_data(
 
 
 def smooth_eyelink_data(
-    df: pd.DataFrame, *, method: Literal["savgol", "boxcar"], **kwargs
+    df: pd.DataFrame, *, method: Literal["savgol", "rolling"], **kwargs
 ) -> pd.DataFrame:
     """Smooths the eyelink data. See smooth_savgol for more details."""
     match method:
         case "savgol":
             return smooth_savgol(
-                df, columns=EYELINK_DATA_COLS, on="time", **kwargs
+                df, columns=EYELINK_DATA_COLS, on="time", deriv=0, **kwargs
             )
-        case "boxcar":
+        case "rolling":
             return smooth_rolling(
                 df, columns=EYELINK_DATA_COLS, on="time", on_unit="s", **kwargs
             )
@@ -667,6 +706,29 @@ def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
     return df[["left_speed", "right_speed"]]
 
 
+def calculate_eyelink_speed_savgol(
+    df: pd.DataFrame, *, freq: float, window: float, polyorder: int
+):
+    """
+    Calculates the speed of the eye data.
+    """
+    vel_df = smooth_savgol(
+        df,
+        columns=EYELINK_POS_COLS,
+        on="time",
+        freq=freq,
+        window=window,
+        polyorder=polyorder,
+        deriv=1,
+    )
+    vel_df["left_speed"] = np.linalg.norm(vel_df[["left_x", "left_y"]], axis=1)
+    vel_df["right_speed"] = np.linalg.norm(
+        vel_df[["right_x", "right_y"]], axis=1
+    )
+
+    return vel_df[["left_speed", "right_speed"]]
+
+
 def calculate_marker_speed(df: pd.DataFrame) -> pd.Series:
     """
     Calculates the speed of the marker data.
@@ -682,6 +744,27 @@ def filter_eyelink_by_speed(
     df: pd.DataFrame, min_speed: float, max_speed: float
 ) -> pd.DataFrame:
     speed = calculate_eyelink_speed(df)
+    num_samples = df.shape[0]
+    valid_mask = ((speed >= min_speed) & (speed <= max_speed)).all(axis=1)
+    df = df[valid_mask]
+    logger.info(
+        f"Dropped {num_samples - df.shape[0]} out of {num_samples} eyelink samples with too fast or too slow speed"
+    )
+    return df
+
+
+def filter_eyelink_by_speed_savgol(
+    df: pd.DataFrame,
+    min_speed: float,
+    max_speed: float,
+    *,
+    freq: float,
+    window: float,
+    polyorder: int,
+) -> pd.DataFrame:
+    speed = calculate_eyelink_speed_savgol(
+        df, freq=freq, window=window, polyorder=polyorder
+    )
     num_samples = df.shape[0]
     valid_mask = ((speed >= min_speed) & (speed <= max_speed)).all(axis=1)
     df = df[valid_mask]
@@ -846,7 +929,7 @@ def merge_data(
 
 
 def preprocess_data(
-    session_dir: os.PathLike,
+    session_dir: str | os.PathLike,
     config: MutableMapping[str, Any] | os.PathLike | str,
     *,
     marker_idx: int,
@@ -939,15 +1022,22 @@ def preprocess_data(
         **marker_config["reindex_and_interpolate"],
     )
 
+    logger.info("Filtering eyelink data by speed")
+    eyelink_df = filter_eyelink_by_speed_savgol(
+        eyelink_df,
+        freq=config["eyelink_freq"],
+        **eyelink_config["filter_by_speed"],
+    )
+
     logger.info("Smoothing eyelink data")
     eyelink_df = smooth_eyelink_data(
         eyelink_df, freq=config["eyelink_freq"], **eyelink_config["smooth"]
     )
 
-    logger.info("Filtering eyelink data by speed")
-    eyelink_df = filter_eyelink_by_speed(
-        eyelink_df, **eyelink_config["filter_by_speed"]
-    )
+    # logger.info("Filtering eyelink data by speed")
+    # eyelink_df = filter_eyelink_by_speed(
+    #     eyelink_df, **eyelink_config["filter_by_speed"]
+    # )
 
     logger.info("Clipping timestamps")
     eyelink_df, markers_df = clip_timestamps(

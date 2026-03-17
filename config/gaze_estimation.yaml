@@ -13,12 +13,17 @@ preprocess:
       max_zscore: 3.0
     reindex_and_interpolate:
       tolerance: 0.005
-    smooth:
-      method: boxcar
-      window: 0.01
     filter_by_speed:
-      min_speed: 100
+      min_speed: 500
       max_speed: 30000
+      window: 0.01
+      polyorder: 3
+    smooth:
+      method: rolling
+      window: 0.01
+    # filter_by_speed:
+    #   min_speed: 500
+    #   max_speed: 30000
   marker:
     format_columns:
       verify: true
