@@ -1,0 +1,66 @@
+<!-- Right Hand -->
+
+<body name="palm" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+  <geom name="palm" mesh="palm"/>
+  <body name="thumb" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+    <geom name="thumb_d0" mesh="thumb_d0"/>
+    <joint name="thumb_d0_abduction" pos="0.01 -0.01 0" axis="0 1 0" range="-30 90"/>
+    <joint name="thumb_d0_flexion" pos="0.01 -0.01 0" axis="0.5 0 -1" range="-30 30"/>
+    <body name="thumb_d1" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+      <geom name="thumb_d1" mesh="thumb_d1"/>
+      <joint name="thumb_d1_flexion" pos="0.016 -0.028 0.002" axis="0.5 0 -1" range="-60 60"/>
+      <body name="thumb_d2" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+        <geom name="thumb_d2" mesh="thumb_d2"/>
+        <joint name="thumb_d2_flexion" pos="0.02 -0.038 0.002" axis="0.5 0 -1" range="-60 60"/>
+      </body>
+    </body>
+  </body>
+  <body name="index" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+    <geom name="index_d0" mesh="index_d0"/>
+    <joint name="index_d0_flexion" pos="0.011 -0.04 0.002" axis="1 0 0" range="-60 90"/>
+    <body name="index_d1" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+      <joint name="index_d1_flexion" pos="0.0125 -0.056 0.002" axis="1 0 0" range="-60 60"/>
+      <geom name="index_d1" mesh="index_d1"/>
+      <body name="index_d2" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+        <joint name="index_d2_flexion" pos="0.0135 -0.067 0.002" axis="1 0 0" range="-60 60"/>
+        <geom name="index_d2" mesh="index_d2"/>
+      </body>
+    </body>
+  </body>
+  <body name="middle" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+    <geom name="middle_d0" mesh="middle_d0"/>
+    <joint name="middle_d0_flexion" pos="0.004 -0.041 0.002" axis="1 0 0" range="-60 90"/>
+    <body name="middle_d1" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+      <geom name="middle_d1" mesh="middle_d1"/>
+      <joint name="middle_d1_flexion" pos="0.004 -0.062 0.002" axis="1 0 0" range="-60 60"/>
+      <body name="middle_d2" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+        <geom name="middle_d2" mesh="middle_d2"/>
+        <joint name="middle_d2_flexion" pos="0.004 -0.076 0.002" axis="1 0 0" range="-60 60"/>
+      </body>
+    </body>
+  </body>
+  <body name="ring" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+    <geom name="ring_d0" mesh="ring_d0"/>
+    <joint name="ring_d0_flexion" pos="-0.002 -0.036 0.002" axis="1 0 0" range="-60 90"/>
+    <body name="ring_d1" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+      <geom name="ring_d1" mesh="ring_d1"/>
+      <joint name="ring_d1_flexion" pos="-0.003 -0.052 0.002" axis="1 0 0" range="-60 60"/>
+      <body name="ring_d2" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+        <geom name="ring_d2" mesh="ring_d2"/>
+        <joint name="ring_d2_flexion" pos="-0.004 -0.064 0.002" axis="1 0 0" range="-60 60"/>
+      </body>
+    </body>
+  </body>
+  <body name="pinky" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+    <geom name="pinky_d0" mesh="pinky_d0"/>
+    <joint name="pinky_d0_flexion" pos="-0.0065 -0.029 0.002" axis="1 0 0" range="-60 90"/>
+    <body name="pinky_d1" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+      <geom name="pinky_d1" mesh="pinky_d1"/>
+      <joint name="pinky_d1_flexion" pos="-0.0085 -0.044 0.002" axis="1 0 0" range="-60 60"/>
+      <body name="pinky_d2" pos="0 0 0" quat="1.0 0.0 0.0 0.0">
+        <geom name="pinky_d2" mesh="pinky_d2"/>
+        <joint name="pinky_d2_flexion" pos="-0.0095 -0.056 0.002" axis="1 0 0" range="-60 60"/>
+      </body>
+    </body>
+  </body>
+</body>

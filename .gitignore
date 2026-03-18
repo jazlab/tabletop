@@ -37,3 +37,7 @@
 # Ignore piano stuff
 **/*.sf2
 **/*.mid
+
+# Ignore deprecated virtual tabletop files
+virtual_tabletop/deprecated**
+virtual_tabletop/rig/*.stl

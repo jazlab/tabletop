@@ -1,24 +1,23 @@
-<!-- Rig Model -->
+<!-- Rig -->
 
-<mujoco model="rig">
+<mujoco model="Rig V0">
+
+  <!-- Component default parameters -->
   <default>
-    <geom type="box" rgba="0.5 0.5 0.5 1" size="0.02 1.02 0.02"/>
+    <mesh scale="1 1 1"/>
+    <geom type="mesh" rgba="0.3 0.3 .3 0.5" margin="0.0001" density="1000"/>
   </default>
+
+  <!-- Asset definitions for bones -->
+  <asset>
+    <mesh name="rig" file="./compressed_rig_v0.stl"/>
+  </asset>
+
+  <!-- Make rig body -->
   <worldbody>
-    <body name="rig" quat="1 0 0 1">
-      <inertial mass="100" pos="0 0 0"/>
-      <geom name="front_bottom" pos="0 0 0" quat="1 0 1 0"/>
-      <geom name="front_top" pos="0 0 2" quat="1 0 1 0"/>
-      <geom name="front_left" pos="0 1 1" quat="1 1 0 0"/>
-      <geom name="front_right" pos="0 -1 1" quat="1 1 0 0"/>
-      <geom name="back_bottom" pos="2 0 0" quat="1 0 1 0"/>
-      <geom name="back_top" pos="2 0 2" quat="1 0 1 0"/>
-      <geom name="back_left" pos="2 1 1" quat="1 1 0 0"/>
-      <geom name="back_right" pos="2 -1 1" quat="1 1 0 0"/>
-      <geom name="depth_top_left" pos="1 -1 0" quat="0 1 1 0"/>
-      <geom name="depth_top_right" pos="1 -1 2" quat="0 1 1 0"/>
-      <geom name="depth_bottom_left" pos="1 1 0" quat="0 1 1 0"/>
-      <geom name="depth_bottom_right" pos="1 1 2" quat="0 1 1 0"/>
+    <body name="rig" pos="0.7 0 -0.5" quat="1.0 1.0 0.0 0.0">
+      <geom name="rig" mesh="rig" contype="2" conaffinity="0"/>
     </body>
   </worldbody>
+
 </mujoco>
