@@ -3,7 +3,7 @@ tasks:
     kwargs:
       motion_type: spiral
       motion_kwargs:
-        center_pose_kwargs:
+        center_pose:
           position: [1.0525, 0.45, 0.45]
           rpy: [1.5707, 1.5707, 0.0]
         radius: 0.05

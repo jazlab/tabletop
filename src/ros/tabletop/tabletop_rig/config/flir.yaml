@@ -3,7 +3,7 @@ common:
   image_transport_plugins:
     enable_pub_plugins:
       # - image_transport/foxglove
-      # - image_transport/ffmpeg
+      - image_transport/ffmpeg
       - image_transport/compressed
       - image_transport/raw
     foxglove:
@@ -18,24 +18,26 @@ common:
     compressed:
       jpeg_quality: 80
       jpeg_compress_bayer: true
-      jpeg_level: 90
+      png_level: 9
       format: jpeg
     jpeg_compress_bayer: true
   debug: false
   dump_node_map: false
   compute_brightness: false
-  adjust_timestamp: true
-  buffer_queue_size: 4
+  # connect_while_subscribed: true
+  image_queue_size: 10
+  buffer_queue_size: 10
   acquisition_timeout: 5.0
-  # factory_reset: false
-  # device_reset: false
+  # factory_reset: true
+  # device_reset: true
   # device_reset_timeout: 3.0
 
   # set parameters defined in blackfly_s.yaml
   # to use a user set, do this:
-  default_user_set: Default
+  # default_user_set: Default
   user_set_selector: Default
-  user_set_load: Yes
+  user_set_load: "Yes"
+  adjust_timestamp: true
   gain_auto: Continuous
   acquisition_mode: Continuous
   exposure_mode: Timed
@@ -46,16 +48,21 @@ common:
   trigger_mode: "Off"
   pixel_format: BayerRG8
   # exposure_auto: Continuous
+  # binning_selector: Sensor
+  # binning_mode_x: Sum
+  # binning_mode_y: Sum
+  # decimation_selector: Sensor
+  # decimation_x: 2
+  # decimation_y: 2
+  # binning_x: 2
+  # binning_y: 2
   # to reduce the sensor width and shift the crop
+  # offset_x: 16
+  # offset_y: 0
   # image_width: 960
   # image_height: 600
   image_width: 1920
   image_height: 1200
-  # offset_x: 16
-  # offset_y: 0
-  # binning_x: 2
-  # binning_y: 2
-  # connect_while_subscribed: true
   # reverse_x: true
   # reverse_y: true
   # frame_rate_auto: "Off"
@@ -74,6 +81,8 @@ common:
   chunk_enable_line_status: true
   # stream_buffer_handling_mode: NewestFirst
   # multicast_monitor_mode: false
+  # user_set_save_selector: UserSet0
+  # user_set_save: "Yes"
 
 cameras:
   - name: left_front_top_cam

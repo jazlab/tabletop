@@ -347,6 +347,9 @@ class Flic(BaseNode):
                 )
                 time = self.last_simulated_button_time
                 frame_id = self.last_simulated_button_addr
+                self.last_simulated_button_time = None
+                self.last_simulated_button_addr = None
+                self.simulate_button_event.clear()
             else:
                 cc, time = await self.flic_client.wait_for_button_event(
                     ClickType.ButtonDown

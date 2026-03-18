@@ -62,7 +62,12 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/tasks"
         LAUNCH="tabletop_tasks tasks.launch.py"
         ;;
-    bag_convert|rosbag_to_csv|bagc)
+    rosbag)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag"
+        LAUNCH="tabletop_rig rosbag.launch.py"
+        ;;
+    rosbag_convert|rosbag_to_csv)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag_convert"
         RUN="tabletop_rig rosbag_to_csv"
         ;;
     *)

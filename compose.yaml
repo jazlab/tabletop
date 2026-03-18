@@ -170,19 +170,39 @@ services:
     restart: unless-stopped
     command: tt-launch optitrack
 
+  # flir:
+  #   extends: ros-base
+  #   container_name: tabletop-flir
+  #   profiles: !override
+  #     - flir
+  #   devices:
+  #     - $FLIR_DEV_0
+  #     - $FLIR_DEV_1
+  #     - $FLIR_DEV_2
+  #     - $FLIR_DEV_3
+  #     - $FLIR_DEV_4
+  #     - $FLIR_DEV_5
+  #   environment:
+  #     - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+  #     - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+  #   cpus: 8 # Limit cpu usage
+  #   runtime: $COMMANDER_RUNTIME
+  #   restart: unless-stopped
+  #   command: tt-launch flir
+
   flir:
     extends: ros-base
     container_name: tabletop-flir
     profiles: !override
       - flir
-    devices:
-      - $FLIR_DEV_0
-      - $FLIR_DEV_1
-      - $FLIR_DEV_2
-      - $FLIR_DEV_3
-      - $FLIR_DEV_4
-      - $FLIR_DEV_5
+    volumes:
+      - /dev:/dev
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
     cpus: 8 # Limit cpu usage
+    privileged: true
+    runtime: $COMMANDER_RUNTIME
     restart: unless-stopped
     command: tt-launch flir
 
@@ -250,10 +270,11 @@ services:
       - commander
     runtime: $COMMANDER_RUNTIME
     volumes:
+      - /hdd/bags:/bags
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
     environment:
-      # - DISPLAY=$NOVNC_DISPLAY
+      - ROS_BAG_DIR=/bags
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
@@ -282,6 +303,7 @@ services:
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
+      - /hdd/bags:/bags
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
       - python-venv:/tabletop/.venv
@@ -289,6 +311,7 @@ services:
       - ~/.claude.json:/home/$USER_NAME/.claude.json
       - $KITTY_LISTEN_ON_MNT
     environment:
+      - ROS_BAG_DIR=/bags
       - DISPLAY=$NOVNC_DISPLAY
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES

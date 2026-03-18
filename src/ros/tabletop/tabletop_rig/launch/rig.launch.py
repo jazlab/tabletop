@@ -1,26 +1,17 @@
 import logging
 import os
-from datetime import datetime
 
-import yaml
-from ament_index_python.packages import get_package_share_directory
 from launch import (
-    LaunchContext,
     LaunchDescription,
     LaunchService,
 )
 from launch.actions import (
     DeclareLaunchArgument,
-    ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
-    OpaqueFunction,
-    RegisterEventHandler,
     SetEnvironmentVariable,
-    Shutdown,
 )
 from launch.conditions import IfCondition
-from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.logging import launch_config
 from launch.substitutions import (
@@ -230,9 +221,15 @@ def declare_arguments():
             description="Record rosbag?",
         ),
         DeclareLaunchArgument(
+            "rosbag_log_level",
+            default_value="INFO",
+            description="ROS bag log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "rosbag_output",
             default_value="both",
-            description="Bag output",
+            description="ROS bag output",
             choices=["log", "both", "screen", "own_log"],
         ),
     ]
@@ -289,27 +286,7 @@ def generate_launch_description():
     # Set ROS Log Directory and use_sim_time parameter for all nodes
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Create a new bag directory for the session and symlink to it
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    dirname = f"session_{timestamp}"
-    session_bag_dir = os.path.join(os.environ["ROS_BAG_DIR"], dirname)
-    symlink_path = os.path.join(os.environ["ROS_BAG_DIR"], "latest")
-
-    def _create_session_bag_dir(_: LaunchContext):
-        os.makedirs(session_bag_dir, exist_ok=True)
-        try:
-            os.remove(symlink_path)
-        except FileNotFoundError:
-            pass
-        os.symlink(dirname, symlink_path)
-
-    create_session_bag_dir = OpaqueFunction(
-        function=_create_session_bag_dir,
-        condition=IfCondition(LaunchConfiguration("rosbag")),
-    )
-
     # Launch Files
-
     commander = GroupAction(
         [
             SetEnvironmentVariable(
@@ -331,7 +308,6 @@ def generate_launch_description():
                 launch_arguments={
                     "robot_name": LaunchConfiguration("robot_name"),
                     "robot_mode": LaunchConfiguration("robot_mode"),
-                    # "session_bag_dir": session_bag_dir,
                     "commander_log_level": LaunchConfiguration(
                         "commander_log_level"
                     ),
@@ -464,6 +440,36 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("optitrack_launch")),
     )
 
+    eyelink = GroupAction(
+        [
+            SetEnvironmentVariable(
+                name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+                value=LaunchConfiguration("eyelink_output"),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare("tabletop_rig"),
+                                "launch",
+                                "eyelink.launch.py",
+                            ]
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    "simulate": LaunchConfiguration("eyelink_simulate"),
+                    "log_level": LaunchConfiguration("eyelink_log_level"),
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
+        ],
+        scoped=True,
+        forwarding=True,
+        condition=IfCondition(LaunchConfiguration("eyelink_launch")),
+    )
+
     flir = GroupAction(
         [
             SetEnvironmentVariable(
@@ -524,11 +530,11 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("rviz_launch")),
     )
 
-    eyelink = GroupAction(
+    rosbag = GroupAction(
         [
             SetEnvironmentVariable(
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
-                value=LaunchConfiguration("eyelink_output"),
+                value=LaunchConfiguration("rosbag_output"),
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -537,73 +543,25 @@ def generate_launch_description():
                             [
                                 FindPackageShare("tabletop_rig"),
                                 "launch",
-                                "eyelink.launch.py",
+                                "rosbag.launch.py",
                             ]
                         )
                     ]
                 ),
                 launch_arguments={
-                    "simulate": LaunchConfiguration("eyelink_simulate"),
-                    # "initial_bag_dir": IfElseSubstitution(
-                    #     LaunchConfiguration("rosbag"), session_bag_dir, "null"
-                    # ),
-                    "log_level": LaunchConfiguration("eyelink_log_level"),
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "log_level": LaunchConfiguration("rosbag_log_level"),
                 }.items(),
             ),
         ],
         scoped=True,
         forwarding=True,
-        condition=IfCondition(LaunchConfiguration("eyelink_launch")),
-    )
-
-    # Bag Recorder and Converter
-    interfaces_config_file = os.path.join(
-        get_package_share_directory("tabletop_rig"),
-        "config",
-        "rosbag_interfaces.yaml",
-    )
-    with open(interfaces_config_file, "r") as f:
-        interfaces_config = yaml.safe_load(f)
-    args = []
-    if interfaces_config["all"]:
-        args.append("--all")
-    else:
-        if "topics" in interfaces_config:
-            args.extend(["--topics", *interfaces_config["topics"]])
-        if "services" in interfaces_config:
-            args.extend(["--services", *interfaces_config["services"]])
-    rig_bag_dir = os.path.join(session_bag_dir, "rig")
-
-    bag_recorder = ExecuteProcess(
-        name="rosbag_recorder",
-        cmd=["ros2", "bag", "record", "-o", rig_bag_dir, *args],
-        output=LaunchConfiguration("rosbag_output"),
-        condition=IfCondition(LaunchConfiguration("rosbag")),
-        on_exit=[Shutdown()],
-    )
-    bag_converter = ExecuteProcess(
-        name="bag_converter",
-        cmd=[
-            "ros2",
-            "run",
-            "tabletop_rig",
-            "rosbag_to_csv",
-            "--session-dir",
-            session_bag_dir,
-        ],
-        shell=True,
-        output=LaunchConfiguration("rosbag_output"),
-    )
-    bag_converter_handler = RegisterEventHandler(
-        OnShutdown(on_shutdown=[bag_converter], handle_once=True),
         condition=IfCondition(LaunchConfiguration("rosbag")),
     )
 
     launch_actions = [
         *declare_arguments(),
         set_ros_log_dir,
-        create_session_bag_dir,
         commander,
         ur,
         teensy,
@@ -612,8 +570,7 @@ def generate_launch_description():
         eyelink,
         flir,
         rviz,
-        bag_recorder,
-        bag_converter_handler,
+        rosbag,
     ]
 
     return LaunchDescription(launch_actions)

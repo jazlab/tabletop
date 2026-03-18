@@ -10,7 +10,7 @@ if [[ $# -gt 1 ]]; then
     exit 1
 fi
 
-USBFS_MEMORY_MB=${1:-1000}
+USBFS_MEMORY_MB=${1:-5000}
 GRUBD_FILE=/etc/default/grub.d/99-usbfs-memory.cfg
 USBFS_MODULE_FILE=/sys/module/usbcore/parameters/usbfs_memory_mb
 

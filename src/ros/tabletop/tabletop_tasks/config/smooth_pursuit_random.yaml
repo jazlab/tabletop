@@ -3,7 +3,7 @@ tasks:
     kwargs:
       motion_type: random
       motion_kwargs:
-        start_pose_kwargs:
+        start_pose:
           position: [0.9525, 0.4, 0.5]
           rpy: [1.5707, 1.5707, 0.0]
         min_x: 0.7525

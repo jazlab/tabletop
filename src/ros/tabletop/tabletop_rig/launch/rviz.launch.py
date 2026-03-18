@@ -41,7 +41,7 @@ def declare_arguments():
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
-            description="Flic log level",
+            description="Log level",
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(

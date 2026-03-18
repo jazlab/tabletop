@@ -147,7 +147,7 @@ cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 mixins=()
 mixins+=("build-testing-off" "ccache" "$linker")
 
-if [[ "$all" = true ]]; then
+if [[ $all = true ]]; then
     rm -f "$TABLETOP_DIR/build/compile_commands.json"
     mixins+=("compile-commands")
 fi

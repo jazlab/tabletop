@@ -12,8 +12,6 @@ Launch Arguments:
         Default: "ur5e"
     robot_mode: Robot connection mode.
         Options: "mock" (default), "ursim", "real"
-    launch_rig: Whether to launch the full rig infrastructure.
-        Options: "true" (default), "false"
 
 Usage:
     # Run with default foraging task
@@ -32,7 +30,6 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
 )
-from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     EqualsSubstitution,
@@ -69,12 +66,6 @@ def declare_arguments():
             choices=["mock", "ursim", "real"],
             description="Whether to use the mock robot, URSim, or real robot",
         ),
-        DeclareLaunchArgument(
-            "launch_rig",
-            default_value="true",
-            description="Launch rig?",
-            choices=["true", "false"],
-        ),
     ]
 
 
@@ -90,7 +81,6 @@ def generate_launch_description():
     Returns:
         LaunchDescription containing all launch actions.
     """
-    launch_rig = LaunchConfiguration("launch_rig")
     task = LaunchConfiguration("task")
 
     coro_config = IfElseSubstitution(
@@ -140,7 +130,6 @@ def generate_launch_description():
                 }.items(),
             ),
         ],
-        condition=IfCondition(launch_rig),
         scoped=True,
         forwarding=True,
     )

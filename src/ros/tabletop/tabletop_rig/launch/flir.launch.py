@@ -1,5 +1,6 @@
 import os
 from collections.abc import Sequence
+from copy import copy
 from typing import Any, Optional
 
 import yaml
@@ -120,6 +121,7 @@ def make_camera_node(
     **params,
 ) -> ComposableNode:
     # Dynamically modify and flatten the parameters
+    params = copy(params)
     params[f"{name}.image_raw"] = params.pop("image_transport_plugins")
     params = flatten_dict(params)
 
