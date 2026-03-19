@@ -41,3 +41,6 @@
 # Ignore deprecated virtual tabletop files
 virtual_tabletop/deprecated**
 virtual_tabletop/rig/*.stl
+
+# Ignore modeling logs
+modeling/neural_cloning_toy/training/logs
