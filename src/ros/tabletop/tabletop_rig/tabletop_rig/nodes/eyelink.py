@@ -78,7 +78,6 @@ from tabletop_py.gaze.preprocess import (
     calculate_eyelink_speed,
     clean_eyelink_data,
     reindex_and_interpolate,
-    reindex_and_interpolate_eyelink_data,
     smooth_eyelink_data,
 )
 from tabletop_py.gaze.utils import (
@@ -198,44 +197,39 @@ class Eyelink(BaseNode):
         recording: Whether currently recording samples.
     """
 
-    default_params = (
-        BaseNode.default_params
-        | {
-            "tracker_address": "192.168.13.30",
-            "do_tracker_setup": True,
-            "simulate": False,
-            "simulate_radius": 1000,
-            "simulate_rotations_per_second": 1.0,
-            "simulate_missing_prob": 1e-3,
-            "simulate_saccate_prob": 1e-4,
-            "wait_for_data_timeout": 0.1,  # seconds
-            "sample_rate": 1000,  # Hz
-            "publish_batched": True,
-            "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
-            "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
-            "file_event_filter": "null",
-            "link_event_filter": "null",
-            "file_event_data": "null",
-            "link_event_data": "null",
-            "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
-            "session_bag_dir": os.path.join(
-                os.environ["ROS_BAG_DIR"], "latest"
-            ),
-            "smooth_pursuit.window": 0.1,  # seconds
-            "smooth_pursuit.min_samples": 80,
-            "preprocess_overrides.clean.max_zscore": "null",
-            "preprocess_overrides.reindex_and_interpolate.tolerance": "null",  # TODO: fix
-            # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
-            "preprocess_overrides.smooth.window": 0.05,  # seconds
-            "gaze_estimation.enable": True,
-            "gaze_estimation.frame_id": "optitrack",
-            "gaze_estimation.device": "cpu",
-            "gaze_estimation.compile": False,
-            "gaze_estimation.config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
-            "gaze_estimation.freq": 100,  # Hz
-            "gaze_estimation.window": 0.05,  # seconds
-        }
-    )
+    default_params = BaseNode.default_params | {
+        "tracker_address": "192.168.13.30",
+        "do_tracker_setup": True,
+        "simulate": False,
+        "simulate_radius": 1000,
+        "simulate_rotations_per_second": 1.0,
+        "simulate_missing_prob": 1e-3,
+        "simulate_saccate_prob": 1e-4,
+        "wait_for_data_timeout": 0.1,  # seconds
+        "sample_rate": 1000,  # Hz
+        "publish_batched": True,
+        "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
+        "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
+        "file_event_filter": "null",
+        "link_event_filter": "null",
+        "file_event_data": "null",
+        "link_event_data": "null",
+        "edf2asc_extra_args": ["-s", "-input", "-nflags", "-y"],
+        "session_bag_dir": os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
+        "smooth_pursuit.window": 0.1,  # seconds
+        "smooth_pursuit.min_samples": 80,
+        "preprocess_overrides.clean.max_zscore": "null",
+        # "preprocess_overrides.reindex_and_interpolate.tolerance": "null",  # TODO: fix
+        # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
+        # "preprocess_overrides.smooth.window": 0.05,  # seconds
+        "gaze_estimation.enable": True,
+        "gaze_estimation.frame_id": "optitrack",
+        "gaze_estimation.device": "cpu",
+        "gaze_estimation.compile": False,
+        "gaze_estimation.config": "$TABLETOP_DIR/config/gaze_estimation.yaml",
+        "gaze_estimation.freq": 100,  # Hz
+        "gaze_estimation.window": 0.05,  # seconds
+    }
 
     ###########################################################################
     # Initialization
@@ -1003,7 +997,7 @@ class Eyelink(BaseNode):
         if len(msgs) < min_samples:
             self.log(
                 f"Not enough samples in queue (min: {min_samples}, got: {len(msgs)})",
-                severity="DEBUG",
+                severity="WARN",
             )
             return False
 
@@ -1013,7 +1007,7 @@ class Eyelink(BaseNode):
         if df.shape[0] < min_samples:
             self.log(
                 f"Not enough recent samples (min: {min_samples}, got: {df.shape[0]})",
-                severity="DEBUG",
+                severity="WARN",
             )
             return False
 
@@ -1025,7 +1019,7 @@ class Eyelink(BaseNode):
         if df.shape[0] < min_samples:
             self.log(
                 f"Not enough valid samples (min: {min_samples}, got: {df.shape[0]})",
-                severity="DEBUG",
+                severity="WARN",
             )
             return False
 
@@ -1037,14 +1031,13 @@ class Eyelink(BaseNode):
             on="time",
             **self.preprocess_config["reindex_and_interpolate"],
         )
-        df = reindex_and_interpolate_eyelink_data(
-            df,
-            freq=freq,
-            **self.preprocess_config["reindex_and_interpolate"],
-        )
-        assert not df.isna().any(axis=None), (
-            "Should be no NaN values if tolerance is set to None"
-        )
+        num_na = df.isna().any(axis=1).sum()
+        if num_na > 0:
+            self.log(
+                f"{num_na} NaN values in dataframe after reindexing and interpolating",
+                severity="WARN",
+            )
+            return False
 
         smooth_config = copy(self.preprocess_config["smooth"])
         smooth_config["window"] = min(
@@ -1058,11 +1051,11 @@ class Eyelink(BaseNode):
         #         severity="DEBUG",
         #     )
         #     return False
-        num_na = df.isna().any(axis=1).sum()  # type: ignore
+        num_na = df.isna().any(axis=1).sum()
         if num_na > 0:
             self.log(
                 f"{num_na} NaN values in dataframe after smoothing",
-                severity="INFO",
+                severity="WARN",
             )
         df = df.dropna()
 

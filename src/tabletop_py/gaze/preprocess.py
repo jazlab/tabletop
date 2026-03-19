@@ -157,6 +157,7 @@ def smooth_rolling(
         center=True,
         window=window_length,
         win_type=win_type,
+        min_periods=window_length // 2,
     )
 
     if win_kwargs is None:
@@ -1022,22 +1023,22 @@ def preprocess_data(
         **marker_config["reindex_and_interpolate"],
     )
 
-    logger.info("Filtering eyelink data by speed")
-    eyelink_df = filter_eyelink_by_speed_savgol(
-        eyelink_df,
-        freq=config["eyelink_freq"],
-        **eyelink_config["filter_by_speed"],
-    )
-
+    # logger.info("Filtering eyelink data by speed")
+    # eyelink_df = filter_eyelink_by_speed_savgol(
+    #     eyelink_df,
+    #     freq=config["eyelink_freq"],
+    #     **eyelink_config["filter_by_speed"],
+    # )
+    #
     logger.info("Smoothing eyelink data")
     eyelink_df = smooth_eyelink_data(
         eyelink_df, freq=config["eyelink_freq"], **eyelink_config["smooth"]
     )
 
-    # logger.info("Filtering eyelink data by speed")
-    # eyelink_df = filter_eyelink_by_speed(
-    #     eyelink_df, **eyelink_config["filter_by_speed"]
-    # )
+    logger.info("Filtering eyelink data by speed")
+    eyelink_df = filter_eyelink_by_speed(
+        eyelink_df, **eyelink_config["filter_by_speed"]
+    )
 
     logger.info("Clipping timestamps")
     eyelink_df, markers_df = clip_timestamps(

@@ -317,6 +317,9 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Starting smooth pursuit task")
         async with self.commander:
+            # Occlude smartglass before running
+            await self.commander.occlude_smartglass()
+
             # Attach object to end effector if using a non-grid object
             # TODO: Implement grid object fetch logic
             if self._object_id is not None:
@@ -363,6 +366,9 @@ class SmoothPursuitTask(BaseTask):
 
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()
+
+            # Wait for 5 seconds to get a baseline for no eye movement
+            await asyncio.sleep(5)
 
             async with asyncio.TaskGroup() as tg:
                 # Run trajectory execution and eye tracking concurrently

@@ -3,7 +3,7 @@ common:
   image_transport_plugins:
     enable_pub_plugins:
       # - image_transport/foxglove
-      - image_transport/ffmpeg
+      # - image_transport/ffmpeg
       - image_transport/compressed
       - image_transport/raw
     foxglove:
@@ -18,7 +18,7 @@ common:
     compressed:
       jpeg_quality: 80
       jpeg_compress_bayer: true
-      png_level: 9
+      # png_level: 9
       format: jpeg
     jpeg_compress_bayer: true
   debug: false
