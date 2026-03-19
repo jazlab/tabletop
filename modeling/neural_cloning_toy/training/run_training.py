@@ -17,8 +17,8 @@ from python_utils.configs import build_from_config
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "config",
-    # 'configs.cursor_control_teacher',
-    'configs.arm_2dof_teacher',
+    'configs.cursor_control_teacher',
+    # 'configs.arm_2dof_teacher',
     "Module name of task config to use.",
 )
 flags.DEFINE_string(

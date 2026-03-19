@@ -8,10 +8,20 @@ def _get_task_config():
             method='CursorControl',
         ),
         kwargs=dict(
-            area_start=((-1, -1), (1, 1)),
-            area_goal=((-1, -1), (1, 1)),
-            area_start_test=((-1, -1), (0, 0)),
-            area_goal_test=((-1, -1), (0, 0)),
+            sampler_start_train_kwargs=dict(
+                # area_keep=((-1, -1), (0, 0)),
+                area_keep=((-1, -1), (1, 1)),
+            ),
+            sampler_goal_train_kwargs=dict(
+                # area_keep=((0, 0), (1, 1)),
+                area_keep=((-1, -1), (1, 1)),
+            ),
+            sampler_start_test_kwargs=dict(
+                area_keep=((0, 0), (1, 1)),
+            ),
+            sampler_goal_test_kwargs=dict(
+                area_keep=((-1, -1), (0, 0)),
+            ),
             max_action_magnitude=0.1,
         ),
     )

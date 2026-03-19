@@ -37,15 +37,15 @@ class CursorControl(base.BaseTask):
     """Cursor control task."""
 
     def __init__(self,
-                 area_start=((-1, -1), (1, 1)),
-                 area_goal=((-1, -1), (1, 1)),
-                 area_start_test=((-1, -1), (0, 0)),
-                 area_goal_test=((-1, -1), (0, 0)),
+                 sampler_start_train_kwargs: dict,
+                 sampler_goal_train_kwargs: dict,
+                 sampler_start_test_kwargs: dict,
+                 sampler_goal_test_kwargs: dict,
                  max_action_magnitude: float=0.1):
-        self._sampler_start_train = Sampler2D(area_keep=area_start, area_discard=area_start_test)
-        self._sampler_goal_train = Sampler2D(area_keep=area_goal, area_discard=area_goal_test)
-        self._sampler_start_test = Sampler2D(area_keep=area_start_test)
-        self._sampler_goal_test = Sampler2D(area_keep=area_goal_test)
+        self._sampler_start_train = Sampler2D(**sampler_start_train_kwargs)
+        self._sampler_goal_train = Sampler2D(**sampler_goal_train_kwargs)
+        self._sampler_start_test = Sampler2D(**sampler_start_test_kwargs)
+        self._sampler_goal_test = Sampler2D(**sampler_goal_test_kwargs)
         self._max_action_magnitude = max_action_magnitude
 
     def get_target_action(self, state: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:

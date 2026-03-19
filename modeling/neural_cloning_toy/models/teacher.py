@@ -38,3 +38,13 @@ class Teacher(torch.nn.Module):
     def task(self):
         """Return task."""
         return self._task
+
+    @property
+    def net(self):
+        """Return network."""
+        return self._net
+    
+    @property
+    def action_scale(self):
+        """Return action scale."""
+        return self._action_scale
