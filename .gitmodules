@@ -37,3 +37,7 @@
 	path = src/ros/modules/trac_ik
 	url = https://bitbucket.org/traclabs/trac_ik.git
 	branch = jazzy
+[submodule "image_transport_plugins"]
+	path = src/ros/modules/image_transport_plugins
+	url = https://github.com/valmikikothare/image_transport_plugins.git
+	branch = jazzy
