@@ -15,7 +15,6 @@ class Teacher(torch.nn.Module):
     ):
         """Create Teacher model."""
         super(Teacher, self).__init__()
-
         self._task = task
         self._action_scale = action_scale
         self._net = mlp_lib.MLP(

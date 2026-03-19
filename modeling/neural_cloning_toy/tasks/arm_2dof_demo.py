@@ -47,7 +47,8 @@ def main():
     )
     agent = Agent(task)
     for mode, test in zip(["train", "test"], [False, True]):
-        states, goal, _, target_actions = task.rollout(agent, batch_size=_N_PLOT, test=test, n_steps=_N_STEPS)
+        state, goal = task.get_batch(batch_size=_N_PLOT, test=test)
+        states, goal, _, target_actions = task.rollout(agent, state, goal, n_steps=_N_STEPS)
         states_joint, states_end = task.pose_to_coords(states)
         goal_joint, goal_end = task.pose_to_coords(goal)
         states = states.detach().cpu().numpy()

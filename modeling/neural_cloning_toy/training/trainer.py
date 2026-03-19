@@ -15,7 +15,7 @@ class Trainer:
         training_steps,
         batch_size,
         lr=0.001,
-        optimizer=torch.optim.RMSprop,
+        optimizer=torch.optim.Adam,
         grad_clip=1,
         num_log_steps=10,
     ):

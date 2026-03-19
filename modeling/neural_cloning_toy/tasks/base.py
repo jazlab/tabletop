@@ -38,9 +38,8 @@ class BaseTask(abc.ABC):
         """Get the size of the action space."""
         pass
 
-    def rollout(self, agent, batch_size: int, test: bool, n_steps: int) -> torch.Tensor:
+    def rollout(self, agent, state: torch.Tensor, goal: torch.Tensor, n_steps: int) -> torch.Tensor:
         """Roll out predictor model."""
-        state, goal = self.get_batch(batch_size, test)
         states = [state]
         actions = [agent.forward(state, goal)]
         target_actions = [self.get_target_action(state, goal)]
