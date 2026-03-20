@@ -9,11 +9,9 @@ def _get_task_config():
         ),
         kwargs=dict(
             sampler_start_train_kwargs=dict(
-                # area_keep=((-1, -1), (0, 0)),
                 area_keep=((-1, -1), (1, 1)),
             ),
             sampler_goal_train_kwargs=dict(
-                # area_keep=((0, 0), (1, 1)),
                 area_keep=((-1, -1), (1, 1)),
             ),
             sampler_start_test_kwargs=dict(
@@ -31,7 +29,7 @@ def _get_task_config():
 def _get_model_config():
     config = dict(
         constructor=dict(
-            module='models.teacher',
+            module='models.monolithic',
             method='Teacher',
         ),
         kwargs=dict(

@@ -33,10 +33,7 @@ class Trainer:
     def step_optimizers(self):
         """Step optimizers."""
         self._optimizer.zero_grad()
-        state, goal = self._task.get_batch(self._batch_size, test=False)
-        model_output = self._model(state, goal)
-        target = self._task.get_target_action(state, goal)
-        loss = torch.nn.functional.mse_loss(model_output, target)
+        loss = self._model.loss(self._batch_size, test=False)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self._model.parameters(), self._grad_clip)
         self._optimizer.step()
@@ -45,10 +42,7 @@ class Trainer:
     def eval(self):
         stats = {}
         for mode, test in zip(["train", "test"], [False, True]):
-            state, goal = self._task.get_batch(self._batch_size, test=test)
-            model_output = self._model(state, goal)
-            target = self._task.get_target_action(state, goal)
-            loss = torch.nn.functional.mse_loss(model_output, target)
+            loss = self._model.loss(self._batch_size, test=test)
             stats[f"{mode.capitalize()} loss"] = loss.item()
         return stats
 
