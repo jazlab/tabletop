@@ -169,8 +169,8 @@
       wrist_3_link: 0.01
 
     manually_attached_object_kwargs:
-      allowed_collision_ids:
-        - eef_sphere
+      # allowed_collision_ids:
+      #   - eef_sphere
       simplification: bounding_primitive
       color: [1.0, 1.0, 1.0, 0.5]
 

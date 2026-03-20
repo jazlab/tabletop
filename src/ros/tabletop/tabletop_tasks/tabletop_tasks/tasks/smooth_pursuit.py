@@ -24,7 +24,7 @@ Example:
 
 import asyncio
 from collections.abc import Mapping
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
@@ -66,7 +66,7 @@ class SmoothPursuitTask(BaseTask):
         motion_type: Literal["spiral", "sin", "random"],
         motion_kwargs: Mapping[str, Any],
         num_repetitions: int,
-        object_id: Optional[str] = None,
+        object_id: str,
         velocity_scaling_factor: float = 1.0,
         max_motion_generation_attempts: int = 5,
     ):
@@ -112,9 +112,6 @@ class SmoothPursuitTask(BaseTask):
         self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
         self._velocity_scaling_factor = velocity_scaling_factor
-
-        # Attach object to end effector for collision-aware planning
-        # self.commander.attach_object_manually(object_id)
 
     def generate_spiral(
         self,
@@ -316,14 +313,16 @@ class SmoothPursuitTask(BaseTask):
         Eye tracking rewards are delivered by smooth_pursuit_and_reward().
         """
         self.log("Starting smooth pursuit task")
+
         async with self.commander:
+            await self.commander.attach_object_manually(self._object_id)
+
             # Occlude smartglass before running
             await self.commander.occlude_smartglass()
 
             # Attach object to end effector if using a non-grid object
             # TODO: Implement grid object fetch logic
-            if self._object_id is not None:
-                self.commander.attach_object_manually(self._object_id)
+            # if self._object_id is not None:
 
             for i in range(self._max_motion_generation_attempts):
                 goals = self._motion_fn(**self._motion_kwargs)
@@ -367,14 +366,19 @@ class SmoothPursuitTask(BaseTask):
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()
 
-            # Wait for 5 seconds to get a baseline for no eye movement
-            await asyncio.sleep(5)
-
             async with asyncio.TaskGroup() as tg:
-                # Run trajectory execution and eye tracking concurrently
                 smooth_pursuit_task = tg.create_task(
                     self.commander.smooth_pursuit_and_reward()
                 )
+
+                # Wait before moving to get a baseline for no eye movement
+                wait_time = 5
+                self.log(
+                    f"Waiting {wait_time} seconds before moving to get baseline for no smooth pursuit"
+                )
+                await asyncio.sleep(wait_time)
+
+                # Run trajectory execution and eye tracking concurrently
                 execution_task = tg.create_task(self.execute_loop(trajectory))
 
                 # Wait for either task to complete, then cancel the other

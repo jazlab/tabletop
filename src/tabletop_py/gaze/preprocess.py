@@ -43,8 +43,6 @@ import yaml
 from scipy.signal import savgol_filter
 from scipy.stats import zscore
 
-from tabletop_py.gaze.visualize import animate_2d_dots
-
 try:
     from pylink.constants import MISSING_DATA
 except ImportError:
@@ -98,128 +96,6 @@ def verify_timestamps(
             raise ValueError(
                 f"{col} diff std of {diff_std:.6f} is not close to 0"
             )
-
-
-def smooth_rolling_deprecated(
-    df: pd.DataFrame,
-    *,
-    columns: list[str],
-    on: str,
-    freq: float,
-    window: float,
-    on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
-    win_type: Optional[str] = None,
-    win_kwargs: Optional[Mapping[str, Any]] = None,
-):
-    df = df.copy()
-
-    if df[on].dtype == float:
-        df["datetime"] = pd.to_datetime(df[on], unit=on_unit)
-
-    td = pd.to_timedelta(window, unit=on_unit)  # type: ignore
-    rolling = df[["datetime", *columns]].rolling(
-        on="datetime",
-        center=True,
-        window=td,
-        win_type=win_type,
-        # min_periods=int(window * freq) - 1,
-    )
-
-    if win_kwargs is None:
-        win_kwargs = {}
-
-    df[columns] = (
-        rolling[columns].mean(**win_kwargs).drop(columns=["datetime"])
-    )
-
-    df = df.drop(columns=["datetime"])
-    return df
-
-
-def smooth_rolling(
-    df: pd.DataFrame,
-    *,
-    columns: list[str],
-    on: str,
-    freq: float,
-    window: float,
-    on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
-    win_type: Optional[str] = None,
-    win_kwargs: Optional[Mapping[str, Any]] = None,
-):
-    df = df.copy()
-
-    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
-
-    window_length = int(window * freq)
-    rolling = df.rolling(
-        on=on,
-        center=True,
-        window=window_length,
-        win_type=win_type,
-        min_periods=window_length // 2,
-    )
-
-    if win_kwargs is None:
-        win_kwargs = {}
-
-    df[columns] = rolling[columns].mean(**win_kwargs).drop(columns=[on])
-
-    return df
-
-
-def smooth_savgol(
-    df: pd.DataFrame,
-    *,
-    columns: list[str],
-    on: str,
-    freq: float,
-    window: float,
-    polyorder: int,
-    deriv: int = 0,
-):
-    """
-    Smooths the data by applying a Savitzky-Golay filter. Verifies that the timestamps
-    have a constant time difference of 1/freq between consecutive rows before smoothing.
-
-    Args:
-        df: The data to smooth.
-        on: The column to smooth on.
-        columns: The columns to smooth.
-        freq: The frequency of the data.
-        window: The window size for the Savitzky-Golay filter.
-        polyorder: The polynomial order for the Savitzky-Golay filter.
-        deriv: The order of the derivative to compute.
-
-    Returns:
-        The smoothed data.
-    """
-    df = df.copy()
-
-    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
-
-    assert not df[on].isna().any()
-
-    # if deriv > 0:
-    #     delta = 1 / freq
-    # else:
-    #     delta = 1
-
-    window_length = int(window * freq)
-    if window_length > df.shape[0]:
-        raise ValueError(
-            f"Window length {window_length} is greater than the number of rows {df.shape[0]}"
-        )
-    for col in columns:
-        df[col] = savgol_filter(  # pyright: ignore[reportCallIssue, reportArgumentType]
-            df[col],
-            window_length=window_length,
-            polyorder=polyorder,
-            deriv=deriv,
-            delta=1 / freq,
-        )
-
-    return df
 
 
 def eyelink_array_to_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -303,9 +179,9 @@ def format_marker_columns(
     marker_idx: int,
     freq: float,
     verify: bool = True,
-    freq_rtol: float | None = None,
-    freq_var_tol: float | None = None,
-    max_marker_time_correction: float = 0.01,
+    freq_rtol: Optional[float] = None,
+    freq_var_tol: Optional[float] = None,
+    max_marker_time_correction: Optional[float] = None,
 ) -> pd.DataFrame:
     """
     Formats the timestamps to seconds and checks for monotonicity.
@@ -341,9 +217,13 @@ def format_marker_columns(
     df["time"] = df["header.stamp.sec"] + df["header.stamp.nanosec"] / 1e9
 
     if verify:
-        if freq_rtol is None or freq_var_tol is None:
+        if (
+            freq_rtol is None
+            or freq_var_tol is None
+            or max_marker_time_correction is None
+        ):
             raise ValueError(
-                "freq_rtol and freq_var_tol must be provided if verify is True"
+                "freq_rtol, freq_var_tol, and max_marker_time_correction must be provided if verify is True"
             )
 
         # Verify that the frame number is monotonically increasing
@@ -446,21 +326,23 @@ def clip_timestamps(
         markers_df["time"].max(),
     )  # type: ignore
 
+    num_samples = eyelink_df.shape[0]
     invalid_mask = (eyelink_df["time"] < start_time) | (
         eyelink_df["time"] > end_time
     )
     eyelink_df = eyelink_df[~invalid_mask]
     logger.info(
-        f"Dropped {invalid_mask.sum()} out of {eyelink_df.shape[0]} eyelink "
+        f"Dropped {invalid_mask.sum()} out of {num_samples} eyelink "
         f"samples with time outside the range ({start_time:.4f}, {end_time:.4f})"
     )
 
+    num_samples = markers_df.shape[0]
     invalid_mask = (markers_df["time"] < start_time) | (
         markers_df["time"] > end_time
     )
     markers_df = cast(pd.DataFrame, markers_df[~invalid_mask])
     logger.info(
-        f"Dropped {invalid_mask.sum()} out of {markers_df.shape[0]} marker "
+        f"Dropped {invalid_mask.sum()} out of {num_samples} marker "
         f"samples with time outside the range ({start_time:.4f}, {end_time:.4f})"
     )
 
@@ -491,34 +373,38 @@ def clean_eyelink_data(
     assert (
         df[EYELINK_DATA_COLS] - df[EYELINK_DATA_COLS].astype(int)
     ).to_numpy().sum() == 0
+
+    num_samples = df.shape[0]
     invalid_mask = (df[EYELINK_DATA_COLS].astype(int) == MISSING_DATA).any(
         axis=1
     )
     df = df[~invalid_mask]
     logger.info(
-        f"Dropped {invalid_mask.sum()} out of {df.shape[0]} "
+        f"Dropped {invalid_mask.sum()} out of {num_samples} "
         f"eyelink samples with missing data"
     )
 
     # Keep only data within the expected eye position range
     if min_eye_pos is not None and max_eye_pos is not None:
+        num_samples = df.shape[0]
         invalid_mask = (
             (df[EYELINK_POS_COLS] < min_eye_pos)
             | (df[EYELINK_POS_COLS] > max_eye_pos)
         ).any(axis=1)
         df = df[~invalid_mask]
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} eyelink samples with "
+            f"Dropped {invalid_mask.sum()} out of {num_samples} eyelink samples with "
             f"eye position outside the expected range ({min_eye_pos}, {max_eye_pos})"
         )
 
     if max_zscore is not None:
+        num_samples = df.shape[0]
         invalid_mask = (
             np.abs(zscore(df[EYELINK_DATA_COLS])) > max_zscore  # type: ignore
         ).any(axis=1)
         df = df[~invalid_mask]
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} eyelink "
+            f"Dropped {invalid_mask.sum()} out of {num_samples} eyelink "
             f"samples with z-score greater than {max_zscore}"
         )
 
@@ -561,23 +447,25 @@ def clean_marker_data(
         max_pos = [x if x is not None else float("inf") for x in max_pos]
 
     if min_pos is not None and max_pos is not None:
+        num_samples = df.shape[0]
         invalid_mask = (
             (df[MARKER_POS_COLS] < min_pos) | (df[MARKER_POS_COLS] > max_pos)
         ).any(axis=1)
         df = df[~invalid_mask]
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with "
+            f"Dropped {invalid_mask.sum()} out of {num_samples} samples with "
             f"marker position outside the expected range "
             f"({min_pos}, {max_pos})"
         )
 
     if max_zscore is not None:
+        num_samples = df.shape[0]
         invalid_mask = (np.abs(zscore(df[MARKER_DATA_COLS])) > max_zscore).any(  # type: ignore
             axis=1
         )
         df = df[~invalid_mask]
         logger.info(
-            f"Dropped {invalid_mask.sum()} out of {df.shape[0]} samples with z-score greater than {max_zscore}"
+            f"Dropped {invalid_mask.sum()} out of {num_samples} samples with z-score greater than {max_zscore}"
         )
 
     assert not df.isna().any(axis=None)
@@ -612,9 +500,8 @@ def reindex_and_interpolate(
     Returns:
         The reindexed and interpolated dataframe.
     """
-    new_df = pd.DataFrame({on: new_idx})
     new_df = pd.merge_asof(
-        new_df,
+        pd.DataFrame({on: new_idx}),
         df,
         on=on,
         direction=direction,
@@ -632,48 +519,127 @@ def reindex_and_interpolate(
     return new_df
 
 
-def reindex_and_interpolate_steady_time(
+def smooth_rolling_deprecated(
     df: pd.DataFrame,
     *,
-    freq: float,
+    columns: list[str],
     on: str,
-    direction: Literal["backward", "forward", "nearest"] = "backward",
-    tolerance: Optional[float] = None,
-) -> pd.DataFrame:
+    freq: float,
+    window: float,
+    on_unit: Literal["D", "s", "ms", "us", "ns"] = "s",
+    win_type: Optional[str] = None,
+    win_kwargs: Optional[Mapping[str, Any]] = None,
+):
+    df = df.copy()
+
+    if df[on].dtype == float:
+        df["datetime"] = pd.to_datetime(df[on], unit=on_unit)
+
+    td = pd.to_timedelta(window, unit=on_unit)  # type: ignore
+    rolling = df[["datetime", *columns]].rolling(
+        on="datetime",
+        center=True,
+        window=td,
+        win_type=win_type,
+        # min_periods=int(window * freq) - 1,
+    )
+
+    if win_kwargs is None:
+        win_kwargs = {}
+
+    df[columns] = (
+        rolling[columns].mean(**win_kwargs).drop(columns=["datetime"])
+    )
+
+    df = df.drop(columns=["datetime"])
+    return df
+
+
+def smooth_rolling(
+    df: pd.DataFrame,
+    *,
+    columns: list[str],
+    on: str,
+    freq: float,
+    window: float,
+    center: bool = False,
+    min_periods: Optional[int] = None,
+    win_type: Optional[str] = None,
+    win_kwargs: Optional[Mapping[str, Any]] = None,
+):
+    df = df.copy()
+
+    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
+
+    window_length = int(window * freq)
+    rolling = df.rolling(
+        on=on,
+        center=center,
+        window=window_length,
+        win_type=win_type,
+        min_periods=min_periods,
+    )
+
+    if win_kwargs is None:
+        win_kwargs = {}
+
+    df[columns] = rolling[columns].mean(**win_kwargs).drop(columns=[on])
+
+    return df
+
+
+def smooth_savgol(
+    df: pd.DataFrame,
+    *,
+    columns: list[str],
+    on: str,
+    freq: float,
+    window: float,
+    polyorder: int,
+    deriv: int = 0,
+):
     """
-    Interpolates the data onto a steady time grid while maintaining the temporal
-    temporal gaps in the data.
+    Smooths the data by applying a Savitzky-Golay filter. Verifies that the timestamps
+    have a constant time difference of 1/freq between consecutive rows before smoothing.
 
     Args:
-        df: The dataframe to reindex.
-        freq: The new frequency with which to reindex the data.
-        on: The column to reindex on.
-        direction: The direction to perform the merge_asof operation in.
-        tolerance: The temporal tolerance for the interpolation. Sets the
-            maximum allowed time difference between the new and old time
-            points. For each new time point, if it further than the tolerance
-            from the closest old time point, the interpolation is discarded and
-            the row filled with NaN. If tolerance is not provided, all interpolated
-            rows are kept.
+        df: The data to smooth.
+        on: The column to smooth on.
+        columns: The columns to smooth.
+        freq: The frequency of the data.
+        window: The window size for the Savitzky-Golay filter.
+        polyorder: The polynomial order for the Savitzky-Golay filter.
+        deriv: The order of the derivative to compute.
 
     Returns:
-        The reindexed and interpolated dataframe.
+        The smoothed data.
     """
-    steady_idx = np.arange(df[on].min(), df[on].max(), 1 / freq)
-    return reindex_and_interpolate(
-        df, steady_idx, on=on, direction=direction, tolerance=tolerance
-    )
+    df = df.copy()
 
+    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
 
-def reindex_and_interpolate_eyelink_data(
-    df: pd.DataFrame, *, freq: float, tolerance: Optional[float] = None
-) -> pd.DataFrame:
-    """
-    Reindexes and interpolates the eyelink data.
-    """
-    return reindex_and_interpolate_steady_time(
-        df, freq=freq, on="time", tolerance=tolerance
-    )
+    assert not df[on].isna().any()
+
+    # if deriv > 0:
+    #     delta = 1 / freq
+    # else:
+    #     delta = 1
+
+    window_length = int(window * freq)
+    if window_length > df.shape[0]:
+        raise ValueError(
+            f"Window length {window_length} is greater than the number of rows {df.shape[0]}"
+        )
+    for col in columns:
+        df[col] = savgol_filter(  # pyright: ignore[reportCallIssue, reportArgumentType]
+            df[col],
+            window_length=window_length,
+            polyorder=polyorder,
+            deriv=deriv,
+            delta=1 / freq,
+        )
+
+    return df
 
 
 def smooth_eyelink_data(
@@ -687,7 +653,7 @@ def smooth_eyelink_data(
             )
         case "rolling":
             return smooth_rolling(
-                df, columns=EYELINK_DATA_COLS, on="time", on_unit="s", **kwargs
+                df, columns=EYELINK_DATA_COLS, on="time", **kwargs
             )
         case _:
             raise ValueError(f"Smoothing method {method} unsupported")
@@ -775,12 +741,15 @@ def filter_eyelink_by_speed_savgol(
     return df
 
 
-def filter_marker_by_speed(
-    df: pd.DataFrame, min_speed: float, max_speed: float
+def transform_marker_to_led(
+    df: pd.DataFrame, rel_pos: list[float]
 ) -> pd.DataFrame:
-    speed = calculate_marker_speed(df)
-    valid_mask = (speed >= min_speed) & (speed <= max_speed)
-    return df[valid_mask]
+    if len(rel_pos) != 3:
+        raise ValueError("correction must be of length 3")
+
+    df = df.copy()
+    df[MARKER_POS_COLS] = df[MARKER_POS_COLS] + rel_pos
+    return df
 
 
 def merge_and_interpolate_data(
@@ -908,23 +877,13 @@ def merge_data(
     eyelink_na = df[EYELINK_DATA_COLS].isna().any(axis=1)
     marker_na = df[MARKER_DATA_COLS].isna().any(axis=1)
 
-    logger.info(
-        f"Found {eyelink_na.sum()} eyelink and {marker_na.sum()} marker "
-        f"samples with nan values"
-    )
-
     df = df[~(eyelink_na | marker_na)]
 
     logger.info(
-        f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing data "
+        f"Dropped {eyelink_na.sum()} eyelink and {marker_na.sum()} marker "
+        f"samples (union: {(eyelink_na | marker_na).sum()}) with missing "
+        f" data out of {num_samples} total samples"
     )
-
-    # df = df.dropna(subset=MARKER_DATA_COLS)
-    # num_samples = df.shape[0]
-    # df = df.dropna()
-    # logger.info(
-    #     f"Dropped {num_samples - df.shape[0]} out of {num_samples} samples with missing data"
-    # )
 
     return df
 
@@ -1001,6 +960,20 @@ def preprocess_data(
     raw_eyelink_df.to_csv(raw_eyelink_path, index=False)
     raw_markers_df.to_csv(raw_markers_path, index=False)
 
+    if visualize:
+        from tabletop_py.gaze.visualize import plot_eyelink_markers
+
+        logger.info("Visualizing raw data")
+
+        plot_eyelink_markers(
+            raw_eyelink_df,
+            title="Raw data",
+            freq=config["eyelink_freq"],
+            markers_df=raw_markers_df,
+            markers_freq=config["markers_freq"],
+            save_path=os.path.join(session_dir, "raw.png"),
+        )
+
     logger.info("Cleaning data")
     eyelink_df = clean_eyelink_data(raw_eyelink_df, **eyelink_config["clean"])
     markers_df = clean_marker_data(raw_markers_df, **marker_config["clean"])
@@ -1040,6 +1013,11 @@ def preprocess_data(
         eyelink_df, **eyelink_config["filter_by_speed"]
     )
 
+    logger.info("Transforming marker position to LED position")
+    markers_df = transform_marker_to_led(
+        markers_df, **marker_config["transform_marker_to_led"]
+    )
+
     logger.info("Clipping timestamps")
     eyelink_df, markers_df = clip_timestamps(
         eyelink_df, markers_df, start_time=start_time, end_time=end_time
@@ -1055,18 +1033,12 @@ def preprocess_data(
     logger.info(f"Saved data to {path}")
 
     if visualize:
-        from tabletop_py.gaze.visualize import plot_eyelink_markers
-
-        logger.info("Visualizing data")
-
-        plot_eyelink_markers(
-            raw_eyelink_df,
-            title="Raw data",
-            freq=config["eyelink_freq"],
-            markers_df=raw_markers_df,
-            markers_freq=config["markers_freq"],
-            save_path=os.path.join(session_dir, "raw.png"),
+        from tabletop_py.gaze.visualize import (
+            animate_2d_dots,
+            plot_eyelink_markers,
         )
+
+        logger.info("Visualizing preprocessed data")
 
         plot_eyelink_markers(
             df,

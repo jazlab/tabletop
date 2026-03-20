@@ -28,7 +28,7 @@ Example:
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -39,6 +39,23 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+def reindex_asof(
+    df: pd.DataFrame,
+    new_idx: np.ndarray | pd.Series,
+    on: str,
+    *,
+    direction: Literal["backward", "forward", "nearest"] = "backward",
+    tolerance: Optional[float] = None,
+) -> pd.DataFrame:
+    return pd.merge_asof(
+        pd.DataFrame({on: new_idx}),
+        df,
+        on=on,
+        direction=direction,
+        tolerance=tolerance,  # pyright: ignore[reportArgumentType]
+    )
+
+
 def plot_eyelink_markers(
     df: pd.DataFrame,
     title: str,
@@ -47,6 +64,8 @@ def plot_eyelink_markers(
     reindex: bool = True,
     freq: Optional[float] = None,
     markers_freq: Optional[float] = None,
+    plot_type: Literal["line", "scatter"] = "line",
+    scatter_point_size: float = 0.5,
     overlay: bool = False,
     save_path: Optional[str] = None,
 ):
@@ -59,15 +78,16 @@ def plot_eyelink_markers(
         title: The title of the plot.
         save_path: The path to save the plot.
     """
-    from tabletop_py.gaze.preprocess import reindex_and_interpolate_steady_time
+    if plot_type not in ("line", "scatter"):
+        raise ValueError(f"plot_type must be line or scatter, got {plot_type}")
 
     if reindex:
         if freq is None:
             raise ValueError("freq must be provided if reindex is True")
 
-        df = df.copy()
-        df = reindex_and_interpolate_steady_time(
-            df, freq=freq, on="time", tolerance=1 / freq
+        steady_idx = np.arange(df["time"].min(), df["time"].max(), 1 / freq)
+        df = reindex_asof(
+            df, steady_idx, on="time", direction="backward", tolerance=1 / freq
         )
 
         if markers_df is not None:
@@ -75,12 +95,18 @@ def plot_eyelink_markers(
                 raise ValueError(
                     "markers_freq must be provided if markers_df is provided"
                 )
-            markers_df = markers_df.copy()
-            markers_df = reindex_and_interpolate_steady_time(
+
+            steady_idx = np.arange(
+                markers_df["time"].min(),
+                markers_df["time"].max(),
+                1 / markers_freq,
+            )
+            markers_df = reindex_asof(
                 markers_df,
-                freq=markers_freq,
+                steady_idx,
                 on="time",
-                tolerance=3 / markers_freq,
+                direction="backward",
+                tolerance=1 / markers_freq,
             )
 
     eyelink_df = df
@@ -107,13 +133,22 @@ def plot_eyelink_markers(
             else:
                 data = eyelink_df[col]
 
-            ax[i].plot(
-                eyelink_df["time"],
-                data,
-                label=col,
-                alpha=0.5,
-                linestyle="--" if overlay else "-",
-            )
+            if plot_type == "line":
+                ax[i].plot(
+                    eyelink_df["time"],
+                    data,
+                    label=col,
+                    alpha=0.5,
+                    linestyle="--" if overlay else "-",
+                )
+            else:
+                ax[i].scatter(
+                    eyelink_df["time"],
+                    data,
+                    label=col,
+                    s=scatter_point_size,
+                    alpha=0.5,
+                )
         if not overlay:
             ax[i].set_title(f"Eyelink {dim.upper()}")
             ax[i].legend()
@@ -129,13 +164,23 @@ def plot_eyelink_markers(
         else:
             data = markers_df[col]
 
-        ax[i].plot(
-            markers_df["time"],
-            data,
-            label=col if overlay else None,
-            alpha=0.5 if overlay else 1,
-            linestyle="--" if overlay else "-",
-        )
+        if plot_type == "line":
+            ax[i].plot(
+                markers_df["time"],
+                data,
+                label=col if overlay else None,
+                alpha=0.5 if overlay else 1,
+                linestyle="--" if overlay else "-",
+            )
+        else:
+            ax[i].scatter(
+                markers_df["time"],
+                data,
+                label=col if overlay else None,
+                s=scatter_point_size,
+                alpha=0.5 if overlay else 1,
+            )
+
         if not overlay:
             ax[i].set_title(f"Markers {col}")
             ax[i].grid(True, which="both", axis="x")

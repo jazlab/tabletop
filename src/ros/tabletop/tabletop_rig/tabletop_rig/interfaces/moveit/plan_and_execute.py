@@ -608,9 +608,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             if trajectory is not None:
                 return trajectory, None
         else:
-            self.log(
-                "Not using cached trajectories, planning and executing normally"
-            )
+            self.log("Not using cached trajectories, planning normally")
 
         pipelines: list[str]
         attempts: list[int]

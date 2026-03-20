@@ -39,8 +39,8 @@ flic.db
 *.gif
 
 # Bags
-/bags/
-/bags_i_care_about/
+/bags
+/bags_i_care_about
 
 # Saved models
 saved_weights/

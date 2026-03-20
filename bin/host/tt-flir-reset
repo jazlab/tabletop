@@ -15,18 +15,18 @@ print_status "Reloading udev rules"
 sudo udevadm control --reload
 sudo udevadm trigger
 
-sleep 3
+sleep 2
 
 # Regenerate env files
-# print_status "Regenerating .env file to update Flir camera paths"
-# tt-env-gen
+print_status "Regenerating .env file to update Flir camera paths"
+tt-env-gen
 
 # Run factory reset on cameras
 # TODO: Fix this
 print_status "Factory resetting Flir cameras"
 print_warning "You'll have to ctrl+c when it's done (TODO)"
 echo
-sleep 3
+sleep 1
 tt-compose run --rm flir tt-launch flir factory_reset:=true || true
 
 # Reload and trigger udev rules again
@@ -34,11 +34,11 @@ print_status "Reloading udev rules again"
 sudo udevadm control --reload
 sudo udevadm trigger
 
-sleep 3
+sleep 2
 
 # Regenerate env files
-# print_status "Regenerating .env file once more"
-# tt-env-gen
+print_status "Regenerating .env file once more"
+tt-env-gen
 
 # Start flir container again
 print_status "Starting flir container again"

@@ -102,8 +102,6 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     elif len(services) > 0:
         args.extend(["--services", *services])
 
-    print(args)
-
     bag_recorder = ExecuteProcess(
         name="rosbag_recorder",
         cmd=["ros2", "bag", "record", "-o", bag_dir, *args],

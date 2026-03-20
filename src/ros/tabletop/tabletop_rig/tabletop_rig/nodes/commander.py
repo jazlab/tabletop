@@ -96,6 +96,7 @@ def ensure_context(fn):
         return async_wrapper
     else:
 
+        @functools.wraps(fn)
         def wrapper(self: "Commander", *args, **kwargs):
             if not self._entered_context:
                 raise RuntimeError(
@@ -428,16 +429,28 @@ class Commander(BaseNode):
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
     @ensure_context
-    def attach_object_manually(self, object_id: str) -> None:
-        """Mark an object as attached without robot motion.
+    async def attach_object_manually(self, object_id: str) -> None:
+        """Attach a non-grid object to the robot end-effector
 
-        Used when the robot already has an object grasped (e.g., after
-        recovery from an error) and the planning scene needs updating.
+        Used when the robot already has an object grasped and the planning
+        scene needs updating.
 
         Args:
-            object_id: ID of the collision object to mark as attached.
+            object_id: ID of the collision object to attach.
         """
-        self.moveit.add_manually_attached_object(object_id)
+        await self.moveit.add_manually_attached_object(object_id)
+
+    @ensure_context
+    async def detach_object_manually(self, object_id: str) -> None:
+        """Detach a non-grid object from the robot end-effector
+
+        Used when a previously manually attached object has been
+        detached by hand and the planning scene needs updating.
+
+        Args:
+            object_id: ID of the currently attached collision object to detach.
+        """
+        await self.moveit.remove_manually_attached_object(object_id)
 
     @ensure_context
     async def plan(self, *args, **kwargs) -> RobotTrajectory:
@@ -537,70 +550,6 @@ class Commander(BaseNode):
             ExecutionError: If the execution fails
         """
         await self.moveit.return_object(object_id)
-
-    # async def plan_and_execute(
-    #     self, *args: Any, max_attempts: Optional[int] = None, **kwargs: Any
-    # ) -> dict[str, Any] | None:
-    #     """Plan and execute a trajectory
-    #
-    #     Attempts to call `_plan_and_execute_impl()` up to `max_attempts` times,
-    #     retrying if the robot is not safe to execute or the execution is
-    #     interrupted, waiting for safety before retrying.
-    #
-    #     See Also:
-    #         `_plan_and_execute_impl()`: For parameter and implementation details.
-    #     """
-    #     if max_attempts is None:
-    #         max_attempts = cast(
-    #             int,
-    #             self.param("plan_and_execute.max_attempts"),
-    #         )
-    #
-    #     if max_attempts < 1:
-    #         raise ValueError(
-    #             f"max_attempts should be greater than or equal to 1, got {max_attempts}"
-    #         )
-    #
-    #     first_attempt = True
-    #     for i in range(max_attempts):
-    #         if i > 0:
-    #             first_attempt = False
-    #             kwargs["cache_trajectory"] = False
-    #         try:
-    #             response = await self._plan_and_execute_impl(*args, **kwargs)
-    #             break
-    #         except NotSafeToExecuteError as e:
-    #             if i == max_attempts - 1:
-    #                 raise
-    #             self.log(
-    #                 f"Error while planning and executing: {e}. Locking arms and waiting for safety before retrying",
-    #                 severity="WARN",
-    #             )
-    #             await self._arm_lock_and_wait()
-    #             self.log(
-    #                 "Arms locked and safe to execute, retrying plan_and_execute",
-    #                 severity="WARN",
-    #             )
-    #         except ExecutionInterruptedError as e:
-    #             if i == max_attempts - 1:
-    #                 raise
-    #             self.log(
-    #                 f"Error while planning and executing: {e}. Resetting dashboard before retrying",
-    #                 severity="WARN",
-    #             )
-    #             await asyncio.sleep(2)
-    #             await self.reset_dashboard()
-    #             self.log(
-    #                 "Dashboard reset, retrying plan_and_execute",
-    #                 severity="WARN",
-    #             )
-    #
-    #     if first_attempt:
-    #         return response  # type: ignore
-    #     else:
-    #         return None
-
-    # TODO: Move retry logic to Commander
 
     async def _reset_commander(
         self,
@@ -742,7 +691,8 @@ class Commander(BaseNode):
                 elif isinstance(interface, AbstractContextManager):
                     self._context_stack.enter_context(interface)
 
-            await self._reset_commander(end_goal="idle")
+            # await self._reset_commander(end_goal="idle")
+            await self._reset_commander()
             self._context_stack.push_async_exit(
                 self._handle_recoverable_errors
             )
@@ -858,7 +808,7 @@ async def asyncio_runner(
     await task
 
 
-EXECUTOR_TYPE = "events"
+EXECUTOR_TYPE = "single-threaded"
 
 
 def main_sync(args=None) -> None:

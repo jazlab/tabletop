@@ -1045,18 +1045,7 @@ class Eyelink(BaseNode):
         )
         df = smooth_eyelink_data(df, freq=freq, **smooth_config)
 
-        # if df.isna().any(axis=None):  # type: ignore
-        #     self.log(
-        #         "NaN values in dataframe, skipping smooth pursuit check",
-        #         severity="DEBUG",
-        #     )
-        #     return False
         num_na = df.isna().any(axis=1).sum()
-        if num_na > 0:
-            self.log(
-                f"{num_na} NaN values in dataframe after smoothing",
-                severity="WARN",
-            )
         df = df.dropna()
 
         # Ensure that smooth pursuit is occuring by checking if the speeds of

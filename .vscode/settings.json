@@ -166,5 +166,6 @@
     "build/**": true,
     "install/**": true,
     "log/**": true
-  }
+  },
+  "git.detectSubmodulesLimit": 15
 }

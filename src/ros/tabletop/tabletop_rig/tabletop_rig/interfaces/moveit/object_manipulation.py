@@ -956,7 +956,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ###########################################################################
 
     @manipulation_lock_and_validate
-    def add_manually_attached_object(self, object_id: str):
+    async def add_manually_attached_object(self, object_id: str):
         """Add a manually attached collision object to the planning scene."""
         self.log(f"Adding manually attached object: {object_id}")
 
@@ -993,7 +993,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         mesh_path = mesh_paths[0]
 
         self.add_mesh_collision_object(
-            object_id=object_id,
+            object_id,
             path=mesh_path,
             pose_stamped=self.get_link_pose_stamped(self.default_pose_link),
             **self.node.param("manually_attached_object_kwargs"),
@@ -1002,10 +1002,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             object_id, self.default_pose_link, touch_links=self.touch_links
         )
 
+        self._current_manipulation_id = object_id
         self._manipulation_state = State.MANUALLY_ATTACHED
 
     @manipulation_lock_and_validate
-    def remove_manually_attached_object(self, object_id: str):
+    async def remove_manually_attached_object(self, object_id: str):
         """Add a manually attached collision object to the planning scene."""
         self.log(f"Adding manually attached object: {object_id}")
 
@@ -1031,6 +1032,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self.detach_collision_object(object_id)
         self.remove_collision_object(object_id)
 
+        self._current_manipulation_id = None
         self._manipulation_state = State.IDLE
 
     ###########################################################################
