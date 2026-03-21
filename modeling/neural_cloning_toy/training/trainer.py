@@ -13,7 +13,6 @@ class Trainer:
         self,
         model,
         training_steps,
-        batch_size,
         lr=0.001,
         optimizer=torch.optim.Adam,
         grad_clip=1,
@@ -22,7 +21,6 @@ class Trainer:
         """Trainer constructor."""
         self._model = model
         self._training_steps = training_steps
-        self._batch_size = batch_size
         self._grad_clip = grad_clip
         self._scalar_eval_every = self._training_steps // num_log_steps
         self._task = self._model.task
@@ -33,7 +31,7 @@ class Trainer:
     def step_optimizers(self):
         """Step optimizers."""
         self._optimizer.zero_grad()
-        loss = self._model.loss(self._batch_size, test=False)
+        loss = self._model.loss(test=False)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self._model.parameters(), self._grad_clip)
         self._optimizer.step()
@@ -42,7 +40,7 @@ class Trainer:
     def eval(self):
         stats = {}
         for mode, test in zip(["train", "test"], [False, True]):
-            loss = self._model.loss(self._batch_size, test=test)
+            loss = self._model.loss(test=test)
             stats[f"{mode.capitalize()} loss"] = loss.item()
         return stats
 

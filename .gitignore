@@ -44,3 +44,4 @@ virtual_tabletop/rig/*.stl
 
 # Ignore modeling logs
 modeling/neural_cloning_toy/training/logs
+modeling/episodic_completion/training/logs
