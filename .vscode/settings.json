@@ -159,7 +159,6 @@
     "install/**": true
   },
   "python-envs.defaultEnvManager": "ms-python.python:venv",
-  "python-envs.pythonProjects": [],
   "files.watcherExclude": {
     ".vscode/*browse.vc.db*": true,
     "**/.venv/**": true,

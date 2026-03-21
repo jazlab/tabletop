@@ -24,6 +24,7 @@
         required_time: 2.0
         max_sensor_delay: 0.1
       spin_period: 0.05
+      sensor_delay_warn_threshold: 0.01
 
     smooth_pursuit:
       reward_duration: 0.1

@@ -202,13 +202,16 @@ class TeensyInterface(BaseInterface):
         """
         current_time = self.node.ros_time()
         required_time = self.node.param("teensy.safe_to_execute.required_time")
+        warn_threshold = self.node.param("teensy.sensor_delay_warn_threshold")
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
             teensy_time = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
             delay = current_time - teensy_time
-            if delay > 0.01:
-                self.log(f"Teensy sensor callback delay {delay:.4f}s > 0.01s")
+            if delay > warn_threshold:
+                self.log(
+                    f"Teensy sensor callback delay {delay:.4f}s > {warn_threshold}s"
+                )
 
             self._last_teensy_sensor = msg
             self._last_teensy_sensor_time = current_time

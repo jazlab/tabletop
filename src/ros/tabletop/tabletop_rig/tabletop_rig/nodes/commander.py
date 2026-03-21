@@ -47,7 +47,6 @@ from contextlib import (
 from types import TracebackType
 from typing import Any, Literal, Optional, Self
 
-import debugpy
 import rclpy
 import rclpy.utilities
 from mingus.containers import Note
@@ -358,13 +357,7 @@ class Commander(BaseNode):
 
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
-        reported_time = await self.flic.response_time(bd_addr, timeout)
-
-        if reported_time is not None:
-            overhead = self.ros_time() - reported_time
-            self.log(f"Flic action overhead {overhead:.4f}")
-
-        return reported_time
+        return await self.flic.response_time(bd_addr, timeout)
 
     @ensure_context
     async def smooth_pursuit_and_reward(self) -> None:
@@ -735,7 +728,7 @@ async def debug_commander(
 ) -> None:
     """Run the commander interactively for debugging.
 
-    Sets a debugpy breakpoint and runs an infinite loop for
+    Sets a breakpoint and runs an infinite loop for
     interactive debugging via attached debugger.
 
     Args:
@@ -745,8 +738,6 @@ async def debug_commander(
     del config
 
     commander.log("Running commander interactively")
-
-    debugpy.breakpoint()
 
     # grid_origin = commander.object_grid_origin_pose_stamped()
     # grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
@@ -864,6 +855,8 @@ def main_sync(args=None) -> None:
             print(f"Config file: {args.coro_config}")
 
         if args.debug:
+            import debugpy
+
             print("Debug mode enabled")
             debugpy.listen(1300)
             print("Waiting for debugger to attach")
@@ -953,6 +946,8 @@ async def main_async(args=None):
         print(f"Config file: {args.coro_config}")
 
     if args.debug:
+        import debugpy
+
         print("Debug mode enabled")
         debugpy.listen(1300)
         print("Waiting for debugger to attach")
