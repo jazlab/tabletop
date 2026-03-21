@@ -29,20 +29,23 @@ class CursorControlEnvironment():
         """Get the current observation."""
         dist = np.linalg.norm(self._hand - self._object, axis=-1)
         feedback = (dist < self._feedback_window).astype(np.float32)
-        # observation = np.concatenate([self._object, self._hand, feedback[:, None], self._action], axis=-1)
-        observation = self._hand
+        observation = np.concatenate([self._hand, self._object, feedback[:, None]], axis=-1)
+        # observation = np.concatenate([self._hand, self._object], axis=-1)
+        # observation = self._hand
         return observation
     
     def observation_to_components(self, observation):
         components = {
             "hand": observation[..., 0:2],
+            "object": observation[..., 2:4],
+            "feedback": observation[..., 4:5],
         }
         return components
 
     @property
     def observation_dim(self):
         # return 2 + 2 + 1 + 2
-        return 2
+        return 2 + 2 + 1
     
     @property
     def action_dim(self):

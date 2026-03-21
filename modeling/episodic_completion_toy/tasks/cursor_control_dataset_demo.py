@@ -12,7 +12,11 @@ _N_STEPS = 1
 def _plot_observation(ax, agent, observation, action=None):
     components = agent.environment.observation_to_components(observation)
     hand = components["hand"]
+    obj = components["object"]
+    feedback = components["feedback"]
     ax.scatter(hand[0], hand[1], c="blue", alpha=1.0, s=50)
+    ax.scatter(obj[0], obj[1], c="red", alpha=1.0, s=50)
+    ax.scatter(0, feedback, c="yellow", alpha=1.0, s=50)
     if action is not None:
         ax.quiver(
             hand[0], hand[1],
@@ -24,7 +28,7 @@ def _plot_observation(ax, agent, observation, action=None):
 def main():
     environment = cursor_control_lib.CursorControlEnvironment(
         batch_size=_N_PLOT,
-        feedback_window=0.4,
+        feedback_window=0.5,
         bounds=(-1, 1),
     )
     agent = cursor_control_lib.ExplorationAgent(
