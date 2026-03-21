@@ -65,7 +65,7 @@ from rclpy.event_handler import (
     PublisherEventCallbacks,
     QoSPublisherMatchedInfo,
 )
-from rclpy.exceptions import InvalidHandle
+from rclpy.exceptions import InvalidHandle, ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
 from tabletop_interfaces.action import EyelinkSmoothPursuit
@@ -218,7 +218,7 @@ class Eyelink(BaseNode):
         "session_bag_dir": os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
         "smooth_pursuit.window": 0.1,  # seconds
         "smooth_pursuit.min_samples": 80,
-        "preprocess_overrides.clean.max_zscore": "null",
+        # "preprocess_overrides.clean.max_zscore": "null",
         # "preprocess_overrides.reindex_and_interpolate.tolerance": "null",  # TODO: fix
         # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
         # "preprocess_overrides.smooth.window": 0.05,  # seconds
@@ -317,10 +317,14 @@ class Eyelink(BaseNode):
         self.preprocess_config = self.gaze_estimation_config["preprocess"][
             "eyelink"
         ]
-        overrides = self.param("preprocess_overrides")
-        self.preprocess_config = dict_update_recursive(
-            self.preprocess_config, overrides
-        )
+        try:
+            overrides = self.param("preprocess_overrides")
+        except ParameterNotDeclaredException:
+            pass
+        else:
+            self.preprocess_config = dict_update_recursive(
+                self.preprocess_config, overrides
+            )
 
         if self.param("gaze_estimation.enable"):
             device = self.param("gaze_estimation.device")

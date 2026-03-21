@@ -43,6 +43,11 @@ import yaml
 from scipy.signal import savgol_filter
 from scipy.stats import zscore
 
+from tabletop_py.gaze.visualize import (
+    animate_2d_dots,
+    plot_eyelink_markers,
+)
+
 try:
     from pylink.constants import MISSING_DATA
 except ImportError:
@@ -555,39 +560,6 @@ def smooth_rolling_deprecated(
     return df
 
 
-def smooth_rolling(
-    df: pd.DataFrame,
-    *,
-    columns: list[str],
-    on: str,
-    freq: float,
-    window: float,
-    center: bool = False,
-    min_periods: Optional[int] = None,
-    win_type: Optional[str] = None,
-    win_kwargs: Optional[Mapping[str, Any]] = None,
-):
-    df = df.copy()
-
-    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
-
-    window_length = int(window * freq)
-    rolling = df.rolling(
-        on=on,
-        center=center,
-        window=window_length,
-        win_type=win_type,
-        min_periods=min_periods,
-    )
-
-    if win_kwargs is None:
-        win_kwargs = {}
-
-    df[columns] = rolling[columns].mean(**win_kwargs).drop(columns=[on])
-
-    return df
-
-
 def smooth_savgol(
     df: pd.DataFrame,
     *,
@@ -618,13 +590,6 @@ def smooth_savgol(
 
     verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
 
-    assert not df[on].isna().any()
-
-    # if deriv > 0:
-    #     delta = 1 / freq
-    # else:
-    #     delta = 1
-
     window_length = int(window * freq)
     if window_length > df.shape[0]:
         raise ValueError(
@@ -638,6 +603,39 @@ def smooth_savgol(
             deriv=deriv,
             delta=1 / freq,
         )
+
+    return df
+
+
+def smooth_rolling(
+    df: pd.DataFrame,
+    *,
+    columns: list[str],
+    on: str,
+    freq: float,
+    window: float,
+    center: bool = False,
+    min_periods: Optional[int] = None,
+    win_type: Optional[str] = None,
+    win_kwargs: Optional[Mapping[str, Any]] = None,
+):
+    df = df.copy()
+
+    verify_timestamps(df[[on]], freq, freq_rtol=1e-3, freq_var_tol=1e-3)  # type: ignore
+
+    rolling = df.rolling(
+        # on=on, TODO
+        center=center,
+        window=int(window * freq),
+        win_type=win_type,
+        min_periods=min_periods,
+    )
+
+    if win_kwargs is None:
+        win_kwargs = {}
+
+    # df[columns] = rolling[columns].mean(**win_kwargs).drop(columns=[on])
+    df[columns] = rolling[columns].mean(**win_kwargs)
 
     return df
 
@@ -657,20 +655,6 @@ def smooth_eyelink_data(
             )
         case _:
             raise ValueError(f"Smoothing method {method} unsupported")
-
-
-def calculate_eyelink_speed(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates the speed of the eye data.
-    """
-    df = df.copy()
-    df["left_speed"] = np.linalg.norm(
-        np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
-    )
-    df["right_speed"] = np.linalg.norm(
-        np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
-    )
-    return df[["left_speed", "right_speed"]]
 
 
 def calculate_eyelink_speed_savgol(
@@ -696,27 +680,81 @@ def calculate_eyelink_speed_savgol(
     return vel_df[["left_speed", "right_speed"]]
 
 
-def calculate_marker_speed(df: pd.DataFrame) -> pd.Series:
+def calculate_eyelink_speed(
+    df: pd.DataFrame,
+    *,
+    method: Literal["gradient", "savgol"] = "gradient",
+    **method_kwargs: Any,
+) -> pd.DataFrame:
     """
-    Calculates the speed of the marker data.
+    Calculates the speed of the eye data.
     """
     df = df.copy()
-    df["speed"] = np.linalg.norm(
-        np.gradient(df[MARKER_DATA_COLS], df["time"], axis=0), axis=1
-    )
-    return df["speed"]
+
+    if method == "gradient":
+        df["left_speed"] = np.linalg.norm(
+            np.gradient(df[["left_x", "left_y"]], df["time"], axis=0), axis=1
+        )
+        df["right_speed"] = np.linalg.norm(
+            np.gradient(df[["right_x", "right_y"]], df["time"], axis=0), axis=1
+        )
+    elif method == "savgol":
+        df = smooth_savgol(
+            df,
+            columns=EYELINK_POS_COLS,
+            on="time",
+            deriv=1,
+            **method_kwargs,
+        )
+        df["left_speed"] = np.linalg.norm(df[["left_x", "left_y"]], axis=1)
+        df["right_speed"] = np.linalg.norm(df[["right_x", "right_y"]], axis=1)
+    else:
+        raise ValueError(f"method unsupported: {method}")
+
+    return df[["left_speed", "right_speed"]]
 
 
 def filter_eyelink_by_speed(
-    df: pd.DataFrame, min_speed: float, max_speed: float
+    df: pd.DataFrame,
+    min_speed: float,
+    max_speed: float,
+    *,
+    freq: float,
+    window: Optional[float] = None,
 ) -> pd.DataFrame:
-    speed = calculate_eyelink_speed(df)
     num_samples = df.shape[0]
-    valid_mask = ((speed >= min_speed) & (speed <= max_speed)).all(axis=1)
-    df = df[valid_mask]
+
+    speed = calculate_eyelink_speed(df)
+    too_slow = (speed < min_speed).any(axis=1)
+    too_fast = (speed > max_speed).any(axis=1)
+
     logger.info(
-        f"Dropped {num_samples - df.shape[0]} out of {num_samples} eyelink samples with too fast or too slow speed"
+        f"Found {too_slow.sum()} eyelink samples that were too slow "
+        f"(less than {min_speed} units/s) and {too_fast.sum()} samples "
+        f"that were too slow (greater than {max_speed} units/s) out of "
+        f"{num_samples} total samples"
     )
+
+    if window is not None:
+        too_slow = (
+            too_slow.rolling(window=int(window * freq))
+            .apply(lambda x: x.any(), raw=True)
+            .astype(bool)
+        )
+        too_fast = (
+            too_fast.rolling(window=int(window * freq))
+            .apply(lambda x: x.any(), raw=True)
+            .astype(bool)
+        )
+
+    df = df[~(too_fast | too_slow)]
+    logger.info(
+        f"Dropped {too_slow.sum()} eyelink samples that were within {window} "
+        f"seconds of a slow sample and {too_fast.sum()} samples that were "
+        f"within {window} seconds of a fast sample, out of {num_samples} total "
+        f"samples"
+    )
+
     return df
 
 
@@ -896,7 +934,7 @@ def preprocess_data(
     start_time: float = 0.0,
     end_time: float = float("inf"),
     skip_verify: bool = False,
-    visualize: bool = False,
+    skip_visualize: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Preprocesses the data by cleaning and merging the eye tracker and optical marker data.
@@ -960,11 +998,8 @@ def preprocess_data(
     raw_eyelink_df.to_csv(raw_eyelink_path, index=False)
     raw_markers_df.to_csv(raw_markers_path, index=False)
 
-    if visualize:
-        from tabletop_py.gaze.visualize import plot_eyelink_markers
-
+    if not skip_visualize:
         logger.info("Visualizing raw data")
-
         plot_eyelink_markers(
             raw_eyelink_df,
             title="Raw data",
@@ -1010,7 +1045,9 @@ def preprocess_data(
 
     logger.info("Filtering eyelink data by speed")
     eyelink_df = filter_eyelink_by_speed(
-        eyelink_df, **eyelink_config["filter_by_speed"]
+        eyelink_df,
+        freq=config["eyelink_freq"],
+        **eyelink_config["filter_by_speed"],
     )
 
     logger.info("Transforming marker position to LED position")
@@ -1032,14 +1069,8 @@ def preprocess_data(
     df.to_csv(path, index=False)
     logger.info(f"Saved data to {path}")
 
-    if visualize:
-        from tabletop_py.gaze.visualize import (
-            animate_2d_dots,
-            plot_eyelink_markers,
-        )
-
+    if not skip_visualize:
         logger.info("Visualizing preprocessed data")
-
         plot_eyelink_markers(
             df,
             title="Preprocessed data",
@@ -1062,10 +1093,6 @@ def preprocess_data(
 
 def main(args=None):
     import argparse
-
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s - %(message)s"
-    )
 
     parser = argparse.ArgumentParser(
         description="Clean the eye tracker and optical marker data."
@@ -1110,16 +1137,18 @@ def main(args=None):
     parser.add_argument(
         "--skip-verify",
         action="store_true",
-        default=False,
         help="Skip timestamp consistency verification.",
     )
     parser.add_argument(
-        "--visualize",
+        "--skip-visualize",
         action="store_true",
-        default=False,
-        help="Visualize the data.",
+        help="Skip visualizing the data.",
     )
     args = parser.parse_args(args)
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s - %(message)s"
+    )
 
     preprocess_data(**vars(args))
 
