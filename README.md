@@ -144,8 +144,9 @@ containers and their associated services).
     git clone https://github.com/jazlab/tabletop.git
     ```
 
-3. Download the submodules:
+3. Navigate to `tabletop` directory and download the submodules:
     ```bash
+    cd tabletop
     git submodule update --init --recursive
     ```
 
