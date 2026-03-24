@@ -133,40 +133,30 @@ containers and their associated services).
 
 ### Minimal Installation
 
-1. Create a new ROS 2 workspace directory:
+1. Clone the TableTop repository:
     ```bash
-    mkdir -p ~/ws/src
-    ```
-
-2. Clone the TableTop repository:
-    ```bash
-    cd ~/ws/src
     git clone https://github.com/jazlab/tabletop.git
     ```
 
-3. Navigate to `tabletop` directory and download the submodules:
+2. Navigate to `tabletop` directory and download the submodules:
     ```bash
     cd tabletop
-    git submodule update --init --recursive
+    git submodule sync
+    git submodule update --init --recursive --remote
     ```
-
-4. Clone the [`moveit2` fork](https://github.com/jazlab/moveit2):
-    ```bash
-    ./scripts/moveit_download.sh
-    ```
-
+# TODO: Clarify use of hardware configuration as being required only for running in real rig and only currently supported for Ubuntu
 ### Teensy Micro-Controller Setup
 This is only required if you want to use the real Teensy micro-controller.
 If you intend only to simulate the Teensy, you can skip this section.
-
+# TODO: special instructions for Mac
 1. Update udev rules:
     ```bash
-    ./scripts/udev_update.sh
+    tt-udev-configure
     ```
 
 2. Install PlatformIO Core:
     ```bash
-    ./scripts/install_platformio.sh
+    ./scripts/install/platformio.sh
     ```
 
     **Note**: This script will add PlatformIO to your `PATH`. You may need to
@@ -174,7 +164,7 @@ If you intend only to simulate the Teensy, you can skip this section.
 
 3. Build and upload the Teensy firmware:
     ```bash
-    ./scripts/teensy_build.sh
+    tt-teensy-build
     ```
 
     **Note**: This requires PlatformIO Core to be installed. See [step 3](#optional-install-platformio-core)
@@ -214,7 +204,7 @@ intend only to simulate the robot, you can skip this section.
 To create a local network over which to communicate with the robot, run the
 following:
 ```bash
-./scripts/robot_network.sh
+tt-robot-network
 ```
 This will create a new network interface with the first 3 octets of the
 `ROBOT_IP` (found in `env_files/robot.env`) and set the host machines
@@ -298,17 +288,18 @@ To run the entire software stack using Docker:
     For macOS, make sure Rosetta is enabled in Docker settings (see
     [above](#requirements)).
 
-2. Navigate to the package root directory:
+2. Navigate to the package root directory and generate an environment file:
 
     ```bash
-    cd ~/ws/src/tabletop
+    cd <path_to_repo>
+    source setup.bash
+    tt-env-gen
     ```
 
 3. [Optional] Clean up your docker environment and ROS 2 workspace:
 
     ```bash
-    ./scripts/docker_prune.sh [-a]
-    ./scripts/clean_ws.sh
+    tt-clean-ws
     ```
     **Warning**: The `-a` flag in `docker_prune.sh` will remove all containers,
     networks, images, and build cache associated with the TableTop project
