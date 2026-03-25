@@ -100,36 +100,23 @@ modifications made in the `ursim/` directory and `compose.yaml` file).
 
 ## Requirements
 
-This package requires the following software to be installed on your system before
-building and running the project:
+This package requires the following software to be installed on your system
+before building and running the project:
 
-* [Docker](https://docs.docker.com/get-docker/)
-* [[Optional] Visual Studio Code](https://code.visualstudio.com/) (for Dev
-    Container usage)
-* [[Optional] PlatformIO](https://platformio.org/install/) (for Teensy
-    Micro-Controller usage)
-* [[Optional] Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-    (for using Nvidia GPUs in Docker containers)
+| Requirement | Install Script | Notes |
+|-------------|---------------|-------|
+| [Docker](https://docs.docker.com/get-docker/) | `scripts/install/docker.sh` | Required. Configures daemon, log rotation, and boot startup |
+| [Visual Studio Code](https://code.visualstudio.com/) | — | Optional. For Dev Container development |
+| [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | `scripts/install/nvidia-ctk.sh` | Optional. For GPU access in containers |
+| [PipeWire/PulseAudio](https://pipewire.org/) | `scripts/install/pulse.sh` | Optional. For audio playback (reward sounds) |
+| [PlatformIO](https://platformio.org/install/) | `scripts/install/platformio.sh` | Optional. For Teensy micro-controller firmware |
 
-Follow the installation instructions in the links above for each requirement
-(or use the helper scripts `scripts/docker_install.sh`,
-`scripts/platformio_install.sh`, and `scripts/nvidia_ctk_install.sh` in the
-`scripts/` directory).
+**Note (macOS on Apple Silicon)**: Enable **Use Rosetta for x86/amd64
+emulation on Apple Silicon** in Docker Desktop settings (General) to avoid
+issues with the `ursim` container.
 
-**Note**: If you are running MacOS on Apple Silicon (all M-series chips),
-you should enable the **Use Rosetta for x86/amd64 for emulation on Mac Silicon**
-option in the Docker settings:
-
-* Open Docker Desktop
-* In the menu bar, click the gear (⚙) icon
-* Go to General
-* Make sure **Use Rosetta x86/amd64 for emulation on Mac Silicon** is enabled
-
-You may experience issues with the `ursim` container otherwise.
-
-**Note**: If you are running a system without an Nvidia GPU, or if you do not
-want to permit the container GPU access, the `tt-env-gen` script will
-automatically detect this and configure the containers accordingly.
+**Note (no Nvidia GPU)**: The `tt-env-gen` script automatically detects
+whether an Nvidia GPU is available and configures the containers accordingly.
 
 ## Setup
 
@@ -149,47 +136,38 @@ automatically detect this and configure the containers accordingly.
     git submodule update --init --recursive --remote
     ```
 
+3. Source the setup script (and optionally add this to your `.bashrc`):
+
+    ```bash
+    source setup.bash
+    ```
+
 ### Teensy Micro-Controller Setup
 
 This is only required if you want to use the real Teensy micro-controller.
 If you intend only to simulate the Teensy, you can skip this section.
 
-1. Update udev rules:
+1. Configure udev rules for the Teensy:
 
     ```bash
     tt-udev-configure
     ```
 
-2. Install PlatformIO Core:
+2. Install PlatformIO Core (optional if you are using the Dev Container):
 
     ```bash
     ./scripts/install/platformio.sh
     ```
 
-    **Note**: This script will add PlatformIO to your `PATH`. You may need to
-    restart your shell or open a new terminal session to use it.
+    You may need to restart your shell for PlatformIO to appear on your PATH.
 
-3. Build and upload the Teensy firmware:
+3. Build and upload the Teensy firmware (from either the host machine or the Dev Container):
 
     ```bash
     tt-teensy-build
     ```
 
-    **Note (once again)**: You can do this in either the container or on your host machine.
-    If you do it in the container, you will have to modify `compose.yaml` for
-    the desired container as follows (note that this modification is already
-    made for the Dev Container in `.devcontainer/compose.devcontainer.yaml`):
-    This will mount the `/dev` directory from the host machine to the container,
-    allowing you to upload the Teensy firmware. Note that this will also require
-    you to run the container in `privileged` mode, which may pose security risks.
-
-    **Note (last I promise)**: Make sure you press the reset button on the Teensy before running
-    this script. Regardless, this command **will fail** in the uploading stage.
-    This is expected behavior, as is most failure. Just run the script again
-    and again (for a max of three total attempts). If it still fails, give up
-    and go home. Alternatively, figure out what else is wrong (possible reasons
-    for failure: you forgot to plug in your teensy, you forgot to follow the
-    instructions above, *I* forgot to update the instructions above, etc.).
+    This command will retry twice to build and upload the file. The first try will successfully build but almost always fail to upload, but the second attempt will almost always work. Something weird with the platformio upload toolilng, who knows, this works.
 
 ### Setting up the physical UR5e Robot
 
