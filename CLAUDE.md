@@ -50,15 +50,26 @@ tt-launch rviz
 
 ### Docker
 
+All Docker interactions use the `tt-compose` wrapper (on the host), which
+handles environment generation and project defaults.
+
 ```bash
-# Start containers (from host)
-docker compose up ursim_novnc rig_novnc
+# Build Docker images and full ROS 2 workspace (from host)
+tt-compose build
 
-# Build Docker images
-docker compose build
+# Start containers using profiles (from host)
+tt-compose --profile=sim up        # Simulation with mock hardware
+tt-compose --profile=ursim up      # UR Simulator
+tt-compose --profile=real up       # Real hardware
 
-# Access running container
-docker exec -it tabletop-rig bash
+# Show container status
+tt-compose ps
+
+# Stop and remove containers
+tt-compose --profile=sim down
+
+# Launch tasks from the host (spins up a commander container)
+tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
 ### Testing
@@ -103,7 +114,8 @@ src/
     │   ├── tabletop_tasks/   # Experiment task definitions
     │   ├── tabletop_interfaces/  # ROS message/service definitions
     │   ├── tabletop_description/ # URDF robot descriptions
-    │   └── tabletop_moveit_config/ # MoveIt planning configurations
+    │   ├── tabletop_moveit_config/ # MoveIt planning configurations
+    │   └── tabletop_teensy/  # Teensy micro-controller interface
     └── modules/              # External dependencies (git submodules)
         ├── moveit2/          # Custom MoveIt fork
         └── ...

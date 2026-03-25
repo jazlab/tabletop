@@ -102,6 +102,13 @@ tt-launch tasks task:=foraging_ordered  # Run a task
     thread from the asyncio thread. Something to do with the backwards way
     rclpy handles tasks. I'm not sure why this is the case, but it is.
 
+## Commander/Tasks
+
+1. If the robot is holding a grid object before starting a trial, you can either:
+    1) Call `tt-launch tasks initial_object:=5,0 ...`, where `5,0` refers to the
+    object grid index of the object currently being held, or 2) You can put it back
+    yourself you lazy ****
+
 ## Flic
 
 This gets its own section because it's a pain in the ass.
@@ -201,6 +208,12 @@ This gets its own section because it's a pain in the ass.
 
 1. Running `tt-calibrate` more than once does nothing, the calibration is
     saved on the robot and doesn't change
+
+2. If you get error "Joint '<some_joint>' from the starting state is outside bounds by:
+    [6.25136 ] should be in the range [-6.13319 ], [6.13319 ]", the robot has been moved
+    (probably by Gabel) into a joint configuration outside the valid bounds of the controller.
+    Please move the robot manually back into a valid configuration (might have to spin the
+    joint fully around)
 
 
 ## Environment and Configuration

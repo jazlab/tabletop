@@ -300,8 +300,8 @@ class DashboardInterface(BaseInterface):
                     "Dashboard is not in Remote Control mode, please fix that immediately"
                 )
 
-            await self._trigger("/dashboard_client/quit")
-            await self._trigger("/dashboard_client/connect")
+            # await self._trigger("/dashboard_client/quit")
+            # await self._trigger("/dashboard_client/connect")
 
             # try:
             #     await self._load_file(
