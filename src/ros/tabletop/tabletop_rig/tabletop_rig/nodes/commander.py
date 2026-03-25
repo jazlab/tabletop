@@ -135,12 +135,16 @@ def safe_execution(coro_fn):
                     raise
 
                 self.log(
-                    f"Error while planning and executing: {e}. Locking arms and waiting for safety before retrying",
+                    f"Safe execution violated while running {coro_fn.__name__}: {e}. "
+                    f"Locking arms and waiting for safety, then resetting dashboard "
+                    f"before retrying",
                     severity="WARN",
                 )
                 await self.teensy.lock_arms_and_wait()
+                await self.dashboard.reset()
                 self.log(
-                    "Arms locked and safe to execute, retrying plan_and_execute",
+                    f"Arms locked and safe to execute and dashboard reset, "
+                    f"retrying {coro_fn.__name__}",
                     severity="WARN",
                 )
             except ExecutionInterruptedError as e:
@@ -148,12 +152,13 @@ def safe_execution(coro_fn):
                     raise
 
                 self.log(
-                    f"Error while planning and executing: {e}. Resetting dashboard before retrying",
+                    f"Execution interrupted while running {coro_fn.__name__}: {e}. "
+                    f"Resetting dashboard before retrying",
                     severity="WARN",
                 )
                 await self.dashboard.reset()
                 self.log(
-                    "Dashboard reset, retrying plan_and_execute",
+                    f"Dashboard reset, retrying {coro_fn.__name__}",
                     severity="WARN",
                 )
 
@@ -599,7 +604,7 @@ class Commander(BaseNode):
                         severity="DEBUG",
                     )
                     if isinstance(e, ExecutionError):
-                        sleep_time = 5
+                        sleep_time = 1
                     else:
                         sleep_time = 1
                     self.log(

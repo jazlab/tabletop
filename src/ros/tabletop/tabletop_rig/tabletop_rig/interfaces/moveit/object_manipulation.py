@@ -99,12 +99,13 @@ class State(IntEnum):
     POST_FETCH = 5
     FETCHED = 6
     NEEDS_RESET = 7
-    RESETTED = 8
-    PRE_RETURN = 9
-    PRE_DETACH = 10
-    DETACH = 11
-    POST_DETACH = 12
-    POST_RETURN = 13
+    PRE_RESET = 8
+    RESETTED = 9
+    PRE_RETURN = 10
+    PRE_DETACH = 11
+    DETACH = 12
+    POST_DETACH = 13
+    POST_RETURN = 14
     MANUALLY_ATTACHED = 99
 
 
@@ -142,10 +143,10 @@ GRID_OBJECT_ATTACHED_STATES = set(
         State.POST_FETCH,
         State.FETCHED,
         State.NEEDS_RESET,
+        State.PRE_RESET,
         State.RESETTED,
         State.PRE_RETURN,
         State.PRE_DETACH,
-        # State.MANUALLY_ATTACHED,
     )
 )
 
@@ -538,34 +539,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 "object_manipulation.detach_velocity_scaling_factor"
             )
 
-        # try:
-        #     if next_state in ALLOWED_MOUNT_COLLISION_STATES:
-        #         allowed_collisions.extend(
-        #             self.allow_collision(*zip(*self.allowed_mount_collisions))
-        #         )
-        #
-        #     match next_state:
-        #         case (
-        #             State.PRE_ATTACH
-        #             | State.ATTACH
-        #             | State.POST_DETACH
-        #             | State.POST_RETURN
-        #         ):
-        #             allowed_collisions.extend(
-        #                 self.allow_collision(object_id, self.touch_links)
-        #             )
-        #         case State.POST_ATTACH | State.DETACH:
-        #             allowed_collisions.extend(
-        #                 self.allow_collision(object_id, self.mount_ids)
-        #             )
-
         collisions_to_allow: list[tuple[str, str]] = []
         modified_collisions: list[tuple[str, str]] = []
 
         if next_state in ALLOWED_MOUNT_COLLISION_STATES:
-            collisions_to_allow.extend(
-                self.allow_collision(*zip(*self.allowed_mount_collisions))
-            )
+            collisions_to_allow.extend(self.allowed_mount_collisions)
+
         match next_state:
             case (
                 State.PRE_ATTACH
@@ -660,7 +639,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 next_state = State(State.POST_FETCH - return_progress)
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot fetch object from current state ({unexpected})"
+                    f"Cannot fetch object from current state ({unexpected.name})"
                 )
             case unexpected:
                 raise AssertionError(
@@ -737,7 +716,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match self._manipulation_state:
             case State.NEEDS_RESET:
-                pass
+                pre_reset_allow_collisions = False
+            case State.PRE_RESET:
+                pre_reset_allow_collisions = True
             # case State.POST_FETCH | State.FETCHED | State.RESETTED:
             #     self.log(
             #         f"No need to reset object {object_id} from current state ({self._manipulation_state}), skipping",
@@ -761,37 +742,48 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
         # Plan and execute to start goal
-        kwargs = await self._plan_and_execute(
-            goal=config.start_goal, cache_trajectory=False
-        )
-        if cache_trajectories and kwargs is not None:
-            cache_kwargs.extend(kwargs)
+        if not pre_reset_allow_collisions:
+            kwargs = await self._plan_and_execute(
+                goal=config.start_goal, cache_trajectory=False
+            )
+            if cache_trajectories and kwargs is not None:
+                cache_kwargs.extend(kwargs)
+
+            self._manipulation_state = State.PRE_RESET
 
         # Plan and execute reset path with allowed collisions
-        allowed_collisions: list[tuple[str, str]] = []
-        try:
-            if config.object_allowed_collision_ids is not None:
-                allowed_collisions.extend(
-                    self.allow_collision(
-                        object_id, config.object_allowed_collision_ids
-                    )
-                )
+        collisions_to_allow: list[tuple[str, str]] = []
+        modified_collisions: list[tuple[str, str]] = []
 
-            if config.additional_allowed_collisions is not None:
-                allowed_collisions.extend(
-                    self.allow_collision(
-                        *zip(*config.additional_allowed_collisions)
-                    )
+        if config.object_allowed_collision_ids is not None:
+            collisions_to_allow.extend(
+                [(object_id, x) for x in config.object_allowed_collision_ids]
+            )
+
+        if config.additional_allowed_collisions is not None:
+            collisions_to_allow.extend(config.additional_allowed_collisions)
+
+        if len(collisions_to_allow) > 0:
+            modified_collisions = self.allow_collision(
+                *zip(*collisions_to_allow)
+            )
+        try:
+            if pre_reset_allow_collisions:
+                await self._plan_and_execute(
+                    goal=config.start_goal,
+                    planning_pipeline="linear",
+                    cache_trajectory=False,
                 )
 
             kwargs = await self._plan_and_execute(
                 config.reset_request, cache_trajectory=False
             )
-            if cache_trajectories and kwargs is not None:
-                cache_kwargs.extend(kwargs)
         finally:
-            if len(allowed_collisions) > 0:
-                self.disallow_collision(*zip(*allowed_collisions))
+            if len(modified_collisions) > 0:
+                self.disallow_collision(*zip(*modified_collisions))
+
+        if cache_trajectories and kwargs is not None:
+            cache_kwargs.extend(kwargs)
 
         self._manipulation_state = State.RESETTED
 
@@ -1072,7 +1064,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                             raise RuntimeError(
                                 "Object seems stuck, aborting"
                             ) from e
-                elif self._manipulation_state == State.NEEDS_RESET:
+                elif self._manipulation_state in (
+                    State.NEEDS_RESET,
+                    State.PRE_RESET,
+                ):
                     await ObjectManipulationInterface.reset_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                         self,
                         self._current_manipulation_id,

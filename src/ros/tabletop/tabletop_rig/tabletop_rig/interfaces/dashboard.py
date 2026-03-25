@@ -73,7 +73,7 @@ class DashboardInterface(BaseInterface):
         )
 
         # Wait for action server
-        self.log("Waiting for response time server")
+        self.log("Waiting for Dashboard Client SetMode server")
         self._set_mode_client.wait_for_server()
 
         self.log("Dashboard interface initialized")
@@ -144,7 +144,9 @@ class DashboardInterface(BaseInterface):
         )
         return response.remote_control
 
-    async def _set_robot_mode_running(self) -> None:
+    async def _set_robot_mode_running(
+        self, stop_program: bool = True, play_program: bool = False
+    ) -> None:
         """Set robot mode to RUNNING using SetMode action.
 
         Uses the UR robot state helper action to transition the robot
@@ -160,8 +162,8 @@ class DashboardInterface(BaseInterface):
         goal_handle = await self._set_mode_client.send_goal_async(
             SetMode.Goal(
                 target_robot_mode=RobotMode.RUNNING,
-                stop_program=True,
-                play_program=False,
+                stop_program=stop_program,
+                play_program=play_program,
             )
         )
 
@@ -272,8 +274,11 @@ class DashboardInterface(BaseInterface):
                         "Could not connect to dashboard client"
                     ) from e
 
-                self._connected = True
+                await self._load_file(
+                    "/dashboard_client/load_program", config["program"]
+                )
 
+                self._connected = True
             # try:
             #     remote_control = await self._is_in_remote_control()
             # except ServiceCallUnsuccessfulError as e:
@@ -316,10 +321,6 @@ class DashboardInterface(BaseInterface):
             #     await self._trigger("/dashboard_client/connect")
             #     raise
 
-            await self._load_file(
-                "/dashboard_client/load_program", config["program"]
-            )
-
             # # Set RobotState to RUNNING
             # await self._set_robot_mode_running()
 
@@ -329,10 +330,38 @@ class DashboardInterface(BaseInterface):
             await self._trigger("/dashboard_client/unlock_protective_stop")
 
             # Set RobotState to RUNNING
-            await self._set_robot_mode_running()
+            # program_state = await self.get_program_state()
+            # if program_state.state != ProgramState.PLAYING:
+            #     stop_program = False
+            # else:
+            #     stop_program = True
+            await self._trigger("/dashboard_client/stop")
+
+            await self._set_robot_mode_running(
+                stop_program=False, play_program=False
+            )
+            # robot_mode = await self.get_robot_mode()
+            # if robot_mode.mode != RobotMode.RUNNING:
+            #     self.log(
+            #         f"Current RobotMode: {robot_mode.mode}. Setting to running."
+            #     )
+            #     await self._set_robot_mode_running(play_program=False)
 
             # Play program
+            # await self._load_file(
+            #     "/dashboard_client/load_program", config["program"]
+            # )
             await self._trigger("/dashboard_client/play")
+            # program_state = await self.get_program_state()
+            # if program_state.state != ProgramState.PLAYING:
+            #     self.log(
+            #         f"Current ProgramState: {program_state.state}. "
+            #         f"Loading and playing {config['program']} program"
+            #     )
+            #     await self._load_file(
+            #         "/dashboard_client/load_program", config["program"]
+            #     )
+            #     await self._trigger("/dashboard_client/play")
 
             safety_mode = await self.get_safety_mode()
             while safety_mode.mode != SafetyMode.NORMAL:
