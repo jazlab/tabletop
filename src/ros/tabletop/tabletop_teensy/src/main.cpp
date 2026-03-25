@@ -31,12 +31,12 @@
 #define LEFT_ARM_LOCK_CONTROL_PIN 4
 #define RIGHT_ARM_LOCK_CONTROL_PIN 5
 #define SMARTGLASS_CONTROL_PIN 3
-#define REWARD_CONTROL_PIN 1
+#define REWARD_CONTROL_PIN 26
 #define SYNC_PULSE_CONTROL_PIN 9
 #define SOLENOID_CONTROL_PIN 12
 #define LEFT_ARM_LOCK_STATE_PIN 34
 #define RIGHT_ARM_LOCK_STATE_PIN 35
-#define SAFETY_LASER_STATE_PIN 36
+#define SAFETY_LASER_STATE_PIN 25
 #define BUTTON_STATE_PIN 33
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
@@ -44,7 +44,7 @@ static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 // Define pin states
 #define LEFT_ARM_LOCKED_STATE HIGH
 #define RIGHT_ARM_LOCKED_STATE HIGH
-#define SAFETY_LASER_BROKEN_STATE LOW
+#define SAFETY_LASER_BROKEN_STATE HIGH
 #define BUTTON_PRESSED_STATE LOW
 
 // Define interrupt trigger conditions
@@ -82,6 +82,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define SYNC_PULSE_DELAY_MIN_MS 50
 #define SYNC_PULSE_DELAY_MAX_MS 200
 #define SYNC_PULSE_DURATION_MS 100
+#define DEBOUNCE_DELAY_MS 1
 
 // Builtin LED agent state indicator
 //    Steady on:    WAITING_AGENT
@@ -145,14 +146,18 @@ enum agent_states
 bool is_reward_active;
 bool is_smartglass_revealed;
 bool is_solenoid_active;
+
 bool sync_pulse_state;
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
 
 volatile int64_t safety_laser_last_time_broken_ns;
+volatile int64_t safety_laser_last_time_bounced_ns;
+volatile uint8_t safety_laser_state_stable;
+
 volatile int64_t button_last_time_pressed_ns;
 volatile int64_t button_last_time_bounced_ns;
-volatile bool button_state_stable;
+volatile uint8_t button_state_stable;
 
 // Macro definitions
 #define RCCHECK(fn)                                                                                                    \
@@ -236,10 +241,11 @@ volatile bool button_state_stable;
 static void safety_laser_broken_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
-  if (now_ns - safety_laser_last_time_broken_ns > RCL_MS_TO_NS(50))
+  if (safety_laser_state_stable != SAFETY_LASER_BROKEN_STATE)
   {
     safety_laser_last_time_broken_ns = now_ns;
   }
+  safety_laser_last_time_bounced_ns = now_ns;
 }
 static void button_pressed_isr()
 {
@@ -252,11 +258,11 @@ static void button_pressed_isr()
 }
 static inline bool is_safety_laser_broken()
 {
-  return digitalReadFast(SAFETY_LASER_STATE_PIN) == SAFETY_LASER_BROKEN_STATE;
+  return safety_laser_state_stable == SAFETY_LASER_BROKEN_STATE;
 }
 static inline bool is_button_pressed()
 {
-  return digitalReadFast(BUTTON_STATE_PIN) == BUTTON_PRESSED_STATE;
+  return button_state_stable == BUTTON_PRESSED_STATE;
 }
 static inline bool is_left_arm_locked()
 {
@@ -355,7 +361,27 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   RCLC_UNUSED(last_call_time);
   if (timer != NULL)
   {
-    // Populate sensor message
+    //
+    noInterrupts();
+
+    // Safety laser/button last time broken/pressed
+    NS_TO_ROS_TIME(sensor_msg.safety_laser_last_time_broken, safety_laser_last_time_broken_ns);
+    NS_TO_ROS_TIME(sensor_msg.button_last_time_pressed, button_last_time_pressed_ns);
+
+    // Update stable sensor state
+    int64_t now_ns = rmw_uros_epoch_nanos();
+    if (now_ns - safety_laser_last_time_bounced_ns > RCL_NS_TO_MS(DEBOUNCE_DELAY_MS))
+    {
+      safety_laser_state_stable = digitalReadFast(SAFETY_LASER_STATE_PIN);
+    }
+    if (now_ns - button_last_time_bounced_ns > RCL_NS_TO_MS(DEBOUNCE_DELAY_MS))
+    {
+      button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
+    }
+
+    interrupts();
+
+    // Populate remaining sensor message
     GET_CURRENT_ROS_TIME(sensor_msg.header.stamp);
     sensor_msg.is_safety_laser_broken = is_safety_laser_broken();
     sensor_msg.is_left_arm_locked = is_left_arm_locked();
@@ -378,27 +404,6 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     sensor_msg.sync_pulse_state = sync_pulse_state;
     sensor_msg.sync_pulse_last_time_on = sync_pulse_last_time_on;
     sensor_msg.sync_pulse_last_time_off = sync_pulse_last_time_off;
-
-    // Safety laser last time pressed
-    builtin_interfaces__msg__Time safety_laser_last_time_broken;
-    NS_TO_ROS_TIME(safety_laser_last_time_broken, safety_laser_last_time_broken_ns);
-    sensor_msg.safety_laser_last_time_broken = safety_laser_last_time_broken;
-
-    // Button last time pressed
-    noInterrupts();
-    if (rmw_uros_epoch_nanos() - button_last_time_bounced_ns > 5)
-    {
-      button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
-    }
-    interrupts();
-
-    builtin_interfaces__msg__Time button_last_time_pressed;
-
-    noInterrupts();
-    NS_TO_ROS_TIME(button_last_time_pressed, button_last_time_pressed_ns);
-    interrupts();
-
-    sensor_msg.button_last_time_pressed = button_last_time_pressed;
 
     RCASSERT(rcl_publish(&sensor_publisher, &sensor_msg, NULL), "Failed to publish sensor message");
   }
@@ -641,6 +646,8 @@ void reset_state()
   sync_pulse_last_time_off.sec = 0;
   sync_pulse_last_time_off.nanosec = 0;
   safety_laser_last_time_broken_ns = 0;
+  safety_laser_last_time_bounced_ns = 0;
+  safety_laser_state_stable = SAFETY_LASER_BROKEN_STATE == LOW ? HIGH : LOW;
   button_last_time_pressed_ns = 0;
   button_last_time_bounced_ns = 0;
   button_state_stable = BUTTON_PRESSED_STATE == LOW ? HIGH : LOW;
@@ -722,10 +729,10 @@ bool init_client()
   LOG("Session synced");
 
   // Attach interrupt service routines
-  int safety_laser_broken_trigger = SAFETY_LASER_BROKEN_STATE == LOW ? FALLING : RISING;
-  int button_pressed_trigger = BUTTON_PRESSED_STATE == LOW ? FALLING : RISING;
-  attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, safety_laser_broken_trigger);
-  attachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN), button_pressed_isr, button_pressed_trigger);
+  // int safety_laser_broken_trigger = SAFETY_LASER_BROKEN_STATE == LOW ? FALLING : RISING;
+  // int button_pressed_trigger = BUTTON_PRESSED_STATE == LOW ? FALLING : RISING;
+  attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, SAFETY_LASER_ISR_TRIGGER);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN), button_pressed_isr, BUTTON_ISR_TRIGGER);
 
   return true;
 }
