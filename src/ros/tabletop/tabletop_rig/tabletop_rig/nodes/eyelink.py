@@ -563,9 +563,12 @@ class Eyelink(BaseNode):
         if not save:
             return
 
-        if self.session_bag_dir is None:
+        if self.session_bag_dir is None or not os.path.exists(
+            self.session_bag_dir
+        ):
             self.log(
-                "No session bag directory provided, skipping data file transfer",
+                f"session_bag_dir ({self.session_bag_dir}) not provided or "
+                f"does not exist, skipping data file transfer",
                 severity="WARN",
             )
             return

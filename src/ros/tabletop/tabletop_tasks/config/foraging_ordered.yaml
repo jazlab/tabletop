@@ -17,7 +17,7 @@ tasks:
             - small_object_24
             - small_object_25
             - small_object_26
-            # - small_object_27
+            - small_object_27
             - small_object_28
             - small_object_29
           poses:

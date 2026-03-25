@@ -11,5 +11,5 @@ tasks:
         num_revolutions: 5
         num_segments: 800
       num_repetitions: 3
-      object_id: null
+      object_id: small_object_30
       velocity_scaling_factor: 0.1

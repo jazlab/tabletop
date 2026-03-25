@@ -350,6 +350,7 @@ def rosbag_to_dfs(
     bag_dir: str,
     topics: Iterable[str] | None = None,
     exclude_topics: Iterable[str] | None = None,
+    convert_images: bool = False,
     save_dir: Optional[str] = None,
 ) -> dict[str, pd.DataFrame]:
     """Convert a ROS2 bag directory to pandas DataFrames.
@@ -403,14 +404,17 @@ def rosbag_to_dfs(
         msg = deserialize_message(data, msg_type)
 
         if isinstance(msg, (Image, CompressedImage)):
-            if save_dir is not None:
-                topic_dir = os.path.join(save_dir, topic_to_basename(topic))
-                save_image_msg(msg, topic_dir)
-            elif not img_msg_warned:
-                logger.warning(
-                    "Image messages found but save_dir is None, skipping."
-                )
-                img_msg_warned = True
+            if convert_images:
+                if save_dir is not None:
+                    topic_dir = os.path.join(
+                        save_dir, topic_to_basename(topic)
+                    )
+                    save_image_msg(msg, topic_dir)
+                elif not img_msg_warned:
+                    logger.warning(
+                        "Image messages found but save_dir is None, skipping."
+                    )
+                    img_msg_warned = True
         else:
             # Get table for topic or create it if it doesn't exist
             table = topic_tables.setdefault(topic, {"columns": {}, "rows": []})
@@ -446,6 +450,7 @@ def rosbag_session_to_dfs(
     session_dir: str,
     topics: Iterable[str] | None = None,
     exclude_topics: Iterable[str] | None = None,
+    convert_images: bool = False,
     save: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """Convert all ROS2 bags in a session directory to DataFrames.
@@ -489,6 +494,7 @@ def rosbag_session_to_dfs(
             bag_dir=bag_dir,
             topics=topics,
             exclude_topics=exclude_topics,
+            convert_images=convert_images,
             save_dir=session_dir if save else None,
         )
         collisions = dfs.keys() & new_dfs.keys()
@@ -543,6 +549,11 @@ def main() -> None:
         # default=["/rosout", "/parameter_events"],
         default=[],
         help="Topics to exclude",
+    )
+    parser.add_argument(
+        "--image",
+        action="store_true",
+        help="Convert image data",
     )
     parser.add_argument(
         "-f",
@@ -601,6 +612,7 @@ def main() -> None:
                 session_dir=session_dir,
                 topics=args.topics,
                 exclude_topics=args.exclude_topics,
+                convert_images=args.image,
                 save=True,
             )
         except Exception as e:

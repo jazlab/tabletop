@@ -132,7 +132,6 @@ def main(args=None):
                     "/eyelink/sample_array",
                     "/markers",
                 ],
-                verbose=True,
             )
 
     # Preprocess data
@@ -149,7 +148,6 @@ def main(args=None):
             marker_idx=args.marker_idx,
             start_time=args.start_time,
             end_time=args.end_time,
-            visualize=args.visualize,
         )
 
     # Train and evaluate
