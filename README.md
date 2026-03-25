@@ -16,36 +16,36 @@ correction, spike sorting, NWB file conversion, etc.
 * [Requirements](#requirements)
 * [Setup](#setup)
 * [Usage](#usage)
-    - [Building and Starting Docker Containers](#building-and-starting-docker-containers)
-    - [Dev Container (VSCode)](#dev-container-vscode)
-    - [Running Tasks](#running-tasks)
+  * [Building and Starting Docker Containers](#building-and-starting-docker-containers)
+  * [Dev Container (VSCode)](#dev-container-vscode)
+  * [Running Tasks](#running-tasks)
 * [Project Structure](#project-structure)
 * [CLI Commands](#cli-commands)
-    - [Host Commands](#host-commands-binhost)
-    - [Container Commands](#container-commands-bincontainer)
-    - [Common Commands](#common-commands-bincommon)
-    - [Build Command Options](#build-command-options)
-    - [Launch Command Options](#launch-command-options)
+  * [Host Commands](#host-commands-binhost)
+  * [Container Commands](#container-commands-bincontainer)
+  * [Common Commands](#common-commands-bincommon)
+  * [Build Command Options](#build-command-options)
+  * [Launch Command Options](#launch-command-options)
 * [Python CLI Tools](#python-cli-tools)
 * [Configuration](#configuration)
-    - [Environment Setup](#environment-setup-setupbash)
-    - [Environment Variables](#environment-variables-env)
-    - [Robot Configuration](#robot-configuration-env_files)
+  * [Environment Setup](#environment-setup-setupbash)
+  * [Environment Variables](#environment-variables-env)
 * [Contributing](#contributing)
 * [License](#license)
 * [FAQ](#faq)
 * [Troubleshooting](#troubleshooting)
-
 
 ## Design Choices
 
 The following decisions were made when designing the TableTop project:
 
 ### ROS 2
+
 The project uses [ROS 2](https://docs.ros.org/en/jazzy/index.html) as the main
 framework for controlling the UR5e robot as well as recording and compiling
 sensor and state space data. There were several reasons for choosing to use
 ROS 2 over a bespoke solution, some of which are delineated below:
+
 * ROS 2 provides a powerful and flexible framework for building complex
     distributed software systems with many interdependent components
 * ROS 2's message-based architecture allows for easy communication between
@@ -63,8 +63,10 @@ and would limit the ability to incorporate new features and functionality,
 such as incorporating feedback data into robot control.
 
 ### Moveit
+
 The project uses [MoveIt 2](https://moveit.picknik.ai/main/index.html) for
 planning and control of the UR5e robot. Reasons for using MoveIt 2 include:
+
 * MoveIt 2 provides utilities for planning and controlling the robot, as well
     as for visualizing the robot and environment state spaces in real-time.
 * MoveIt 2 supports a variety of motion controllers and planning algorithms,
@@ -77,8 +79,10 @@ control capabilities to those provided by the robot's software, which do not
 support complex scenario planning and feedback control.
 
 ### Docker
+
 The project runs entirely in [Docker](https://www.docker.com/) containers,
 which provide:
+
 * OS-agnostic development and deployment environments, making it accessible
     to users regardless of hardware constraints
 * An isolated environment for each component of the software stack, each with
@@ -115,6 +119,7 @@ Follow the installation instructions in the links above for each requirement
 **Note**: If you are running MacOS on Apple Silicon (all M-series chips),
 you should enable the **Use Rosetta for x86/amd64 for emulation on Mac Silicon**
 option in the Docker settings:
+
 * Open Docker Desktop
 * In the menu bar, click the gear (⚙) icon
 * Go to General
@@ -131,25 +136,32 @@ automatically detect this and configure the containers accordingly.
 ### Minimal Installation
 
 1. Clone the TableTop repository:
+
     ```bash
     git clone https://github.com/jazlab/tabletop.git
     ```
 
 2. Navigate to `tabletop` directory and download the submodules:
+
     ```bash
     cd tabletop
     git submodule sync
     git submodule update --init --recursive --remote
     ```
+
 ### Teensy Micro-Controller Setup
+
 This is only required if you want to use the real Teensy micro-controller.
 If you intend only to simulate the Teensy, you can skip this section.
+
 1. Update udev rules:
+
     ```bash
     tt-udev-configure
     ```
 
 2. Install PlatformIO Core:
+
     ```bash
     ./scripts/install/platformio.sh
     ```
@@ -158,19 +170,10 @@ If you intend only to simulate the Teensy, you can skip this section.
     restart your shell or open a new terminal session to use it.
 
 3. Build and upload the Teensy firmware:
+
     ```bash
     tt-teensy-build
     ```
-
-    **Note**: This requires PlatformIO Core to be installed. See [step 3](#optional-install-platformio-core)
-    for more information.
-
-
-    **Note (again)**: The build may fail with permission errors. If this is the case,
-    you can use the mighty `sudo chown -R $USER:$USER .` command to change the
-    ownership of the files to your user account. If you are not so bold (or if
-    that doesn't work), you can run `./scripts/upload_teensy.sh --clean` to
-    clean the build directory and try again. Requires `sudo` permissions.
 
     **Note (once again)**: You can do this in either the container or on your host machine.
     If you do it in the container, you will have to modify `compose.yaml` for
@@ -188,7 +191,6 @@ If you intend only to simulate the Teensy, you can skip this section.
     for failure: you forgot to plug in your teensy, you forgot to follow the
     instructions above, *I* forgot to update the instructions above, etc.).
 
-
 ### Setting up the physical UR5e Robot
 
 This section is only relevant if you want to control the real robot. If you
@@ -198,9 +200,11 @@ intend only to simulate the robot, you can skip this section.
 
 To create a local network over which to communicate with the robot, run the
 following:
+
 ```bash
 tt-robot-network
 ```
+
 This will create a new network interface with the first 3 octets of the
 `ROBOT_IP` (found in `env_files/robot.env`) and set the host machines
 IP address to the `REVERSE_IP` (also found in `env_files/robot.env`).
@@ -225,12 +229,15 @@ With the network created, you can must now
 The `external_control` URCap is required to command the robot from the host
 machine (or in our case, the docker container).
 To copy it to the robot, call the following command:
+
 ```bash
 tt-robot-scp
 ```
+
 This will copy any `*.urcap` files in the `ursim/programs/` directory to the robot.
 
 You must then install them on the robot using the Teach Pendant:
+
 1. In the **Settings** menu, go to **System->URCaps**
 2. Click the **+** icon and select the urcap file you wish to install (e.g.
     `external_control.urcap`)
@@ -239,6 +246,7 @@ You must then install them on the robot using the Teach Pendant:
 *You must do this for each URCap you wish to use.*
 
 You must now configure the URCap with the appropriate IP settings:
+
 1. In the **Installation** tab, go to **URCaps->External Control**
 2. Fill out the fields with the following values:
     * **Host IP**: `REVERSE_IP`
@@ -246,6 +254,7 @@ You must now configure the URCap with the appropriate IP settings:
     * **Host Name**: `REVERSE_IP`
 
 Okay last step. You have to create a program to use the URCap.
+
 1. Click **New->Program** at the top of the window. This should pull up the
 **Program** tab.
 2. Click **URCaps->External Control** in the left sidebar. This will add the
@@ -256,7 +265,6 @@ clicking **Save->Save All** at the top of the window. Make sure to save the
 program with the name `external_control.urp` and the installation with the name
 `default.installation` so that the commander loads the correct program and
 installation when the rig program is started.
-
 
 #### Enabling Remote Control Mode
 
@@ -307,28 +315,32 @@ environment generation, project defaults, and passes arguments through to
     group services by use case:
 
     | Profile | Services Started | Use Case |
-    |---------|-----------------|----------|
+    | ------- | ---------------- | -------- |
     | `sim` | novnc, ur-mock, teensy-sim, flic-sim, eyelink-sim, foxglove, rviz | Simulation with mock hardware |
     | `ursim` | novnc, ursim | UR Simulator (virtual teach pendant) |
     | `real` | novnc, autoheal, ur, teensy, flic, flicd, eyelink, foxglove, rviz, optitrack | Real hardware |
 
     For simulation (most common for development):
+
     ```bash
     # Use `--detach` to run in background, or press `d` once containers have started to detach
     tt-compose --profile=sim up [--detach]
     ```
 
     For real hardware:
+
     ```bash
     tt-compose --profile=real up
     ```
 
     To bring up individual containers:
+
     ```bash
     tt-compose up <container-name>
     ```
 
     Other useful `tt-compose` commands:
+
     ```bash
     # Show status of all containers
     tt-compose ps
@@ -401,11 +413,12 @@ The task launcher (`tabletop_tasks/launch/tasks.launch.py`) accepts the
 following arguments:
 
 | Argument | Default | Options | Description |
-|----------|---------|---------|-------------|
+| -------- | ------- | ------- | ----------- |
 | `task` | `foraging_ordered` | Any config filename (without `.yaml`) | Task configuration to run |
 | `robot_mode` | `mock` | `mock`, `ursim`, `real` | Robot connection mode |
 
 Examples:
+
 ```bash
 # Run with default foraging task and mock robot
 tt-launch tasks
@@ -426,7 +439,7 @@ Task configurations are YAML files located in `src/ros/tabletop/tabletop_tasks/c
 Currently available configurations:
 
 | Config File | Task Type | Description |
-|-------------|-----------|-------------|
+| ----------- | --------- | ----------- |
 | `foraging_ordered.yaml` | ForagingTask | Ordered object foraging trials |
 | `foraging_random.yaml` | ForagingTask | Randomized object foraging trials |
 | `foraging.yaml` | ForagingTask | Base foraging configuration |
@@ -453,7 +466,7 @@ parameters as needed.
 
 ## Project Structure
 
-```
+```text
 tabletop/
 ├── bin/                          # CLI commands (see CLI Commands)
 │   ├── host/                     # Host-only commands
@@ -483,7 +496,6 @@ tabletop/
 └── setup.bash                    # Environment setup script
 ```
 
-
 ## CLI Commands
 
 The TableTop project provides a set of `tt-*` commands that are automatically added
@@ -495,7 +507,7 @@ should be executed:
 These commands are available on the host machine (outside Docker containers):
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `tt-compose` | Wrapper for `docker compose` with TableTop-specific defaults |
 | `tt-docker` | Wrapper for `docker` with TableTop environment variables |
 | `tt-launch` | Launch ROS 2 nodes via a temporary `commander` container |
@@ -505,7 +517,6 @@ These commands are available on the host machine (outside Docker containers):
 | `tt-robot-network` | Create network interface for physical UR5e communication |
 | `tt-flicd` | Start the Flic daemon container with auto-restart on disconnect |
 | `tt-flir-reset` | Reset FLIR cameras (reload udev, factory reset, regenerate env) |
-| `tt-bluetooth-reset` | Reset Bluetooth module (useful for Flic issues) |
 | `tt-udev-configure` | Configure udev rules for hardware devices |
 | `tt-usbfs-configure` | Configure USB filesystem for FLIR cameras |
 | `tt-cpu-speed-scaling-disable` | Disable CPU frequency scaling (for real-time performance) |
@@ -516,7 +527,7 @@ These commands are available on the host machine (outside Docker containers):
 These commands are available inside Docker containers (rig, devcontainer):
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `tt-build` | Build ROS 2 packages with colcon |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, etc.) |
 | `tt-clean-ws` | Clean the colcon workspace |
@@ -532,7 +543,7 @@ These commands are available inside Docker containers (rig, devcontainer):
 These commands work on both host and container:
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `tt-teensy-build` | Build and upload Teensy firmware via PlatformIO |
 | `tt-robot-scp` | Copy URCap files to the physical robot |
 
@@ -557,6 +568,7 @@ Options:
 ```
 
 Examples:
+
 ```bash
 # Build only tabletop packages (most common)
 tt-build
@@ -599,6 +611,7 @@ Types:
 ```
 
 Examples:
+
 ```bash
 # Launch full rig with mock hardware
 tt-launch rig robot_mode:=mock use_mock_teensy:=true
@@ -610,14 +623,13 @@ tt-launch tasks task:=foraging_ordered robot_mode:=ursim
 tt-launch commander robot_mode:=real
 ```
 
-
 ## Python CLI Tools
 
 The `tabletop_py` package provides command-line tools for gaze estimation and
 data processing. These are available after sourcing `setup.bash`:
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `tt-gaze-calibrate` | Run the full gaze calibration pipeline |
 | `tt-gaze-preprocess` | Preprocess eye tracking and marker data |
 | `tt-gaze-train` | Train gaze estimation neural network |
@@ -645,7 +657,6 @@ tt-gaze-predict -d /path/to/different/session [--visualize]
 
 ```
 
-
 ## Configuration
 
 ### Environment Setup (`setup.bash`)
@@ -658,12 +669,13 @@ source /path/to/tabletop/setup.bash
 ```
 
 This script:
-- Sets `TABLETOP_DIR` to the repository root
-- Configures ROS 2 environment variables (`RMW_IMPLEMENTATION`, `ROS_LOG_DIR`, etc.)
-- Sets robot IP addresses (`ROBOT_IP`, `REVERSE_IP`, `SIM_ROBOT_IP`, `SIM_REVERSE_IP`)
-- Activates the Python virtual environment (`.venv/`)
-- Sources the colcon workspace (`install/setup.bash`)
-- Adds `bin/common/` and context-specific `bin/` directories to PATH
+
+* Sets `TABLETOP_DIR` to the repository root
+* Configures ROS 2 environment variables (`RMW_IMPLEMENTATION`, `ROS_LOG_DIR`, etc.)
+* Sets robot IP addresses (`ROBOT_IP`, `REVERSE_IP`, `SIM_ROBOT_IP`, `SIM_REVERSE_IP`)
+* Activates the Python virtual environment (`.venv/`)
+* Sources the colcon workspace (`install/setup.bash`)
+* Adds `bin/common/` and context-specific `bin/` directories to PATH
 
 ### Environment Variables (`.env`)
 
@@ -677,7 +689,7 @@ tt-env-gen          # Regenerate only "auto-generated" variables
 #### Required Variables (set in `.env.example`)
 
 | Variable | Description | Default |
-|----------|-------------|---------|
+| -------- | ----------- | ------- |
 | `USER_NAME` | Container username (useful to match host) | `mules` |
 | `USER_UID` | Container user ID (useful to match host) | `1000` |
 | `USER_GID` | Container group ID (useful to match host) | `1000` |
@@ -689,11 +701,11 @@ tt-env-gen          # Regenerate only "auto-generated" variables
 
 The `tt-env-gen` script automatically detects and configures:
 
-- **NVIDIA GPU**: Sets `COMMANDER_RUNTIME=nvidia` and configures CUDA
-- **FLIR Cameras**: Detects `/dev/flir/*` devices and maps them to `FLIR_DEV_*`
-- **Teensy**: Detects `/dev/ttyACM0` and sets `TEENSY_DEV`
-- **PulseAudio**: Configures audio socket mounting for sound playback
-- **Kitty Terminal**: Configures Kitty remote control socket
+* **NVIDIA GPU**: Sets `COMMANDER_RUNTIME=nvidia` and configures CUDA
+* **FLIR Cameras**: Detects `/dev/flir/*` devices and maps them to `FLIR_DEV_*`
+* **Teensy**: Detects `/dev/ttyACM0` and sets `TEENSY_DEV`
+* **PulseAudio**: Configures audio socket mounting for sound playback
+* **Kitty Terminal**: Configures Kitty remote control socket
 
 ## Contributing
 
@@ -714,25 +726,30 @@ Contributions are welcome! To contribute, follow these steps:
     "New pull request" button.
 
 Please follow the coding standards and best practices described in the
-[ROS 2 documentation](https://index.ros.org/doc/ROS 2/Contributing/).
+[ROS 2 documentation](<https://index.ros.org/doc/ROS> 2/Contributing/).
 
 ## License
+
 MIT License
 
 ## FAQ
 
 ### What units are used?
+
 We follow [REP 103](https://www.ros.org/reps/rep-0103.html) for unit conventions.
 In particular, we use meters for length, seconds for time, and radians for angles.
 
 ### What is a common workflow for developing in the Dev Container?
+
 First, build the Docker containers, ROS packages, and Python packages:
+
 ```bash
 # On the host machine
 tt-compose build
 ```
 
 Then bring up the relevant Docker containers for testing in simulation:
+
 ```bash
 # On the host machine
 tt-compose --profile sim up
@@ -740,23 +757,25 @@ tt-compose --profile sim up
 
 Now, open the Dev Container in VSCode (as above) and launch tasks
 or other ROS 2 nodes directly:
+
 ```bash
 # In the dev container or the host machine
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
 If you make major changes (e.g. adding new files or packages), rebuild with:
+
 ```bash
 # In the dev container
 tt-build --clean
 ```
 
 (You may need to restart the other docker containers)
+
 ```bash
 # On the host machine
 tt-compose --profile sim restart
 ```
-
 
 ## Troubleshooting
 

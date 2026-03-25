@@ -68,7 +68,8 @@ if [[ "$build" == "true" ]]; then
     exec docker compose run --rm ros-base tt-build --all
 else
     if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
-        tt-bluetooth-reset
+        sudo modprobe -r btusb
+        sudo modprobe btusb
     fi
     exec docker compose "$@"
 fi

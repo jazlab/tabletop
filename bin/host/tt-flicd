@@ -9,7 +9,8 @@ source $bin_dir/../utils.sh
 cd $TABLETOP_DIR
 
 # Reset bluetooth module
-tt-bluetooth-reset
+sudo modprobe -r btusb
+sudo modprobe btusb
 
 while true; do
     docker compose up --force-recreate flicd
@@ -21,6 +22,7 @@ while true; do
         break
     fi
     print_status "Client disconnected, restarting rig..."
-    tt-bluetooth-reset
+    sudo modprobe -r btusb
+    sudo modprobe btusb
     sleep 2
 done
