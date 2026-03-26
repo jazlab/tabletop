@@ -2,7 +2,7 @@
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
 trajectory_execution:
-  allowed_execution_duration_scaling: 1.2
+  allowed_execution_duration_scaling: 2.0
   allowed_goal_duration_margin: 0.5
   allowed_start_tolerance: 0.02 # radians
   allowed_stop_tolerance: 0.02 # radians/s
