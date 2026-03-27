@@ -113,6 +113,12 @@
     #     rpy: [0.0, 0.0, -1.5707]
 
     object_manipulation:
+      test_object_attached:
+        goal: test_object_attached
+        object_id: test_object
+        joint_name: wrist_1_joint
+        num_samples: 500
+        effort_threshold: 0.17
       touch_links:
         - eef_link
         - eef_sphere
@@ -127,6 +133,10 @@
         attach: [0.0, 0.0, 0.0] # relative to object init pose
         post_attach: [0.077, 0.0, 0.0] # relative to object init pose
         post_fetch: [0.077, 0.0, -0.15] # relative to object init pose
+      state_offsets_overrides: # be careful about doing this, make sure
+        smooth_pursuit_object:
+          post_attach: [0.12, 0.0, 0.0]
+          post_fetch: [0.12, 0.0, -0.15]
       reset_config_map:
         small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
         small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
@@ -158,6 +168,7 @@
         small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
         small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
         small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
+        smooth_pursuit_object: null
 
     safe_execution:
       max_retries: 3
@@ -289,181 +300,181 @@
         object_kwargs:
           0,0:
             object_id: small_object_0
-            color: [1.0, 0.0, 0.0, 1.0] # red
+            color: [1.0, 0.0, 0.0, 0.5] # red
             rel_pose:
               position: [0.0, 0.0, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           0,1:
             object_id: small_object_1
-            color: [0.0, 1.0, 0.0, 1.0] # green
+            color: [0.0, 1.0, 0.0, 0.5] # green
             rel_pose:
               position: [0.0, 0.314, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           0,2:
             object_id: small_object_2
-            color: [0.0, 0.0, 1.0, 1.0] # blue
+            color: [0.0, 0.0, 1.0, 0.5] # blue
             rel_pose:
               position: [0.0, 0.628, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           1,0:
             object_id: small_object_3
-            color: [1.0, 1.0, 0.0, 1.0] # yellow
+            color: [1.0, 1.0, 0.0, 0.5] # yellow
             rel_pose:
               position: [0.1489, 0.0, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           1,1:
             object_id: small_object_4
-            color: [1.0, 0.0, 1.0, 1.0] # purple
+            color: [1.0, 0.0, 1.0, 0.5] # purple
             rel_pose:
               position: [0.1489, 0.314, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           1,2:
             object_id: small_object_5
-            color: [0.0, 1.0, 1.0, 1.0] # cyan
+            color: [0.0, 1.0, 1.0, 0.5] # cyan
             rel_pose:
               position: [0.1489, 0.628, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           2,0:
             object_id: small_object_6
-            color: [1.0, 0.5, 0.0, 1.0] # orange
+            color: [1.0, 0.5, 0.0, 0.5] # orange
             rel_pose:
               position: [0.2978, 0.0, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           2,1:
             object_id: small_object_7
-            color: [0.5, 0.0, 0.5, 1.0] # magenta
+            color: [0.5, 0.0, 0.5, 0.5] # magenta
             rel_pose:
               position: [0.2978, 0.314, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           2,2:
             object_id: small_object_8
-            color: [0.5, 0.5, 0.0, 1.0] # olive
+            color: [0.5, 0.5, 0.0, 0.5] # olive
             rel_pose:
               position: [0.2978, 0.628, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           3,0:
             object_id: small_object_9
-            color: [0.0, 0.5, 0.5, 1.0] # teal
+            color: [0.0, 0.5, 0.5, 0.5] # teal
             rel_pose:
               position: [0.4467, 0.0, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           3,1:
             object_id: small_object_10
-            color: [0.5, 0.0, 0.0, 1.0] # maroon
+            color: [0.5, 0.0, 0.0, 0.5] # maroon
             rel_pose:
               position: [0.4467, 0.314, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           3,2:
             object_id: small_object_11
-            color: [0.0, 0.5, 0.0, 1.0] # lime
+            color: [0.0, 0.5, 0.0, 0.5] # lime
             rel_pose:
               position: [0.4467, 0.628, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           4,0:
             object_id: small_object_12
-            color: [0.0, 0.0, 0.5, 1.0] # navy
+            color: [0.0, 0.0, 0.5, 0.5] # navy
             rel_pose:
               position: [0.5956, 0.0, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           4,1:
             object_id: small_object_13
-            color: [0.5, 0.5, 0.5, 1.0] # gray
+            color: [0.5, 0.5, 0.5, 0.5] # gray
             rel_pose:
               position: [0.5956, 0.314, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           4,2:
             object_id: small_object_14
-            color: [0.75, 0.75, 0.75, 1.0] # light gray
+            color: [0.75, 0.75, 0.75, 0.5] # light gray
             rel_pose:
               position: [0.5956, 0.628, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           5,0:
             object_id: small_object_15
-            color: [0.5, 0.25, 0.0, 1.0] # brown
+            color: [0.5, 0.25, 0.0, 0.5] # brown
             rel_pose:
               position: [0.7452, 0.0007, 0.0004]
               rpy: [0.0, -0.0174, -1.5707]
           5,1:
             object_id: small_object_16
-            color: [0.25, 0.5, 0.0, 1.0] # dark green
+            color: [0.25, 0.5, 0.0, 0.5] # dark green
             rel_pose:
               position: [0.746, 0.3161, -0.0034]
               rpy: [0.0, 0.0, -1.5707]
           5,2:
             object_id: small_object_17
-            color: [0.0, 0.25, 0.5, 1.0] # dark blue
+            color: [0.0, 0.25, 0.5, 0.5] # dark blue
             rel_pose:
               position: [0.7457, 0.6245, -0.0075]
               rpy: [0.0147, -0.0047, -1.5707]
           6,0:
-            object_id: small_object_18
-            color: [0.5, 0.0, 0.25, 1.0] # dark red
+            object_id: smooth_pursuit_object
+            color: [0.5, 0.0, 0.25, 0.5] # dark red
             rel_pose:
               position: [0.8933, 0.0011, 0.0005]
               rpy: [0.0, -0.0174, -1.5707]
           6,1:
             object_id: small_object_19
-            color: [0.25, 0.0, 0.5, 1.0] # dark purple
+            color: [0.25, 0.0, 0.5, 0.5] # dark purple
             rel_pose:
               position: [0.8934, 0.3161, -0.0034]
               rpy: [0.0, 0.0, -1.5707]
           6,2:
             object_id: small_object_20
-            color: [0.0, 0.5, 0.25, 1.0] # dark cyan
+            color: [0.0, 0.5, 0.25, 0.5] # dark cyan
             rel_pose:
               position: [0.896, 0.6283, -0.0058]
               rpy: [0.0058, -0.025, -1.5707]
           7,0:
             object_id: small_object_21
-            color: [0.75, 0.25, 0.0, 1.0] # dark orange
+            color: [0.75, 0.25, 0.0, 0.5] # dark orange
             rel_pose:
               position: [1.0433, 0.0024, 0.0009]
               rpy: [0.0, 0.0, -1.5707]
           7,1:
             object_id: small_object_22
-            color: [0.25, 0.75, 0.0, 1.0] # light green
+            color: [0.25, 0.75, 0.0, 0.5] # light green
             rel_pose:
               position: [1.0423, 0.3161, 0.0]
               rpy: [0.0, 0.0, -1.5707]
           7,2:
             object_id: small_object_23
-            color: [0.0, 0.25, 0.75, 1.0] # light blue
+            color: [0.0, 0.25, 0.75, 0.5] # light blue
             rel_pose:
               position: [1.0481, 0.6323, -0.0051]
               rpy: [0.0095, -0.0187, -1.5707]
           8,0:
             object_id: small_object_24
-            color: [0.75, 0.0, 0.25, 1.0] # light red
+            color: [0.75, 0.0, 0.25, 0.5] # light red
             rel_pose:
               position: [1.1927, 0.0048, 0.001]
               rpy: [0.0, 0.0, -1.5707]
           8,1:
             object_id: small_object_25
-            color: [0.25, 0.0, 0.75, 1.0] # light purple
+            color: [0.25, 0.0, 0.75, 0.5] # light purple
             rel_pose:
               position: [1.19103, 0.3167, -0.001]
               rpy: [0.0, 0.01, -1.5707]
           8,2:
             object_id: small_object_26
-            color: [0.0, 0.75, 0.25, 1.0] # light cyan
+            color: [0.0, 0.75, 0.25, 0.5] # light cyan
             rel_pose:
               position: [1.1973, 0.6292, -0.005]
-              rpy: [0.0, 0.03, -1.5707]
+              rpy: [0.0, -0.02, -1.5707]
           9,0:
             object_id: small_object_27
-            color: [0.75, 0.5, 0.25, 1.0] # peach
+            color: [0.75, 0.5, 0.25, 0.5] # peach
             rel_pose:
               position: [1.3421, 0.0046, 0.0]
               rpy: [0.0, -0.0174, -1.5707]
           9,1:
             object_id: small_object_28
-            color: [0.25, 0.75, 0.5, 1.0] # mint
+            color: [0.25, 0.75, 0.5, 0.5] # mint
             rel_pose:
               position: [1.3405, 0.3175, 0.0001]
               rpy: [0.0, 0.0, -1.5707]
           9,2:
             object_id: small_object_29
-            color: [0.5, 0.25, 0.75, 1.0] # lavender
+            color: [0.5, 0.25, 0.75, 0.5] # lavender
             rel_pose:
               position: [1.3462, 0.632, -0.0026]
               rpy: [0.018, -0.0148, -1.5707]

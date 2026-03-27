@@ -64,7 +64,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/close_popup",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "close_popup",
             ),
         )
@@ -74,7 +74,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/close_safety_popup",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "close_safety_popup",
             ),
         )
@@ -84,7 +84,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/unlock_protective_stop",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "unlock_protective_stop",
             ),
         )
@@ -94,7 +94,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/load_program",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "load_program",
             ),
         )
@@ -104,7 +104,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/load_installation",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "load_installation",
             ),
         )
@@ -114,7 +114,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/brake_release",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "brake_release",
             ),
         )
@@ -124,8 +124,28 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/play",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "play",
+            ),
+        )
+
+        self.stop_srv = self.create_service(
+            Trigger,
+            "/dashboard_client/stop",
+            lambda request, response: self.trigger_callback(
+                request,  # type: ignore
+                response,  # type: ignore
+                "stop",
+            ),
+        )
+
+        self.pause_srv = self.create_service(
+            Trigger,
+            "/dashboard_client/pause",
+            lambda request, response: self.trigger_callback(
+                request,  # type: ignore
+                response,  # type: ignore
+                "pause",
             ),
         )
 
@@ -134,7 +154,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/connect",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "connect",
             ),
         )
@@ -144,7 +164,7 @@ class MockDashboardClient(BaseNode):
             "/dashboard_client/quit",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
-                response,
+                response,  # type: ignore
                 "quit",
             ),
         )
@@ -152,19 +172,19 @@ class MockDashboardClient(BaseNode):
         self.get_safety_mode_srv = self.create_service(
             GetSafetyMode,
             "/dashboard_client/get_safety_mode",
-            self.get_safety_mode_callback,
+            self.get_safety_mode_callback,  # type: ignore
         )
 
         self.get_robot_mode_srv = self.create_service(
             GetRobotMode,
             "/dashboard_client/get_robot_mode",
-            self.get_robot_mode_callback,
+            self.get_robot_mode_callback,  # type: ignore
         )
 
         self.is_in_remote_control_srv = self.create_service(
             IsInRemoteControl,
             "/dashboard_client/is_in_remote_control",
-            self.is_in_remote_control_callback,
+            self.is_in_remote_control_callback,  # type: ignore
         )
 
         self.set_mode_server = ActionServer(

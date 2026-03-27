@@ -38,13 +38,14 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
     RobotTrajectory,
 )
 from rclpy.exceptions import ParameterNotDeclaredException
+from sensor_msgs.msg import JointState
 
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
-    ExecutionError,
     ExecutionInterruptedError,
     ExecutionRejectedError,
     MoveitRecoverableError,
+    NotSafeToExecuteError,
     ObjectManipulationError,
     ObjectMismatchError,
     StateTransitionError,
@@ -106,7 +107,8 @@ class State(IntEnum):
     DETACH = 12
     POST_DETACH = 13
     POST_RETURN = 14
-    MANUALLY_ATTACHED = 99
+    MANUALLY_ATTACHED = 98
+    UNINITIALIZED = 99
 
 
 FETCH_OR_RETURN_STATES = set(
@@ -188,11 +190,22 @@ def manipulation_lock_and_validate(coro_fn):
                 f"Cannot call {coro_fn.__name__} while another operation is in progress"
             )
         async with self._manipulation_lock:
-            self._validate_attached_object_state()
+            if self._manipulation_state == State.UNINITIALIZED:
+                if coro_fn.__name__ != "reset_rig":
+                    raise RuntimeError(
+                        "ObjectManipulationInterface has not been initialized, "
+                        "call reset_rig before manipulating anything"
+                    )
+            else:
+                self._validate_attached_object_state()
+
             try:
                 return await coro_fn(self, *args, **kwargs)
             finally:
-                self._validate_attached_object_state()
+                if self._manipulation_state == State.UNINITIALIZED:
+                    assert coro_fn.__name__ == "reset_rig"
+                else:
+                    self._validate_attached_object_state()
 
     return wrapper
 
@@ -223,13 +236,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         self._init_reset_configs()
 
-        self._current_manipulation_id = self._init_attached_object()
-
-        if self._current_manipulation_id is not None:
-            self._manipulation_state = State.NEEDS_RESET
-        else:
-            self._manipulation_state = State.IDLE
-
+        # self._current_manipulation_id = self._init_attached_object()
+        #
+        # if self._current_manipulation_id is not None:
+        #     self._manipulation_state = State.NEEDS_RESET
+        # else:
+        #     self._manipulation_state = State.IDLE
+        self._manipulation_state = State.UNINITIALIZED
+        self._current_manipulation_id = None
         self._manipulation_lock = asyncio.Lock()
 
         self.log("MoveIt object manipulation interface initialized")
@@ -248,8 +262,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Parse and save the configurations for each unique file
         self._reset_configs = {}
 
-        unique_files: set[str] = set(self.reset_config_map.values())
+        unique_files = set(self.reset_config_map.values())
         for filename in unique_files:
+            if filename is None:
+                continue
+
             with open(filename) as f:
                 config: ObjectResetConfig = yaml.load(f, ResetLoader)
 
@@ -334,7 +351,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ###########################################################################
 
     @property
-    def reset_config_map(self) -> dict[str, str]:
+    def reset_config_map(self) -> dict[str, str | None]:
         """Get the mapping of object ids to reset configuration filenames"""
         return self.node.param("object_manipulation.reset_config_map")
 
@@ -483,9 +500,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             case State.FETCHED:
                 return "fetched"  # TODO
             case _:
-                offset = self.node.param(
-                    f"object_manipulation.state_offsets.{STATE_OFFSET_MAP[state]}"
-                )
+                try:
+                    offset = self.node.param(
+                        f"object_manipulation.state_offsets_overrides.{object_id}.{STATE_OFFSET_MAP[state]}"
+                    )
+                except ParameterNotDeclaredException:
+                    offset = self.node.param(
+                        f"object_manipulation.state_offsets.{STATE_OFFSET_MAP[state]}"
+                    )
+
                 return self._grid_object_pose_stamped_with_offset(
                     object_id, offset
                 )
@@ -695,15 +718,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        try:
-            await self._plan_and_execute(
-                goal="present", cache_trajectory=cache_trajectory
-            )
-        except (asyncio.CancelledError, ExecutionError):
-            self._manipulation_state = State.NEEDS_RESET
-            raise
-        else:
-            self._manipulation_state = State.NEEDS_RESET
+        await self._plan_and_execute(
+            goal="present", cache_trajectory=cache_trajectory
+        )
+        self._manipulation_state = State.NEEDS_RESET
+
+        # try:
+        #     await self._plan_and_execute(
+        #         goal="present", cache_trajectory=cache_trajectory
+        #     )
+        # except (asyncio.CancelledError, ExecutionError):
+        #     self._manipulation_state = State.NEEDS_RESET
+        #     raise
+        # else:
+        #     self._manipulation_state = State.NEEDS_RESET
 
     @manipulation_lock_and_validate
     async def reset_object(
@@ -736,6 +764,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         # Retrieve reset config
         filename = self.reset_config_map[object_id]
+        if filename is None:
+            self._manipulation_state = State.RESETTED
+            return
+
         config = self._reset_configs[filename]
         assert config.reset_request.planning_pipeline == "linear"
 
@@ -903,13 +935,17 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             result = await self._plan_and_execute(
                 request, cache_trajectory, **kwargs
             )
-        except (asyncio.CancelledError, ExecutionError):
+        except (
+            asyncio.CancelledError,
+            ExecutionInterruptedError,
+            NotSafeToExecuteError,
+        ):
             if needs_reset:
                 self._manipulation_state = State.NEEDS_RESET
             raise
-        else:
-            if needs_reset:
-                self._manipulation_state = State.NEEDS_RESET
+
+        if needs_reset:
+            self._manipulation_state = State.NEEDS_RESET
 
         return result
 
@@ -935,13 +971,17 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         try:
             await self._execute(trajectory)
-        except (asyncio.CancelledError, ExecutionError):
+        except (
+            asyncio.CancelledError,
+            ExecutionInterruptedError,
+            NotSafeToExecuteError,
+        ):
             if needs_reset:
                 self._manipulation_state = State.NEEDS_RESET
             raise
-        else:
-            if needs_reset:
-                self._manipulation_state = State.NEEDS_RESET
+
+        if needs_reset:
+            self._manipulation_state = State.NEEDS_RESET
 
     ###########################################################################
     ########## Attach object manually #########################################
@@ -1031,6 +1071,90 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ########## Reset ##########################################################
     ###########################################################################
 
+    async def _test_object_attached(self):
+        self.log("Testing if an object is attached")
+
+        assert self._manipulation_state == State.UNINITIALIZED
+
+        config: dict[str, Any] = self.node.param(
+            "object_manipulation.test_object_attached"
+        )
+        goal: str = config["goal"]
+        object_id: str = config["object_id"]
+        num_samples: int = config["num_samples"]
+        joint_name: str = config["joint_name"]
+        effort_threshold: float = config["effort_threshold"]
+
+        if joint_name not in self.current_state.joint_efforts:
+            raise RuntimeError(f"Unknown joint_name: {joint_name}")
+
+        done_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        joint_efforts: list[float] = []
+
+        def joint_state_callback(msg: JointState):
+            nonlocal joint_efforts
+            nonlocal num_samples
+            nonlocal joint_name
+            nonlocal loop
+            nonlocal done_event
+
+            if len(joint_efforts) < num_samples:
+                joint_idx = None
+                for i, joint in enumerate(msg.name):
+                    if joint == joint_name:
+                        joint_idx = i
+                        break
+
+                if joint_idx is None:
+                    raise RuntimeError(f"Unknown joint_name: {joint_name}")
+
+                joint_efforts.append(msg.effort[joint_idx])
+            else:
+                loop.call_soon_threadsafe(done_event.set)
+
+        try:
+            self._manipulation_state = State.IDLE
+            await ObjectManipulationInterface.add_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, object_id
+            )
+            await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, goal=goal, cache_trajectory=False
+            )
+            await ObjectManipulationInterface.remove_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, object_id
+            )
+
+            sub = self.node.create_subscription(
+                JointState, "/joint_states", joint_state_callback, num_samples
+            )
+            try:
+                await done_event.wait()
+            finally:
+                self.node.destroy_subscription(sub)
+
+            avg_effort = abs(sum(joint_efforts) / num_samples)
+            self.log(
+                f"Average joint effort (absolute) for joint {joint_name}: {avg_effort}"
+            )
+            is_attached = avg_effort > effort_threshold
+            initial_object_id = self._init_attached_object()
+
+            if is_attached and initial_object_id is None:
+                raise RuntimeError(
+                    "Attached object detected but initial_object not provided"
+                )
+            elif not is_attached and initial_object_id is not None:
+                raise RuntimeError(
+                    f"No attached object detected but initial_object "
+                    f"({initial_object_id}) was provided"
+                )
+
+            return initial_object_id
+
+        finally:
+            self._manipulation_state = State.UNINITIALIZED
+
     @manipulation_lock_and_validate
     async def reset_rig(self, end_goal: Optional[PlanGoalT] = None):
         """Move the robot out of collision if necessary and return any attached
@@ -1039,6 +1163,21 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self.log("Resetting rig")
 
         try:
+            if self._manipulation_state == State.UNINITIALIZED:
+                if self.node.param("simulate"):
+                    self._current_manipulation_id = (
+                        self._init_attached_object()
+                    )
+                else:
+                    self._current_manipulation_id = (
+                        await self._test_object_attached()
+                    )
+
+                if self._current_manipulation_id is None:
+                    self._manipulation_state = State.IDLE
+                else:
+                    self._manipulation_state = State.NEEDS_RESET
+
             if self._manipulation_state not in (
                 State.IDLE,
                 State.MANUALLY_ATTACHED,

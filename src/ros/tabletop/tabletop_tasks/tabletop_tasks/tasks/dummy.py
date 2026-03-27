@@ -347,7 +347,8 @@ class DummyTask(BaseTask):
         """Run one or more of the tests"""
         async with self.commander:
             await self.test_teensy_latency()
-            await self.test_robot_position()
+            # await self.test_robot_position()
+            await self.test_grid_position()
             # await self.test_flic_latency_pre_pressed()
             # await self.test_flic_latency_human()
             # await self.test_flic_latency_button()

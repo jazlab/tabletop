@@ -79,11 +79,11 @@
       <joint name="wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="test_object_attached" group="manipulator">
-      <joint name="shoulder_pan_joint" value="-0.2" />
+      <joint name="shoulder_pan_joint" value="${-pi/2}" />
       <joint name="shoulder_lift_joint" value="${-pi/2}" />
       <joint name="elbow_joint" value="${pi/2}" />
       <joint name="wrist_1_joint" value="${-pi/2}" />
-      <joint name="wrist_2_joint" value="${pi}" />
+      <joint name="wrist_2_joint" value="0" />
       <joint name="wrist_3_joint" value="${pi}" />
     </group_state>
     <!--VIRTUAL

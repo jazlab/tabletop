@@ -5,7 +5,7 @@ common:
       # - image_transport/foxglove
       # - image_transport/ffmpeg
       - image_transport/compressed
-      - image_transport/raw
+      # - image_transport/raw
     foxglove:
       encoder: h264_nvenc
       encoder_av_options: "preset:p4,tune:ull"

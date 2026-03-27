@@ -151,6 +151,11 @@ services:
     container_name: tabletop-ur
     profiles: !override
       - real
+    # cap_add:
+    #   - SYS_NICE
+    # ulimits:
+    #   ntprio: 99
+    #   memlock: -1
     restart: unless-stopped
     command: tt-launch ur robot_mode:=real
 
@@ -250,9 +255,11 @@ services:
     extends: ros-base
     profiles: !override
       - real
-    # restart: unless-stopped
-    cap_add:
-      - SYS_NICE # TODO: see if needed
+    restart: unless-stopped
+    # cap_add:
+    #   - SYS_NICE # TODO: see if needed
+    # ulimits:
+    #   ntprio: 99
     volumes:
       - /hdd/bags:/hdd/bags
     environment:
