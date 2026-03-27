@@ -1,0 +1,102 @@
+eyelink_freq: 1000
+markers_freq: 120
+preprocess:
+  filename: preprocessed.csv
+  eyelink:
+    format_columns:
+      verify: true
+      freq_rtol: 1.0
+      freq_var_tol: 0.01
+    clean:
+      min_eye_pos: -20000
+      max_eye_pos: 20000
+      max_zscore: null
+      # max_zscore: 3.0
+    reindex_and_interpolate:
+      tolerance: 0.005
+    # filter_by_speed:
+    #   min_speed: 200
+    #   max_speed: 30000
+    #   window: 0.01
+    #   polyorder: 3
+    smooth:
+      method: rolling
+      window: 0.02
+      center: true
+    filter_by_speed:
+      min_speed: 100
+      max_speed: 30000
+      window: 0.1
+  marker:
+    format_columns:
+      verify: true
+      freq_rtol: 0.01
+      freq_var_tol: 0.001
+      max_marker_time_correction: 0.05
+    clean:
+      min_pos: [null, 0.0, null]
+      max_pos: [null, null, null]
+      max_zscore: null
+    reindex_and_interpolate:
+      tolerance: 0.02
+    transform_marker_to_led:
+      rel_pos: [-0.002, -0.072, 0.0]
+      # rel_pos: [0.0, 0.0, 0.0]
+dataloaders:
+  test_size: 0.2
+  val_folds: 5
+  shuffle_test_split: false
+  shuffle_val_split: false
+  train_batch_size: 512
+  val_batch_size: 8192
+  test_batch_size: 8192
+  num_workers: 8
+test_dataloader:
+  batch_size: 8192
+  num_workers: 8
+model:
+  name: GazeEstimationModelMLP
+  input_size: 4
+  output_size: 3
+  # hidden_sizes: [256, 512, 256]
+  hidden_sizes: [128, 256, 128]
+  dropout_rate: 0.2
+  learn_stats: true
+compile:
+  dynamic: false
+  # mode: max-autotune
+  backend: inductor
+  options:
+    max_autotune: True
+    triton.cudagraphs: True
+    coordinate_descent_tuning: True
+    epilogue_fusion: true
+optimizer:
+  name: AdamW
+  lr: 0.001
+criterion:
+  name: MSELoss
+  reduction: mean
+train:
+  num_epochs: 50
+  patience_epochs: 10
+  max_folds: 5
+weights_path: $TABLETOP_DIR/saved_weights/model.pt
+predictions:
+  filename: predictions.csv
+visualize:
+  animate_2d_dots:
+    min_x: -30000
+    max_x: 30000
+    min_y: -30000
+    max_y: 30000
+    fr: 10
+  animate_3d_dots:
+    min_x: 0.0
+    max_x: 1.0
+    min_y: -0.5
+    max_y: 0.5
+    min_z: 0.0
+    max_z: 1.0
+    rotate_to_world: true
+    fr: 10

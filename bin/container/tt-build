@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+print_usage() {
+    echo "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
+}
+
+builtin cd $COLCON_WS
+
+# Parse arguments
+build_debug=false
+clean=false
+clean_all=false
+workers=
+packages=()
+linker=mold
+all=false
+clang=false
+only_modules=false
+verbose=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --clean)
+            clean=true
+            ;;
+        --clean-all)
+            clean_all=true
+            ;;
+        -a|--all)
+            all=true
+            ;;
+        -p|--packages)
+            while [[ $# -gt 1 && $2 != -* ]]; do
+                packages+=($2)
+                shift
+            done
+            if [[ ${#packages[@]} -eq 0 ]]; then
+                print_error "No packages provided with -p|--packages"
+                print_usage
+                exit 1
+            fi
+            ;;
+        -m|--only-modules)
+            only_modules=true
+            ;;
+        --skip-uv)
+            skip_uv=--skip-uv
+            ;;
+        --apt-upgrade)
+            apt_upgrade=--apt-upgrade
+            ;;
+        --build-debug)
+            build_debug=true
+            ;;
+        -w|--workers)
+            if [[ $# -le 1  || $2 == -* ]]; then
+                print_error "No workers provided with --workers"
+                print_usage
+                exit 1
+            fi
+            workers=$2
+            shift
+            ;;
+        --clang)
+            clang=true
+            ;;
+        --linker)
+            if [[ $# -le 1  || $2 == -* ]]; then
+                print_error "No linker provided with --linker"
+                print_usage
+                exit 1
+            fi
+            linker=$2
+            shift
+            ;;
+        -v|--verbose)
+            verbose=true
+            ;;
+        *)
+            print_error "Unknown argument $1"
+            print_usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# Package selection
+base_paths="src/ros"
+if [[ $all = true ]]; then
+    # Build all packages in src/ros
+    if [[ ${#packages[@]} -gt 0  || $only_modules = true ]]; then
+        print_error "Cannot use --all with -p|--packages or -d|--only-modules"
+        print_usage
+        exit 1
+    fi
+elif [[ $only_modules = true ]]; then
+    # Build only dependency packages in src/ros/modules
+    if [[ ${#packages[@]} -gt 0 ]]; then
+        print_error "Cannot use -p|--packages with -d|--only-modules"
+        print_usage
+        exit 1
+    fi
+    base_paths="src/ros/modules"
+    from_paths="--from-paths $base_paths"
+elif [[ ${#packages[@]} -gt 0 ]]; then
+    # Build only the specified packages and their recursive dependencies
+    package_selection="--packages-up-to ${packages[@]}"
+else
+    # Build only the tabletop packages in src/ros/tabletop
+    base_paths="src/ros/tabletop"
+    skip_moveit_apt_removal="--skip-moveit-apt-removal"
+fi
+
+# Skip x86_64-dependent packages
+packages_to_skip=("moveit_ros_tests")
+# if [[ $(uname -m) != x86_64 ]]; then
+#     packages_to_skip+=("mocap4r2_optitrack_driver")
+# fi
+packages_skip="--packages-skip ${packages_to_skip[@]}"
+
+# Clean workspace
+if [[ $clean_all = true ]]; then
+    tt-clean-ws --all
+elif [[ $clean = true ]]; then
+    tt-clean-ws
+fi
+
+# Install ROS 2 build dependencies
+tt-dep-install --type build $skip_moveit_apt_removal $apt_upgrade $skip_uv $from_paths
+
+# Install tabletop_py python project
+print_status "Building/installing tabletop_py"
+uv sync --only-install-project --inexact
+
+# Build colon workspace
+
+# Set CMake arguments
+cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
+
+# Set Mixins
+mixins=()
+mixins+=("build-testing-off" "ccache" "$linker")
+
+if [[ $all = true ]]; then
+    rm -f "$TABLETOP_DIR/build/compile_commands.json"
+    mixins+=("compile-commands")
+fi
+
+if [[ $build_debug = true ]]; then
+    mixins+=("debug")
+else
+    mixins+=("release")
+fi
+
+if [[ $clang = true ]]; then
+    mixins+=("clang")
+fi
+
+# Set parallel workers
+if [[ -n $workers ]]; then
+    export MAKEFLAGS="-j$workers -l1"
+    parallel_workers="--parallel-workers $workers"
+fi
+
+if [[ $verbose = true ]]; then
+    event_handlers="--event-handlers console_cohesion+"
+fi
+
+# Build ROS 2 packages
+command="colcon --log-base log/colcon build \
+--base-paths $base_paths \
+$packages_skip \
+$packages_skip_regex \
+$package_selection \
+--cmake-args "${cmake_args[@]}" \
+--mixin "${mixins[@]}" \
+$parallel_workers \
+--symlink-install \
+$event_handlers"
+
+
+print_status "Building ROS 2 packages with command: $command"
+$command
+print_status "Successfully built ROS 2 packages!"
+
+source install/setup.bash
+
+# Install ROS 2 runtime dependencies
+tt-dep-install --type exec $from_paths --skip-uv
+
+# Write to build/last_built.txt to indicate to docker containers a rebuild has occured
+date > "build/last_built.txt"

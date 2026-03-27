@@ -1,0 +1,7 @@
+*
+!src/ros/**/package.xml
+!uv.lock
+!pyproject.toml
+!docker/ros/entrypoint.sh
+src/**/tabletop_teensy/
+!src/**/tabletop_teensy/platformio.ini

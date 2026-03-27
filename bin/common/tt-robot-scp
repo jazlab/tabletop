@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -e
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+
+source="$TABLETOP_DIR/ur_robot/programs/*.urcap"
+dest="root@$ROBOT_IP:/programs"
+scp $source $dest

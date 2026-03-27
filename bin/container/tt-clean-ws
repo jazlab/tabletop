@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+cd $COLCON_WS
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|-all)
+            all=true
+            shift
+            ;;
+        *)
+            print_error "Unknown argument: $1"
+            print_error "Usage: $0 [--all]"
+            exit 1
+            ;;
+    esac
+done
+
+to_clean=("$COLCON_LOG_DIR")
+
+if [[ $all = true ]]; then
+    to_clean+=("build" "install")
+else
+    to_clean+=("build/tabletop*" "install/tabletop*")
+fi
+
+print_status "Removing ${to_clean[@]}"
+rm -rf ${to_clean[@]}

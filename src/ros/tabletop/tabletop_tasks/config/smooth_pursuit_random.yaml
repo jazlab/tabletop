@@ -1,0 +1,18 @@
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: random
+      motion_kwargs:
+        start_pose:
+          position: [0.9525, 0.4, 0.5]
+          rpy: [1.5707, 1.5707, 0.0]
+        min_x: 0.7525
+        max_x: 1.1525
+        min_y: 0.3
+        max_y: 0.5
+        min_z: 0.4
+        max_z: 0.6
+        num_waypoints: 100
+      num_repetitions: 3
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.05

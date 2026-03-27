@@ -1,132 +1,339 @@
 name: tabletop
 
-services:
-  novnc:
-    build:
-      context: ./novnc
-      pull: true
-    pull_policy: build
-    ports:
-      - 8080:8080
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.100
-    restart: on-failure
-    healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]
-      interval: 10s
-      timeout: 2s
-      retries: 3
-      start_period: 10s
-      start_interval: 2s
-    environment:
-      - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
-      - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-824}
-      - RUN_XTERM=no
-      - WINDOW_MANAGER=DWM
+x-common: &common
+  ipc: host
+  network_mode: host
 
-  ursim_base:
+services:
+  autoheal:
+    container_name: tabletop-autoheal
+    profiles:
+      - real
+      - sim
+      - ursim
+    image: willfarrell/autoheal@sha256:ae1599ab171135fe3d5b779d84ece28f5cac95137e0e508ca49c62ccd740785e
+    # pull_policy: always
+    network_mode: none
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
     restart: unless-stopped
-    image: universalrobots/ursim_e-series:latest
-    pull_policy: always
-    # platform: linux/amd64
+
+  novnc:
+    <<: *common
+    container_name: tabletop-novnc
+    profiles:
+      - builder
+      - real
+      - sim
+      - ursim
+    image: tabletop/novnc
+    build:
+      context: ./docker/novnc
+      pull: true
+    labels:
+      autoheal-tabletop: true
+    environment:
+      - PORT=8080
+      - DISPLAY=$NOVNC_DISPLAY
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - WINDOW_MANAGER=dwm
+    depends_on:
+      - autoheal
+    restart: unless-stopped
+
+  ursim:
+    <<: *common
+    container_name: tabletop-ursim
+    profiles: [ ursim ]
+    image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
+    # pull_policy: always
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
-      - ./ur_robot/entrypoint.sh:/entrypoint.sh
-    entrypoint: ["/entrypoint.sh"]
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.10
-    hostname: ursim
+      - ./docker/ursim/entrypoint.sh:/entrypoint.sh
     environment:
+      - DISPLAY=$NOVNC_DISPLAY
       - ROBOT_MODEL=ur5e
-
-  ursim_novnc:
-    extends: ursim_base
     depends_on:
       novnc:
         condition: service_healthy
-    environment:
-      - DISPLAY=novnc:0.0
-
-  ursim:
-    extends: ursim_base
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-    environment:
-      - DISPLAY=$DISPLAY
-
-  server_base:
-    build:
-      context: ./ros
-      pull: true
-    pull_policy: build
-    image: tabletop-server
-    # device_cgroup_rules:
-    #   - c 160:* rmw
-    devices:
-      - /dev/dri:/dev/dri
-      # - /dev/ttyACM0:/dev/ttyACM0
-    volumes:
-      - ../..:/root/ws
-    ports:
-      - 50001:50001
-      - 50002:50002
-      - 50003:50003
-      - 50004:50004
-    networks:
-      tabletop_net:
-        ipv4_address: 192.168.12.11
-    hostname: server
-    environment:
-      - BUILD_COMMAND=${BUILD_COMMAND:-:}
-      - LAUNCH_COMMAND=${LAUNCH_COMMAND:-echo "No launch command provided, sleeping..." && sleep infinity}
-    command: bash -c
-      "$$BUILD_COMMAND
-      && source /opt/ros/jazzy/setup.bash
-      && source /root/ws/install/setup.bash
-      && $$LAUNCH_COMMAND"
-
-  server_novnc:
-    build:
-      context: ./novnc
-      pull: true
-    pull_policy: build
-    extends: server_base
-    depends_on:
-      novnc:
-        condition: service_healthy
-    environment:
-      - DISPLAY=novnc:0.0
-
-  server:
-    extends: server_base
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    environment:
-      - DISPLAY=$DISPLAY
-
-  flic:
+        restart: true
     restart: unless-stopped
-    network_mode: host
-    privileged: true
+    init: true
+    entrypoint: [ /entrypoint.sh ]
+
+  flicd:
+    <<: *common
+    container_name: tabletop-flicd
+    profiles: [ real ]
+    image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
+    # pull_policy: always
+    labels:
+      autoheal-tabletop: true
+    # privileged: true
+    volumes:
+      - ./docker/flicd:/app
+    environment:
+      - HCI_DEV=hci0
+      - BD_ADDR=c8:c6:ac:df:da:c2
+      - PORT=5551
+      - SERVER_ADDR=0.0.0.0
+    depends_on: [ autoheal ]
+    healthcheck:
+      disable: false
+      test: [ CMD, /app/healthcheck.sh ]
+      interval: 2s
+      timeout: 1s
+      start_period: 5s
+      start_interval: 1s
+      retries: 1
     cap_add:
       - NET_ADMIN
-    image: ubuntu:latest
-    pull_policy: always
-    volumes:
-      - ./flic_server:/flic_server
-    command: bash -c
-      "/flic_server/flicd -f /flic_server/sqlite.db -s 0.0.0.0 -h hci0 -w" # -w necessary, see musings.md
+    init: true
+    # stop_signal: SIGINT
+    command: /app/entrypoint.sh
 
-networks:
-  tabletop_net:
-    name: tabletop_net
-    attachable: true
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.12.0/24
+  ros-base:
+    <<: *common
+    image: tabletop/ros-base
+    profiles: [ builder ]
+    build:
+      context: .
+      dockerfile: ./docker/ros/base.Dockerfile
+      pull: true
+      args:
+        - BASE_IMAGE=$ROS_BASE_IMAGE
+        - USER_NAME=$USER_NAME
+        - USER_UID=$USER_UID
+        - USER_GID=$USER_GID
+        - UV_EXTRA=$UV_EXTRA
+    volumes:
+      - type: bind
+        source: .
+        target: /tabletop
+        consistency: $BIND_CONSISTENCY
+      - python-venv:/tabletop/.venv
+    stop_signal: SIGINT
+    develop:
+      watch:
+        - path: ./build/last_built.txt
+          action: restart
+    # init: true
+
+  foxglove:
+    extends: ros-base
+    container_name: tabletop-foxglove
+    profiles: !override
+      - real
+      - sim
+    restart: unless-stopped
+    command: tt-launch foxglove
+
+  rviz:
+    extends: ros-base
+    container_name: tabletop-rviz
+    profiles: !override
+      - real
+      - sim
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: tt-launch rviz
+
+  ur:
+    extends: ros-base
+    container_name: tabletop-ur
+    profiles: !override
+      - real
+    # cap_add:
+    #   - SYS_NICE
+    # ulimits:
+    #   ntprio: 99
+    #   memlock: -1
+    restart: unless-stopped
+    command: tt-launch ur robot_mode:=real
+
+  ur-mock:
+    extends: ros-base
+    container_name: tabletop-ur-mock
+    profiles: !override
+      - sim
+    restart: unless-stopped
+    command: tt-launch ur robot_mode:=mock
+
+  optitrack:
+    extends: ros-base
+    profiles: !override
+      - real
+    container_name: tabletop-optitrack
+    restart: unless-stopped
+    command: tt-launch optitrack
+
+  flir:
+    extends: ros-base
+    container_name: tabletop-flir
+    profiles: !override
+      - flir
+    devices:
+      - $FLIR_DEV_0
+      - $FLIR_DEV_1
+      - $FLIR_DEV_2
+      - $FLIR_DEV_3
+      - $FLIR_DEV_4
+      - $FLIR_DEV_5
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+    cpus: 8 # Limit cpu usage
+    runtime: $COMMANDER_RUNTIME
+    restart: unless-stopped
+    command: tt-launch flir
+
+  # flir:
+  #   extends: ros-base
+  #   container_name: tabletop-flir
+  #   profiles: !override
+  #     - flir
+  #   volumes:
+  #     - /dev:/dev
+  #   environment:
+  #     - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+  #     - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+  #   cpus: 8 # Limit cpu usage
+  #   privileged: true
+  #   runtime: $COMMANDER_RUNTIME
+  #   restart: unless-stopped
+  #   command: tt-launch flir
+
+  teensy:
+    extends: ros-base
+    container_name: tabletop-teensy
+    profiles: !override
+      - real
+    devices:
+      - $TEENSY_DEV
+    restart: unless-stopped
+    command: tt-launch teensy simulate:=false
+
+  teensy-sim:
+    extends: ros-base
+    container_name: tabletop-teensy-sim
+    profiles: !override
+      - sim
+    restart: unless-stopped
+    command: tt-launch teensy simulate:=true
+
+  flic:
+    container_name: tabletop-flic
+    extends: ros-base
+    profiles: !override
+      - real
+    depends_on:
+      flicd:
+        condition: service_healthy
+        restart: true
+        # condition: service_started
+    restart: unless-stopped
+    command: tt-launch flic simulate:=false
+
+  flic-sim:
+    container_name: tabletop-flic-sim
+    extends: ros-base
+    profiles: !override
+      - sim
+    restart: unless-stopped
+    command: tt-launch flic simulate:=true
+
+  eyelink:
+    container_name: tabletop-eyelink
+    extends: ros-base
+    profiles: !override
+      - real
+    restart: unless-stopped
+    # cap_add:
+    #   - SYS_NICE # TODO: see if needed
+    # ulimits:
+    #   ntprio: 99
+    volumes:
+      - /hdd/bags:/hdd/bags
+    environment:
+      - ROS_BAG_DIR=/hdd/bags
+    command: tt-launch eyelink simulate:=false
+
+  eyelink-sim:
+    container_name: tabletop-eyelink-sim
+    extends: ros-base
+    profiles: !override
+      - sim
+    restart: unless-stopped
+    command: tt-launch eyelink simulate:=true
+
+  commander:
+    container_name: tabletop-commander
+    extends: ros-base
+    profiles: !override
+      - commander
+    runtime: $COMMANDER_RUNTIME
+    volumes:
+      - /hdd/bags:/hdd/bags
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
+    environment:
+      - ROS_BAG_DIR=/hdd/bags
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+      - PULSE_SERVER=$PULSE_SERVER_CONTAINER
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
+    command: tt-launch commander
+
+  dev:
+    <<: *common
+    container_name: tabletop-dev
+    profiles:
+      - builder
+      - dev
+    image: tabletop/dev
+    build:
+      context: .
+      dockerfile: ./docker/ros/dev.Dockerfile
+      pull: true
+      additional_contexts:
+        tabletop/ros-base: service:ros-base
+    runtime: $COMMANDER_RUNTIME
+    volumes:
+      - /dev:/dev
+      - type: bind
+        source: .
+        target: /tabletop
+        consistency: $BIND_CONSISTENCY
+      - /hdd/bags:/hdd/bags
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
+      - python-venv:/tabletop/.venv
+      - ~/.claude:/home/$USER_NAME/.claude
+      - ~/.claude.json:/home/$USER_NAME/.claude.json
+      - $KITTY_LISTEN_ON_MNT
+    environment:
+      - ROS_BAG_DIR=/hdd/bags
+      - DISPLAY=$NOVNC_DISPLAY
+      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+      - PULSE_SERVER=$PULSE_SERVER_CONTAINER
+      - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
+    # depends_on:
+    #   novnc:
+    #     condition: service_healthy
+    init: true
+    privileged: true
+    command: sleep infinity
+
+volumes:
+  python-venv:

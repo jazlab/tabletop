@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:include filename="$(find tabletop_description)/urdf/sphere_macro.xacro" />
+  <xacro:include filename="$(find tabletop_description)/urdf/cylinder_macro.xacro" />
+  <xacro:macro name="eef"
+    params="
+    tf_prefix
+    parent
+    cylinder_length
+    cylinder_radius
+    cylinder_mass
+    sphere_radius
+    *origin
+    ">
+
+    <link name="${tf_prefix}eef_link">
+      <visual>
+        <geometry>
+          <mesh filename="package://tabletop_description/meshes/visual/eef.stl" />
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <material name="black">
+          <color rgba="0 0 0 1" />
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="${cylinder_radius}" length="${cylinder_length}" />
+        </geometry>
+        <origin xyz="0 0 ${cylinder_length/2}" rpy="0 0 0" />
+      </collision>
+      <inertial>
+        <mass value="${cylinder_mass}" />
+        <origin xyz="0 0 ${cylinder_length/2}" rpy="0 0 0" />
+        <inertia
+          ixx="${cylinder_mass * (3 * cylinder_radius * cylinder_radius + cylinder_length * cylinder_length) / 12}"
+          ixy="0" ixz="0"
+          iyy="${cylinder_mass * (3 * cylinder_radius * cylinder_radius + cylinder_length * cylinder_length) / 12}"
+          iyz="0"
+          izz="${cylinder_mass * cylinder_radius * cylinder_radius / 2}" />
+      </inertial>
+    </link>
+
+    <xacro:sphere
+      name="eef_sphere"
+      tf_prefix="${tf_prefix}"
+      parent="${parent}"
+      radius="${sphere_radius}"
+    >
+      <xacro:insert_block name="origin" />
+    </xacro:sphere>
+
+    <joint name="${parent}-eef_link" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}" />
+      <child link="${tf_prefix}eef_link" />
+    </joint>
+
+    <!-- eef frame, X+ direction to move to attach object,
+         Y+ left,
+         Z+ up / outward from eef -->
+    <link name="${tf_prefix}eef" />
+    <joint name="${tf_prefix}eef_link-eef" type="fixed">
+      <origin xyz="0 0 ${cylinder_length}" rpy="0 0 ${pi/2}" />
+      <parent link="${tf_prefix}eef_link" />
+      <child link="${tf_prefix}eef" />
+    </joint>
+
+    <!-- <xacro:cylinder
+      name="bounding_cylinder"
+      tf_prefix="${tf_prefix}"
+      parent="${tf_prefix}eef"
+      radius="${bounding_cylinder_radius}"
+      length="${bounding_cylinder_length}"
+    >
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </xacro:cylinder> -->
+
+  </xacro:macro>
+
+</robot>

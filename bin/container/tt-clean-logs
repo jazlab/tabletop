@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+# Parse arguments
+skip_confirmation=false
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -y|--yes)
+      skip_confirmation=true
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+# Get the size of the logs directory
+if [ -z "$ROS_LOG_DIR" ]; then
+    print_status "ROS_LOG_DIR is not set"
+    exit 1
+elif [ -d "$ROS_LOG_DIR" ]; then
+    dir_size=$(du -sh "$ROS_LOG_DIR" | cut -f1)
+    print_status "Logs directory size: $dir_size"
+
+    # Count number of files/directories in logs_dir
+    item_count=$(ls -1 "$ROS_LOG_DIR" | wc -l)
+    print_status "Number of items in logs directory: $item_count"
+else
+    print_status "Logs directory does not exist or is not a directory: $ROS_LOG_DIR"
+    exit 1
+fi
+
+# Ask for confirmation before deletion
+if [ "$skip_confirmation" = "false" ]; then
+    read -p "Do you want to proceed with deleting all logs in $ROS_LOG_DIR? (y/n): " confirm
+    case "$confirm" in
+        [yY][eE][sS]|[yY]) ;;
+        *) echo "Aborted."; exit 1 ;;
+    esac
+fi
+
+# Remove all bag files in the bags directory
+print_status "Removing all logs in $ROS_LOG_DIR"
+rm -rf $ROS_LOG_DIR/*
+print_status "Cleanup complete"

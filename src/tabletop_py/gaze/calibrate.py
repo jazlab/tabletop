@@ -1,0 +1,158 @@
+"""High-level calibration orchestrator for gaze estimation.
+
+This module provides the main entry point for calibrating gaze estimation
+models. It orchestrates the full pipeline from raw ROS bag data to a
+trained model:
+
+1. Convert ROS bags to CSV (if not already done)
+2. Preprocess eye tracking and marker data
+3. Train and evaluate the gaze estimation model
+
+The calibration uses data from a calibration session where the subject
+tracks a known marker position, providing ground truth for training.
+
+Functions:
+    main: CLI entry point for the calibration pipeline.
+
+Example:
+    # Run calibration on a session
+    python -m tabletop_py.gaze.calibrate -d /path/to/session --visualize
+
+    # Force reprocessing of all steps
+    python -m tabletop_py.gaze.calibrate -d /path/to/session --force
+"""
+
+import argparse
+import logging
+import os
+from typing import Any, cast
+
+import yaml
+
+from tabletop_py.gaze.preprocess import preprocess_data
+from tabletop_py.gaze.train import train_and_evaluate
+
+logger = logging.getLogger(__name__)
+
+
+def main(args=None):
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s - %(message)s"
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Calibrate the gaze estimation model"
+    )
+    parser.add_argument(
+        "-d",
+        "--session-dir",
+        type=str,
+        default=os.path.join(os.environ["ROS_BAG_DIR"], "latest"),
+        help="Path to bag directory",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default=os.path.join(
+            os.environ["TABLETOP_DIR"], "config", "gaze_estimation.yaml"
+        ),
+        help="Path to the training config file",
+    )
+    parser.add_argument(
+        "-s",
+        "--start-time",
+        type=float,
+        default=0.0,
+        help="The start time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "-e",
+        "--end-time",
+        type=float,
+        default=float("inf"),
+        help="The end time of the data to visualize in seconds, relative to the start of the session.",
+    )
+    parser.add_argument(
+        "-m",
+        "--marker-idx",
+        type=int,
+        default=0,
+        help="The index of the marker to use.",
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force rerun all steps, even if already converted or preprocessed",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Visualize the calibration data",
+    )
+
+    args = parser.parse_args(args)
+
+    if not os.path.exists(args.session_dir):
+        raise FileNotFoundError(
+            f"Session directory not found at {args.session_dir}"
+        )
+
+    with open(args.config, "r") as f:
+        config = cast(dict[str, Any], yaml.safe_load(f))
+
+    # Convert ROS bags to CSV files
+    eyelink_path = os.path.join(args.session_dir, "eyelink_sample.csv")
+    eyelink_array_path = os.path.join(
+        args.session_dir, "eyelink_sample_array.csv"
+    )
+    markers_path = os.path.join(args.session_dir, "markers.csv")
+
+    already_converted = (
+        os.path.exists(eyelink_path) or os.path.exists(eyelink_array_path)
+    ) and os.path.exists(markers_path)
+
+    if args.force or not already_converted:
+        try:
+            from tabletop_rig.utils.rosbag import rosbag_session_to_dfs
+        except ImportError:
+            if not already_converted:
+                raise ValueError(
+                    "tabletop_rig.utils.rosbag does not seem to be installed and the session "
+                    "bags have not yet been converted to CSV files, you are probably "
+                    "not in the docker container and should consider entering it in order "
+                    "to convert the session bags to CSV files"
+                )
+        else:
+            rosbag_session_to_dfs(
+                args.session_dir,
+                topics=[
+                    "/eyelink/sample",
+                    "/eyelink/sample_array",
+                    "/markers",
+                ],
+            )
+
+    # Preprocess data
+    path = os.path.join(args.session_dir, config["preprocess"]["filename"])
+    already_preprocessed = os.path.exists(path)
+    print(f"Path: {path}")
+    print(f"Already preprocessed: {already_preprocessed}")
+
+    if args.force or not already_preprocessed:
+        print("Preprocessing data...")
+        preprocess_data(
+            args.session_dir,
+            config,
+            marker_idx=args.marker_idx,
+            start_time=args.start_time,
+            end_time=args.end_time,
+        )
+
+    # Train and evaluate
+    train_and_evaluate(args.session_dir, config, visualize=args.visualize)
+
+
+if __name__ == "__main__":
+    main()

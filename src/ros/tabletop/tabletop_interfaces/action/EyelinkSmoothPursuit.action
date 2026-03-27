@@ -1,0 +1,4 @@
+---
+---
+# Whether smooth pursuit started or ended
+bool is_smoothly_pursuing

@@ -1,0 +1,70 @@
+preprocess:
+  filename: preprocessed.csv
+  eyelink_freq: 1000
+  markers_freq: 120
+  format_columns:
+    eyelink:
+      verify: true
+      freq_rtol: 0.1
+    markers:
+      verify: true
+      freq_rtol: 0.01
+      max_marker_time_correction: 0.05
+  max_marker_time_correction: 0.05
+  min_eye_pos: -20000
+  max_eye_pos: 20000
+  max_zscore: 3.0
+  eyelink_filter_window: 0.005
+  markers_filter_window: null
+  max_marker_gap: 0.05
+data:
+  test_size: 0.2
+  val_folds: 5
+  shuffle_test_split: false
+  shuffle_val_split: false
+  train_batch_size: 512
+  val_batch_size: 8192
+  test_batch_size: 8192
+  num_workers: 8
+model:
+  name: GazeEstimationModelGeometric
+  camera_tf:
+    - [1, 0, 0, 0]
+    - [0, 1, 0, 0]
+    - [0, 0, 1, 0]
+    - [0, 0, 0, 1]
+  camera_intrinsic:
+    - [500, 0, 320]
+    - [0, 500, 240]
+    - [0, 0, 1]
+  eye_left_center: [-0.65, 0.5, 0.44]
+  eye_right_center: [-0.65, 0.5, 0.48]
+  eye_radius: 0.012
+optimizer:
+  name: AdamW
+  lr: 0.001
+  # momentum: 0.9
+  # weight_decay: 0.1
+criterion:
+  name: MSELoss
+  reduction: mean
+train:
+  num_epochs: 100
+  patience_epochs: 10
+  max_folds: 1
+weights_path: saved_weights/model.pt
+predictions:
+  filename: predictions.csv
+visualize:
+  eyelink_range:
+    min_x: -30000
+    max_x: 30000
+    min_y: -30000
+    max_y: 30000
+  markers_range:
+    min_x: 0.0
+    max_x: 1.0
+    min_y: -0.5
+    max_y: 0.5
+    min_z: 0.0
+    max_z: 1.0

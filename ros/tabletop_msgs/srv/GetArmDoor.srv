@@ -1,5 +1,0 @@
----
-bool success
-uint8 state # 0: OPEN, 1: OPENING, 2: CLOSED, 3: CLOSING
-bool is_closed
-string message

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+PLATFORMIO_FILENAME=98-platformio.rules
+TEENSY_FILNAME=00-teensy.rules
+FLIR_FILENAME=40-flir.rules
+
+# PlatformIO (disabled in lieu of custom teensy rule below)
+sudo curl -fsSL -o /etc/udev/rules.d/$PLATFORMIO_FILENAME https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
+
+# Teensy
+sudo tee /etc/udev/rules.d/$TEENSY_FILNAME > /dev/null <<EOF
+ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1"
+ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04[789a]*", ENV{MTP_NO_PROBE}="1"
+KERNEL=="ttyACM*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666", RUN:="/bin/stty -F /dev/%k raw -echo"
+KERNEL=="hidraw*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="0666"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="0666"
+EOF
+
+# Flir Cameras
+sudo tee /etc/udev/rules.d/$FLIR_FILENAME > /dev/null <<EOF
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", MODE="0666" SYMLINK+="flir/%s{serial}"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", MODE="0666" SYMLINK+="flir/%s{serial}"
+EOF
+
+sudo udevadm control --reload
+sudo udevadm trigger

@@ -1,0 +1,46 @@
+/optitrack_driver:
+  ros__parameters:
+    connection_type: "Unicast" # Unicast / Multicast
+    server_address: "192.168.13.40"
+    local_address: "0.0.0.0"
+    multicast_address: "239.255.42.99"
+    server_command_port: 1510
+    server_data_port: 1511
+    rigid_body_name: "ground"
+    lastFrameNumber: 0
+    frameCount: 0
+    droppedFrameCount: 0
+    n_markers: 0
+    n_unlabeled_markers: 0
+    qos_history_policy: "keep_last" # keep_all / keep_last
+    qos_reliability_policy: "best_effort" # best_effort / reliable
+    qos_depth: 10 # 10 / 100 / 1000
+
+/optitrack_marker_viz:
+  ros__parameters:
+    mocap4r2_system: "optitrack"
+    marker_topics: ["markers", "predicted_markers"]
+    rb_topics: ["rigid_bodies"]
+    rb_require_markers: true
+    marker_colors:
+      markers:
+        r: 0.0
+        g: 1.0
+        b: 0.0
+        a: 0.8
+      predicted_markers:
+        r: 1.0
+        g: 1.0
+        b: 0.0
+        a: 0.8
+      rigid_bodies:
+        r: 1.0
+        g: 0.0
+        b: 1.0
+        a: 0.8
+    rb_colors:
+      rigid_bodies:
+        r: 0.0
+        g: 0.0
+        b: 1.0
+        a: 0.8

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+print_usage() {
+    echo "Usage: $0 [<launch_type>] [<launch_options>...]"
+    echo "launch_type can be one of commander, rig, flir, or tasks"
+}
+
+LAUNCH=
+RUN=
+case $1 in
+    foxglove)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
+        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
+        ;;
+    rviz)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rviz"
+        LAUNCH="tabletop_rig rviz.launch.py"
+        ;;
+    flir)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
+        LAUNCH="tabletop_rig flir.launch.py"
+        ;;
+    flir_calibrate)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flir_calibrate"
+        LAUNCH="tabletop_rig flir_calibrate.launch.py"
+        ;;
+    ur)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/ur"
+        LAUNCH="tabletop_rig ur.launch.py"
+        ;;
+    optitrack)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/optitrack"
+        LAUNCH="tabletop_rig optitrack.launch.py"
+        ;;
+    teensy)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/teensy"
+        LAUNCH="tabletop_rig teensy.launch.py"
+        ;;
+    flic)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
+        LAUNCH="tabletop_rig flic.launch.py"
+        ;;
+    eyelink)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/eyelink"
+        LAUNCH="tabletop_rig eyelink.launch.py"
+        ;;
+    rig)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rig"
+        LAUNCH="tabletop_rig rig.launch.py"
+        ;;
+    commander)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/commander"
+        LAUNCH="tabletop_rig commander.launch.py"
+        ;;
+    task|tasks)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/tasks"
+        LAUNCH="tabletop_tasks tasks.launch.py"
+        ;;
+    rosbag)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag"
+        LAUNCH="tabletop_rig rosbag.launch.py"
+        ;;
+    rosbag_convert|rosbag_to_csv)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag_convert"
+        RUN="tabletop_rig rosbag_to_csv"
+        ;;
+    *)
+        print_error "launch_type $1 unsupported"
+        print_usage
+        exit 1
+        ;;
+esac
+
+shift
+
+if [[ -n "$RUN" ]]; then
+    exec ros2 run $RUN "$@"
+elif [[ -n "$LAUNCH" ]]; then
+    exec ros2 launch $LAUNCH "$@"
+else
+    print_error "This should never happen"
+fi

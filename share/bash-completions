@@ -1,0 +1,53 @@
+BASH_COMP_DEBUG_TABLETOP=
+
+__tabletop_debug()
+{
+    if [[ $BASH_COMP_DEBUG_TABLETOP ]]; then
+        echo "$*"
+    fi
+}
+__start_tabletop()
+{
+    local cur prev words cword split
+
+    COMPREPLY=()
+
+    # Call _init_completion from the bash-completion package
+    # to prepare the arguments properly
+    if declare -F _init_completion >/dev/null 2>&1; then
+        _init_completion -n =: || return
+    else
+        __docker_init_completion -n =: || return
+    fi
+
+    __tabletop_debug
+    __tabletop_debug "========= starting completion logic =========="
+    __tabletop_debug "cur is ${cur}, prev is ${prev}, words[*] is ${words[*]}, #words[@] is ${#words[@]}, cword is $cword"
+
+    words=("docker" "compose" "${words[@]:1}")
+    ((cword++))
+    prev="${words[$(($cword - 1))]}"
+
+    __tabletop_debug "========= after shift logic =========="
+    __tabletop_debug "cur is ${cur}, prev is ${prev}, words[*] is ${words[*]}, #words[@] is ${#words[@]}, cword is $cword"
+
+    # The user could have moved the cursor backwards on the command-line.
+    # We need to trigger completion from the $cword location, so we need
+    # to truncate the command-line ($words) up to the $cword location.
+    words=("${words[@]:0:$cword+1}")
+    __tabletop_debug "Truncated words[*]: ${words[*]},"
+
+    local out directive
+    __docker_get_completion_results
+    __docker_process_completion_results
+}
+
+_completion_loader docker
+
+if [[ $(type -t compopt) = "builtin" ]]; then
+    complete -o default -F __start_docker tt-docker
+    complete -o default -F __start_tabletop tt-compose
+else
+    complete -o default -o nospace -F __start_docker tt-docker
+    complete -o default -o nospace -F __start_tabletop tt-compose
+fi

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+cd $TABLETOP_DIR
+
+# Reset bluetooth module
+sudo modprobe -r btusb
+sudo modprobe btusb
+
+while true; do
+    docker compose up --force-recreate flicd
+    # Capture the output of the previous command
+    output=$(docker compose logs flic 2>&1)
+    if [[ "$output" != *"DISCONNECTED"* ]]; then
+        print_status "Container stopped, exiting..."
+        docker compose down flicd
+        break
+    fi
+    print_status "Client disconnected, restarting rig..."
+    sudo modprobe -r btusb
+    sudo modprobe btusb
+    sleep 2
+done

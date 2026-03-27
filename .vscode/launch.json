@@ -1,53 +1,34 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "ROS: Launch Commander",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_server/share/tabletop_server/launch/server.launch.py",
-            "arguments": [
-                "use_mock_teensy:=true",
-                "commander_log_level:=DEBUG"
-            ],
-            "attachDebugger": [
-                "commander"
-            ],
-            "postDebugTask": "kill_ros"
-        },
-        {
-            "name": "ROS: Launch Tasks",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
-            "arguments": [
-                "robot_mode:=ursim",
-                "commander_log_level:=DEBUG"
-            ],
-            "attachDebugger": [
-                "run_tasks"
-            ],
-            "postDebugTask": "kill_ros"
-        },
-        {
-            "name": "ROS: Launch Real Robot",
-            "request": "launch",
-            "type": "ros",
-            "target": "/root/ws/install/tabletop_tasks/share/tabletop_tasks/launch/tasks.launch.py",
-            "arguments": [
-                "robot_mode:=real",
-                "commander_log_level:=DEBUG"
-            ],
-            "attachDebugger": [
-                "run_tasks"
-            ],
-            "postDebugTask": "kill_ros"
-        },
-        {
-            "name": "Python Debugger: Python File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Python Debugger: Current File with Arguments",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": "${command:pickArgs}",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Python Debugger: Attach to debugpy",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 1300
+      },
+      "justMyCode": false
+    }
+  ]
 }

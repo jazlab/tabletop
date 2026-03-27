@@ -1,14 +1,43 @@
-[submodule "ros/uros/drive_base"]
-	path = ros/uros/drive_base
-	url = https://github.com/micro-ROS/drive_base.git
-	branch = master
-
-[submodule "ros/uros/micro-ROS-Agent"]
-	path = ros/uros/micro-ROS-Agent
+[submodule "micro-ROS-Agent"]
+	path = src/ros/modules/micro-ROS-Agent
 	url = https://github.com/micro-ROS/micro-ROS-Agent.git
 	branch = jazzy
-
-[submodule "ros/uros/micro_ros_msgs"]
-	path = ros/uros/micro_ros_msgs
+[submodule "micro_ros_msgs"]
+	path = src/ros/modules/micro_ros_msgs
 	url = https://github.com/micro-ROS/micro_ros_msgs.git
+	branch = jazzy
+[submodule "moveit2"]
+	path = src/ros/modules/moveit2
+	url = https://github.com/valmikikothare/moveit2.git
+	branch = main
+[submodule "moveit_msgs"]
+	path = src/ros/modules/moveit_msgs
+	url = https://github.com/moveit/moveit_msgs
+	branch = ros2
+[submodule "mocap4r2_msgs"]
+	path = src/ros/modules/mocap4r2_msgs
+	url = https://github.com/valmikikothare/mocap4r2_msgs.git
+	branch = rolling
+[submodule "mocap4r2"]
+	path = src/ros/modules/mocap4r2
+	url = https://github.com/valmikikothare/mocap4r2.git
+	branch = rolling
+[submodule "mocap4r2_optitrack"]
+	path = src/ros/modules/mocap4r2_optitrack
+	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
+	branch = rolling
+[submodule "flir_camera_driver"]
+	path = src/ros/modules/flir_camera_driver
+	url = https://github.com/valmikikothare/flir_camera_driver.git
+	branch = ros2-release
+[submodule "foxglove_moveit_msg_converter"]
+	path = src/ros/modules/foxglove_moveit_msg_converter
+	url = https://github.com/valmikikothare/foxglove_moveit_msg_converter.git
+[submodule "trac_ik"]
+	path = src/ros/modules/trac_ik
+	url = https://bitbucket.org/traclabs/trac_ik.git
+	branch = jazzy
+[submodule "image_transport_plugins"]
+	path = src/ros/modules/image_transport_plugins
+	url = https://github.com/valmikikothare/image_transport_plugins.git
 	branch = jazzy

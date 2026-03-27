@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
+  <xacro:include filename="$(find tabletop_description)/urdf/eef_macro.xacro" />
+
+  <xacro:macro name="tabletop_robot"
+    params="
+    name
+    tf_prefix
+    parent
+    joint_limits_parameters_file
+    kinematics_parameters_file
+    physical_parameters_file
+    visual_parameters_file
+    safety_limits
+    safety_pos_margin
+    safety_k_position
+    force_abs_paths
+    eef_cylinder_length
+    eef_cylinder_radius
+    eef_cylinder_mass
+    eef_sphere_radius
+    *origin
+    *eef_origin
+    ">
+
+    <!-- robot -->
+    <xacro:ur_robot
+      name="${name}"
+      tf_prefix="${tf_prefix}"
+      parent="${parent}"
+      joint_limits_parameters_file="${joint_limits_parameters_file}"
+      kinematics_parameters_file="${kinematics_parameters_file}"
+      physical_parameters_file="${physical_parameters_file}"
+      visual_parameters_file="${visual_parameters_file}"
+      safety_limits="${safety_limits}"
+      safety_pos_margin="${safety_pos_margin}"
+      safety_k_position="${safety_k_position}"
+      force_abs_paths="${force_abs_paths}"
+    >
+      <xacro:insert_block name="origin" />
+    </xacro:ur_robot>
+
+    <!-- end effector -->
+    <xacro:eef
+      tf_prefix="${tf_prefix}"
+      parent="${tf_prefix}wrist_3_link"
+      cylinder_length="${eef_cylinder_length}"
+      cylinder_radius="${eef_cylinder_radius}"
+      cylinder_mass="${eef_cylinder_mass}"
+      sphere_radius="${eef_sphere_radius}"
+    >
+      <xacro:insert_block name="eef_origin" />
+    </xacro:eef>
+
+  </xacro:macro>
+</robot>

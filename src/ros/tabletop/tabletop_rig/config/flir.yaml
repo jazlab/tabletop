@@ -1,0 +1,117 @@
+common:
+  camera_type: blackfly_s
+  image_transport_plugins:
+    enable_pub_plugins:
+      # - image_transport/foxglove
+      # - image_transport/ffmpeg
+      - image_transport/compressed
+      # - image_transport/raw
+    foxglove:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
+      # bit_rate: 16485760
+      # qmax: 3
+      gop_size: 1
+    ffmpeg:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
+    compressed:
+      jpeg_quality: 80
+      jpeg_compress_bayer: true
+      # png_level: 9
+      format: jpeg
+    jpeg_compress_bayer: true
+  debug: false
+  dump_node_map: false
+  compute_brightness: false
+  # connect_while_subscribed: true
+  image_queue_size: 10
+  buffer_queue_size: 10
+  acquisition_timeout: 5.0
+  # factory_reset: true
+  # device_reset: true
+  # device_reset_timeout: 3.0
+
+  # set parameters defined in blackfly_s.yaml
+  # to use a user set, do this:
+  # default_user_set: Default
+  user_set_selector: Default
+  user_set_load: "Yes"
+  adjust_timestamp: true
+  gain_auto: Continuous
+  acquisition_mode: Continuous
+  exposure_mode: Timed
+  exposure_auto: "Off"
+  exposure_time: 4000
+  frame_rate_enable: true
+  frame_rate: 120.0
+  trigger_mode: "Off"
+  pixel_format: BayerRG8
+  # exposure_auto: Continuous
+  # binning_selector: Sensor
+  # binning_mode_x: Sum
+  # binning_mode_y: Sum
+  # decimation_selector: Sensor
+  # decimation_x: 2
+  # decimation_y: 2
+  # binning_x: 2
+  # binning_y: 2
+  # to reduce the sensor width and shift the crop
+  # offset_x: 16
+  # offset_y: 0
+  # image_width: 960
+  # image_height: 600
+  image_width: 1920
+  image_height: 1200
+  # reverse_x: true
+  # reverse_y: true
+  # frame_rate_auto: "Off"
+  line0_selector: Line0
+  line0_linemode: Input
+  chunk_mode_active: true
+  chunk_selector_frame_id: FrameID
+  chunk_enable_frame_id: true
+  chunk_selector_exposure_time: ExposureTime
+  chunk_enable_exposure_time: true
+  chunk_selector_gain: Gain
+  chunk_enable_gain: true
+  chunk_selector_timestamp: Timestamp
+  chunk_enable_timestamp: true
+  chunk_selector_line_status: ExposureEndLineStatusAll
+  chunk_enable_line_status: true
+  # stream_buffer_handling_mode: NewestFirst
+  # multicast_monitor_mode: false
+  # user_set_save_selector: UserSet0
+  # user_set_save: "Yes"
+
+cameras:
+  - name: left_front_top_cam
+    serial_number: "23240397"
+    pose:
+      position: [0.6, 0.3, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: left_back_top_cam
+    serial_number: "22442796"
+    pose:
+      position: [0.5, 0.5, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: left_bottom_cam
+    serial_number: "23240395"
+    pose:
+      position: [0.3, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]
+  - name: right_front_top_cam
+    serial_number: "23240393"
+    pose:
+      position: [1.3, 0.3, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_back_top_cam
+    serial_number: "22157020"
+    pose:
+      position: [1.4, 0.5, 1.2]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_bottom_cam
+    serial_number: "22442797"
+    pose:
+      position: [1.2, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]

@@ -173,8 +173,7 @@ def qpos_from_site_pose(
             progress_criterion = err_norm / update_norm
             if progress_criterion > progress_thresh:
                 print(
-                    "Step %2i: err_norm / update_norm (%3g) > "
-                    "tolerance (%3g). Halting due to insufficient progress",
+                    "Step %2i: err_norm / update_norm (%3g) > tolerance (%3g). Halting due to insufficient progress",
                     steps,
                     progress_criterion,
                     progress_thresh,

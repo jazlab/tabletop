@@ -1,39 +1,46 @@
-# Ignore caches
-**/__pycache__/
-**/.ruff_cache/
-**/.DS_Store
+# Caches
+__pycache__/
+.ruff_cache/
+.DS_Store
+.cache/
+*browse.vc.db*
 
-# Ignore logs
-**/logs/
-**/log/
-**/bags/
-**/*.log
+# Logs
+/log/
+*.log
 
-# Ignore build artifacts
-**/build/
-**/install/
-**/dist/
-**/egg-info/
-**/.pio/
+# Temporary files
+*.tmp
 
-# Ignore vscode files
-**/.vscode/c_cpp_properties.json
-**/.vscode/settings.json
-**/tabletop_teensy/.vscode/
+# .env file
+.env
 
-# Ignore cursor files
-**/.cursorignore
+# Build artifacts
+/build/
+/install/
+compile_commands.json
 
-# Ignore meshes
-**/meshes/test/
+# VSCode
+.vscode/.browse.c_cpp.db*
+.vscode/launch.json
+.vscode/ipch
 
-# Ignore flic files
-/flic_server/sqlite.db
-/flic_client/simpleclient
+# Platformio
+.pio/
 
-# Ignore venv
-**/venv/
+# Flic files
+flic.db
 
-# Ignore piano stuff
-**/*.sf2
-**/*.mid
+# Venv
+.venv/
+
+# Videos
+*.mp4
+*.gif
+
+# Bags
+/bags
+/bags_i_care_about
+
+# Saved models
+saved_weights/

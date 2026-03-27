@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+builtin cd $TABLETOP_DIR
+
+if [[ $# > 1 ]]; then
+    print_error "Usage: $0 [<service_name> (default: dev)]"
+    exit 1
+fi
+
+SERVICE="${1:-dev}"
+
+export COMPOSE_BAKE=true
+export COMPOSE_REMOVE_ORPHANS=true
+
+# Check if dev container is already running
+if [[ ! "$(docker compose ps -q --status=running $SERVICE)" ]]; then
+    if [[ "$SERVICE" = dev ]]; then
+        devcontainer up
+    else
+        docker compose up -d $SERVICE
+    fi
+fi
+
+# CONTAINER_ID=$(docker compose ps -q $SERVICE)
+if [[ "$SERVICE" = dev && "$TERM" = "*kitty*" ]]; then
+    exec docker compose exec "$SERVICE" kitten run-shell --shell-integration=no-cursor --shell=/bin/bash /entrypoint.sh
+else
+    exec docker compose exec "$SERVICE" /entrypoint.sh bash
+fi
+
+# docker compose exec -it $CONTAINER_ID $CMD

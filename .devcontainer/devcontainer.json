@@ -1,34 +1,34 @@
 {
-    "name": "Tabletop Dev Container",
-    "dockerComposeFile": "compose.devcontainer.yaml",
-    "service": "devcontainer",
-    "workspaceFolder": "/root/ws/src/tabletop",
-    "postStartCommand": [
-        "bash",
-        "-c",
-        "/root/ws/src/tabletop/scripts/build.sh"
-    ],
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "ms-python.python",
-                "ms-python.debugpy",
-                "mechatroner.rainbow-csv",
-                "charliermarsh.ruff",
-                "tamasfe.even-better-toml",
-                "redhat.vscode-yaml",
-                "ms-azuretools.vscode-docker",
-                "redhat.vscode-xml",
-                "bierner.markdown-mermaid",
-                "ms-iot.vscode-ros",
-                "ms-vscode.cpptools",
-                "ms-vscode.cpptools-extension-pack",
-                "ms-vscode.cpptools-themes",
-                "ms-vscode.cmake-tools",
-                "IronGeek.vscode-env",
-                "platformio.platformio-ide",
-                "ms-toolsai.jupyter"
-            ]
-        }
+  "name": "tabletop-dev",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "dev",
+  "runServices": [
+    "dev"
+  ],
+  "workspaceFolder": "/tabletop",
+  "containerUser": "mules",
+  "remoteUser": "mules",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.debugpy",
+        "mechatroner.rainbow-csv",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-xml",
+        "bierner.markdown-mermaid",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cpptools-themes",
+        "ms-vscode.cmake-tools",
+        "ms-toolsai.jupyter",
+        "mads-hartmann.bash-ide-vscode",
+        "christian-kohler.npm-intellisense",
+        "docker.docker",
+        "Ranch-Hand-Robotics.rde-pack"
+      ]
     }
+  }
 }
