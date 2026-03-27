@@ -187,29 +187,16 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
-      - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
-    cpus: 8 # Limit cpu usage
-    runtime: $COMMANDER_RUNTIME
+    # volumes:
+    #   - /dev:/dev
+    # privileged: true
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+    #   - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+    # cpus: 8 # Limit cpu usage
+    # runtime: $COMMANDER_RUNTIME
     restart: unless-stopped
     command: tt-launch flir
-
-  # flir:
-  #   extends: ros-base
-  #   container_name: tabletop-flir
-  #   profiles: !override
-  #     - flir
-  #   volumes:
-  #     - /dev:/dev
-  #   environment:
-  #     - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
-  #     - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
-  #   cpus: 8 # Limit cpu usage
-  #   privileged: true
-  #   runtime: $COMMANDER_RUNTIME
-  #   restart: unless-stopped
-  #   command: tt-launch flir
 
   teensy:
     extends: ros-base

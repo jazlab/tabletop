@@ -203,8 +203,8 @@ class Commander(BaseNode):
         "planning_scene.object_meshes",
         "planning_scene.rig_meshes",
         # "planning.defaults", TODO
-        "planning.pose_tolerance.position_tolerance",
-        "planning.pose_tolerance.orientation_tolerance",
+        # "planning.pose_tolerance.position_tolerance",
+        # "planning.pose_tolerance.orientation_tolerance",
         # "predefined_states.idle_state",
         "trajectory_cache.use_cached_trajectories",
         "trajectory_cache.freeze_cache",

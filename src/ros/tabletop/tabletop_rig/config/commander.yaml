@@ -85,9 +85,9 @@
       # min_angle_change: 0.001
       # mitigate_overshoot: false
       # overshoot_threshold: 0.002
-      pose_tolerance:
-        position_tolerance: 0.01
-        orientation_tolerance: 0.01
+      # pose_tolerance:
+      #   position_tolerance: 0.01
+      #   orientation_tolerance: 0.01
 
     trajectory_cache:
       use_cached_trajectories: true
@@ -95,7 +95,7 @@
       kwargs:
         path: $TABLETOP_CACHE_DIR/trajectories
         position_tolerance: 0.03 # meters
-        orientation_tolerance: 0.01
+        orientation_tolerance: 0.01 # radians
         max_trajectories: 5
         new_cache: false
 
@@ -117,8 +117,8 @@
         goal: test_object_attached
         object_id: test_object
         joint_name: wrist_1_joint
-        num_samples: 500
-        effort_threshold: 0.17
+        num_samples: 2500
+        effort_threshold: 0.23
       touch_links:
         - eef_link
         - eef_sphere

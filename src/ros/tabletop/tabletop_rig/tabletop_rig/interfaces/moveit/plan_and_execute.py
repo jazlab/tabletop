@@ -32,7 +32,7 @@ import concurrent
 import concurrent.futures
 import threading
 from collections.abc import Callable
-from copy import copy
+from copy import deepcopy
 from types import TracebackType
 from typing import Any, Optional, Self
 
@@ -554,7 +554,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Retrieve trajectory from cache or plan a trajectory"""
-        request = copy(request)
+        request = deepcopy(request)
 
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
@@ -665,7 +665,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
-        request = copy(request)
+        request = deepcopy(request)
 
         # Validate request
         if len(request.goals) < 1:

@@ -27,16 +27,19 @@ Configuration:
 import asyncio
 import functools
 import os
+import traceback
 from collections.abc import Callable
 from enum import IntEnum
 from glob import glob
 from typing import Any, Optional
 
+import numpy as np
 import yaml
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.exceptions import ParameterNotDeclaredException
 from sensor_msgs.msg import JointState
 
@@ -201,6 +204,7 @@ def manipulation_lock_and_validate(coro_fn):
 
             try:
                 return await coro_fn(self, *args, **kwargs)
+                # TODO: Allow uninitialized only on error
             finally:
                 if self._manipulation_state == State.UNINITIALIZED:
                     assert coro_fn.__name__ == "reset_rig"
@@ -410,6 +414,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         old_pose_stamped = self.grid_objects_by_id[object_id].pose_stamped
         old_frame_transform = matrix_from_pose_msg(old_pose_stamped.pose)
         new_frame_id = old_pose_stamped.header.frame_id
+        assert new_frame_id == self.planning_frame
         new_frame_transform = self.get_frame_transform(new_frame_id)
 
         pose_stamped = pose_stamped_msg(position=offset)
@@ -597,6 +602,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match next_state:
             case State.ATTACH:
+                self.move_collision_object(
+                    object_id,
+                    self.get_link_pose_stamped(self.default_pose_link),
+                )
                 self.attach_collision_object(
                     object_id,
                     self.default_pose_link,
@@ -604,6 +613,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
             case State.DETACH:
                 self.detach_collision_object(object_id)
+                self.move_collision_object(
+                    object_id,
+                    self.grid_objects_by_id[object_id].pose_stamped,
+                )
 
         return cache_kwargs
 
@@ -1071,6 +1084,94 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ########## Reset ##########################################################
     ###########################################################################
 
+    # async def _test_object_attached(self):
+    #     self.log("Testing if an object is attached")
+    #
+    #     assert self._manipulation_state == State.UNINITIALIZED
+    #
+    #     config: dict[str, Any] = self.node.param(
+    #         "object_manipulation.test_object_attached"
+    #     )
+    #     goal: str = config["goal"]
+    #     object_id: str = config["object_id"]
+    #     num_samples: int = config["num_samples"]
+    #     joint_name: str = config["joint_name"]
+    #     effort_threshold: float = config["effort_threshold"]
+    #
+    #     if joint_name not in self.current_state.joint_efforts:
+    #         raise RuntimeError(f"Unknown joint_name: {joint_name}")
+    #
+    #     done_event = asyncio.Event()
+    #     loop = asyncio.get_running_loop()
+    #     joint_efforts: list[float] = []
+    #
+    #     def joint_state_callback(msg: JointState):
+    #         nonlocal joint_efforts
+    #         nonlocal num_samples
+    #         nonlocal joint_name
+    #         nonlocal loop
+    #         nonlocal done_event
+    #
+    #         if len(joint_efforts) < num_samples:
+    #             joint_idx = None
+    #             for i, joint in enumerate(msg.name):
+    #                 if joint == joint_name:
+    #                     joint_idx = i
+    #                     break
+    #
+    #             if joint_idx is None:
+    #                 raise RuntimeError(f"Unknown joint_name: {joint_name}")
+    #
+    #             joint_efforts.append(msg.effort[joint_idx])
+    #         else:
+    #             loop.call_soon_threadsafe(done_event.set)
+    #
+    #     try:
+    #         self._manipulation_state = State.IDLE
+    #         await ObjectManipulationInterface.add_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+    #             self, object_id
+    #         )
+    #         await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+    #             self, goal=goal, cache_trajectory=False
+    #         )
+    #         await ObjectManipulationInterface.remove_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+    #             self, object_id
+    #         )
+    #
+    #         # Sleep to allow robot to stop
+    #         await asyncio.sleep(1)
+    #
+    #         sub = self.node.create_subscription(
+    #             JointState, "/joint_states", joint_state_callback, num_samples
+    #         )
+    #         try:
+    #             await done_event.wait()
+    #         finally:
+    #             self.node.destroy_subscription(sub)
+    #
+    #         print(joint_efforts)
+    #         avg_effort = abs(sum(joint_efforts) / num_samples)
+    #         self.log(
+    #             f"Average joint effort (absolute) for joint {joint_name}: {avg_effort}"
+    #         )
+    #         is_attached = avg_effort > effort_threshold
+    #         initial_object_id = self._init_attached_object()
+    #
+    #         if is_attached and initial_object_id is None:
+    #             raise RuntimeError(
+    #                 "Attached object detected but initial_object not provided"
+    #             )
+    #         elif not is_attached and initial_object_id is not None:
+    #             raise RuntimeError(
+    #                 f"No attached object detected but initial_object "
+    #                 f"({initial_object_id}) was provided"
+    #             )
+    #
+    #         return initial_object_id
+    #
+    #     finally:
+    #         self._manipulation_state = State.UNINITIALIZED
+
     async def _test_object_attached(self):
         self.log("Testing if an object is attached")
 
@@ -1090,33 +1191,38 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         done_event = asyncio.Event()
         loop = asyncio.get_running_loop()
-        joint_efforts: list[float] = []
+        sample_count = 0
+        joint_efforts: dict[str, list[float]] = {}
 
         def joint_state_callback(msg: JointState):
-            nonlocal joint_efforts
-            nonlocal num_samples
-            nonlocal joint_name
-            nonlocal loop
-            nonlocal done_event
+            try:
+                nonlocal joint_efforts
+                nonlocal num_samples
+                nonlocal joint_name
+                nonlocal loop
+                nonlocal done_event
+                nonlocal sample_count
 
-            if len(joint_efforts) < num_samples:
-                joint_idx = None
-                for i, joint in enumerate(msg.name):
-                    if joint == joint_name:
-                        joint_idx = i
-                        break
-
-                if joint_idx is None:
-                    raise RuntimeError(f"Unknown joint_name: {joint_name}")
-
-                joint_efforts.append(msg.effort[joint_idx])
-            else:
-                loop.call_soon_threadsafe(done_event.set)
+                if sample_count < num_samples:
+                    for i, joint in enumerate(msg.name):
+                        joint_efforts.setdefault(joint, []).append(
+                            msg.effort[i]
+                        )
+                    sample_count += 1
+                elif not done_event.is_set():
+                    loop.call_soon_threadsafe(done_event.set)
+            except BaseException as e:
+                traceback.print_exception(e)
+                raise
 
         try:
             self._manipulation_state = State.IDLE
             await ObjectManipulationInterface.add_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                 self, object_id
+            )
+            # TODO: Remove
+            await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, goal="idle", cache_trajectory=False
             )
             await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                 self, goal=goal, cache_trajectory=False
@@ -1125,18 +1231,34 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 self, object_id
             )
 
+            # Sleep to allow robot to stop
+            await asyncio.sleep(1)
+
             sub = self.node.create_subscription(
-                JointState, "/joint_states", joint_state_callback, num_samples
+                JointState,
+                "/joint_states",
+                joint_state_callback,
+                10,
+                callback_group=MutuallyExclusiveCallbackGroup(),
             )
             try:
                 await done_event.wait()
             finally:
                 self.node.destroy_subscription(sub)
 
-            avg_effort = abs(sum(joint_efforts) / num_samples)
-            self.log(
-                f"Average joint effort (absolute) for joint {joint_name}: {avg_effort}"
-            )
+            avgs = {}
+            stds = {}
+            for joint, efforts in joint_efforts.items():
+                efforts = np.array(efforts)
+                avg = efforts.mean()
+                std = efforts.std()
+                self.log(
+                    f"Joint effort for joint {joint}: {avg:.4f} +- {std:.4f}"
+                )
+                avgs[joint] = avg
+                stds[joint] = std
+
+            avg_effort = avgs[joint_name]
             is_attached = avg_effort > effort_threshold
             initial_object_id = self._init_attached_object()
 

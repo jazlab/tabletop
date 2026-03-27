@@ -618,14 +618,17 @@ def all_close_poses(
     Returns:
         True if both position and orientation are within their tolerances.
     """
-    all_close_positions = all_close_points(
+    if not all_close_points(
         pose1.position, pose2.position, position_tolerance
-    )
-    all_close_orientations = all_close_quaternions(
-        pose1.orientation, pose2.orientation, orientation_tolerance
-    )
+    ):
+        return False
 
-    return all_close_positions and all_close_orientations
+    if not all_close_quaternions(
+        pose1.orientation, pose2.orientation, orientation_tolerance
+    ):
+        return False
+
+    return True
 
 
 def all_close_poses_stamped(

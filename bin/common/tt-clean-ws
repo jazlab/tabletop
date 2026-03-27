@@ -11,13 +11,13 @@ cd $COLCON_WS
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -a|-all)
+        -a|--all)
             all=true
             shift
             ;;
         *)
             print_error "Unknown argument: $1"
-            print_error "Usage: $0 [--all]"
+            print_error "Usage: $0 [-a|--all]"
             exit 1
             ;;
     esac
