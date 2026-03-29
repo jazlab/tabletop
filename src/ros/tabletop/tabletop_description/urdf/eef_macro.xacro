@@ -1,7 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
-  <xacro:include filename="$(find tabletop_description)/urdf/sphere_macro.xacro" />
-  <xacro:include filename="$(find tabletop_description)/urdf/cylinder_macro.xacro" />
+
   <xacro:macro name="eef"
     params="
     tf_prefix
@@ -41,19 +40,25 @@
       </inertial>
     </link>
 
-    <xacro:sphere
-      name="eef_sphere"
-      tf_prefix="${tf_prefix}"
-      parent="${parent}"
-      radius="${sphere_radius}"
-    >
-      <xacro:insert_block name="origin" />
-    </xacro:sphere>
+    <link name="${tf_prefix}eef_sphere">
+      <collision>
+        <geometry>
+          <sphere radius="${sphere_radius}" />
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0" />
+      </collision>
+    </link>
 
-    <joint name="${parent}-eef_link" type="fixed">
+    <joint name="${tf_prefix}${parent}-eef_link" type="fixed">
       <xacro:insert_block name="origin" />
       <parent link="${parent}" />
       <child link="${tf_prefix}eef_link" />
+    </joint>
+
+    <joint name="${tf_prefix}${parent}-eef_sphere" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}" />
+      <child link="${tf_prefix}eef_sphere" />
     </joint>
 
     <!-- eef frame, X+ direction to move to attach object,
@@ -65,16 +70,6 @@
       <parent link="${tf_prefix}eef_link" />
       <child link="${tf_prefix}eef" />
     </joint>
-
-    <!-- <xacro:cylinder
-      name="bounding_cylinder"
-      tf_prefix="${tf_prefix}"
-      parent="${tf_prefix}eef"
-      radius="${bounding_cylinder_radius}"
-      length="${bounding_cylinder_length}"
-    >
-      <origin xyz="0 0 0" rpy="0 0 0" />
-    </xacro:cylinder> -->
 
   </xacro:macro>
 

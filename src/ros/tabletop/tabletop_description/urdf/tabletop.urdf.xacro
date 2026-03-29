@@ -55,25 +55,17 @@
   <xacro:arg name="initial_positions_file"
     default="$(find tabletop_description)/config/initial_positions.yaml" />
   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)" />
-
+  <!-- end-effector paramaters -->
   <xacro:arg name="eef_cylinder_length" default="0.0365" />
   <xacro:arg name="eef_cylinder_radius" default="0.0315" />
   <xacro:arg name="eef_cylinder_mass" default="0.5" />
   <xacro:arg name="eef_sphere_radius" default="0.06" />
-
   <xacro:arg name="eef_origin_xyz" default="0.0 0.0 -0.005" />
   <xacro:arg name="eef_origin_rpy" default="0.0 0.0 0.0" />
-
+  <!-- base parameters -->
   <xacro:arg name="base_origin_xyz" default="0.0 0.0 0.0" />
   <xacro:arg name="base_origin_rpy" default="0.0 0.0 0.0" />
 
-
-  <!-- <xacro:arg name="base_origin_xyz" default="1.2468 1.0832 0.2685" /> -->
-  <!-- <xacro:arg name="base_origin_xyz" default="1.2482 1.0588 0.3342" /> -->
-  <!-- <xacro:arg name="base_origin_xyz" default="1.247 1.1279 0.309" /> -->
-  <!-- <xacro:arg name="base_origin_xyz" default="1.2504 1.0625 0.3085" /> -->
-  <!-- <xacro:arg name="bounding_cylinder_radius" default="0.05" />
-    <xacro:arg name="bounding_cylinder_length" default="0.11" /> -->
 
   <link name="world" />
 
