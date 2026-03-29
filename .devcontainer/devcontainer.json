@@ -27,7 +27,8 @@
         "mads-hartmann.bash-ide-vscode",
         "christian-kohler.npm-intellisense",
         "docker.docker",
-        "Ranch-Hand-Robotics.rde-pack"
+        "Ranch-Hand-Robotics.rde-pack",
+        "DavidAnson.vscode-markdownlint"
       ]
     }
   }
