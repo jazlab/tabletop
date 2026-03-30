@@ -118,7 +118,17 @@
         object_id: test_object
         joint_name: elbow_joint
         num_samples: 2500
-        effort_threshold: -1.62
+        effort_threshold: -1.615
+        greater_than: False
+      # test_object_attached:
+      #   goal: test_object_attached
+      #   object_id: test_object
+      #   topic: /force_torque_sensor_broadcaster/wrench
+      #   num_samples: 2500
+      #   force_dim: "y"
+      #   torque_dim: "y"
+      #   force_threshold: 1.54
+      #   torque_threshold: 1.0
       touch_links:
         - eef_link
         - eef_sphere
@@ -237,11 +247,17 @@
           allowed_collision_ids:
             - base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
-        safety_box:
+        project_safety_box:
           type: BOX
           dimensions: [0.5, 0.5, 1.9812]
           pose_stamped:
             position: [1.655, 0.25, 0.9906]
+          color: [1.0, 0.0, 0.0, 0.1]
+        optitrack_safety_box:
+          type: BOX
+          dimensions: [1.905, 0.5, 0.2]
+          pose_stamped:
+            position: [0.9525, 0.25, 1.2845]
           color: [1.0, 0.0, 0.0, 0.1]
         floor:
           type: BOX

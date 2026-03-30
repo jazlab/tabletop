@@ -60,7 +60,7 @@ tt-launch tasks task:=foraging_ordered  # Run a task
 
 1. If you get the error:
 
-    ```
+    ```text
     Unable to connect to VS Code server: Error in request.
     Error: connect ENOENT
     ```
@@ -359,3 +359,8 @@ This gets its own section because it's a pain in the ass.
 
 1. If your object reset config is resulting in Protective Stops on the UR Teach Pendant, try playing around with the reset_request parameters,
     namely the velocity and acceleration scaling factors, which can prevent the robot from moving in too jerky a motion
+
+## Sound
+
+1. If sound doesn't work when running inside Dev Container, the Pulse port probably changed.
+    Either rebuild the Dev Container or run the code from the host (via `tt-launch`)

@@ -35,7 +35,7 @@ from typing import Any, Optional
 
 import numpy as np
 import yaml
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, WrenchStamped
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
@@ -1185,6 +1185,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         num_samples: int = config["num_samples"]
         joint_name: str = config["joint_name"]
         effort_threshold: float = config["effort_threshold"]
+        greater_than: bool = config["greater_than"]
 
         if joint_name not in self.current_state.joint_efforts:
             raise RuntimeError(f"Unknown joint_name: {joint_name}")
@@ -1250,8 +1251,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             stds = {}
             for joint, efforts in joint_efforts.items():
                 efforts = np.array(efforts)
-                avg = efforts.mean()
-                std = efforts.std()
+                avg = float(efforts.mean())
+                std = float(efforts.std())
                 self.log(
                     f"Joint effort for joint {joint}: {avg:.4f} +- {std:.4f}"
                 )
@@ -1259,7 +1260,116 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 stds[joint] = std
 
             avg_effort = avgs[joint_name]
-            is_attached = avg_effort > effort_threshold
+            if greater_than:
+                is_attached = avg_effort > effort_threshold
+            else:
+                is_attached = avg_effort < effort_threshold
+
+            initial_object_id = self._init_attached_object()
+
+            if is_attached and initial_object_id is None:
+                raise RuntimeError(
+                    "Attached object detected but initial_object not provided"
+                )
+            elif not is_attached and initial_object_id is not None:
+                raise RuntimeError(
+                    f"No attached object detected but initial_object "
+                    f"({initial_object_id}) was provided"
+                )
+
+            return initial_object_id
+
+        finally:
+            self._manipulation_state = State.UNINITIALIZED
+
+    async def _test_object_attached_eef(self):
+        self.log("Testing if an object is attached")
+
+        assert self._manipulation_state == State.UNINITIALIZED
+
+        dim_to_idx = {"x": 0, "y": 1, "z": 2}
+
+        config: dict[str, Any] = self.node.param(
+            "object_manipulation.test_object_attached"
+        )
+        goal: str = config["goal"]
+        object_id: str = config["object_id"]
+        topic: str = config["topic"]
+        num_samples: int = config["num_samples"]
+        force_idx = dim_to_idx[config["force_dim"]]
+        torque_idx = dim_to_idx[config["torque_dim"]]
+        force_threshold: float = config["force_threshold"]
+        torque_threshold: float = config["torque_threshold"]
+
+        done_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        sample_count = 0
+        forces: list[list[float]] = []
+        torques: list[list[float]] = []
+
+        def wrench_callback(msg: WrenchStamped):
+            try:
+                nonlocal forces
+                nonlocal torques
+                nonlocal num_samples
+                nonlocal loop
+                nonlocal done_event
+                nonlocal sample_count
+
+                if sample_count < num_samples:
+                    force = msg.wrench.force
+                    torque = msg.wrench.torque
+                    forces.append([force.x, force.y, force.z])
+                    torques.append([torque.x, torque.y, torque.z])
+                    sample_count += 1
+                elif not done_event.is_set():
+                    loop.call_soon_threadsafe(done_event.set)
+            except BaseException as e:
+                traceback.print_exception(e)
+                raise
+
+        try:
+            self._manipulation_state = State.IDLE
+            await ObjectManipulationInterface.add_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, object_id
+            )
+            # TODO: Remove
+            await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, goal="idle", cache_trajectory=False
+            )
+            await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, goal=goal, cache_trajectory=False
+            )
+            await ObjectManipulationInterface.remove_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
+                self, object_id
+            )
+
+            # Sleep to allow robot to stop
+            await asyncio.sleep(1)
+
+            sub = self.node.create_subscription(
+                WrenchStamped,
+                topic,
+                wrench_callback,
+                10,
+                callback_group=MutuallyExclusiveCallbackGroup(),
+            )
+            try:
+                await done_event.wait()
+            finally:
+                self.node.destroy_subscription(sub)
+
+            avg_forces = np.mean(np.array(forces), axis=0)
+            avg_torques = np.mean(np.array(torques), axis=0)
+
+            self.log(f"Avg forces: {avg_forces}, Avg torques: {avg_torques}")
+
+            avg_force = float(np.absolute(avg_forces[force_idx]))
+            avg_torque = float(np.absolute(avg_torques[torque_idx]))
+
+            is_attached = (avg_force > force_threshold) or (
+                avg_torque > torque_threshold
+            )
             initial_object_id = self._init_attached_object()
 
             if is_attached and initial_object_id is None:
