@@ -315,7 +315,9 @@ class SmoothPursuitTask(BaseTask):
         self.log("Starting smooth pursuit task")
 
         async with self.commander:
-            await self.commander.fetch_object(self._object_id)
+            # TODO: Expose current manipulation_id
+            if self.commander.moveit.attached_object_id != self._object_id:
+                await self.commander.fetch_object(self._object_id)
 
             # Occlude smartglass before running
             await self.commander.occlude_smartglass()

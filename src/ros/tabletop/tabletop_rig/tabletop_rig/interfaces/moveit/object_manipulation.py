@@ -1333,10 +1333,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             await ObjectManipulationInterface.add_manually_attached_object.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                 self, object_id
             )
-            # TODO: Remove
-            await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
-                self, goal="idle", cache_trajectory=False
-            )
             await ObjectManipulationInterface.plan_and_execute.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]
                 self, goal=goal, cache_trajectory=False
             )
