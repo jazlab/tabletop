@@ -8,7 +8,7 @@
                 "-DRMW_UXRCE_MAX_SERVICES=5",
                 "-DRMW_UXRCE_MAX_CLIENTS=0",
                 "-DRMW_UXRCE_MAX_HISTORY=20",
-                "-DRMW_UXRCE_MAX_GUARD_CONDITION=7",
+                "-DRMW_UXRCE_MAX_GUARD_CONDITION=8",
                 "-DRMW_UXRCE_TRANSPORT=custom"
             ]
         }

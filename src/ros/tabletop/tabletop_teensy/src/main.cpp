@@ -28,10 +28,10 @@
 
 // Define pin mappings
 // NOTE: Pin 37 does not work
-// #define LEFT_ARM_LOCK_CONTROL_PIN 41
-// #define RIGHT_ARM_LOCK_CONTROL_PIN 40
 #define LEFT_ARM_LOCK_CONTROL_PIN 4
 #define RIGHT_ARM_LOCK_CONTROL_PIN 5
+#define LEFT_ARM_BUZZER_CONTROL_PIN 41
+#define RIGHT_ARM_BUZZER_CONTROL_PIN 40
 #define SMARTGLASS_CONTROL_PIN 3
 #define REWARD_CONTROL_PIN 26
 #define SYNC_PULSE_CONTROL_PIN 9
@@ -86,6 +86,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
 #define SYNC_PULSE_DELAY_MIN_MS 50
 #define SYNC_PULSE_DELAY_MAX_MS 200
 #define SYNC_PULSE_DURATION_MS 100
+#define ARM_BUZZER_DURATION_MS 1000
 #define DEBOUNCE_DELAY_MS 1
 #define DEBOUNCE_DELAY_NS RCL_MS_TO_NS(DEBOUNCE_DELAY_MS)
 
@@ -114,6 +115,7 @@ rcl_timer_t sync_pulse_start_timer;
 rcl_timer_t sync_pulse_end_timer;
 rcl_timer_t sensor_timer;
 rcl_timer_t reward_timer;
+rcl_timer_t arm_buzzer_timer;
 
 rcl_allocator_t allocator;
 rclc_support_t support;
@@ -486,6 +488,16 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// Service callback for ping
+void ping_callback(const void* req, void* res)
+{
+  RCLC_UNUSED(req);
+  tabletop_interfaces__srv__Ping_Response* response = static_cast<tabletop_interfaces__srv__Ping_Response*>(res);
+
+  GET_CURRENT_ROS_TIME(response->received_time);
+  response->success = (response->received_time.sec != 0) || (response->received_time.nanosec != 0);
+}
+
 // Timer callback to stop the reward control
 void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
@@ -573,14 +585,17 @@ void set_reward_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
-// Service callback for ping
-void ping_callback(const void* req, void* res)
+// Timer callback to stop the arm buzzer control
+void arm_buzzer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
-  RCLC_UNUSED(req);
-  tabletop_interfaces__srv__Ping_Response* response = static_cast<tabletop_interfaces__srv__Ping_Response*>(res);
-
-  GET_CURRENT_ROS_TIME(response->received_time);
-  response->success = (response->received_time.sec != 0) || (response->received_time.nanosec != 0);
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL)
+  {
+    digitalWriteFast(LEFT_ARM_BUZZER_CONTROL_PIN, LOW);
+    digitalWriteFast(RIGHT_ARM_BUZZER_CONTROL_PIN, LOW);
+    RCASSERT(rcl_timer_cancel(timer), "Failed to cancel arm buzzer timer");
+    LOG("Arm buzzers stopped");
+  }
 }
 
 // Service callback for controlling the arm lock
@@ -591,7 +606,20 @@ void set_arm_lock_callback(const void* req, void* res)
   tabletop_interfaces__srv__SetArmLock_Response* response =
       static_cast<tabletop_interfaces__srv__SetArmLock_Response*>(res);
 
-  if (!request->left_arm && !request->right_arm)
+  char message_arm[20] = "";
+  if (request->left_arm && request->right_arm)
+  {
+    strcpy(message_arm, "Both arms");
+  }
+  else if (request->left_arm)
+  {
+    strcpy(message_arm, "Left arm");
+  }
+  else if (request->right_arm)
+  {
+    strcpy(message_arm, "Right arm");
+  }
+  else
   {
     response->success = false;
     STRING_SET(&response->message, "No arm specified");
@@ -599,28 +627,26 @@ void set_arm_lock_callback(const void* req, void* res)
     return;
   }
 
-  char message_arm[20] = "";
-
   if (request->left_arm)
   {
     set_left_arm_lock(request->lock);
-    if (!request->right_arm)
-    {
-      strcpy(message_arm, "Left arm");
-    }
   }
   if (request->right_arm)
   {
     set_right_arm_lock(request->lock);
-    if (!request->left_arm)
-    {
-      strcpy(message_arm, "Right arm");
-    }
   }
 
-  if (request->left_arm && request->right_arm)
+  if (!request->lock)
   {
-    strcpy(message_arm, "Both arms");
+    if (request->left_arm)
+    {
+      digitalWriteFast(LEFT_ARM_BUZZER_CONTROL_PIN, HIGH);
+    }
+    if (request->right_arm)
+    {
+      digitalWriteFast(RIGHT_ARM_BUZZER_CONTROL_PIN, HIGH);
+    }
+    RCASSERT(rcl_timer_reset(&arm_buzzer_timer), "Failed to reset arm buzzer timer");
   }
 
   response->success = true;
@@ -740,15 +766,18 @@ bool init_client()
   RCCHECK(
       rclc_timer_init_default2(&sensor_timer, &support, RCL_MS_TO_NS(SENSOR_PERIOD_MS), sensor_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&reward_timer, &support, RCL_MS_TO_NS(1000), reward_timer_callback, false));
+  RCCHECK(rclc_timer_init_default2(&arm_buzzer_timer, &support, RCL_MS_TO_NS(ARM_BUZZER_DURATION_MS),
+                                   arm_buzzer_callback, false));
   LOG("Timers initialized");
 
   // Executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 11, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
+  RCCHECK(rclc_executor_add_timer(&executor, &arm_buzzer_timer));
   RCCHECK(rclc_executor_add_service(&executor, &ping_service, &ping_request, &ping_response, ping_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_arm_lock_service, &set_arm_lock_request, &set_arm_lock_response,
                                     set_arm_lock_callback));
@@ -796,6 +825,7 @@ bool deinit_client()
   RCCHECK(rcl_timer_fini(&sync_pulse_end_timer));
   RCCHECK(rcl_timer_fini(&sensor_timer));
   RCCHECK(rcl_timer_fini(&reward_timer));
+  RCCHECK(rcl_timer_fini(&arm_buzzer_timer));
   RCCHECK(rcl_service_fini(&ping_service, &node));
   RCCHECK(rcl_service_fini(&set_arm_lock_service, &node));
   RCCHECK(rcl_service_fini(&set_smartglass_service, &node));
@@ -820,6 +850,8 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(LEFT_ARM_LOCK_CONTROL_PIN, OUTPUT);
   pinMode(RIGHT_ARM_LOCK_CONTROL_PIN, OUTPUT);
+  pinMode(LEFT_ARM_BUZZER_CONTROL_PIN, OUTPUT);
+  pinMode(RIGHT_ARM_BUZZER_CONTROL_PIN, OUTPUT);
   pinMode(SMARTGLASS_CONTROL_PIN, OUTPUT);
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
