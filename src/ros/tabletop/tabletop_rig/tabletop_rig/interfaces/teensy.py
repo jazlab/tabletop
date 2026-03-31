@@ -184,13 +184,11 @@ class TeensyInterface(BaseInterface):
         Returns:
             True if both arms are locked and safety laser is unbroken.
         """
-        # TODO: CHANGE BACK!!!!!!!!!!!!!!!
-        # return (
-        #     msg.is_left_arm_locked
-        #     and msg.is_right_arm_locked
-        #     and not msg.is_safety_laser_broken
-        # )
-        return not msg.is_safety_laser_broken
+        return (
+            msg.is_left_arm_locked
+            and msg.is_right_arm_locked
+            and not msg.is_safety_laser_broken
+        )
 
     def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
         """Process incoming TeensySensor messages.

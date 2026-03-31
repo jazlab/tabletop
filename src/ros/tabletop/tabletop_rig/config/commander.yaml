@@ -119,7 +119,7 @@
         joint_name: elbow_joint
         num_samples: 2500
         effort_threshold: -1.615
-        greater_than: False
+        greater_than: false
       # test_object_attached:
       #   goal: test_object_attached
       #   object_id: test_object
