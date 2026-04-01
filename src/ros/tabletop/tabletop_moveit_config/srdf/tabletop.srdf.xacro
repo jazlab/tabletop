@@ -4,7 +4,7 @@
   <!-- robot name parameter -->
   <xacro:arg name="name" default="ur" />
 
-  <xacro:include filename="$(find tabletop_moveit_config)/srdf/tabletop_macro.srdf.xacro" />
+  <xacro:include filename="$(find tabletop_moveit_config)/srdf/dual_tabletop_macro.srdf.xacro" />
 
   <xacro:ur_srdf />
 

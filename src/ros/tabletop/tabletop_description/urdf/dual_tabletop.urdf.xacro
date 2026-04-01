@@ -1,0 +1,205 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="dual_ur">
+
+  <!-- Include eef and ur description-->
+  <xacro:include filename="$(find tabletop_description)/urdf/tabletop_macro.xacro" />
+  <xacro:include filename="$(find ur_robot_driver)/urdf/ur.ros2_control.xacro" />
+  <xacro:include filename="$(find ur_description)/urdf/inc/ur_transmissions.xacro" />
+
+  <!-- shared parameters -->
+  <xacro:arg name="safety_limits" default="false" />
+  <xacro:arg name="safety_pos_margin" default="0.15" />
+  <xacro:arg name="safety_k_position" default="20" />
+  <xacro:arg name="force_abs_paths" default="false" />
+  <xacro:arg name="transmission_hw_interface" default="" />
+  <xacro:arg name="headless_mode" default="false" />
+  <xacro:arg name="use_mock_hardware" default="false" />
+  <xacro:arg name="mock_sensor_commands" default="false" />
+  <xacro:arg name="simulation_controllers" default="" />
+
+  <!-- shared end-effector parameters -->
+  <xacro:arg name="eef_cylinder_length" default="0.0365" />
+  <xacro:arg name="eef_cylinder_radius" default="0.0315" />
+  <xacro:arg name="eef_cylinder_mass" default="0.5" />
+  <xacro:arg name="eef_sphere_radius" default="0.06" />
+  <xacro:arg name="eef_origin_xyz" default="0.0 0.0 -0.005" />
+  <xacro:arg name="eef_origin_rpy" default="0.0 0.0 0.0" />
+
+  <!-- possible 'ur_type' values: ur3, ur3e, ur5, ur5e, ur10, ur10e, ur16e, ur20 -->
+  <xacro:arg name="left_ur_type" default="urXe" />
+  <xacro:arg name="right_ur_type" default="urXe" />
+
+  <!-- ==================== LEFT ARM ==================== -->
+  <xacro:arg name="left_name" default="left_robot" />
+  <xacro:arg name="left_tf_prefix" default="left_" />
+  <xacro:arg name="left_joint_limit_params"
+    default="$(find ur_description)/config/$(arg left_ur_type)/joint_limits.yaml" />
+  <xacro:arg name="left_kinematics_params"
+    default="$(find tabletop_description)/config/left_ur5e_calibration.yaml" />
+  <xacro:arg name="left_physical_params"
+    default="$(find ur_description)/config/$(arg left_ur_type)/physical_parameters.yaml" />
+  <xacro:arg name="left_visual_params"
+    default="$(find ur_description)/config/$(arg left_ur_type)/visual_parameters.yaml" />
+  <xacro:arg name="left_initial_positions_file"
+    default="$(find tabletop_description)/config/left_initial_positions.yaml" />
+  <xacro:property name="left_initial_positions_file" default="$(arg left_initial_positions_file)" />
+  <xacro:arg name="left_robot_ip" default="0.0.0.0" />
+  <xacro:arg name="left_reverse_ip" default="0.0.0.0" />
+  <xacro:arg name="left_script_filename" default="" />
+  <xacro:arg name="left_output_recipe_filename" default="" />
+  <xacro:arg name="left_input_recipe_filename" default="" />
+  <xacro:arg name="left_script_command_port" default="50004" />
+  <xacro:arg name="left_reverse_port" default="50001" />
+  <xacro:arg name="left_script_sender_port" default="50002" />
+  <xacro:arg name="left_trajectory_port" default="50003" />
+  <xacro:arg name="left_use_tool_communication" default="false" />
+  <xacro:arg name="left_tool_voltage" default="0" />
+  <xacro:arg name="left_tool_parity" default="0" />
+  <xacro:arg name="left_tool_baud_rate" default="115200" />
+  <xacro:arg name="left_tool_stop_bits" default="1" />
+  <xacro:arg name="left_tool_rx_idle_chars" default="1.5" />
+  <xacro:arg name="left_tool_tx_idle_chars" default="3.5" />
+  <xacro:arg name="left_tool_device_name" default="/tmp/ttyUR_left" />
+  <xacro:arg name="left_tool_tcp_port" default="54321" />
+  <xacro:arg name="left_base_origin_xyz" default="0.0 0.0 0.0" />
+  <xacro:arg name="left_base_origin_rpy" default="0.0 0.0 0.0" />
+
+  <!-- ==================== RIGHT ARM ==================== -->
+  <xacro:arg name="right_name" default="right_robot" />
+  <xacro:arg name="right_tf_prefix" default="right_" />
+  <xacro:arg name="right_joint_limit_params"
+    default="$(find ur_description)/config/$(arg right_ur_type)/joint_limits.yaml" />
+  <xacro:arg name="right_kinematics_params"
+    default="$(find tabletop_description)/config/right_ur5e_calibration.yaml" />
+  <xacro:arg name="right_physical_params"
+    default="$(find ur_description)/config/$(arg right_ur_type)/physical_parameters.yaml" />
+  <xacro:arg name="right_visual_params"
+    default="$(find ur_description)/config/$(arg right_ur_type)/visual_parameters.yaml" />
+  <xacro:arg name="right_initial_positions_file"
+    default="$(find tabletop_description)/config/right_initial_positions.yaml" />
+  <xacro:property name="right_initial_positions_file" default="$(arg right_initial_positions_file)" />
+  <xacro:arg name="right_robot_ip" default="0.0.0.0" />
+  <xacro:arg name="right_reverse_ip" default="0.0.0.0" />
+  <xacro:arg name="right_script_filename" default="" />
+  <xacro:arg name="right_output_recipe_filename" default="" />
+  <xacro:arg name="right_input_recipe_filename" default="" />
+  <xacro:arg name="right_script_command_port" default="50014" />
+  <xacro:arg name="right_reverse_port" default="50011" />
+  <xacro:arg name="right_script_sender_port" default="50012" />
+  <xacro:arg name="right_trajectory_port" default="50013" />
+  <xacro:arg name="right_use_tool_communication" default="false" />
+  <xacro:arg name="right_tool_voltage" default="0" />
+  <xacro:arg name="right_tool_parity" default="0" />
+  <xacro:arg name="right_tool_baud_rate" default="115200" />
+  <xacro:arg name="right_tool_stop_bits" default="1" />
+  <xacro:arg name="right_tool_rx_idle_chars" default="1.5" />
+  <xacro:arg name="right_tool_tx_idle_chars" default="3.5" />
+  <xacro:arg name="right_tool_device_name" default="/tmp/ttyUR_right" />
+  <xacro:arg name="right_tool_tcp_port" default="54322" />
+  <xacro:arg name="right_base_origin_xyz" default="0.0 0.0 0.0" />
+  <xacro:arg name="right_base_origin_rpy" default="0.0 0.0 0.0" />
+
+  <!-- ==================== WORLD LINK ==================== -->
+  <link name="world" />
+
+  <!-- ==================== LEFT ARM ROBOT ==================== -->
+  <xacro:tabletop_robot
+    name="$(arg left_name)"
+    tf_prefix="$(arg left_tf_prefix)"
+    parent="world"
+    joint_limits_parameters_file="$(arg left_joint_limit_params)"
+    kinematics_parameters_file="$(arg left_kinematics_params)"
+    physical_parameters_file="$(arg left_physical_params)"
+    visual_parameters_file="$(arg left_visual_params)"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="$(arg safety_pos_margin)"
+    safety_k_position="$(arg safety_k_position)"
+    force_abs_paths="$(arg force_abs_paths)"
+    eef_cylinder_length="$(arg eef_cylinder_length)"
+    eef_cylinder_radius="$(arg eef_cylinder_radius)"
+    eef_cylinder_mass="$(arg eef_cylinder_mass)"
+    eef_sphere_radius="$(arg eef_sphere_radius)">
+    <origin xyz="$(arg left_base_origin_xyz)" rpy="$(arg left_base_origin_rpy)" />
+    <origin xyz="$(arg eef_origin_xyz)" rpy="$(arg eef_origin_rpy)" />
+  </xacro:tabletop_robot>
+
+  <xacro:ur_ros2_control
+    name="$(arg left_name)"
+    tf_prefix="$(arg left_tf_prefix)"
+    kinematics_parameters_file="$(arg left_kinematics_params)"
+    transmission_hw_interface="$(arg transmission_hw_interface)"
+    use_mock_hardware="$(arg use_mock_hardware)"
+    mock_sensor_commands="$(arg mock_sensor_commands)"
+    headless_mode="$(arg headless_mode)"
+    initial_positions="${xacro.load_yaml(left_initial_positions_file)}"
+    use_tool_communication="$(arg left_use_tool_communication)"
+    tool_voltage="$(arg left_tool_voltage)"
+    tool_parity="$(arg left_tool_parity)"
+    tool_baud_rate="$(arg left_tool_baud_rate)"
+    tool_stop_bits="$(arg left_tool_stop_bits)"
+    tool_rx_idle_chars="$(arg left_tool_rx_idle_chars)"
+    tool_tx_idle_chars="$(arg left_tool_tx_idle_chars)"
+    tool_device_name="$(arg left_tool_device_name)"
+    tool_tcp_port="$(arg left_tool_tcp_port)"
+    robot_ip="$(arg left_robot_ip)"
+    script_filename="$(arg left_script_filename)"
+    output_recipe_filename="$(arg left_output_recipe_filename)"
+    input_recipe_filename="$(arg left_input_recipe_filename)"
+    reverse_ip="$(arg left_reverse_ip)"
+    script_command_port="$(arg left_script_command_port)"
+    reverse_port="$(arg left_reverse_port)"
+    script_sender_port="$(arg left_script_sender_port)"
+    trajectory_port="$(arg left_trajectory_port)"
+  />
+
+  <!-- ==================== RIGHT ARM ROBOT ==================== -->
+  <xacro:tabletop_robot
+    name="$(arg right_name)"
+    tf_prefix="$(arg right_tf_prefix)"
+    parent="world"
+    joint_limits_parameters_file="$(arg right_joint_limit_params)"
+    kinematics_parameters_file="$(arg right_kinematics_params)"
+    physical_parameters_file="$(arg right_physical_params)"
+    visual_parameters_file="$(arg right_visual_params)"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="$(arg safety_pos_margin)"
+    safety_k_position="$(arg safety_k_position)"
+    force_abs_paths="$(arg force_abs_paths)"
+    eef_cylinder_length="$(arg eef_cylinder_length)"
+    eef_cylinder_radius="$(arg eef_cylinder_radius)"
+    eef_cylinder_mass="$(arg eef_cylinder_mass)"
+    eef_sphere_radius="$(arg eef_sphere_radius)">
+    <origin xyz="$(arg right_base_origin_xyz)" rpy="$(arg right_base_origin_rpy)" />
+    <origin xyz="$(arg eef_origin_xyz)" rpy="$(arg eef_origin_rpy)" />
+  </xacro:tabletop_robot>
+
+  <xacro:ur_ros2_control
+    name="$(arg right_name)"
+    tf_prefix="$(arg right_tf_prefix)"
+    kinematics_parameters_file="$(arg right_kinematics_params)"
+    transmission_hw_interface="$(arg transmission_hw_interface)"
+    use_mock_hardware="$(arg use_mock_hardware)"
+    mock_sensor_commands="$(arg mock_sensor_commands)"
+    headless_mode="$(arg headless_mode)"
+    initial_positions="${xacro.load_yaml(right_initial_positions_file)}"
+    use_tool_communication="$(arg right_use_tool_communication)"
+    tool_voltage="$(arg right_tool_voltage)"
+    tool_parity="$(arg right_tool_parity)"
+    tool_baud_rate="$(arg right_tool_baud_rate)"
+    tool_stop_bits="$(arg right_tool_stop_bits)"
+    tool_rx_idle_chars="$(arg right_tool_rx_idle_chars)"
+    tool_tx_idle_chars="$(arg right_tool_tx_idle_chars)"
+    tool_device_name="$(arg right_tool_device_name)"
+    tool_tcp_port="$(arg right_tool_tcp_port)"
+    robot_ip="$(arg right_robot_ip)"
+    script_filename="$(arg right_script_filename)"
+    output_recipe_filename="$(arg right_output_recipe_filename)"
+    input_recipe_filename="$(arg right_input_recipe_filename)"
+    reverse_ip="$(arg right_reverse_ip)"
+    script_command_port="$(arg right_script_command_port)"
+    reverse_port="$(arg right_reverse_port)"
+    script_sender_port="$(arg right_script_sender_port)"
+    trajectory_port="$(arg right_trajectory_port)"
+  />
+
+</robot>

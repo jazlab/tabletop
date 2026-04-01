@@ -163,6 +163,10 @@ def generate_launch_description():
             safety_k_position,
             " ",
             "name:=",
+            tf_prefix,
+            ur_type,
+            " ",
+            "ur_type:=",
             ur_type,
             " ",
             "script_filename:=",
@@ -253,12 +257,13 @@ def generate_launch_description():
         Args:
             context: Launch context for evaluating substitutions.
         """
+        tf_prefix_str = tf_prefix.perform(context)
         urdf_str = robot_description_content.perform(context)
 
         urdf_dir = os.environ["TABLETOP_CACHE_DIR"]
         os.makedirs(urdf_dir, exist_ok=True)
 
-        urdf_path = os.path.join(urdf_dir, "tabletop.urdf")
+        urdf_path = os.path.join(urdf_dir, f"{tf_prefix_str}tabletop.urdf")
         if os.path.exists(urdf_path):
             os.remove(urdf_path)
 

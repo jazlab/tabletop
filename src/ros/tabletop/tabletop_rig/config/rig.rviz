@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /PlanningScene1/Scene Robot1
+        - /RobotModel1/Status1
       Splitter Ratio: 0.570588231086731
     Tree Height: 836
   - Class: rviz_common/Views
@@ -37,7 +38,7 @@ Visualization Manager:
       Enabled: true
       Name: Markers
       Namespaces:
-        mocap4r2_markers: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -90,79 +91,6 @@ Visualization Manager:
           Expand Link Details: false
           Expand Tree: false
           Link Tree Style: Links in Alphabetic Order
-          base:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          base_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          base_link_inertia:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          eef:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          eef_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          eef_sphere:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          flange:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          forearm_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          ft_frame:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          shoulder_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          tool0:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          upper_arm_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          world:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-          wrist_1_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          wrist_2_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          wrist_3_link:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
         Robot Alpha: 0
         Show Robot Collision: false
         Show Robot Visual: true
@@ -177,7 +105,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /robot_description
+        Value: /left/robot_description
       Enabled: true
       Links:
         All Links Enabled: true
@@ -185,56 +113,71 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
-        base:
+        left_base:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        base_link:
+        left_base_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        base_link_inertia:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        eef:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        eef_link:
+        left_base_link_inertia:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        eef_sphere:
+        left_eef:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        left_eef_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        flange:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        forearm_link:
+        left_eef_sphere:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        ft_frame:
+        left_flange:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        shoulder_link:
+        left_forearm_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        tool0:
+        left_ft_frame:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        upper_arm_link:
+        left_shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_tool0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        left_upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_wrist_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_wrist_2_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_wrist_3_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -243,21 +186,105 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        wrist_1_link:
+      Mass Properties:
+        Inertia: false
+        Mass: false
+      Name: RobotModel
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /right/robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        right_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_base_link_inertia:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        wrist_2_link:
+        right_eef:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_eef_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
-        wrist_3_link:
+        right_eef_sphere:
           Alpha: 1
           Show Axes: false
           Show Trail: false
           Value: true
+        right_flange:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_ft_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_tool0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_wrist_1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_wrist_2_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_wrist_3_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        world:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
       Mass Properties:
         Inertia: false
         Mass: false
@@ -287,25 +314,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.4940240383148193
+      Distance: 4.926026821136475
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.32220178842544556
-        Y: -0.04430563002824783
-        Z: 0.003672900376841426
+        X: 0.1651756912469864
+        Y: 0.2786048352718353
+        Z: 0.04925280064344406
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.32292404770851135
+      Pitch: 0.3129240572452545
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.322305679321289
+      Yaw: 5.272306442260742
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051
