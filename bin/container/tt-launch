@@ -13,10 +13,20 @@ print_usage() {
 
 LAUNCH=
 RUN=
+EXEC=
 case $1 in
     foxglove)
         export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
         LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
+        ;;
+    discovery)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/discovery"
+        IFS=':' read -ra SERVER <<< "$ROS_DISCOVERY_SERVER"
+        if [[ "${#SERVER[@]}" != 2 ]]; then
+            print_error "Incorrect ROS_DISCOVERY_SERVER format: $ROS_DISCOVERY_SERVER"
+            exit 1
+        fi
+        EXEC="fastdds discovery --server-id 0 --udp-address ${SERVER[0]} --udp-port ${SERVER[1]}"
         ;;
     rviz)
         export ROS_LOG_DIR="$ROS_LOG_DIR/rviz"
@@ -87,7 +97,9 @@ esac
 
 shift
 
-if [[ -n "$RUN" ]]; then
+if [[ -n "$EXEC" ]]; then
+    exec $EXEC "$@"
+elif [[ -n "$RUN" ]]; then
     exec ros2 run $RUN "$@"
 elif [[ -n "$LAUNCH" ]]; then
     exec ros2 launch $LAUNCH "$@"
