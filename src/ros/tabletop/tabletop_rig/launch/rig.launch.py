@@ -28,7 +28,7 @@ def declare_arguments():
         # Common
         DeclareLaunchArgument(
             "robot_name",
-            default_value="ur5e",
+            default_value="tabletop",
             description="Robot name for SRDF",
         ),
         DeclareLaunchArgument(

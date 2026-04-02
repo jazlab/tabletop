@@ -54,18 +54,7 @@ def declare_arguments():
             "task",
             default_value="foraging_ordered",
             description="Task configuration file",
-        ),
-        DeclareLaunchArgument(
-            "robot_name",
-            default_value="ur5e",
-            description="Robot name for SRDF",
-        ),
-        DeclareLaunchArgument(
-            "robot_mode",
-            default_value="mock",
-            choices=["mock", "ursim", "real"],
-            description="Whether to use the mock robot, URSim, or real robot",
-        ),
+        )
     ]
 
 
@@ -122,8 +111,6 @@ def generate_launch_description():
                     ),
                 ),
                 launch_arguments={
-                    "robot_name": LaunchConfiguration("robot_name"),
-                    "robot_mode": LaunchConfiguration("robot_mode"),
                     "coro_module": coro_module,
                     "coro_name": coro_name,
                     "coro_config": coro_config,
@@ -162,6 +149,4 @@ def generate_launch_description():
     #     forwarding=True,
     # )
 
-    launch_actions = [set_ros_log_dir, rig]
-
-    return LaunchDescription(declare_arguments() + launch_actions)
+    return LaunchDescription([set_ros_log_dir, *declare_arguments(), rig])

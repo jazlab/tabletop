@@ -30,13 +30,15 @@
 # Author: Denis Stogl
 
 
+from copy import copy
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
-    Shutdown,
+    SetLaunchConfiguration,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import (
@@ -73,16 +75,15 @@ UR_TYPE_CHOICES = [
     "ur30",
 ]
 
-SHARED_CONTROLLERS_ACTIVE = ["joint_state_broadcaster"]
-SHARED_CONTROLLERS_INACTIVE = []
-PER_ARM_CONTROLLERS_ACTIVE = [
+ACTIVE_CONTROLLERS = [
+    "joint_state_broadcaster",
     "io_and_status_controller",
     "speed_scaling_state_broadcaster",
     "force_torque_sensor_broadcaster",
     "tcp_pose_broadcaster",
     "ur_configuration_controller",
 ]
-PER_ARM_CONTROLLERS_INACTIVE = [
+INACTIVE_CONTROLLERS = [
     "scaled_joint_trajectory_controller",
     "joint_trajectory_controller",
     "forward_velocity_controller",
@@ -131,7 +132,7 @@ def declare_arguments():
                 [
                     FindPackageShare("tabletop_rig"),
                     "config",
-                    "dual_controllers.yaml",
+                    "multi_controllers.yaml",
                 ]
             ),
             description="YAML file with the dual controllers configuration.",
@@ -166,17 +167,13 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             name="update_rate_config_file",
-            default_value=[
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare("ur_robot_driver"),
-                        "config",
-                    ]
-                ),
-                "/",
-                LaunchConfiguration("ur_type"),
-                "_update_rate.yaml",
-            ],
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_rig"),
+                    "config",
+                    "update_rate.yaml",
+                ]
+            ),
             description="Update rate config.",
         ),
         DeclareLaunchArgument(
@@ -326,29 +323,21 @@ def setup_controller_spawners(context):
         LaunchConfiguration("robot_mode"), "mock"
     )
 
-    active_controllers = []
-    inactive_controllers = []
-    active_controllers.extend(SHARED_CONTROLLERS_ACTIVE)
-    inactive_controllers.extend(SHARED_CONTROLLERS_INACTIVE)
+    active_controllers = copy(ACTIVE_CONTROLLERS)
+    inactive_controllers = copy(INACTIVE_CONTROLLERS)
 
-    for side in ("left", "right"):
-        active_controllers.extend(
-            [f"{side}_{x}" for x in PER_ARM_CONTROLLERS_ACTIVE]
-        )
-        inactive_controllers.extend(
-            [f"{side}_{x}" for x in PER_ARM_CONTROLLERS_INACTIVE]
-        )
+    if (
+        LaunchConfiguration("activate_joint_controller").perform(context)
+        == "true"
+    ):
+        initial_joint_controller = LaunchConfiguration(
+            "initial_joint_controller"
+        ).perform(context)
+        active_controllers.append(initial_joint_controller)
+        inactive_controllers.remove(initial_joint_controller)
 
-        if (
-            LaunchConfiguration("activate_joint_controller").perform(context)
-            == "true"
-        ):
-            prefixed = f"{side}_{LaunchConfiguration('initial_joint_controller').perform(context)}"
-            active_controllers.append(prefixed)
-            inactive_controllers.remove(prefixed)
-
-        if use_mock_hardware.perform(context) == "true":
-            active_controllers.remove(f"{side}_tcp_pose_broadcaster")
+    if use_mock_hardware.perform(context) == "true":
+        active_controllers.remove("tcp_pose_broadcaster")
 
     return [
         controller_spawner(active_controllers, active=True),
@@ -363,88 +352,40 @@ def generate_launch_description():
         LaunchConfiguration("robot_mode"), "mock"
     )
 
-    # Shared controller manager node
-    controller_manager = Node(
-        package="controller_manager",
-        executable="ros2_control_node",
-        output="both",
-        parameters=[
-            LaunchConfiguration("update_rate_config_file"),
-            ParameterFile(
-                LaunchConfiguration("controllers_file"), allow_substs=True
-            ),
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
-        ],
-        ros_arguments=[
-            "--log-level",
-            LaunchConfiguration("log_level"),
-        ],
-        on_exit=[Shutdown()],
-    )
-
-    # Dual robot state publisher
-    rsp = GroupAction(
-        [
-            IncludeLaunchDescription(
-                AnyLaunchDescriptionSource(
-                    LaunchConfiguration("description_launchfile")
-                ),
-                launch_arguments={
-                    "use_mock_hardware": use_mock_hardware,
-                    "headless_mode": LaunchConfiguration("headless_mode"),
-                    "reverse_ip": LaunchConfiguration("reverse_ip"),
-                    "left_ur_type": LaunchConfiguration("ur_type"),
-                    "right_ur_type": LaunchConfiguration("ur_type"),
-                    "left_tf_prefix": LaunchConfiguration("left_tf_prefix"),
-                    "right_tf_prefix": LaunchConfiguration("right_tf_prefix"),
-                    "left_robot_ip": LaunchConfiguration("left_robot_ip"),
-                    "right_robot_ip": LaunchConfiguration("right_robot_ip"),
-                    "left_kinematics_params_file": LaunchConfiguration(
-                        "left_kinematics_params_file"
-                    ),
-                    "right_kinematics_params_file": LaunchConfiguration(
-                        "right_kinematics_params_file"
-                    ),
-                }.items(),
-            )
-        ],
-        scoped=True,
-        forwarding=True,
-    )
-
-    # Controller spawners
-    controller_spawners = OpaqueFunction(function=setup_controller_spawners)
-
-    # Rviz
-    rviz = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        output="log",
-        arguments=["-d", LaunchConfiguration("rviz_config_file")],
-        condition=IfCondition(LaunchConfiguration("launch_rviz")),
-        on_exit=[Shutdown()],
-    )
-
     # Per-arm namespaced nodes
     per_arm_groups = []
     for side in ("left", "right"):
         push_ros_namespace = PushROSNamespace(side)
 
-        set_remappings = [
-            SetRemap(
-                "io_and_status_controller/robot_program_running",
-                f"/{side}_io_and_status_controller/robot_program_running",
-            ),
-            SetRemap(
-                "controller_manager/list_controllers",
-                "/controller_manager/list_controllers",
-            ),
-            SetRemap(
-                "controller_manager/switch_controller",
-                "/controller_manager/switch_controller",
-            ),
-        ]
+        set_tf_prefix = SetLaunchConfiguration(
+            "tf_prefix", LaunchConfiguration(f"{side}_tf_prefix")
+        )
+
+        remap_robot_description = SetRemap(
+            "robot_description", "/robot_description"
+        )
+
+        controller_manager = Node(
+            package="controller_manager",
+            executable="ros2_control_node",
+            output="both",
+            parameters=[
+                LaunchConfiguration("update_rate_config_file"),
+                ParameterFile(
+                    LaunchConfiguration("controllers_file"), allow_substs=True
+                ),
+                {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            ],
+            ros_arguments=[
+                "--log-level",
+                LaunchConfiguration("log_level"),
+            ],
+            # on_exit=[Shutdown()],
+        )
+
+        controller_spawners = OpaqueFunction(
+            function=setup_controller_spawners
+        )
 
         dashboard_client = IncludeLaunchDescription(
             launch_description_source=AnyLaunchDescriptionSource(
@@ -482,7 +423,7 @@ def generate_launch_description():
                     use_mock_hardware,
                 )
             ),
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
 
         robot_state_helper = Node(
@@ -500,7 +441,7 @@ def generate_launch_description():
                 LaunchConfiguration("log_level"),
             ],
             condition=UnlessCondition(use_mock_hardware),
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
 
         tool_communication = Node(
@@ -525,7 +466,7 @@ def generate_launch_description():
             condition=IfCondition(
                 LaunchConfiguration(f"{side}_use_tool_communication")
             ),
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
 
         urscript_interface = Node(
@@ -541,22 +482,8 @@ def generate_launch_description():
                 LaunchConfiguration("log_level"),
             ],
             condition=UnlessCondition(use_mock_hardware),
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
-
-        other_side = "right" if side == "left" else "left"
-
-        consistent_controllers = [
-            *SHARED_CONTROLLERS_ACTIVE,
-            *[f"{side}_{x}" for x in PER_ARM_CONTROLLERS_ACTIVE],
-            *[
-                f"{other_side}_{x}"
-                for x in (
-                    PER_ARM_CONTROLLERS_ACTIVE + PER_ARM_CONTROLLERS_INACTIVE
-                )
-            ],
-        ]
-        print(f"Consistent controllers {side}: {consistent_controllers}")
 
         controller_stopper = Node(
             package="ur_robot_driver",
@@ -571,7 +498,7 @@ def generate_launch_description():
                         "activate_joint_controller"
                     )
                 },
-                {"consistent_controllers": consistent_controllers},
+                {"consistent_controllers": ACTIVE_CONTROLLERS},
                 {"use_sim_time": LaunchConfiguration("use_sim_time")},
             ],
             ros_arguments=[
@@ -579,7 +506,7 @@ def generate_launch_description():
                 LaunchConfiguration("log_level"),
             ],
             condition=UnlessCondition(use_mock_hardware),
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
 
         trajectory_until = Node(
@@ -601,14 +528,17 @@ def generate_launch_description():
                 "--log-level",
                 LaunchConfiguration("log_level"),
             ],
-            on_exit=[Shutdown()],
+            # on_exit=[Shutdown()],
         )
 
         per_arm_groups.append(
             GroupAction(
                 [
                     push_ros_namespace,
-                    *set_remappings,
+                    set_tf_prefix,
+                    remap_robot_description,
+                    controller_manager,
+                    controller_spawners,
                     dashboard_client,
                     mock_dashboard_client,
                     robot_state_helper,
@@ -622,14 +552,53 @@ def generate_launch_description():
             )
         )
 
+    # Dual robot state publisher
+    rsp = GroupAction(
+        [
+            IncludeLaunchDescription(
+                AnyLaunchDescriptionSource(
+                    LaunchConfiguration("description_launchfile")
+                ),
+                launch_arguments={
+                    "use_mock_hardware": use_mock_hardware,
+                    "headless_mode": LaunchConfiguration("headless_mode"),
+                    "reverse_ip": LaunchConfiguration("reverse_ip"),
+                    "left_ur_type": LaunchConfiguration("ur_type"),
+                    "right_ur_type": LaunchConfiguration("ur_type"),
+                    "left_tf_prefix": LaunchConfiguration("left_tf_prefix"),
+                    "right_tf_prefix": LaunchConfiguration("right_tf_prefix"),
+                    "left_robot_ip": LaunchConfiguration("left_robot_ip"),
+                    "right_robot_ip": LaunchConfiguration("right_robot_ip"),
+                    "left_kinematics_params_file": LaunchConfiguration(
+                        "left_kinematics_params_file"
+                    ),
+                    "right_kinematics_params_file": LaunchConfiguration(
+                        "right_kinematics_params_file"
+                    ),
+                }.items(),
+            )
+        ],
+        scoped=True,
+        forwarding=True,
+    )
+
+    # Rviz
+    rviz = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="log",
+        arguments=["-d", LaunchConfiguration("rviz_config_file")],
+        condition=IfCondition(LaunchConfiguration("launch_rviz")),
+        # on_exit=[Shutdown()],
+    )
+
     return LaunchDescription(
         [
             set_ros_log_dir,
             *declare_arguments(),
-            controller_manager,
-            rsp,
-            controller_spawners,
             *per_arm_groups,
+            rsp,
             rviz,
         ]
     )

@@ -209,7 +209,48 @@ planner_configs:
     # num_planners: 2 # The number of default planners to use for planning
     # planners: RRTstar,RRTConnect
 
-manipulator:
+left_manipulator:
+  planner_configs:
+    - AnytimePathShortening
+    - SBL
+    - EST
+    - LBKPIECE
+    - BKPIECE
+    - KPIECE
+    - RRT
+    - RRTConnect
+    - RRTstar
+    - TRRT
+    - PRM
+    - PRMstar
+    - FMT
+    - BFMT
+    - PDST
+    - STRIDE
+    - BiTRRT
+    - LBTRRT
+    - BiEST
+    - ProjEST
+    - LazyPRM
+    - LazyPRMstar
+    - SPARS
+    - SPARStwo
+    - CustomRRTstar
+    - PersistentLazyPRMstar
+    - PersistentLazyPRM
+    - SemiPersistentLazyPRMstar
+    - SemiPersistentLazyPRM
+    - APSPersistent
+    - APSRRTConnect
+    - APSRRTstar
+    - APSRRTConnectstar
+  # projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
+  # enforce_constrained_state_space: true
+  longest_valid_segment_fraction: 0.005
+  # enforce_joint_model_state_space: true
+  # maximum_waypoint_distance: 0.01
+
+right_manipulator:
   planner_configs:
     - AnytimePathShortening
     - SBL

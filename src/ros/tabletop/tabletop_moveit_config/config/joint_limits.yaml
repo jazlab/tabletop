@@ -10,32 +10,62 @@
 # cases. For specific applications, higher values might lead to better execution performance.
 
 joint_limits:
-  shoulder_pan_joint:
+  left_shoulder_pan_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
     max_jerk: 500.0
-  shoulder_lift_joint:
+  left_shoulder_lift_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
     max_jerk: 500.0
-  elbow_joint:
+  left_elbow_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
     max_jerk: 500.0
-  wrist_1_joint:
+  left_wrist_1_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
     max_jerk: 500.0
-  wrist_2_joint:
+  left_wrist_2_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true
     max_jerk: 500.0
-  wrist_3_joint:
+  left_wrist_3_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_shoulder_pan_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_shoulder_lift_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_elbow_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_wrist_1_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_wrist_2_joint:
+    has_acceleration_limits: true
+    max_acceleration: 30.0
+    has_jerk_limits: true
+    max_jerk: 500.0
+  right_wrist_3_joint:
     has_acceleration_limits: true
     max_acceleration: 30.0
     has_jerk_limits: true

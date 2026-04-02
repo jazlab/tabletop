@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://wiki.ros.org/xacro" name="dual_ur">
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="tabletop">
 
   <!-- Include eef and ur description-->
   <xacro:include filename="$(find tabletop_description)/urdf/tabletop_macro.xacro" />

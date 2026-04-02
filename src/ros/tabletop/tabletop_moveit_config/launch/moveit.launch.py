@@ -55,8 +55,6 @@ Example:
 Author: Felix Exner
 """
 
-import os
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
@@ -74,54 +72,58 @@ def declare_arguments():
         LaunchDescription containing argument declarations for RViz,
         robot type, warehouse database, and simulation time settings.
     """
-    return LaunchDescription(
-        [
-            DeclareLaunchArgument(
-                "launch_rviz", default_value="true", description="Launch RViz?"
+    return [
+        DeclareLaunchArgument(
+            "robot_name",
+            default_value="tabletop",
+            description="Robot name for MoveIt SRDF",
+        ),
+        DeclareLaunchArgument(
+            "ur_type",
+            default_value="ur5e",
+            description="Typo/series of used UR robot.",
+            choices=[
+                "ur3",
+                "ur3e",
+                "ur5",
+                "ur5e",
+                "ur10",
+                "ur10e",
+                "ur16e",
+                "ur20",
+                "ur30",
+            ],
+        ),
+        DeclareLaunchArgument(
+            "publish_robot_description_semantic",
+            default_value="true",
+            description="MoveGroup publishes robot description semantic",
+        ),
+        DeclareLaunchArgument(
+            "warehouse_sqlite_path",
+            default_value="/root/ws/.ros/warehouse_ros.sqlite",
+            description="Path where the warehouse database should be stored",
+        ),
+        DeclareLaunchArgument(
+            "launch_rviz", default_value="true", description="Launch RViz?"
+        ),
+        DeclareLaunchArgument(
+            "rviz_config_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_moveit_config"),
+                    "config",
+                    "moveit.rviz",
+                ]
             ),
-            DeclareLaunchArgument(
-                "rviz_config_file",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_moveit_config"),
-                        "rviz",
-                        "moveit.rviz",
-                    ]
-                ),
-                description="Path to RViz config file",
-            ),
-            DeclareLaunchArgument(
-                "ur_type",
-                description="Typo/series of used UR robot.",
-                choices=[
-                    "ur3",
-                    "ur3e",
-                    "ur5",
-                    "ur5e",
-                    "ur10",
-                    "ur10e",
-                    "ur16e",
-                    "ur20",
-                    "ur30",
-                ],
-            ),
-            DeclareLaunchArgument(
-                "warehouse_sqlite_path",
-                default_value="/root/ws/.ros/warehouse_ros.sqlite",
-                description="Path where the warehouse database should be stored",
-            ),
-            DeclareLaunchArgument(
-                "use_sim_time",
-                default_value="false",
-                description="Use simulated time",
-            ),
-            DeclareLaunchArgument(
-                "publish_robot_description_semantic",
-                default_value="true",
-                description="MoveGroup publishes robot description semantic",
-            ),
-        ]
-    )
+            description="Path to RViz config file",
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            description="Use simulated time",
+        ),
+    ]
 
 
 def generate_launch_description():
@@ -138,19 +140,27 @@ def generate_launch_description():
     """
     launch_rviz = LaunchConfiguration("launch_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
-    ur_type = LaunchConfiguration("ur_type")
     warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
     use_sim_time = LaunchConfiguration("use_sim_time")
     publish_robot_description_semantic = LaunchConfiguration(
         "publish_robot_description_semantic"
     )
 
+    # MoveIt Config
     moveit_config = (
         MoveItConfigsBuilder(
-            robot_name="ur", package_name="tabletop_moveit_config"
+            robot_name="tabletop", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            os.path.join("srdf", "tabletop.srdf.xacro"), {"name": ur_type}
+            file_path="srdf/dual_tabletop.srdf.xacro",
+            mappings={"name": LaunchConfiguration("robot_name")},
+        )
+        .planning_scene_monitor(
+            # publish_robot_description=True,
+            publish_robot_description_semantic=True,
+        )
+        .moveit_cpp(
+            file_path="config/moveit_cpp.yaml",
         )
         .to_moveit_configs()
     )
@@ -160,15 +170,11 @@ def generate_launch_description():
         "warehouse_host": warehouse_sqlite_path,
     }
 
-    ld = LaunchDescription()
-    ld.add_entity(declare_arguments())
-
     wait_robot_description = Node(
         package="ur_robot_driver",
         executable="wait_for_robot_description",
         output="screen",
     )
-    ld.add_action(wait_robot_description)
 
     move_group_node = Node(
         package="moveit_ros_move_group",
@@ -197,6 +203,7 @@ def generate_launch_description():
             moveit_config.robot_description_kinematics,
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
+            # moveit_config.to_dict(),  # TODO: Figure out which one to use
             warehouse_ros_config,
             {
                 "use_sim_time": use_sim_time,
@@ -204,13 +211,17 @@ def generate_launch_description():
         ],
     )
 
-    ld.add_action(
-        RegisterEventHandler(
-            OnProcessExit(
-                target_action=wait_robot_description,
-                on_exit=[move_group_node, rviz_node],
-            )
-        ),
+    robot_description_ready_handler = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_robot_description,
+            on_exit=[move_group_node, rviz_node],
+        )
     )
 
-    return ld
+    return LaunchDescription(
+        [
+            *declare_arguments(),
+            wait_robot_description,
+            robot_description_ready_handler,
+        ]
+    )

@@ -38,6 +38,10 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/dual_ur"
         LAUNCH="tabletop_rig dual_ur.launch.py"
         ;;
+    multi_ur)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/multi_ur"
+        LAUNCH="tabletop_rig multi_ur.launch.py"
+        ;;
     optitrack)
         export ROS_LOG_DIR="$ROS_LOG_DIR/optitrack"
         LAUNCH="tabletop_rig optitrack.launch.py"
