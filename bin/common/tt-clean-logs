@@ -9,15 +9,15 @@ source $bin_dir/../utils.sh
 # Parse arguments
 skip_confirmation=false
 while [[ $# -gt 0 ]]; do
-  case $1 in
-    -y|--yes)
-      skip_confirmation=true
-      shift
-      ;;
-    *)
-      shift
-      ;;
-  esac
+    case $1 in
+        -y|--yes)
+            skip_confirmation=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
 done
 
 # Get the size of the logs directory
