@@ -51,9 +51,15 @@ Example:
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    OpaqueFunction,
+    Shutdown,
+)
+from launch.conditions import IfCondition
 from launch.substitutions import (
     Command,
+    EnvironmentVariable,
     FindExecutable,
     LaunchConfiguration,
     PathJoinSubstitution,
@@ -78,211 +84,114 @@ UR_TYPE_CHOICES = [
 ]
 
 
-def generate_launch_description():
-    left_ur_type = LaunchConfiguration("left_ur_type")
-    right_ur_type = LaunchConfiguration("right_ur_type")
-
-    # Shared parameters
-    safety_limits = LaunchConfiguration("safety_limits")
-    safety_pos_margin = LaunchConfiguration("safety_pos_margin")
-    safety_k_position = LaunchConfiguration("safety_k_position")
-    use_mock_hardware = LaunchConfiguration("use_mock_hardware")
-    mock_sensor_commands = LaunchConfiguration("mock_sensor_commands")
-    headless_mode = LaunchConfiguration("headless_mode")
-    description_file = LaunchConfiguration("description_file")
-
-    # Per-arm parameters
-    per_arm_configs = {}
-    for side in ("left", "right"):
-        per_arm_configs[side] = {
-            key: LaunchConfiguration(f"{side}_{key}")
-            for key in [
-                "ur_type",
-                "robot_ip",
-                "reverse_ip",
-                "kinematics_params_file",
-                "joint_limit_params_file",
-                "physical_params_file",
-                "visual_params_file",
-                "initial_positions_file",
-                "script_command_port",
-                "reverse_port",
-                "script_sender_port",
-                "trajectory_port",
-                "use_tool_communication",
-                "tool_parity",
-                "tool_baud_rate",
-                "tool_stop_bits",
-                "tool_rx_idle_chars",
-                "tool_tx_idle_chars",
-                "tool_device_name",
-                "tool_tcp_port",
-                "tool_voltage",
-                "base_origin_xyz",
-                "base_origin_rpy",
-            ]
-        }
-
-    script_filename = PathJoinSubstitution(
-        [
-            FindPackageShare("ur_client_library"),
-            "resources",
-            "external_control.urscript",
-        ]
-    )
-    input_recipe_filename = PathJoinSubstitution(
-        [
-            FindPackageShare("ur_robot_driver"),
-            "resources",
-            "rtde_input_recipe.txt",
-        ]
-    )
-    output_recipe_filename = PathJoinSubstitution(
-        [
-            FindPackageShare("ur_robot_driver"),
-            "resources",
-            "rtde_output_recipe.txt",
-        ]
-    )
-
-    # Build xacro command arguments for both arms
-    xacro_args = [
-        PathJoinSubstitution([FindExecutable(name="xacro")]),
-        " ",
-        description_file,
-        " ",
-        "safety_limits:=",
-        safety_limits,
-        " ",
-        "safety_pos_margin:=",
-        safety_pos_margin,
-        " ",
-        "safety_k_position:=",
-        safety_k_position,
-        " ",
-        "use_mock_hardware:=",
-        use_mock_hardware,
-        " ",
-        "mock_sensor_commands:=",
-        mock_sensor_commands,
-        " ",
-        "headless_mode:=",
-        headless_mode,
-        " ",
+def declare_arguments():
+    # Shared arguments
+    declared_arguments = [
+        DeclareLaunchArgument(
+            "description_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("tabletop_description"),
+                    "urdf",
+                    "dual_tabletop.urdf.xacro",
+                ]
+            ),
+            description="URDF/XACRO description file with the dual robot.",
+        ),
+        DeclareLaunchArgument(
+            "reverse_ip",
+            default_value="0.0.0.0",
+            description="IP for robot-to-driver communication.",
+        ),
+        DeclareLaunchArgument(
+            "safety_limits",
+            default_value="true",
+            choices=["true", "false"],
+            description="Enables the safety limits controller.",
+        ),
+        DeclareLaunchArgument(
+            "safety_pos_margin",
+            default_value="0.15",
+            description="Margin to lower and upper limits in the safety controller.",
+        ),
+        DeclareLaunchArgument(
+            "safety_k_position",
+            default_value="20",
+            description="k-position factor in the safety controller.",
+        ),
+        DeclareLaunchArgument(
+            "use_mock_hardware",
+            default_value="false",
+            choices=["true", "false"],
+            description="Start robot with mock hardware.",
+        ),
+        DeclareLaunchArgument(
+            "mock_sensor_commands",
+            default_value="false",
+            choices=["true", "false"],
+            description="Enable mock command interfaces for sensors.",
+        ),
+        DeclareLaunchArgument(
+            "headless_mode",
+            default_value="false",
+            choices=["true", "false"],
+            description="Enable headless mode for robot control.",
+        ),
+        DeclareLaunchArgument(
+            "save_urdf",
+            default_value="true",
+            choices=["true", "false"],
+            description="Save parsed URDF to urdf_save_file.",
+        ),
+        DeclareLaunchArgument(
+            "urdf_save_file",
+            default_value=PathJoinSubstitution(
+                [
+                    EnvironmentVariable("TABLETOP_CACHE_DIR"),
+                    "dual_tabletop.urdf",
+                ]
+            ),
+            description="Path to save parsed URDF.",
+        ),
+        DeclareLaunchArgument(
+            "log_level",
+            default_value="INFO",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+            description="Node log levels",
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Use simulated time",
+        ),
     ]
 
-    for side in ("left", "right"):
-        cfg = per_arm_configs[side]
-        xacro_args.extend(
-            [
-                f"{side}_ur_type:=",
-                cfg["ur_type"],
-                " ",
-                f"{side}_robot_ip:=",
-                cfg["robot_ip"],
-                " ",
-                f"{side}_reverse_ip:=",
-                cfg["reverse_ip"],
-                " ",
-                f"{side}_joint_limit_params:=",
-                cfg["joint_limit_params_file"],
-                " ",
-                f"{side}_kinematics_params:=",
-                cfg["kinematics_params_file"],
-                " ",
-                f"{side}_physical_params:=",
-                cfg["physical_params_file"],
-                " ",
-                f"{side}_visual_params:=",
-                cfg["visual_params_file"],
-                " ",
-                f"{side}_initial_positions_file:=",
-                cfg["initial_positions_file"],
-                " ",
-                f"{side}_script_filename:=",
-                script_filename,
-                " ",
-                f"{side}_input_recipe_filename:=",
-                input_recipe_filename,
-                " ",
-                f"{side}_output_recipe_filename:=",
-                output_recipe_filename,
-                " ",
-                f"{side}_script_command_port:=",
-                cfg["script_command_port"],
-                " ",
-                f"{side}_reverse_port:=",
-                cfg["reverse_port"],
-                " ",
-                f"{side}_script_sender_port:=",
-                cfg["script_sender_port"],
-                " ",
-                f"{side}_trajectory_port:=",
-                cfg["trajectory_port"],
-                " ",
-                f"{side}_use_tool_communication:=",
-                cfg["use_tool_communication"],
-                " ",
-                f"{side}_tool_parity:=",
-                cfg["tool_parity"],
-                " ",
-                f"{side}_tool_baud_rate:=",
-                cfg["tool_baud_rate"],
-                " ",
-                f"{side}_tool_stop_bits:=",
-                cfg["tool_stop_bits"],
-                " ",
-                f"{side}_tool_rx_idle_chars:=",
-                cfg["tool_rx_idle_chars"],
-                " ",
-                f"{side}_tool_tx_idle_chars:=",
-                cfg["tool_tx_idle_chars"],
-                " ",
-                f"{side}_tool_device_name:=",
-                cfg["tool_device_name"],
-                " ",
-                f"{side}_tool_tcp_port:=",
-                cfg["tool_tcp_port"],
-                " ",
-                f"{side}_tool_voltage:=",
-                cfg["tool_voltage"],
-                " ",
-                f"{side}_base_origin_xyz:=",
-                "'",
-                cfg["base_origin_xyz"],
-                "'",
-                " ",
-                f"{side}_base_origin_rpy:=",
-                "'",
-                cfg["base_origin_rpy"],
-                "'",
-                " ",
-            ]
-        )
-
-    robot_description_content = Command(xacro_args)
-
-    def urdf_save(context):
-        urdf_str = robot_description_content.perform(context)
-        urdf_dir = os.environ["TABLETOP_CACHE_DIR"]
-        os.makedirs(urdf_dir, exist_ok=True)
-        urdf_path = os.path.join(urdf_dir, "dual_tabletop.urdf")
-        if os.path.exists(urdf_path):
-            os.remove(urdf_path)
-        with open(urdf_path, "x") as f:
-            f.write(urdf_str)
-
-    urdf_save_action = OpaqueFunction(function=urdf_save)
-    robot_description = {
-        "robot_description": ParameterValue(
-            robot_description_content, value_type=str
-        )
+    side_defaults = {
+        "left": {
+            "tf_prefix": "left_",
+            "script_command_port": "50014",
+            "reverse_port": "50011",
+            "script_sender_port": "50012",
+            "trajectory_port": "50013",
+            "tool_tcp_port": "54322",
+            "base_origin_xyz": "0.665 1.0625 0.3085",
+            "base_origin_rpy": "0.0 0.0 -1.5707",
+        },
+        "right": {
+            "tf_prefix": "right_",
+            "script_command_port": "50004",
+            "reverse_port": "50001",
+            "script_sender_port": "50002",
+            "trajectory_port": "50003",
+            "tool_tcp_port": "54321",
+            "base_origin_xyz": "1.2554 1.0625 0.3085",
+            "base_origin_rpy": "0.0 0.0 -1.5707",
+        },
     }
 
-    declared_arguments = []
-
-    # UR type per arm
-    for side in ("left", "right"):
+    # Per-arm arguments
+    for side in ["left", "right"]:
         declared_arguments.append(
             DeclareLaunchArgument(
                 f"{side}_ur_type",
@@ -292,86 +201,24 @@ def generate_launch_description():
             )
         )
 
-    # Shared arguments
-    declared_arguments.extend(
-        [
-            DeclareLaunchArgument(
-                "safety_limits",
-                default_value="true",
-                description="Enables the safety limits controller.",
-            ),
-            DeclareLaunchArgument(
-                "safety_pos_margin",
-                default_value="0.15",
-                description="Margin to lower and upper limits in the safety controller.",
-            ),
-            DeclareLaunchArgument(
-                "safety_k_position",
-                default_value="20",
-                description="k-position factor in the safety controller.",
-            ),
-            DeclareLaunchArgument(
-                "use_mock_hardware",
-                default_value="false",
-                description="Start robot with mock hardware.",
-            ),
-            DeclareLaunchArgument(
-                "mock_sensor_commands",
-                default_value="false",
-                description="Enable mock command interfaces for sensors.",
-            ),
-            DeclareLaunchArgument(
-                "headless_mode",
-                default_value="false",
-                description="Enable headless mode for robot control.",
-            ),
-            DeclareLaunchArgument(
-                "description_file",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tabletop_description"),
-                        "urdf",
-                        "dual_tabletop.urdf.xacro",
-                    ]
-                ),
-                description="URDF/XACRO description file with the dual robot.",
-            ),
-        ]
-    )
-
-    # Per-arm arguments
-    for side, ur_type in [
-        ("left", left_ur_type),
-        ("right", right_ur_type),
-    ]:
-        default_ports = {
-            "left": {
-                "script_command_port": "50004",
-                "reverse_port": "50001",
-                "script_sender_port": "50002",
-                "trajectory_port": "50003",
-                "tool_tcp_port": "54321",
-            },
-            "right": {
-                "script_command_port": "50014",
-                "reverse_port": "50011",
-                "script_sender_port": "50012",
-                "trajectory_port": "50013",
-                "tool_tcp_port": "54322",
-            },
-        }[side]
-
+        defaults = side_defaults[side]
         declared_arguments.extend(
             [
+                DeclareLaunchArgument(
+                    f"{side}_ur_type",
+                    default_value="ur5e",
+                    description=f"Type/series of the {side} UR robot.",
+                    choices=UR_TYPE_CHOICES,
+                ),
+                DeclareLaunchArgument(
+                    f"{side}_tf_prefix",
+                    default_value=defaults["tf_prefix"],
+                    description=f"tf_prefix of the joint names for the {side} robot",
+                ),
                 DeclareLaunchArgument(
                     f"{side}_robot_ip",
                     default_value="0.0.0.0",
                     description=f"IP address of the {side} robot.",
-                ),
-                DeclareLaunchArgument(
-                    f"{side}_reverse_ip",
-                    default_value="0.0.0.0",
-                    description=f"IP for {side} robot-to-driver communication.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_kinematics_params_file",
@@ -390,7 +237,7 @@ def generate_launch_description():
                         [
                             FindPackageShare("ur_description"),
                             "config",
-                            ur_type,
+                            LaunchConfiguration(f"{side}_ur_type"),
                             "joint_limits.yaml",
                         ]
                     ),
@@ -402,7 +249,7 @@ def generate_launch_description():
                         [
                             FindPackageShare("ur_description"),
                             "config",
-                            ur_type,
+                            LaunchConfiguration(f"{side}_ur_type"),
                             "physical_parameters.yaml",
                         ]
                     ),
@@ -414,7 +261,7 @@ def generate_launch_description():
                         [
                             FindPackageShare("ur_description"),
                             "config",
-                            ur_type,
+                            LaunchConfiguration(f"{side}_ur_type"),
                             "visual_parameters.yaml",
                         ]
                     ),
@@ -433,23 +280,28 @@ def generate_launch_description():
                 ),
                 DeclareLaunchArgument(
                     f"{side}_script_command_port",
-                    default_value=default_ports["script_command_port"],
+                    default_value=defaults["script_command_port"],
                     description=f"URScript command port for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_reverse_port",
-                    default_value=default_ports["reverse_port"],
+                    default_value=defaults["reverse_port"],
                     description=f"Reverse port for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_script_sender_port",
-                    default_value=default_ports["script_sender_port"],
+                    default_value=defaults["script_sender_port"],
                     description=f"Script sender port for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_trajectory_port",
-                    default_value=default_ports["trajectory_port"],
+                    default_value=defaults["trajectory_port"],
                     description=f"Trajectory port for the {side} robot.",
+                ),
+                DeclareLaunchArgument(
+                    f"{side}_tool_tcp_port",
+                    default_value=defaults["tool_tcp_port"],
+                    description=f"Tool TCP port for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_use_tool_communication",
@@ -487,37 +339,197 @@ def generate_launch_description():
                     description=f"Tool device name for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
-                    f"{side}_tool_tcp_port",
-                    default_value=default_ports["tool_tcp_port"],
-                    description=f"Tool TCP port for the {side} robot.",
-                ),
-                DeclareLaunchArgument(
                     f"{side}_tool_voltage",
                     default_value="0",
                     description=f"Tool voltage for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_base_origin_xyz",
-                    default_value="0.0 0.0 0.0",
+                    default_value=defaults["base_origin_xyz"],
                     description=f"3D translation from world to {side} base frame.",
                 ),
                 DeclareLaunchArgument(
                     f"{side}_base_origin_rpy",
-                    default_value="0.0 0.0 0.0",
+                    default_value=defaults["base_origin_rpy"],
                     description=f"3D Euler rotation from world to {side} base frame.",
                 ),
             ]
         )
 
-    return LaunchDescription(
-        declared_arguments
-        + [
-            urdf_save_action,
-            Node(
-                package="robot_state_publisher",
-                executable="robot_state_publisher",
-                output="both",
-                parameters=[robot_description],
-            ),
+    return declared_arguments
+
+
+def generate_launch_description():
+    # Shared parameters
+    script_filename = PathJoinSubstitution(
+        [
+            FindPackageShare("ur_client_library"),
+            "resources",
+            "external_control.urscript",
         ]
     )
+    input_recipe_filename = PathJoinSubstitution(
+        [
+            FindPackageShare("ur_robot_driver"),
+            "resources",
+            "rtde_input_recipe.txt",
+        ]
+    )
+    output_recipe_filename = PathJoinSubstitution(
+        [
+            FindPackageShare("ur_robot_driver"),
+            "resources",
+            "rtde_output_recipe.txt",
+        ]
+    )
+
+    xacro_args = [
+        PathJoinSubstitution([FindExecutable(name="xacro")]),
+        " ",
+        LaunchConfiguration("description_file"),
+        " ",
+        "reverse_ip:=",
+        LaunchConfiguration("reverse_ip"),
+        " safety_limits:=",
+        LaunchConfiguration("safety_limits"),
+        " ",
+        "safety_pos_margin:=",
+        LaunchConfiguration("safety_pos_margin"),
+        " ",
+        "safety_k_position:=",
+        LaunchConfiguration("safety_k_position"),
+        " ",
+        "use_mock_hardware:=",
+        LaunchConfiguration("use_mock_hardware"),
+        " ",
+        "mock_sensor_commands:=",
+        LaunchConfiguration("mock_sensor_commands"),
+        " ",
+        "headless_mode:=",
+        LaunchConfiguration("headless_mode"),
+        " ",
+    ]
+
+    # Per-arm parameters
+    for side in ("left", "right"):
+        xacro_args.extend(
+            [
+                f"{side}_ur_type:=",
+                LaunchConfiguration(f"{side}_ur_type"),
+                " ",
+                f"{side}_robot_ip:=",
+                LaunchConfiguration(f"{side}_robot_ip"),
+                " ",
+                f"{side}_tf_prefix:=",
+                LaunchConfiguration(f"{side}_tf_prefix"),
+                " ",
+                f"{side}_joint_limit_params:=",
+                LaunchConfiguration(f"{side}_joint_limit_params_file"),
+                " ",
+                f"{side}_kinematics_params:=",
+                LaunchConfiguration(f"{side}_kinematics_params_file"),
+                " ",
+                f"{side}_physical_params:=",
+                LaunchConfiguration(f"{side}_physical_params_file"),
+                " ",
+                f"{side}_visual_params:=",
+                LaunchConfiguration(f"{side}_visual_params_file"),
+                " ",
+                f"{side}_initial_positions_file:=",
+                LaunchConfiguration(f"{side}_initial_positions_file"),
+                " ",
+                f"{side}_script_filename:=",
+                script_filename,
+                " ",
+                f"{side}_input_recipe_filename:=",
+                input_recipe_filename,
+                " ",
+                f"{side}_output_recipe_filename:=",
+                output_recipe_filename,
+                " ",
+                f"{side}_script_command_port:=",
+                LaunchConfiguration(f"{side}_script_command_port"),
+                " ",
+                f"{side}_reverse_port:=",
+                LaunchConfiguration(f"{side}_reverse_port"),
+                " ",
+                f"{side}_script_sender_port:=",
+                LaunchConfiguration(f"{side}_script_sender_port"),
+                " ",
+                f"{side}_trajectory_port:=",
+                LaunchConfiguration(f"{side}_trajectory_port"),
+                " ",
+                f"{side}_use_tool_communication:=",
+                LaunchConfiguration(f"{side}_use_tool_communication"),
+                " ",
+                f"{side}_tool_parity:=",
+                LaunchConfiguration(f"{side}_tool_parity"),
+                " ",
+                f"{side}_tool_baud_rate:=",
+                LaunchConfiguration(f"{side}_tool_baud_rate"),
+                " ",
+                f"{side}_tool_stop_bits:=",
+                LaunchConfiguration(f"{side}_tool_stop_bits"),
+                " ",
+                f"{side}_tool_rx_idle_chars:=",
+                LaunchConfiguration(f"{side}_tool_rx_idle_chars"),
+                " ",
+                f"{side}_tool_tx_idle_chars:=",
+                LaunchConfiguration(f"{side}_tool_tx_idle_chars"),
+                " ",
+                f"{side}_tool_device_name:=",
+                LaunchConfiguration(f"{side}_tool_device_name"),
+                " ",
+                f"{side}_tool_tcp_port:=",
+                LaunchConfiguration(f"{side}_tool_tcp_port"),
+                " ",
+                f"{side}_tool_voltage:=",
+                LaunchConfiguration(f"{side}_tool_voltage"),
+                " ",
+                f"{side}_base_origin_xyz:=",
+                "'",
+                LaunchConfiguration(f"{side}_base_origin_xyz"),
+                "'",
+                " ",
+                f"{side}_base_origin_rpy:=",
+                "'",
+                LaunchConfiguration(f"{side}_base_origin_rpy"),
+                "'",
+                " ",
+            ]
+        )
+
+    robot_description_content = Command(xacro_args)
+
+    def urdf_save(context):
+        urdf_str = robot_description_content.perform(context)
+        urdf_save_file = LaunchConfiguration("urdf_save_file").perform(context)
+        os.makedirs(os.path.dirname(urdf_save_file), exist_ok=True)
+        if os.path.exists(urdf_save_file):
+            os.remove(urdf_save_file)
+        with open(urdf_save_file, "x") as f:
+            f.write(urdf_str)
+
+    urdf_save_action = OpaqueFunction(
+        function=urdf_save,
+        condition=IfCondition(LaunchConfiguration("save_urdf")),
+    )
+    robot_description = {
+        "robot_description": ParameterValue(
+            robot_description_content, value_type=str
+        )
+    }
+
+    rsp = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="both",
+        parameters=[robot_description],
+        ros_arguments=[
+            "--log-level",
+            LaunchConfiguration("log_level"),
+        ],
+        on_exit=[Shutdown()],
+    )
+
+    return LaunchDescription([*declare_arguments(), urdf_save_action, rsp])

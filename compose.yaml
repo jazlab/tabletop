@@ -12,7 +12,6 @@ services:
       - sim
       - ursim
     image: willfarrell/autoheal@sha256:ae1599ab171135fe3d5b779d84ece28f5cac95137e0e508ca49c62ccd740785e
-    # pull_policy: always
     network_mode: none
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -49,7 +48,6 @@ services:
     container_name: tabletop-ursim
     profiles: [ ursim ]
     image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
-    # pull_policy: always
     volumes:
       - ./ur_robot/urcaps:/urcaps
       - ./ur_robot/programs:/ursim/programs
@@ -151,13 +149,13 @@ services:
     container_name: tabletop-ur
     profiles: !override
       - real
-    # cap_add:
-    #   - SYS_NICE
-    # ulimits:
-    #   ntprio: 99
-    #   memlock: -1
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      memlock: -1
     restart: unless-stopped
-    command: tt-launch ur robot_mode:=real
+    command: tt-launch dual_ur robot_mode:=real
 
   ur-mock:
     extends: ros-base
@@ -165,7 +163,7 @@ services:
     profiles: !override
       - sim
     restart: unless-stopped
-    command: tt-launch ur robot_mode:=mock
+    command: tt-launch dual_ur robot_mode:=mock
 
   optitrack:
     extends: ros-base
@@ -243,10 +241,10 @@ services:
     profiles: !override
       - real
     restart: unless-stopped
-    # cap_add:
-    #   - SYS_NICE # TODO: see if needed
-    # ulimits:
-    #   ntprio: 99
+    cap_add:
+      - SYS_NICE # TODO: see if needed
+    ulimits:
+      rtprio: 99
     volumes:
       - /hdd/bags:/hdd/bags
     environment:

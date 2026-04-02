@@ -73,12 +73,18 @@ from launch_ros.substitutions import FindPackageShare
 
 INITIAL_JOINT_STATE_PARAMS = {
     "zeros": {
-        "shoulder_pan_joint": 0,
-        "shoulder_lift_joint": -math.pi / 2,
-        "elbow_joint": math.pi / 2,
-        "wrist_1_joint": 0,
-        "wrist_2_joint": 0,
-        "wrist_3_joint": 0,
+        "left_shoulder_pan_joint": 0,
+        "left_shoulder_lift_joint": -math.pi / 2,
+        "left_elbow_joint": math.pi / 2,
+        "left_wrist_1_joint": 0,
+        "left_wrist_2_joint": 0,
+        "left_wrist_3_joint": 0,
+        "right_shoulder_pan_joint": 0,
+        "right_shoulder_lift_joint": -math.pi / 2,
+        "right_elbow_joint": math.pi / 2,
+        "right_wrist_1_joint": 0,
+        "right_wrist_2_joint": 0,
+        "right_wrist_3_joint": 0,
     },
 }
 
@@ -92,36 +98,18 @@ def declare_arguments():
     """
     return [
         DeclareLaunchArgument(
-            "ur_type",
-            default_value="ur5e",
-            description="Type/series of used UR robot.",
-            choices=[
-                "ur3",
-                "ur3e",
-                "ur5",
-                "ur5e",
-                "ur10",
-                "ur10e",
-                "ur16e",
-                "ur20",
-                "ur30",
-            ],
-        ),
-        DeclareLaunchArgument(
-            "robot_ip",
-            default_value="192.168.12.20",
-            description="The IP address of the robot",
-        ),
-        DeclareLaunchArgument(
             "description_launchfile",
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_description"),
                     "launch",
-                    "rsp.launch.py",
+                    "dual_rsp.launch.py",
                 ]
             ),
             description="URDF/XACRO description file (absolute path) with the robot.",
+        ),
+        DeclareLaunchArgument(
+            "launch_rviz", default_value="true", description="Launch RViz?"
         ),
         DeclareLaunchArgument(
             "rviz_config_file",
@@ -157,8 +145,6 @@ def generate_launch_description():
         LaunchDescription containing all visualization nodes.
     """
     # Initialize Arguments
-    ur_type = LaunchConfiguration("ur_type")
-    robot_ip = LaunchConfiguration("robot_ip")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     description_launchfile = LaunchConfiguration("description_launchfile")
 
@@ -185,11 +171,7 @@ def generate_launch_description():
     )
 
     robot_state_publisher_node = IncludeLaunchDescription(
-        AnyLaunchDescriptionSource(description_launchfile),
-        launch_arguments={
-            "robot_ip": robot_ip,
-            "ur_type": ur_type,
-        }.items(),
+        AnyLaunchDescriptionSource(description_launchfile)
     )
 
     rviz_node = Node(
@@ -198,6 +180,7 @@ def generate_launch_description():
         name="rviz2",
         output="log",
         arguments=["-d", rviz_config_file],
+        condition=IfCondition(LaunchConfiguration("launch_rviz")),
         on_exit=[Shutdown(reason="rviz2_shutdown")],
     )
 

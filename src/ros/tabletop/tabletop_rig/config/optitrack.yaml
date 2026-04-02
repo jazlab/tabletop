@@ -1,4 +1,4 @@
-/optitrack_driver:
+/**/optitrack_driver:
   ros__parameters:
     connection_type: "Unicast" # Unicast / Multicast
     server_address: "192.168.13.40"
@@ -16,12 +16,13 @@
     qos_reliability_policy: "best_effort" # best_effort / reliable
     qos_depth: 10 # 10 / 100 / 1000
 
-/optitrack_marker_viz:
+/**/optitrack_marker_viz:
   ros__parameters:
     mocap4r2_system: "optitrack"
     marker_topics: ["markers", "predicted_markers"]
     rb_topics: ["rigid_bodies"]
     rb_require_markers: true
+    marker_lifetime: 0.1
     marker_colors:
       markers:
         r: 0.0
