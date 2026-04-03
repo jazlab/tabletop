@@ -83,7 +83,7 @@ class URInterface(BaseInterface):
 
         self._connected = False
 
-        self.log("Dashboard interface initialized")
+        self.log("UR interface initialized")
 
     async def _ensure_mock(
         self, node_ns: str, timeout: Optional[float] = None
@@ -103,10 +103,11 @@ class URInterface(BaseInterface):
             ),
         )
         values: list[ParameterValue] = list(response.values)
-        assert len(values) == 1
+        assert len(values) <= 1
 
         is_mock = (
-            values[0].type == ParameterType.PARAMETER_BOOL
+            len(values) == 1
+            and values[0].type == ParameterType.PARAMETER_BOOL
             and values[0].bool_value
         )
 

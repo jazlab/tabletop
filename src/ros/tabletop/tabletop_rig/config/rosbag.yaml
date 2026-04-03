@@ -48,10 +48,10 @@ topics:
   - /right_bottom_cam/meta
   # Robot joint states
   - /joint_states
+  - /dynamic_joint_states
   # Robot end effector torque
   - /force_torque_sensor_broadcaster/wrench
   - /force_torque_sensor_broadcaster/wrench_filtered
-  # - /dynamic_joint_states
   # ROS out
   - /rosout
 services:

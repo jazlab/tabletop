@@ -42,16 +42,18 @@ class FlicInterface(BaseInterface):
         """
         super().__init__("flic_interface", node)
 
-        # Flic response time action client
+        self.log("Waiting for flic node")
+        if not self.node.wait_for_node(
+            "flic",
+            timeout=self.node.param("wait_for_node_timeout"),
+        ):
+            raise RuntimeError("flic node not available")
+
         self._response_time_client = AIOActionClient(
             self.node,
             FlicResponseTime,
-            "/flic/response_time",
+            "flic/response_time",
         )
-
-        # Wait for action server
-        self.log("Waiting for response time server")
-        self._response_time_client.wait_for_server()
 
         self.log("Flic interface initialized")
 

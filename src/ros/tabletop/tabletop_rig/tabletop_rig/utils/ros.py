@@ -1152,7 +1152,8 @@ def robot_trajectory_from_msg(
         state: A reference RobotState used to initialize the trajectory.
             Must not be dirty (have uncommitted changes).
         joint_model_group_name: The name of the joint model group
-            (e.g., "manipulator", "arm") this trajectory applies to.
+            (e.g., "left_manipulator", "right_manipulator") this trajectory
+            applies to.
 
     Returns:
         A MoveIt RobotTrajectory object.

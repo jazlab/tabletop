@@ -1388,7 +1388,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         try:
             if self._manipulation_state == State.UNINITIALIZED:
-                if self.node.param("simulate"):
+                if self.node.param("simulate") or not self.node.param(
+                    "object_manipulation.test_object_attached.enable"
+                ):
                     self._current_manipulation_id = (
                         self._init_attached_object()
                     )

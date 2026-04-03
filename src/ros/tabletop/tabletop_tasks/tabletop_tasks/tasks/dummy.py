@@ -128,7 +128,7 @@ class DummyTask(BaseTask):
 
     async def test_teensy_latency(self):
         client = self.commander.create_client(
-            Ping, "/teensy/ping", enable_introspection=False
+            Ping, "teensy/ping", enable_introspection=False
         )
 
         await asyncio.to_thread(client.wait_for_service)
@@ -316,7 +316,7 @@ class DummyTask(BaseTask):
         """Test using a solenoid to press the button"""
         await asyncio.sleep(1000)
         # client = self.commander.create_client(
-        #     SetSolenoid, "/teensy/set_solenoid"
+        #     SetSolenoid, "teensy/set_solenoid"
         # )
         # await self.commander.service_call_async(
         #     srv_request=SetSolenoid.Request(activate=True),
@@ -334,14 +334,28 @@ class DummyTask(BaseTask):
     async def test_smooth_pursuit(self):
         """Test the smooth pursuit action client."""
         self.log("Starting smooth pursuit task")
-        async with self.commander:
-            await self.commander.reveal_smartglass()
-            await self.commander.smooth_pursuit_and_reward()
+        await self.commander.reveal_smartglass()
+        await self.commander.smooth_pursuit_and_reward()
 
     async def test_sound(self):
         while True:
             await self.commander.play_sound()
             await asyncio.sleep(1)
+
+    async def test_dual(self):
+        while True:
+            await self.commander.plan_and_execute(
+                goal="idle", group_name="right_manipulator"
+            )
+            await self.commander.plan_and_execute(
+                goal="idle", group_name="left_manipulator"
+            )
+            await self.commander.plan_and_execute(
+                goal="fetched", group_name="right_manipulator"
+            )
+            await self.commander.plan_and_execute(
+                goal="fetched", group_name="left_manipulator"
+            )
 
     async def run(self) -> None:
         """Run one or more of the tests"""
@@ -356,3 +370,4 @@ class DummyTask(BaseTask):
             # await self.test_robot_position()
             # await self.test_sound()
             # await self.test_smooth_pursuit()
+            # await self.test_dual()

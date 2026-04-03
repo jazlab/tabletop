@@ -31,7 +31,8 @@
       <chain base_link="right_base_link" tip_link="right_eef" />
     </group>
 
-    <!--GROUP STATES -->
+    <!--GROUP
+    STATES -->
     <!-- Left arm group states -->
     <group_state name="erect" group="left_manipulator">
       <joint name="left_shoulder_pan_joint" value="0" />
@@ -74,7 +75,7 @@
       <joint name="left_wrist_3_joint" value="3.7411" />
     </group_state>
     <group_state name="fetched" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="-0.2" />
+      <joint name="left_shoulder_pan_joint" value="0.2" />
       <joint name="left_shoulder_lift_joint" value="${-pi/2}" />
       <joint name="left_elbow_joint" value="${pi/2}" />
       <joint name="left_wrist_1_joint" value="${-pi/2}" />
@@ -82,7 +83,7 @@
       <joint name="left_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="test_object_attached" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="${-pi/2}" />
+      <joint name="left_shoulder_pan_joint" value="${-pi/4}" />
       <joint name="left_shoulder_lift_joint" value="${-pi/2}" />
       <joint name="left_elbow_joint" value="${pi/2}" />
       <joint name="left_wrist_1_joint" value="${-pi/2}" />
@@ -140,7 +141,7 @@
       <joint name="right_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="test_object_attached" group="right_manipulator">
-      <joint name="right_shoulder_pan_joint" value="${-pi/2}" />
+      <joint name="right_shoulder_pan_joint" value="${-pi/6}" />
       <joint name="right_shoulder_lift_joint" value="${-pi/2}" />
       <joint name="right_elbow_joint" value="${pi/2}" />
       <joint name="right_wrist_1_joint" value="${-pi/2}" />
@@ -148,11 +149,15 @@
       <joint name="right_wrist_3_joint" value="${pi}" />
     </group_state>
 
-    <!--VIRTUAL JOINTS -->
-    <virtual_joint name="left_virtual_joint" type="fixed" parent_frame="world" child_link="left_base_link" />
-    <virtual_joint name="right_virtual_joint" type="fixed" parent_frame="world" child_link="right_base_link" />
+    <!--VIRTUAL
+    JOINTS -->
+    <virtual_joint name="left_virtual_joint" type="fixed" parent_frame="world"
+      child_link="left_base_link" />
+    <virtual_joint name="right_virtual_joint" type="fixed" parent_frame="world"
+      child_link="right_base_link" />
 
-    <!--DISABLE COLLISIONS -->
+    <!--DISABLE
+    COLLISIONS -->
     <!-- Left arm collisions -->
     <disable_collisions link1="left_base_link_inertia" link2="left_shoulder_link" reason="Adjacent" />
     <disable_collisions link1="left_shoulder_link" link2="left_upper_arm_link" reason="Adjacent" />
@@ -171,7 +176,8 @@
     <disable_collisions link1="left_eef_link" link2="left_eef_sphere" reason="Default" />
 
     <!-- Right arm collisions -->
-    <disable_collisions link1="right_base_link_inertia" link2="right_shoulder_link" reason="Adjacent" />
+    <disable_collisions link1="right_base_link_inertia" link2="right_shoulder_link"
+      reason="Adjacent" />
     <disable_collisions link1="right_shoulder_link" link2="right_upper_arm_link" reason="Adjacent" />
     <disable_collisions link1="right_upper_arm_link" link2="right_forearm_link" reason="Adjacent" />
     <disable_collisions link1="right_forearm_link" link2="right_wrist_1_link" reason="Adjacent" />

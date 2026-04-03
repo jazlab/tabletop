@@ -13,12 +13,8 @@ The node can operate in two modes:
 - Real mode: Connects to actual Eyelink hardware via pylink
 - Simulation mode: Generates synthetic gaze data for testing
 
-Services provided:
-    /eyelink/start_recording: Begin recording samples
-    /eyelink/stop_recording: Stop recording and save data
-
 Actions provided:
-    /eyelink/smooth_pursuit: Monitor smooth pursuit eye movements
+    ~/smooth_pursuit: Monitor smooth pursuit eye movements
 
 Topics published:
     /predicted_markers: Gaze estimation predictions (if enabled)
@@ -366,7 +362,7 @@ class Eyelink(BaseNode):
         if self.param("publish_batched"):
             self.sample_publisher = self.create_publisher(
                 EyelinkArrayMsg,
-                "/eyelink/sample_array",
+                "~/sample_array",
                 10,
                 callback_group=MutuallyExclusiveCallbackGroup(),
                 event_callbacks=event_callbacks,
@@ -377,7 +373,7 @@ class Eyelink(BaseNode):
             # qos.depth = 500
             self.sample_publisher = self.create_publisher(
                 EyelinkMsg,
-                "/eyelink/sample",
+                "~/sample",
                 500,
                 callback_group=MutuallyExclusiveCallbackGroup(),
                 event_callbacks=event_callbacks,
@@ -386,7 +382,7 @@ class Eyelink(BaseNode):
         self.smooth_pursuit_server = ActionServer(
             self,
             EyelinkSmoothPursuit,
-            "/eyelink/smooth_pursuit",
+            "~/smooth_pursuit",
             self.smooth_pursuit_callback,
             cancel_callback=self.smooth_pursuit_cancel_callback,
             goal_callback=self.smooth_pursuit_goal_callback,
@@ -499,7 +495,7 @@ class Eyelink(BaseNode):
             self.bag_writer.create_topic(
                 rosbag2_py.TopicMetadata(
                     id=0,
-                    name="/eyelink/sample",
+                    name="~/sample",
                     type="tabletop_interfaces/msg/Eyelink",
                     serialization_format="cdr",
                 )

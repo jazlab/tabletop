@@ -78,13 +78,20 @@ class TeensyInterface(BaseInterface):
         """
         super().__init__("teensy_interface", node)
 
+        self.log("Waiting for teensy node")
+        if not self.node.wait_for_node(
+            "teensy",
+            timeout=self.node.param("wait_for_node_timeout"),
+        ):
+            raise RuntimeError("teensy node not available")
+
         # Subscribers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
         qos.durability = QoSDurabilityPolicy.VOLATILE
         qos.depth = 1
         self._teensy_sub = self.node.create_subscription(
             TeensySensor,
-            "/teensy/sensor",
+            "teensy/sensor",
             self._teensy_sensor_callback,
             qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
@@ -105,30 +112,24 @@ class TeensyInterface(BaseInterface):
         # Service clients
         self._set_arm_lock_client = self.node.create_client(
             SetArmLock,
-            "/teensy/set_arm_lock",
+            "teensy/set_arm_lock",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._set_reward_client = self.node.create_client(
             SetReward,
-            "/teensy/set_reward",
+            "teensy/set_reward",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._set_smartglass_client = self.node.create_client(
             SetSmartglass,
-            "/teensy/set_smartglass",
+            "teensy/set_smartglass",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._set_solenoid_client = self.node.create_client(
             SetSolenoid,
-            "/teensy/set_solenoid",
+            "teensy/set_solenoid",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
-
-        # Wait for ROS services
-        self.log("Waiting for teensy services")
-        self._set_arm_lock_client.wait_for_service()
-        self._set_reward_client.wait_for_service()
-        self._set_smartglass_client.wait_for_service()
 
         self.log("Teensy interface initialized")
 

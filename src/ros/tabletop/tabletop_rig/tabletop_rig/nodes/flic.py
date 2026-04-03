@@ -10,7 +10,7 @@ The node can operate in two modes:
 - Simulation mode: Generates random delays for testing
 
 Actions provided:
-    /flic/response_time: Wait for button press and return response time
+    flic/response_time: Wait for button press and return response time
 
 Parameters:
     simulate: Run in simulation mode without hardware (bool).
@@ -95,14 +95,14 @@ class Flic(BaseNode):
         self.response_time_server = ActionServer(
             self,
             FlicResponseTime,
-            "/flic/response_time",
+            "~/response_time",
             self.flic_response_time_callback,
             cancel_callback=self.flic_response_time_cancel_callback,
             goal_callback=self.flic_response_time_goal_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.button_pressed_publisher = self.create_publisher(
-            Header, "/flic/button_pressed_time", 10
+            Header, "~/button_pressed_time", 10
         )
 
         self.goal_lock = asyncio.Lock()

@@ -15,15 +15,15 @@ such as placing arms in locks with realistic delays and occasionally
 breaking the safety laser.
 
 Topics published:
-    /teensy/sensor: TeensySensor messages at 100Hz
-    /teensy/log: Log messages from the mock Teensy
+    teensy/sensor: TeensySensor messages at 100Hz
+    teensy/log: Log messages from the mock Teensy
 
 Services provided:
-    /teensy/ping: Ping service for latency measurement
-    /teensy/set_arm_lock: Control arm lock solenoids
-    /teensy/set_smartglass: Control smartglass visibility
-    /teensy/set_reward: Control reward solenoid
-    /teensy/set_solenoid: Control solenoid activation
+    teensy/ping: Ping service for latency measurement
+    teensy/set_arm_lock: Control arm lock solenoids
+    teensy/set_smartglass: Control smartglass visibility
+    teensy/set_reward: Control reward solenoid
+    teensy/set_solenoid: Control solenoid activation
 
 Example:
     ros2 run tabletop_rig mock_teensy
@@ -38,10 +38,10 @@ from typing import Any
 
 import debugpy
 import rclpy
-import rclpy.logging
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.impl.logging_severity import LoggingSeverity
+from rclpy.impl.rcutils_logger import RcutilsLogger
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
@@ -57,8 +57,6 @@ from tabletop_interfaces.srv import (
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.logging import SeverityString
-
-monkey_logger = rclpy.logging.get_logger("wiggins")
 
 # Digital pin state constants
 HIGH = True
@@ -227,6 +225,7 @@ async def monkey_loop(
     safety_laser_broken_when_locked_prob: float,
     safety_laser_broken_when_unlocked_prob: float,
     loop_period_sec: float,
+    logger: RcutilsLogger,
 ) -> None:
     """Simulate realistic subject behavior for testing.
 
@@ -309,7 +308,7 @@ async def monkey_loop(
                 (random.uniform(0, 1) < safety_laser_broken_when_locked_prob),
             )
             if digital_read(SAFETY_LASER_BROKEN_STATE_PIN):
-                monkey_logger.info("Wiggins has broken confinement!!!!!!!!")
+                logger.info("Wiggins has broken confinement!!!!!!!!")
         else:
             # Otherwise, break the safety laser with a higher probability
             _change_input_pin_state(
@@ -351,8 +350,8 @@ class MockTeensy(BaseNode):
 
     def __init__(self):
         """Initialize the mock Teensy node with all publishers and services."""
-        super().__init__("mock_teensy")
-        self.log_pub = self.create_publisher(String, "/teensy/log", 10)
+        super().__init__("teensy")
+        self.log_pub = self.create_publisher(String, "~/log", 10)
 
         # State variables
         self.sync_pulse_control_pin_state = LOW
@@ -378,7 +377,7 @@ class MockTeensy(BaseNode):
         qos.depth = 1
         self.sensor_pub = self.create_publisher(
             TeensySensor,
-            "/teensy/sensor",
+            "~/sensor",
             qos_profile=qos,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
@@ -388,32 +387,32 @@ class MockTeensy(BaseNode):
         # qos.liveliness = QoSLivelinessPolicy.AUTOMATIC
         self.ping_service = self.create_service(
             Ping,
-            "/teensy/ping",
-            self.ping_callback,
+            "~/ping",
+            self.ping_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_arm_lock_service = self.create_service(
             SetArmLock,
-            "/teensy/set_arm_lock",
-            self.set_arm_lock_callback,
+            "~/set_arm_lock",
+            self.set_arm_lock_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_smartglass_service = self.create_service(
             SetSmartglass,
-            "/teensy/set_smartglass",
-            self.set_smartglass_callback,
+            "~/set_smartglass",
+            self.set_smartglass_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_reward_service = self.create_service(
             SetReward,
-            "/teensy/set_reward",
-            self.set_reward_callback,
+            "~/set_reward",
+            self.set_reward_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_solenoid_service = self.create_service(
             SetSolenoid,
-            "/teensy/set_solenoid",
-            self.set_solenoid_callback,
+            "~/set_solenoid",
+            self.set_solenoid_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
@@ -445,10 +444,10 @@ class MockTeensy(BaseNode):
         severity: SeverityString | LoggingSeverity = "INFO",
         **kwargs,
     ) -> bool:
-        """Log a message and publish it to /teensy/log.
+        """Log a message and publish it to teensy/log.
 
         Overrides BaseNode.log to also publish log messages to the
-        /teensy/log topic, mimicking the real Teensy firmware behavior.
+        teensy/log topic, mimicking the real Teensy firmware behavior.
 
         Args:
             message: Message to log.
@@ -765,7 +764,8 @@ class MockTeensy(BaseNode):
 
     async def spin(self) -> None:
         """Spin simulated monkey loop"""
-        await monkey_loop(**self.param("monkey_loop"))
+        wiggins_logger = self.get_logger().get_child("wiggins")
+        await monkey_loop(**self.param("monkey_loop"), logger=wiggins_logger)
 
 
 async def main_async(args=None):

@@ -354,13 +354,13 @@ class PlanningSceneInterface(BaseInterface):
 
         matrix_df = pd.DataFrame(matrix, columns=object_ids, index=object_ids)  # type: ignore
 
-        # Reorder the matrix to put robot collision links first
-        robot_collision_links = self.node.param(
-            "planning_scene.robot_collision_links"
-        )
-        collision_object_ids = set(object_ids) - set(robot_collision_links)
-        columns = robot_collision_links + list(collision_object_ids)
-        matrix_df = matrix_df.loc[columns, columns]
+        # # Reorder the matrix to put robot collision links first
+        # robot_collision_links = self.node.param(
+        #     "planning_scene.robot_collision_links"
+        # )
+        # collision_object_ids = set(object_ids) - set(robot_collision_links)
+        # columns = robot_collision_links + list(collision_object_ids)
+        # matrix_df = matrix_df.loc[columns, columns]
 
         return matrix_df  # pyright: ignore[reportReturnType]
 
@@ -519,11 +519,13 @@ class PlanningSceneInterface(BaseInterface):
 
         # Base link pose
         if include_robot:
-            position, orientation = arrays_from_pose_msg(
-                self.get_frame_pose_stamped("base_link").pose
-            )
-            hash_algorithm.update(position.tobytes())
-            hash_algorithm.update(orientation.tobytes())
+            for side in ["left", "right"]:
+                position, orientation = arrays_from_pose_msg(
+                    self.get_frame_pose_stamped(f"{side}_base_link").pose
+                )
+                # Round to correct for floating point inaccuracies
+                hash_algorithm.update(position.round(4).tobytes())
+                hash_algorithm.update(orientation.round(4).tobytes())
 
         return hash_algorithm.hexdigest()
 
@@ -637,9 +639,6 @@ class PlanningSceneInterface(BaseInterface):
 
     # def check_collision(self, group_name: str) -> CollisionResult:
     #     """Check if an object is colliding with the planning scene."""
-    #     # if group_name is None:
-    #     #     group_name = self.default_group_name
-    #
     #     self.log(f"Checking collision for group {group_name}")
     #
     #     request = CollisionRequest()

@@ -130,6 +130,7 @@ services:
       - ursim
       - dev
     init: true
+    stop_signal: SIGTERM
     restart: unless-stopped
     command: tt-launch discovery
 

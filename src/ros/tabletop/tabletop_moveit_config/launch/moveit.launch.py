@@ -146,11 +146,17 @@ def generate_launch_description():
         )
         .planning_scene_monitor(
             # publish_robot_description=True,
+            # publish_planning_scene=False,
+            # publish_geometry_updates=False,
             publish_robot_description_semantic=True,
         )
-        .moveit_cpp(
-            file_path="config/moveit_cpp.yaml",
+        .planning_pipelines(
+            default_planning_pipeline="ompl",
+            pipelines=["ompl", "pilz_industrial_motion_planner"],
         )
+        # .moveit_cpp(
+        #     file_path="config/moveit_cpp.yaml",
+        # )
         .to_moveit_configs()
     )
 

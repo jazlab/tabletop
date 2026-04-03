@@ -63,16 +63,20 @@ static const micro_ros_utilities_memory_conf_t memory_conf = {
   MAX_STRING_CAPACITY, MAX_ROS2_TYPE_SEQUENCE_CAPACITY, MAX_BASIC_TYPE_SEQUENCE_CAPACITY, NULL, 0, NULL
 };
 
+// ROS2 node name
+#define NODE_NAME "teensy"
+#define NODE_NS ""
+
 // ROS2 topics
-#define SENSOR_TOPIC "/teensy/sensor"
-#define LOG_TOPIC "/teensy/log"
+#define SENSOR_TOPIC "~/sensor"
+#define LOG_TOPIC "~/log"
 
 // ROS2 services
-#define PING_SRV_NAME "/teensy/ping"
-#define SET_ARM_LOCK_SRV_NAME "/teensy/set_arm_lock"
-#define SET_SMARTGLASS_SRV_NAME "/teensy/set_smartglass"
-#define SET_REWARD_SRV_NAME "/teensy/set_reward"
-#define SET_SOLENOID_SRV_NAME "/teensy/set_solenoid"
+#define PING_SRV_NAME "~/ping"
+#define SET_ARM_LOCK_SRV_NAME "~/set_arm_lock"
+#define SET_SMARTGLASS_SRV_NAME "~/set_smartglass"
+#define SET_REWARD_SRV_NAME "~/set_reward"
+#define SET_SOLENOID_SRV_NAME "~/set_solenoid"
 
 // Execution parameters
 #define AGENT_RECONNECT_PERIOD_MS 100
@@ -729,7 +733,7 @@ bool init_client()
   //                                      &allocator));
 
   // Initialize node
-  RCCHECK(rclc_node_init_default(&node, "teensy", "", &support));
+  RCCHECK(rclc_node_init_default(&node, NODE_NAME, NODE_NS, &support));
 
   // Publishers
   RCCHECK(rclc_publisher_init(&sensor_publisher, &node,

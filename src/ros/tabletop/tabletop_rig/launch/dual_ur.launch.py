@@ -522,6 +522,7 @@ def generate_launch_description():
         mock_robot_state_helper = Node(
             package="tabletop_rig",
             executable="mock_robot_state_helper",
+            name="ur_robot_state_helper",
             output="both",
             parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
             ros_arguments=[

@@ -27,7 +27,7 @@ class MockRobotStateHelper(BaseNode):
     """TODO"""
 
     def __init__(self):
-        super().__init__("ur_robot_state_helper")
+        super().__init__("robot_state_helper")
 
         self.declare_parameter("is_mock", True, ignore_override=True)
 

@@ -9,6 +9,7 @@ This is commonly used in neuroscience experiments to ensure subject engagement.
 """
 
 import asyncio
+import inspect
 from collections.abc import (
     Callable,
 )
@@ -32,9 +33,7 @@ class EyelinkInterface(BaseInterface):
         eyelink_smooth_pursuit_client: Action client for smooth pursuit monitoring.
     """
 
-    def __init__(
-        self, node: BaseNode, wait_for_eyelink_server: bool = False
-    ) -> None:
+    def __init__(self, node: BaseNode) -> None:
         """Initialize the Eyelink interface.
 
         Sets up the action client for smooth pursuit monitoring and waits
@@ -45,63 +44,22 @@ class EyelinkInterface(BaseInterface):
         """
         super().__init__("eyelink_interface", node)
 
+        self.log("Waiting for eyelink node")
+        if not self.node.wait_for_node(
+            "eyelink",
+            timeout=self.node.param("wait_for_node_timeout"),
+        ):
+            raise RuntimeError("eyelink node not available")
+
         # Smooth pursuit action client
         self._smooth_pursuit_client = AIOActionClient(
             self.node,
             EyelinkSmoothPursuit,
-            "/eyelink/smooth_pursuit",
+            "eyelink/smooth_pursuit",
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
-        # Wait for action server
-        self._waited = False
-        if wait_for_eyelink_server:
-            self.log("Waiting for eyelink smooth pursuit server")
-            self._smooth_pursuit_client.wait_for_server()
-            self._waited = True
-
-        # self._recording = False
-
         self.log("Eyelink interface initialized")
-
-    # async def start_recording(self):
-    #     if self._recording:
-    #         self.log("Already started recording", severity="WARN")
-    #         return
-    #
-    #     await self.node.service_call_async(
-    #         EyelinkStartRecording.Request(
-    #             session_bag_dir=self.node.param("session_bag_dir")
-    #         ),
-    #         srv_type=EyelinkStartRecording,
-    #         srv_name="/eyelink/start_recording",
-    #     )
-    #     self._recording = True
-    #
-    # async def stop_recording(self):
-    #     if not self._recording:
-    #         self.log("Already stopped recording", severity="WARN")
-    #         return
-    #
-    #     await self.node.service_call_async(
-    #         Trigger.Request(),
-    #         srv_type=Trigger,
-    #         srv_name="/eyelink/stop_recording",
-    #     )
-    #     self._recording = False
-
-    # def _stop_recording_blocking(self, timeout: float | None = None):
-    #     if not self._recording:
-    #         self.log("Already stopped recording", severity="WARN")
-    #         return
-    #
-    #     self.node.service_call_blocking(
-    #         Trigger.Request(),
-    #         srv_type=Trigger,
-    #         srv_name="/eyelink/stop_recording",
-    #         timeout=timeout,
-    #     )
-    #     self._recording = False
 
     def _smooth_pursuit_producer(
         self,
@@ -145,7 +103,7 @@ class EyelinkInterface(BaseInterface):
             callback: User callback to invoke with each status update.
         """
         while True:
-            if asyncio.iscoroutinefunction(callback):
+            if inspect.iscoroutinefunction(callback):
                 await callback(await queue.get())
             else:
                 callback(await queue.get())
@@ -169,14 +127,6 @@ class EyelinkInterface(BaseInterface):
         Raises:
             RuntimeError: If the action goal is rejected by the server.
         """
-        if not self._waited:
-            self.log("Waiting for eyelink smooth pursuit server")
-            await self._smooth_pursuit_client.wait_for_server_async(
-                timeout_sec=5.0
-            )
-            self.log("Eyelink smooth pursuit server ready")
-            self._waited = True
-
         queue: asyncio.Queue[bool] = asyncio.Queue()
         loop = asyncio.get_running_loop()
         goal_handle = await self._smooth_pursuit_client.send_goal_async(
@@ -193,30 +143,9 @@ class EyelinkInterface(BaseInterface):
             await self._smooth_pursuit_client.get_result_async(goal_handle)
             consumer_task.cancel()
 
-    # async def __aenter__(self) -> Self:
-    #     await self.start_recording()
-    #     return self
-    #
-    # async def __aexit__(
-    #     self,
-    #     exc_type: Optional[type[BaseException]],
-    #     exc_value: Optional[BaseException],
-    #     exc_tb: Optional[TracebackType],
-    # ) -> bool | None:
-    #     return None
-
     def destroy_interface(self):
         """Clean up EyelinkSmoothPursuit action client"""
         self.log("Destroying EyelinkInterface")
-
-        # if self._recording:
-        #     try:
-        #         self._stop_recording_blocking(timeout=1.0)
-        #     except BaseException as e:
-        #         self.log(
-        #             f"Failed to stop recording when destroying interface with error {type(e).__name__}: {e}",
-        #             severity="ERROR",
-        #         )
 
         if hasattr(self, "_smooth_pursuit_client"):
             self._smooth_pursuit_client.destroy()
