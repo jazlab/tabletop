@@ -39,7 +39,6 @@ The launch file configures:
 Launch Arguments:
     launch_rviz: Start RViz with MoveIt configuration (default: true)
     rviz_config_file: Path to RViz config file
-    ur_type: UR robot series for SRDF generation
     warehouse_sqlite_path: Path to SQLite database for warehouse
     use_sim_time: Use simulated time (default: false)
     publish_robot_description_semantic: Publish SRDF to topic (default: true)
@@ -50,16 +49,24 @@ Nodes Launched:
     rviz2_moveit: RViz with MoveIt configuration (optional)
 
 Example:
-    ros2 launch tabletop_moveit_config moveit.launch.py ur_type:=ur5e
+    ros2 launch tabletop_moveit_config moveit.launch.py
 
 Author: Felix Exner
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    RegisterEventHandler,
+    Shutdown,
+)
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    LaunchConfiguration,
+    LaunchLogDir,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -77,22 +84,6 @@ def declare_arguments():
             "robot_name",
             default_value="tabletop",
             description="Robot name for MoveIt SRDF",
-        ),
-        DeclareLaunchArgument(
-            "ur_type",
-            default_value="ur5e",
-            description="Typo/series of used UR robot.",
-            choices=[
-                "ur3",
-                "ur3e",
-                "ur5",
-                "ur5e",
-                "ur10",
-                "ur10e",
-                "ur16e",
-                "ur20",
-                "ur30",
-            ],
         ),
         DeclareLaunchArgument(
             "publish_robot_description_semantic",
@@ -119,6 +110,12 @@ def declare_arguments():
             description="Path to RViz config file",
         ),
         DeclareLaunchArgument(
+            "log_level",
+            default_value="INFO",
+            description="Log level",
+            choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        ),
+        DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
             description="Use simulated time",
@@ -138,14 +135,6 @@ def generate_launch_description():
         LaunchDescription with wait_for_robot_description node and
         event-triggered move_group and RViz nodes.
     """
-    launch_rviz = LaunchConfiguration("launch_rviz")
-    rviz_config_file = LaunchConfiguration("rviz_config_file")
-    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
-    use_sim_time = LaunchConfiguration("use_sim_time")
-    publish_robot_description_semantic = LaunchConfiguration(
-        "publish_robot_description_semantic"
-    )
-
     # MoveIt Config
     moveit_config = (
         MoveItConfigsBuilder(
@@ -165,9 +154,18 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
+    for pipeline in moveit_config.planning_pipelines.keys():
+        if pipeline in ("planning_pipelines", "default_planning_pipeline"):
+            continue
+        moveit_config.planning_pipelines[pipeline]["response_adapters"] = [
+            "default_planning_response_adapters/AddTimeOptimalParameterization",
+            "default_planning_response_adapters/ValidateSolution",
+            "default_planning_response_adapters/DisplayMotionPath",
+        ]
+
     warehouse_ros_config = {
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
+        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
     }
 
     wait_robot_description = Node(
@@ -176,7 +174,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    move_group_node = Node(
+    move_group = Node(
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
@@ -184,37 +182,46 @@ def generate_launch_description():
             moveit_config.to_dict(),
             warehouse_ros_config,
             {
-                "use_sim_time": use_sim_time,
-                "publish_robot_description_semantic": publish_robot_description_semantic,
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "publish_robot_description_semantic": LaunchConfiguration(
+                    "publish_robot_description_semantic"
+                ),
             },
         ],
+        ros_arguments=["--log-level", LaunchConfiguration("log_level")],
+        on_exit=[Shutdown()],
     )
 
-    rviz_node = Node(
+    rviz = Node(
         package="rviz2",
-        condition=IfCondition(launch_rviz),
         executable="rviz2",
         name="rviz2_moveit",
         output="log",
-        arguments=["-d", rviz_config_file],
         parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
-            moveit_config.planning_pipelines,
-            moveit_config.joint_limits,
-            # moveit_config.to_dict(),  # TODO: Figure out which one to use
+            # moveit_config.robot_description,
+            # moveit_config.robot_description_semantic,
+            # moveit_config.robot_description_kinematics,
+            # moveit_config.planning_pipelines,
+            # moveit_config.joint_limits,
+            moveit_config.to_dict(),  # TODO: Figure out which one to use
             warehouse_ros_config,
-            {
-                "use_sim_time": use_sim_time,
-            },
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
+        arguments=[
+            "-d",
+            LaunchConfiguration("rviz_config_file"),
+            "-l",  # -l for ogre log
+        ],
+        ros_arguments=["--log-level", LaunchConfiguration("log_level")],
+        cwd=LaunchLogDir(),
+        condition=IfCondition(LaunchConfiguration("launch_rviz")),
+        on_exit=[Shutdown()],
     )
 
     robot_description_ready_handler = RegisterEventHandler(
         OnProcessExit(
             target_action=wait_robot_description,
-            on_exit=[move_group_node, rviz_node],
+            on_exit=[move_group, rviz],
         )
     )
 

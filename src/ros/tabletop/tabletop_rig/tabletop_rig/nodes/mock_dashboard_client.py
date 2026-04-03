@@ -16,22 +16,17 @@ Services provided:
     /dashboard_client/get_robot_mode: Get current robot mode
     /dashboard_client/is_in_remote_control: Check if robot is in remote control
 
-Actions provided:
-    /ur_robot_state_helper/set_mode: Change robot operational mode
-
 Example:
     ros2 run tabletop_rig mock_dashboard
 """
 
 import rclpy
-from rclpy.action.server import ActionServer, ServerGoalHandle
 from rclpy.executors import (
     MultiThreadedExecutor,
     SingleThreadedExecutor,
 )
 from rclpy.experimental import EventsExecutor
 from std_srvs.srv import Trigger
-from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import (
     GetRobotMode,
@@ -58,10 +53,13 @@ class MockDashboardClient(BaseNode):
 
     def __init__(self):
         """Initialize the mock dashboard node and create all services."""
-        super().__init__("mock_dashboard_client")
+        super().__init__("dashboard_client")
+
+        self.declare_parameter("is_mock", True, ignore_override=True)
+
         self.close_popup_srv = self.create_service(
             Trigger,
-            "/dashboard_client/close_popup",
+            "~/close_popup",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -71,7 +69,7 @@ class MockDashboardClient(BaseNode):
 
         self.close_safety_popup_srv = self.create_service(
             Trigger,
-            "/dashboard_client/close_safety_popup",
+            "~/close_safety_popup",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -81,7 +79,7 @@ class MockDashboardClient(BaseNode):
 
         self.unlock_protective_stop_srv = self.create_service(
             Trigger,
-            "/dashboard_client/unlock_protective_stop",
+            "~/unlock_protective_stop",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -91,7 +89,7 @@ class MockDashboardClient(BaseNode):
 
         self.load_program_srv = self.create_service(
             Load,
-            "/dashboard_client/load_program",
+            "~/load_program",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -101,7 +99,7 @@ class MockDashboardClient(BaseNode):
 
         self.load_installation_srv = self.create_service(
             Load,
-            "/dashboard_client/load_installation",
+            "~/load_installation",
             lambda request, response: self.load_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -111,7 +109,7 @@ class MockDashboardClient(BaseNode):
 
         self.brake_release_srv = self.create_service(
             Trigger,
-            "/dashboard_client/brake_release",
+            "~/brake_release",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -121,7 +119,7 @@ class MockDashboardClient(BaseNode):
 
         self.play_srv = self.create_service(
             Trigger,
-            "/dashboard_client/play",
+            "~/play",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -131,7 +129,7 @@ class MockDashboardClient(BaseNode):
 
         self.stop_srv = self.create_service(
             Trigger,
-            "/dashboard_client/stop",
+            "~/stop",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -141,7 +139,7 @@ class MockDashboardClient(BaseNode):
 
         self.pause_srv = self.create_service(
             Trigger,
-            "/dashboard_client/pause",
+            "~/pause",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -151,7 +149,7 @@ class MockDashboardClient(BaseNode):
 
         self.connect_srv = self.create_service(
             Trigger,
-            "/dashboard_client/connect",
+            "~/connect",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -161,7 +159,7 @@ class MockDashboardClient(BaseNode):
 
         self.quit_srv = self.create_service(
             Trigger,
-            "/dashboard_client/quit",
+            "~/quit",
             lambda request, response: self.trigger_callback(
                 request,  # type: ignore
                 response,  # type: ignore
@@ -171,46 +169,23 @@ class MockDashboardClient(BaseNode):
 
         self.get_safety_mode_srv = self.create_service(
             GetSafetyMode,
-            "/dashboard_client/get_safety_mode",
+            "~/get_safety_mode",
             self.get_safety_mode_callback,  # type: ignore
         )
 
         self.get_robot_mode_srv = self.create_service(
             GetRobotMode,
-            "/dashboard_client/get_robot_mode",
+            "~/get_robot_mode",
             self.get_robot_mode_callback,  # type: ignore
         )
 
         self.is_in_remote_control_srv = self.create_service(
             IsInRemoteControl,
-            "/dashboard_client/is_in_remote_control",
+            "~/is_in_remote_control",
             self.is_in_remote_control_callback,  # type: ignore
         )
 
-        self.set_mode_server = ActionServer(
-            self,
-            SetMode,
-            "/ur_robot_state_helper/set_mode",
-            self.set_mode_callback,
-        )
-
         self.log("Mock Dashboard initialized")
-
-    def set_mode_callback(
-        self, goal_handle: ServerGoalHandle
-    ) -> SetMode.Result:
-        """Handle SetMode action requests.
-
-        Args:
-            goal_handle: The action goal handle from ROS2.
-
-        Returns:
-            SetMode.Result with success=True.
-        """
-        self.log("Received SetMode request")
-        self.log_ros_msg(goal_handle.request)
-        goal_handle.succeed()
-        return SetMode.Result(success=True, message="Success")
 
     def trigger_callback(
         self,
@@ -318,11 +293,6 @@ class MockDashboardClient(BaseNode):
         response.answer = "Robot is in Remote Control"
         response.success = True
         return response
-
-    def destroy_node(self):
-        if hasattr(self, "set_mode_server"):
-            self.set_mode_server.destroy()
-        super().destroy_node()
 
 
 EXECUTOR_TYPE = "single-threaded"

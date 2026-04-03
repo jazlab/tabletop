@@ -94,10 +94,11 @@ def generate_launch_description():
         else_value="run_tasks",
     )
 
-    # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Rig
+    # TODO: Rig is currently unscoped because it included commander.launch.py,
+    # which has event handlers and the context does not seem to persist for
+    # launch entities started after the initial entities
     rig = GroupAction(
         [
             IncludeLaunchDescription(
@@ -117,7 +118,7 @@ def generate_launch_description():
                 }.items(),
             ),
         ],
-        scoped=True,
+        scoped=False,
         forwarding=True,
     )
 

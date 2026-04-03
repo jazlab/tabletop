@@ -437,6 +437,22 @@ def generate_launch_description():
                 f"/{side}_io_and_status_controller/robot_program_running",
             ),
             SetRemap(
+                "io_and_status_controller/robot_mode",
+                f"/{side}_io_and_status_controller/robot_mode",
+            ),
+            SetRemap(
+                "io_and_status_controller/safety_mode",
+                f"/{side}_io_and_status_controller/safety_mode",
+            ),
+            SetRemap(
+                "io_and_status_controller/resend_robot_program",
+                f"/{side}_io_and_status_controller/resend_robot_program",
+            ),
+            SetRemap(
+                "/tool_contact_controller/detect_tool_contact",
+                f"/{side}_tool_contact_controller/detect_tool_contact",
+            ),
+            SetRemap(
                 "controller_manager/list_controllers",
                 "/controller_manager/list_controllers",
             ),
@@ -467,6 +483,24 @@ def generate_launch_description():
             ),
         )
 
+        robot_state_helper = Node(
+            package="ur_robot_driver",
+            executable="robot_state_helper",
+            name="ur_robot_state_helper",
+            output="both",
+            parameters=[
+                {"headless_mode": LaunchConfiguration("headless_mode")},
+                {"robot_ip": LaunchConfiguration(f"{side}_robot_ip")},
+                {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            ],
+            ros_arguments=[
+                "--log-level",
+                LaunchConfiguration("log_level"),
+            ],
+            condition=UnlessCondition(use_mock_hardware),
+            on_exit=[Shutdown()],
+        )
+
         mock_dashboard_client = Node(
             package="tabletop_rig",
             executable="mock_dashboard_client",
@@ -485,21 +519,16 @@ def generate_launch_description():
             on_exit=[Shutdown()],
         )
 
-        robot_state_helper = Node(
-            package="ur_robot_driver",
-            executable="robot_state_helper",
-            name="ur_robot_state_helper",
+        mock_robot_state_helper = Node(
+            package="tabletop_rig",
+            executable="mock_robot_state_helper",
             output="both",
-            parameters=[
-                {"headless_mode": LaunchConfiguration("headless_mode")},
-                {"robot_ip": LaunchConfiguration(f"{side}_robot_ip")},
-                {"use_sim_time": LaunchConfiguration("use_sim_time")},
-            ],
+            parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
             ros_arguments=[
                 "--log-level",
                 LaunchConfiguration("log_level"),
             ],
-            condition=UnlessCondition(use_mock_hardware),
+            condition=IfCondition(use_mock_hardware),
             on_exit=[Shutdown()],
         )
 
@@ -610,8 +639,9 @@ def generate_launch_description():
                     push_ros_namespace,
                     *set_remappings,
                     dashboard_client,
-                    mock_dashboard_client,
                     robot_state_helper,
+                    mock_dashboard_client,
+                    mock_robot_state_helper,
                     tool_communication,
                     urscript_interface,
                     controller_stopper,

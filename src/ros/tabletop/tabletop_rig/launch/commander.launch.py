@@ -8,7 +8,7 @@ from launch.actions import (
     RegisterEventHandler,
     Shutdown,
 )
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnExecutionComplete, OnProcessExit
 from launch.substitutions import (
     EqualsSubstitution,
     IfElseSubstitution,
@@ -309,23 +309,24 @@ def generate_launch_description():
 
     robot_description_ready_handler = RegisterEventHandler(
         OnProcessExit(
-            target_action=wait_robot_description, on_exit=[commander]
+            target_action=wait_robot_description,
+            on_exit=[save_commander_overrides],
         )
     )
-    # save_commander_overrides_handler = RegisterEventHandler(
-    #     OnExecutionComplete(
-    #         target_action=robot_description_ready_handler,
-    #         on_completion=[commander],
-    #     )
-    # )
+    save_commander_overrides_handler = RegisterEventHandler(
+        OnExecutionComplete(
+            target_action=save_commander_overrides,
+            on_completion=[commander],
+        )
+    )
 
     return LaunchDescription(
         [
             set_ros_log_dir,
             *declare_arguments(),
-            save_commander_overrides,
+            # save_commander_overrides,
             wait_robot_description,
             robot_description_ready_handler,
-            # save_commander_overrides_handler,
+            save_commander_overrides_handler,
         ]
     )

@@ -1,9 +1,5 @@
-import logging
-import os
-
 from launch import (
     LaunchDescription,
-    LaunchService,
 )
 from launch.actions import (
     DeclareLaunchArgument,
@@ -13,7 +9,6 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.logging import launch_config
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
@@ -287,6 +282,9 @@ def generate_launch_description():
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
     # Launch Files
+    # TODO: Commander is currently unscoped because commander.launch.py has
+    # event handlers and the context does not seem to persist for launch
+    # entities started after the initial entities
     commander = GroupAction(
         [
             SetEnvironmentVariable(
@@ -315,7 +313,7 @@ def generate_launch_description():
                 }.items(),
             ),
         ],
-        scoped=True,
+        scoped=False,
         forwarding=True,
         condition=IfCondition(LaunchConfiguration("commander_launch")),
     )
@@ -559,31 +557,31 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("rosbag")),
     )
 
-    launch_actions = [
-        *declare_arguments(),
-        set_ros_log_dir,
-        commander,
-        ur,
-        teensy,
-        flic,
-        optitrack,
-        eyelink,
-        flir,
-        rviz,
-        rosbag,
-    ]
-
-    return LaunchDescription(launch_actions)
-
-
-def main():
-    launch_config.log_dir = os.path.join(os.environ["ROS_LOG_DIR"], "rig")
-    launch_config.level = logging.DEBUG
-    ls = LaunchService()
-    ld = generate_launch_description()
-    ls.include_launch_description(ld)
-    return ls.run()
+    return LaunchDescription(
+        [
+            set_ros_log_dir,
+            *declare_arguments(),
+            commander,
+            ur,
+            teensy,
+            flic,
+            optitrack,
+            eyelink,
+            flir,
+            rviz,
+            rosbag,
+        ]
+    )
 
 
-if __name__ == "__main__":
-    main()
+# def main():
+#     launch_config.log_dir = os.path.join(os.environ["ROS_LOG_DIR"], "rig")
+#     launch_config.level = logging.DEBUG
+#     ls = LaunchService()
+#     ld = generate_launch_description()
+#     ls.include_launch_description(ld)
+#     return ls.run()
+#
+#
+# if __name__ == "__main__":
+#     main()

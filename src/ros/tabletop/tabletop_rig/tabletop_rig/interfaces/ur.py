@@ -12,6 +12,8 @@ that are essential for recovering from safety stops and protective stops.
 import asyncio
 from typing import Optional, cast
 
+from rcl_interfaces.msg import ParameterType, ParameterValue
+from rcl_interfaces.srv import GetParameters
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import ProgramState, RobotMode, SafetyMode
@@ -32,10 +34,11 @@ from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode
 
 
-class DashboardInterface(BaseInterface):
-    """Interface for Universal Robots dashboard server communication.
+class URInterface(BaseInterface):
+    """Interface for Universal Robots nodes communication.
 
-    Provides async methods to interact with the UR dashboard for:
+    Provides async methods to interact with the UR dashboard client and other
+        UR robot driver nodes, such as:
     - Querying robot and safety modes
     - Loading programs and installations
     - Triggering dashboard commands (brake release, play, etc.)
@@ -45,40 +48,75 @@ class DashboardInterface(BaseInterface):
     time to allow flexible service discovery.
     """
 
-    def __init__(self, node: BaseNode) -> None:
-        """Initialize the dashboard interface.
+    def __init__(self, ur_ns: str, node: BaseNode) -> None:
+        """Initialize the UR interface.
 
         Args:
+            ur_ns: ROS2 namespace of UR robot driver nodes
+                (not including the node names)
             node: Parent ROS2 node for creating service clients.
         """
-        super().__init__("dashboard_interface", node)
+        name = f"{ur_ns.strip('/').replace('/', '_')}_ur_interface"
+        super().__init__(name, node)
+
+        ur_ns = ur_ns.rstrip("/")
+        self._dashboard_ns = f"{ur_ns}/dashboard_client"
+        self._state_helper_ns = f"{ur_ns}/ur_robot_state_helper"
+
+        self.log(f"Waiting for {self._dashboard_ns} node")
+        if not self.node.wait_for_node(
+            self._dashboard_ns,
+            timeout=self.node.param("wait_for_node_timeout"),
+        ):
+            raise RuntimeError(f"{self._dashboard_ns} node not available")
+
+        self.log(f"Waiting for {self._state_helper_ns} node")
+        if not self.node.wait_for_node(
+            self._state_helper_ns,
+            timeout=self.node.param("wait_for_node_timeout"),
+        ):
+            raise RuntimeError(f"{self._state_helper_ns} node not available")
+
+        self._set_mode_client = AIOActionClient(
+            node, SetMode, f"{self._state_helper_ns}/set_mode"
+        )
 
         self._connected = False
 
-        if self.node.param("simulate"):
-            self.log(
-                "Waiting for mock_dashboard_client to indicate we are indeed simulating"
-            )
-            if not self.node.wait_for_node(
-                "/mock_dashboard_client", timeout=1.0
-            ):
-                raise ValueError(
-                    "simulate parameter is True, but mock_dashboard_client "
-                    "node is not available. Please start the mock_dashboard_client "
-                    "(e.g. by launching with robot_mode:=mock) or run this "
-                    "node with simulate set to false (e.g. by launching with "
-                    "robot_mode:=real)"
-                )
+        self.log("Dashboard interface initialized")
 
-        self._set_mode_client = AIOActionClient(
-            node, SetMode, "/ur_robot_state_helper/set_mode"
+    async def _ensure_mock(
+        self, node_ns: str, timeout: Optional[float] = None
+    ):
+        simulate = self.node.param("simulate")
+        self.log(
+            f"Ensuring {node_ns} is running in {'mock' if simulate else 'real'} hardware mode"
         )
 
-        # Wait for action server
-        self.log("Waiting for Dashboard Client SetMode server")
-        self._set_mode_client.wait_for_server()
+        response = cast(
+            GetParameters.Response,
+            await self.node.service_call_async(
+                srv_request=GetParameters.Request(names=["is_mock"]),
+                srv_type=GetParameters,
+                srv_name=f"{node_ns}/get_parameters",
+                timeout=timeout,
+            ),
+        )
+        values: list[ParameterValue] = list(response.values)
+        assert len(values) == 1
 
-        self.log("Dashboard interface initialized")
+        is_mock = (
+            values[0].type == ParameterType.PARAMETER_BOOL
+            and values[0].bool_value
+        )
+
+        if simulate != is_mock:
+            raise RuntimeError(
+                f"simulate parameter is {simulate}, but {node_ns} node is "
+                f"running in {'mock' if is_mock else 'real'} hardware mode. "
+                f"Please ensure this node and the UR robot driver are launched "
+                f"with the same robot_mode"
+            )
 
     async def _trigger(
         self, srv_name: str, timeout: Optional[float] = None
@@ -89,7 +127,7 @@ class DashboardInterface(BaseInterface):
         use the std_srvs/Trigger interface.
 
         Args:
-            srv_name: Full service name (e.g., "/dashboard_client/play").
+            srv_name: Service name (e.g., "dashboard_client/play").
 
         Returns:
             The Trigger response with success status and message.
@@ -101,7 +139,7 @@ class DashboardInterface(BaseInterface):
         response = await self.node.service_call_async(
             srv_request=Trigger.Request(),
             srv_type=Trigger,
-            srv_name=srv_name,
+            srv_name=f"{self._dashboard_ns}/{srv_name}",
             timeout=timeout,
         )
         return cast(Trigger.Response, response)
@@ -114,7 +152,7 @@ class DashboardInterface(BaseInterface):
         """Load a program or installation file on the robot.
 
         Args:
-            srv_name: The load service name (e.g., "/dashboard_client/load_program").
+            srv_name: The load service name (e.g., "dashboard_client/load_program").
             filename: Path to the program file on the robot controller.
 
         Returns:
@@ -127,7 +165,7 @@ class DashboardInterface(BaseInterface):
         response = await self.node.service_call_async(
             srv_request=Load.Request(filename=filename),
             srv_type=Load,
-            srv_name=srv_name,
+            srv_name=f"{self._dashboard_ns}/{srv_name}",
         )
         return cast(Load.Response, response)
 
@@ -146,7 +184,7 @@ class DashboardInterface(BaseInterface):
             await self.node.service_call_async(
                 srv_request=IsInRemoteControl.Request(),
                 srv_type=IsInRemoteControl,
-                srv_name="/dashboard_client/is_in_remote_control",
+                srv_name=f"{self._dashboard_ns}/is_in_remote_control",
             ),
         )
         return response.remote_control
@@ -201,7 +239,7 @@ class DashboardInterface(BaseInterface):
             await self.node.service_call_async(
                 srv_request=GetSafetyMode.Request(),
                 srv_type=GetSafetyMode,
-                srv_name="/dashboard_client/get_safety_mode",
+                srv_name=f"{self._dashboard_ns}/get_safety_mode",
             ),
         )
         return response.safety_mode
@@ -218,7 +256,7 @@ class DashboardInterface(BaseInterface):
             await self.node.service_call_async(
                 srv_request=GetRobotMode.Request(),
                 srv_type=GetRobotMode,
-                srv_name="/dashboard_client/get_robot_mode",
+                srv_name=f"{self._dashboard_ns}/get_robot_mode",
             ),
         )
         return response.robot_mode
@@ -235,7 +273,7 @@ class DashboardInterface(BaseInterface):
             await self.node.service_call_async(
                 srv_request=GetProgramState.Request(),
                 srv_type=GetProgramState,
-                srv_name="/dashboard_client/program_state",
+                srv_name=f"{self._dashboard_ns}/program_state",
             ),
         )
         return response.state
@@ -268,21 +306,22 @@ class DashboardInterface(BaseInterface):
         config = self.node.param("dashboard")
 
         if not self._connected:
+            await self._ensure_mock(self._dashboard_ns)
+            await self._ensure_mock(self._state_helper_ns)
+
             try:
-                await self._trigger("/dashboard_client/quit")
+                await self._trigger("quit")
             except ServiceCallUnsuccessfulError:
                 pass
 
             try:
-                await self._trigger("/dashboard_client/connect")
+                await self._trigger("connect")
             except ServiceCallUnsuccessfulError as e:
                 raise RuntimeError(
                     "Could not connect to dashboard client"
                 ) from e
 
-            await self._load_file(
-                "/dashboard_client/load_program", config["program"]
-            )
+            await self._load_file("load_program", config["program"])
 
             await self._set_robot_mode_running(
                 stop_program=False, play_program=False
@@ -298,17 +337,17 @@ class DashboardInterface(BaseInterface):
             )
 
         # Close any popups and unlock protective stop
-        await self._trigger("/dashboard_client/close_popup")
-        await self._trigger("/dashboard_client/close_safety_popup")
-        await self._trigger("/dashboard_client/unlock_protective_stop")
+        await self._trigger("close_popup")
+        await self._trigger("close_safety_popup")
+        await self._trigger("unlock_protective_stop")
 
-        await self._trigger("/dashboard_client/stop")
+        await self._trigger("stop")
 
         await self._set_robot_mode_running(
             stop_program=False, play_program=False
         )
         await asyncio.sleep(0.5)
-        await self._trigger("/dashboard_client/play")
+        await self._trigger("play")
 
         safety_mode = await self.get_safety_mode()
         while safety_mode.mode != SafetyMode.NORMAL:
@@ -378,7 +417,7 @@ class DashboardInterface(BaseInterface):
                         and i == num_attempts_before_safety_restart - 1
                     ):
                         await self._trigger(
-                            "/dashboard_client/restart_safety",
+                            "restart_safety",
                             timeout=self.node.param(
                                 "dashboard.reset.safety_restart_timeout"
                             ),
@@ -391,7 +430,7 @@ class DashboardInterface(BaseInterface):
 
     def destroy_interface(self):
         """Clean up SetMode action client"""
-        self.log("Destroying DashboardInterface")
+        self.log("Destroying URInterface")
         if hasattr(self, "_set_mode_client"):
             self._set_mode_client.destroy()
         super().destroy_interface()

@@ -5,8 +5,10 @@ from launch import (
 )
 from launch.actions import (
     DeclareLaunchArgument,
+    RegisterEventHandler,
     Shutdown,
 )
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import (
     LaunchConfiguration,
     LaunchLogDir,
@@ -21,7 +23,7 @@ def declare_arguments():
     return [
         DeclareLaunchArgument(
             "robot_name",
-            default_value="ur5e",
+            default_value="tabletop",
             description="Robot name for MoveIt SRDF",
         ),
         DeclareLaunchArgument(
@@ -56,26 +58,35 @@ def declare_arguments():
 def generate_launch_description():
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # RViz MoveIt Config
     moveit_config = (
         MoveItConfigsBuilder(
-            robot_name="ur", package_name="tabletop_moveit_config"
+            robot_name="tabletop", package_name="tabletop_moveit_config"
         )
         .robot_description_semantic(
-            file_path="srdf/tabletop.srdf.xacro",
+            file_path="srdf/dual_tabletop.srdf.xacro",
             mappings={"name": LaunchConfiguration("robot_name")},
+        )
+        .planning_scene_monitor(
+            # publish_robot_description=True,
+            publish_robot_description_semantic=True,
         )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",
         )
         .to_moveit_configs()
     )
+
     warehouse_ros_config = {
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
         "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
     }
 
-    # RViz
+    wait_robot_description = Node(
+        package="ur_robot_driver",
+        executable="wait_for_robot_description",
+        output="both",
+    )
+
     rviz = Node(
         package="rviz2",
         executable="rviz2",
@@ -100,6 +111,18 @@ def generate_launch_description():
         on_exit=[Shutdown()],
     )
 
-    launch_actions = [*declare_arguments(), set_ros_log_dir, rviz]
+    robot_description_ready_handler = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_robot_description,
+            on_exit=[rviz],
+        )
+    )
+
+    launch_actions = [
+        *declare_arguments(),
+        set_ros_log_dir,
+        wait_robot_description,
+        robot_description_ready_handler,
+    ]
 
     return LaunchDescription(launch_actions)

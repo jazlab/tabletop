@@ -71,13 +71,13 @@ from tabletop_rig.exceptions import (
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.executors import AIOExecutor
-from tabletop_rig.interfaces.dashboard import DashboardInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
 from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
+from tabletop_rig.interfaces.ur import URInterface
 from tabletop_rig.nodes.base import BaseNode
 
 
@@ -141,7 +141,10 @@ def safe_execution(coro_fn):
                     severity="WARN",
                 )
                 await self.teensy.lock_arms_and_wait()
-                await self.dashboard.reset()
+
+                for dashboard in self.urs.values():
+                    await dashboard.reset()
+
                 self.log(
                     f"Arms locked and safe to execute and dashboard reset, "
                     f"retrying {coro_fn.__name__}",
@@ -156,7 +159,10 @@ def safe_execution(coro_fn):
                     f"Resetting dashboard before retrying",
                     severity="WARN",
                 )
-                await self.dashboard.reset()
+
+                for dashboard in self.urs.values():
+                    await dashboard.reset()
+
                 self.log(
                     f"Dashboard reset, retrying {coro_fn.__name__}",
                     severity="WARN",
@@ -187,7 +193,7 @@ class Commander(BaseNode):
     """
 
     default_params: dict[str, Any] = BaseNode.default_params | {
-        "wait_for_interfaces": True,
+        "wait_for_node_timeout": 2.0,
         "recovery.max_attempts": 5,
         "initial_attached_object_id": "null",
         "initial_attached_object_idx": "null",
@@ -245,7 +251,11 @@ class Commander(BaseNode):
         )
         self.flic = FlicInterface(self)
         self.eyelink = EyelinkInterface(self)
-        self.dashboard = DashboardInterface(self)
+
+        self.urs: dict[str, URInterface] = {}
+        for side in ["left", "right"]:
+            self.urs[side] = URInterface(side, self)
+
         self.moveit = MoveItInterface(
             self, safe_to_execute_callback=lambda: self.teensy.safe_to_execute
         )
@@ -585,7 +595,10 @@ class Commander(BaseNode):
                             severity="WARN",
                         )
                         await self.teensy.lock_arms_and_wait()
-                    await self.dashboard.reset()
+
+                    for dashboard in self.urs.values():
+                        await dashboard.reset()
+
                     await self.moveit.reset_rig(end_goal)
                     return
                 except (

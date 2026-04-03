@@ -11,14 +11,10 @@ print_usage() {
     echo "launch_type can be one of commander, rig, flir, or tasks"
 }
 
-LAUNCH=
-RUN=
 EXEC=
+RUN=
+LAUNCH=
 case $1 in
-    foxglove)
-        export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
-        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
-        ;;
     discovery)
         export ROS_LOG_DIR="$ROS_LOG_DIR/discovery"
         IFS=':' read -ra SERVER <<< "$ROS_DISCOVERY_SERVER"
@@ -27,6 +23,14 @@ case $1 in
             exit 1
         fi
         EXEC="fastdds discovery --server-id 0 --udp-address ${SERVER[0]} --udp-port ${SERVER[1]}"
+        ;;
+    foxglove)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
+        LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
+        ;;
+    moveit)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/moveit"
+        LAUNCH="tabletop_moveit_config moveit.launch.py"
         ;;
     rviz)
         export ROS_LOG_DIR="$ROS_LOG_DIR/rviz"
