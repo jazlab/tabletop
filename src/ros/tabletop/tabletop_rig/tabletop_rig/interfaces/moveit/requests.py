@@ -60,9 +60,9 @@ class _BasePlanRequest(
     planning requests including trajectory post-processing options.
 
     Attributes:
+        group_name: MoveIt planning group name.
         start_state: Starting robot configuration. If None, uses current state.
         pose_link: End-effector link for Cartesian goals.
-        group_name: MoveIt planning group name.
         planning_pipeline: Which planner to use (e.g., "ompl", "pilz").
         path_constraints: Optional path constraints for planning.
         planning_scene: Custom planning scene. If None, uses current scene.
@@ -79,9 +79,9 @@ class _BasePlanRequest(
         overshoot_threshold: Threshold for overshoot detection.
     """
 
+    group_name: str
     start_state: Optional[RobotState] = None
     pose_link: Optional[str] = None
-    group_name: Optional[str] = None
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None

@@ -151,11 +151,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ###########################################################################
 
     @property
-    def default_group_name(self) -> str:
-        """Get the planning group name from the parameter server."""
-        return self.node.param("planning.default_group_name")
-
-    @property
     def default_pose_link(self) -> str:
         """Get the planning link from the parameter server."""
         return self.node.param("planning.default_pose_link")
@@ -178,9 +173,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         """Get the trajectory execution manager."""
         return self.moveit_py.get_trajectory_execution_manager()
 
-    def get_planning_component(
-        self, group_name: Optional[str] = None
-    ) -> PlanningComponent:
+    def get_planning_component(self, group_name: str) -> PlanningComponent:
         """Get the planning component for a given planning group name.
 
         Args:
@@ -189,13 +182,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             The planning component for the specified group.
         """
-        if group_name is None:
-            group_name = self.default_group_name
         return self.moveit_py.get_planning_component(group_name)
 
-    def get_named_target_states(
-        self, group_name: Optional[str] = None
-    ) -> list[str]:
+    def get_named_target_states(self, group_name: str) -> list[str]:
         """Get the named target states from the planning component."""
         return self.get_planning_component(group_name).named_target_states()
 
@@ -384,7 +373,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     ###########################################################################
 
     def get_target_state(
-        self, target_name: str, group_name: Optional[str] = None
+        self, target_name: str, group_name: str
     ) -> RobotState:
         """Get the named target state from the planning component."""
         joint_state_dict = self.get_planning_component(
@@ -573,31 +562,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if request.start_state is None:
             request.start_state = self.current_state
 
-        # Set pose link and group name to default if not provided
+        # Set pose link to default if not provided
         if request.pose_link is None:
             request.pose_link = self.default_pose_link
-        if request.group_name is None:
-            request.group_name = self.default_group_name
-
-        # Check if the goal is already reached (this is wrong)
-        # if isinstance(request.goal, PoseStamped):
-        #     tolerance_kwargs = self.node.param(
-        #         "planning.pose_tolerance"
-        #     )
-        #     if all_close_poses_stamped(
-        #         request.goal, self.eef_pose_stamped(), **tolerance_kwargs
-        #     ):
-        #         self.log("Already at goal pose, skipping planning")
-        #         return None, []
-        # else:
-        #     tolerance = self.node.param(
-        #         "trajectory_execution.allowed_start_tolerance"
-        #     )
-        #     if all_close_robot_states(
-        #         request.goal, self.current_state, position_tolerance=tolerance
-        #     ):
-        #         self.log("Already at goal state, skipping planning")
-        #         return None, []
 
         # Attempt to retrieve cached trajectories for this request
         if (

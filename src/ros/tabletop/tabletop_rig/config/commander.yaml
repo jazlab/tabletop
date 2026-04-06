@@ -72,8 +72,12 @@
       fast_pipeline: linear
       fallback_pipeline: rrt_star
       # fallback_pipeline: rrtc_star
-      default_pose_link: eef
-      default_group_name: manipulator
+      joint_groups:
+        left_manipulator:
+          default_pose_link: left_eef
+        right_manipulator:
+          default_pose_link: right_eef
+
       # max_attempts: 5
       # planning_pipeline: rrt_star
       # apply_totg: true
@@ -114,9 +118,10 @@
 
     object_manipulation:
       test_object_attached:
+        enable: True
         goal: test_object_attached
         object_id: test_object
-        joint_name: elbow_joint
+        joint_name: right_elbow_joint
         num_samples: 2500
         effort_threshold: -1.615
         greater_than: false
@@ -130,12 +135,13 @@
       #   force_threshold: 1.54
       #   torque_threshold: 1.0
       touch_links:
-        - eef_link
-        - eef_sphere
+        # TODO: remove
+        - right_eef_link
+        - right_eef_sphere
       mount_ids:
         - rig
       allowed_mount_collisions:
-        eef_sphere: rig
+        right_eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
       state_offsets:
         pre_fetch: [-0.05, 0.0, -0.05] # relative to object init pose
@@ -184,13 +190,20 @@
       max_retries: 3
 
     link_padding:
-      base_link_inertia: 0.03
-      shoulder_link: 0.03
-      upper_arm_link: 0.03
-      forearm_link: 0.03
-      wrist_1_link: 0.03
-      wrist_2_link: 0.01
-      wrist_3_link: 0.01
+      left_base_link_inertia: 0.03
+      left_shoulder_link: 0.03
+      left_upper_arm_link: 0.03
+      left_forearm_link: 0.03
+      left_wrist_1_link: 0.03
+      left_wrist_2_link: 0.01
+      left_wrist_3_link: 0.01
+      right_base_link_inertia: 0.03
+      right_shoulder_link: 0.03
+      right_upper_arm_link: 0.03
+      right_forearm_link: 0.03
+      right_wrist_1_link: 0.03
+      right_wrist_2_link: 0.01
+      right_wrist_3_link: 0.01
 
     manually_attached_object_kwargs:
       # allowed_collision_ids:
@@ -200,16 +213,6 @@
 
     planning_scene:
       cache_dir: $TABLETOP_CACHE_DIR/planning_scene
-      robot_collision_links:
-        - base_link_inertia
-        - shoulder_link
-        - upper_arm_link
-        - forearm_link
-        - wrist_1_link
-        - wrist_2_link
-        - wrist_3_link
-        - eef_link
-        - eef_sphere
       use_saved_scene: true
       # planes:
       #   floor:
@@ -233,19 +236,20 @@
       #     pose_stamped:
       #       position: [0.0, 0.0, 0.0]
       primitives:
-        left_robot_box:
-          type: BOX
-          dimensions: [0.8, 0.4, 0.3]
-          pose_stamped:
-            position: [0.38, 1.0625, 0.46]
-          color: [1.0, 0.0, 0.0, 0.2]
+        # left_robot_box:
+        #   type: BOX
+        #   dimensions: [0.8, 0.4, 0.3]
+        #   pose_stamped:
+        #     position: [0.38, 1.0625, 0.46]
+        #   color: [1.0, 0.0, 0.0, 0.2]
         robot_platform:
           type: BOX
           dimensions: [0.92, 0.92, 0.31]
           pose_stamped:
             position: [0.9525, 1.0625, 0.155]
           allowed_collision_ids:
-            - base_link_inertia
+            - left_base_link_inertia
+            - right_base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
         project_safety_box:
           type: BOX
@@ -302,7 +306,8 @@
           path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.dae
           simplification: bounding_primitive
           allowed_collision_ids:
-            - base_link_inertia
+            - left_base_link_inertia
+            - right_base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
       object_meshes:
         path: $(find-pkg-share tabletop_rig)/meshes/objects/
