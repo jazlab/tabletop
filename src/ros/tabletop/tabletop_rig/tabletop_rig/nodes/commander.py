@@ -142,8 +142,8 @@ def safe_execution(coro_fn):
                 )
                 await self.teensy.lock_arms_and_wait()
 
-                for dashboard in self.urs.values():
-                    await dashboard.reset()
+                for ur in self.urs.values():
+                    await ur.reset()
 
                 self.log(
                     f"Arms locked and safe to execute and dashboard reset, "
@@ -160,8 +160,8 @@ def safe_execution(coro_fn):
                     severity="WARN",
                 )
 
-                for dashboard in self.urs.values():
-                    await dashboard.reset()
+                for ur in self.urs.values():
+                    await ur.reset()
 
                 self.log(
                     f"Dashboard reset, retrying {coro_fn.__name__}",
@@ -596,8 +596,8 @@ class Commander(BaseNode):
                         )
                         await self.teensy.lock_arms_and_wait()
 
-                    for dashboard in self.urs.values():
-                        await dashboard.reset()
+                    for ur in self.urs.values():
+                        await ur.reset()
 
                     await self.moveit.reset_rig(end_goal)
                     return

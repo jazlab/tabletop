@@ -620,8 +620,7 @@ def generate_launch_description():
             parameters=[
                 {
                     "motion_controller": [
-                        side,
-                        "_",
+                        f"/{side}_",
                         LaunchConfiguration("initial_joint_controller"),
                     ],
                 },

@@ -543,6 +543,7 @@ class MockTeensy(BaseNode):
         """
         _ = request  # sent_time is not used, just for client reference
         response.received_time = self.get_clock().now().to_msg()
+        response.success = True
         return response
 
     def set_arm_lock_callback(
