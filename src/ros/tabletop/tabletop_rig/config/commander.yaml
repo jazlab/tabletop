@@ -2,7 +2,7 @@
   ros__parameters:
     simulate: true
 
-    dashboard:
+    ur:
       installation: default.installation
       program: external_control.urp
       reset:
@@ -72,12 +72,9 @@
       fast_pipeline: linear
       fallback_pipeline: rrt_star
       # fallback_pipeline: rrtc_star
-      joint_groups:
-        left_manipulator:
-          default_pose_link: left_eef
-        right_manipulator:
-          default_pose_link: right_eef
-
+      default_pose_links:
+        left_manipulator: left_eef_link
+        right_manipulator: right_eef_link
       # max_attempts: 5
       # planning_pipeline: rrt_star
       # apply_totg: true
@@ -103,6 +100,11 @@
         max_trajectories: 5
         new_cache: false
 
+    execution:
+      joint_trajectory_controllers:
+        left_manipulator: left_scaled_joint_trajectory_controller
+        right_manipulator: right_scaled_joint_trajectory_controller
+
     # predefined_states:
     #   idle_state: ready_for_action
     #   present_state: present
@@ -118,7 +120,7 @@
 
     object_manipulation:
       test_object_attached:
-        enable: True
+        enable: false
         goal: test_object_attached
         object_id: test_object
         joint_name: right_elbow_joint
@@ -135,13 +137,12 @@
       #   force_threshold: 1.54
       #   torque_threshold: 1.0
       touch_links:
-        # TODO: remove
-        - right_eef_link
-        - right_eef_sphere
+        - eef_link
+        - eef_sphere
       mount_ids:
         - rig
       allowed_mount_collisions:
-        right_eef_sphere: rig
+        eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
       state_offsets:
         pre_fetch: [-0.05, 0.0, -0.05] # relative to object init pose
@@ -236,12 +237,6 @@
       #     pose_stamped:
       #       position: [0.0, 0.0, 0.0]
       primitives:
-        # left_robot_box:
-        #   type: BOX
-        #   dimensions: [0.8, 0.4, 0.3]
-        #   pose_stamped:
-        #     position: [0.38, 1.0625, 0.46]
-        #   color: [1.0, 0.0, 0.0, 0.2]
         robot_platform:
           type: BOX
           dimensions: [0.92, 0.92, 0.31]

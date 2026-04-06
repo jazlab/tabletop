@@ -304,7 +304,7 @@ class URInterface(BaseInterface):
             ActionError: If the SetMode action fails.
         """
         self.log("Resetting dashboard")
-        config = self.node.param("dashboard")
+        config = self.node.param("ur")
 
         if not self._connected:
             await self._ensure_mock(self._dashboard_ns)
@@ -385,9 +385,9 @@ class URInterface(BaseInterface):
             ServiceCallUnsuccessfulError: If a dashboard service call fails.
             ActionError: If the SetMode action fails.
         """
-        max_attempts: int = self.node.param("dashboard.reset.max_attempts")
+        max_attempts: int = self.node.param("ur.reset.max_attempts")
         num_attempts_before_safety_restart: Optional[int] = self.node.param(
-            "dashboard.reset.num_attempts_before_safety_restart"
+            "ur.reset.num_attempts_before_safety_restart"
         )
 
         if (
@@ -420,7 +420,7 @@ class URInterface(BaseInterface):
                         await self._trigger(
                             "restart_safety",
                             timeout=self.node.param(
-                                "dashboard.reset.safety_restart_timeout"
+                                "ur.reset.safety_restart_timeout"
                             ),
                         )
 

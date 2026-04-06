@@ -85,8 +85,6 @@ class FlicInterface(BaseInterface):
                 goal_handle = await self._response_time_client.send_goal_async(
                     FlicResponseTime.Goal(bd_addr=bd_addr)
                 )
-                if not goal_handle.accepted:
-                    raise RuntimeError("Flic goal not accepted")
 
                 result: FlicResponseTime.Result = (
                     await self._response_time_client.get_result_async(

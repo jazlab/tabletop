@@ -200,8 +200,8 @@ class Commander(BaseNode):
     }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
-        "dashboard.installation",
-        "dashboard.program",
+        "ur.installation",
+        "ur.program",
         "teensy.spin_period",
         "link_padding",
         "planning_scene.cache_dir",
