@@ -25,6 +25,7 @@ Exception Hierarchy:
 from enum import Enum
 from typing import Any, Optional
 
+from control_msgs.action import FollowJointTrajectory
 from moveit.core.controller_manager import (  # type: ignore[reportMissingModuleSource]
     ExecutionStatus,
 )
@@ -248,14 +249,23 @@ class ExecutionRejectedError(ExecutionError):
         execution_status: The ExecutionStatus from MoveIt with rejection details.
     """
 
-    def __init__(self, execution_status: ExecutionStatus) -> None:
+    def __init__(
+        self, execution_status: ExecutionStatus | FollowJointTrajectory.Result
+    ) -> None:
         """Initialize with the execution status.
 
         Args:
             execution_status: The ExecutionStatus containing rejection details.
         """
         self.execution_status = execution_status
-        super().__init__(f"Execution rejected: {execution_status.status}")
+        if isinstance(execution_status, ExecutionStatus):
+            super().__init__(
+                f"Execution rejected with status: {execution_status.status}"
+            )
+        else:
+            super().__init__(
+                f"Execution rejected with status: {execution_status.error_string}"
+            )
 
 
 class ExecutionInterruptedError(ExecutionError):
@@ -269,14 +279,23 @@ class ExecutionInterruptedError(ExecutionError):
         execution_status: The ExecutionStatus from MoveIt with interruption details.
     """
 
-    def __init__(self, execution_status: ExecutionStatus) -> None:
+    def __init__(
+        self, execution_status: ExecutionStatus | FollowJointTrajectory.Result
+    ) -> None:
         """Initialize with the execution status.
 
         Args:
             execution_status: The ExecutionStatus containing interruption details.
         """
         self.execution_status = execution_status
-        super().__init__(f"Execution interrupted: {execution_status.status}")
+        if isinstance(execution_status, ExecutionStatus):
+            super().__init__(
+                f"Execution interrupted with status: {execution_status.status}"
+            )
+        else:
+            super().__init__(
+                f"Execution interrupted with status: {execution_status.error_string}"
+            )
 
 
 class NotSafeToExecuteError(ExecutionError):
@@ -291,7 +310,10 @@ class NotSafeToExecuteError(ExecutionError):
     """
 
     def __init__(
-        self, execution_status: Optional[ExecutionStatus] = None
+        self,
+        execution_status: Optional[
+            ExecutionStatus | FollowJointTrajectory.Result
+        ] = None,
     ) -> None:
         """Initialize with optional execution status.
 
@@ -300,10 +322,16 @@ class NotSafeToExecuteError(ExecutionError):
                 why execution was deemed unsafe.
         """
         self.execution_status = execution_status
-        msg = "Not safe to execute"
-        if execution_status is not None:
-            msg += f": {execution_status.status}"
-        super().__init__(msg)
+        if execution_status is None:
+            super().__init__("Not safe to execute")
+        elif isinstance(execution_status, ExecutionStatus):
+            super().__init__(
+                f"Not safe to execute with status: {execution_status.status}"
+            )
+        else:
+            super().__init__(
+                f"Not safe to execute with status: {execution_status.error_string}"
+            )
 
 
 class ObjectManipulationError(MoveitRecoverableError):

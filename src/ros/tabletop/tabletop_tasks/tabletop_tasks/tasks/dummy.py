@@ -77,10 +77,11 @@ class DummyTask(BaseTask):
         goal = pose_stamped_msg(
             pose={"position": [0.9525, 0.4, 0.4], "rpy": [1.5707, 1.5707, 0.0]}
         )
-        await self.commander.plan_and_execute(goal=goal)
+        group_name = "right_manipulator"
+        await self.commander.plan_and_execute(goal=goal, group_name=group_name)
         while True:
             pose_stamped = self.commander.moveit.get_link_pose_stamped(
-                self.commander.moveit.default_pose_link
+                self.commander.moveit.default_pose_link(group_name)
             )
             position, euler = arrays_from_pose_msg(
                 pose_stamped.pose, euler=True
@@ -108,9 +109,11 @@ class DummyTask(BaseTask):
             f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
         )
 
+        group_name = "right_manipulator"
+
         while True:
             pose_stamped = self.commander.moveit.get_link_pose_stamped(
-                self.commander.moveit.default_pose_link
+                self.commander.moveit.default_pose_link(group_name)
             )
             old_frame_transform = self.commander.moveit.get_frame_transform(
                 pose_stamped.header.frame_id
@@ -343,24 +346,38 @@ class DummyTask(BaseTask):
             await asyncio.sleep(1)
 
     async def test_dual(self):
+        # import debugpy
+        #
+        # print("Debug mode enabled")
+        # debugpy.listen(1300)
+        # print("Waiting for debugger to attach")
+        # debugpy.wait_for_client()
+        # print("Debugger attached")
+
         while True:
-            await self.commander.plan_and_execute(
-                goal="idle", group_name="right_manipulator"
-            )
-            await self.commander.plan_and_execute(
-                goal="idle", group_name="left_manipulator"
-            )
-            await self.commander.plan_and_execute(
-                goal="fetched", group_name="right_manipulator"
-            )
-            await self.commander.plan_and_execute(
-                goal="fetched", group_name="left_manipulator"
-            )
+            for goal in ["idle", "fetched"]:
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(
+                        self.commander.moveit._plan_and_execute(
+                            goal=goal,
+                            group_name="left_manipulator",
+                            cache_trajectory=False,
+                            use_cache=False,
+                        )
+                    )
+                    tg.create_task(
+                        self.commander.moveit._plan_and_execute(
+                            goal=goal,
+                            group_name="right_manipulator",
+                            cache_trajectory=False,
+                            use_cache=False,
+                        )
+                    )
 
     async def run(self) -> None:
         """Run one or more of the tests"""
         async with self.commander:
-            await self.test_teensy_latency()
+            # await self.test_teensy_latency()
             # await self.test_robot_position()
             # await self.test_grid_position()
             # await self.test_flic_latency_pre_pressed()
@@ -370,4 +387,4 @@ class DummyTask(BaseTask):
             # await self.test_robot_position()
             # await self.test_sound()
             # await self.test_smooth_pursuit()
-            # await self.test_dual()
+            await self.test_dual()

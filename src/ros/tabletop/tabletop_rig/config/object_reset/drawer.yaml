@@ -3,6 +3,7 @@ start_goal: !PoseStamped
   position: [1.65, 1.0, 0.7]
   rpy: [0.0, 0.0, 0.0]
 reset_request: !ConcatPlanRequest
+  group_name: right_manipulator
   goals:
     - !PoseStamped
       position: [1.75, 1.0, 0.7]

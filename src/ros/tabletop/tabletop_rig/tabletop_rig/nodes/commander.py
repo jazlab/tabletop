@@ -193,7 +193,7 @@ class Commander(BaseNode):
     """
 
     default_params: dict[str, Any] = BaseNode.default_params | {
-        "wait_for_node_timeout": 2.0,
+        "wait_for_node_timeout": 5.0,
         "recovery.max_attempts": 5,
         "initial_attached_object_id": "null",
         "initial_attached_object_idx": "null",

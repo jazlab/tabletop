@@ -85,6 +85,7 @@ class _BasePlanRequest(
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
+    planning_time: Optional[float] = None
     max_attempts: int = 3
     use_cache: bool = True
     apply_totg: bool = True
