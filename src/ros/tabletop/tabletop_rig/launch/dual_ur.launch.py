@@ -575,7 +575,6 @@ def generate_launch_description():
         )
 
         other_side = "right" if side == "left" else "left"
-
         consistent_controllers = [
             *SHARED_CONTROLLERS_ACTIVE,
             *[f"{side}_{x}" for x in PER_ARM_CONTROLLERS_ACTIVE],
@@ -586,8 +585,6 @@ def generate_launch_description():
                 )
             ],
         ]
-        print(f"Consistent controllers {side}: {consistent_controllers}")
-
         controller_stopper = Node(
             package="ur_robot_driver",
             executable="controller_stopper_node",

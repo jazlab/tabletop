@@ -965,11 +965,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             client = self._execution_clients[group_name]
 
             for traj in trajectory:
-                joint_msg: JointTrajectory = (
+                msg: JointTrajectory = (
                     traj.get_robot_trajectory_msg().joint_trajectory
                 )
                 goal_handle = await client.send_goal_async(
-                    FollowJointTrajectory.Goal(trajectory=joint_msg)
+                    FollowJointTrajectory.Goal(trajectory=msg)
                 )
                 with self._goal_handle_lock:
                     self._execution_goal_handles[group_name] = goal_handle

@@ -346,14 +346,6 @@ class DummyTask(BaseTask):
             await asyncio.sleep(1)
 
     async def test_dual(self):
-        # import debugpy
-        #
-        # print("Debug mode enabled")
-        # debugpy.listen(1300)
-        # print("Waiting for debugger to attach")
-        # debugpy.wait_for_client()
-        # print("Debugger attached")
-
         while True:
             for goal in ["idle", "fetched"]:
                 async with asyncio.TaskGroup() as tg:

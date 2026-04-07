@@ -181,6 +181,11 @@ services:
     container_name: tabletop-ur-mock
     profiles: !override
       - sim
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      memlock: -1
     depends_on:
       - discovery-server
     restart: unless-stopped

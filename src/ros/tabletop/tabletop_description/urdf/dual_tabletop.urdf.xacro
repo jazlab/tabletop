@@ -1,5 +1,7 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://wiki.ros.org/xacro" name="tabletop">
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="$(arg name)">
+
+  <xacro:arg name="name" default="tabletop" />
 
   <!-- Include eef and ur description-->
   <xacro:include filename="$(find tabletop_description)/urdf/tabletop_macro.xacro" />
@@ -30,7 +32,6 @@
   <xacro:arg name="right_ur_type" default="urXe" />
 
   <!-- ==================== LEFT ARM ==================== -->
-  <xacro:arg name="left_name" default="left_robot" />
   <xacro:arg name="left_tf_prefix" default="left_" />
   <xacro:arg name="left_joint_limit_params"
     default="$(find ur_description)/config/$(arg left_ur_type)/joint_limits.yaml" />
@@ -65,7 +66,6 @@
   <xacro:arg name="left_base_origin_rpy" default="0.0 0.0 0.0" />
 
   <!-- ==================== RIGHT ARM ==================== -->
-  <xacro:arg name="right_name" default="right_robot" />
   <xacro:arg name="right_tf_prefix" default="right_" />
   <xacro:arg name="right_joint_limit_params"
     default="$(find ur_description)/config/$(arg right_ur_type)/joint_limits.yaml" />
@@ -104,7 +104,7 @@
 
   <!-- ==================== LEFT ARM ROBOT ==================== -->
   <xacro:tabletop_robot
-    name="$(arg left_name)"
+    name="$(arg left_tf_prefix)$(arg name)"
     tf_prefix="$(arg left_tf_prefix)"
     parent="world"
     joint_limits_parameters_file="$(arg left_joint_limit_params)"
@@ -124,7 +124,7 @@
   </xacro:tabletop_robot>
 
   <xacro:ur_ros2_control
-    name="$(arg left_name)"
+    name="$(arg left_tf_prefix)$(arg name)"
     tf_prefix="$(arg left_tf_prefix)"
     kinematics_parameters_file="$(arg left_kinematics_params)"
     transmission_hw_interface="$(arg transmission_hw_interface)"
@@ -154,7 +154,7 @@
 
   <!-- ==================== RIGHT ARM ROBOT ==================== -->
   <xacro:tabletop_robot
-    name="$(arg right_name)"
+    name="$(arg right_tf_prefix)$(arg name)"
     tf_prefix="$(arg right_tf_prefix)"
     parent="world"
     joint_limits_parameters_file="$(arg right_joint_limit_params)"
@@ -174,7 +174,7 @@
   </xacro:tabletop_robot>
 
   <xacro:ur_ros2_control
-    name="$(arg right_name)"
+    name="$(arg right_tf_prefix)$(arg name)"
     tf_prefix="$(arg right_tf_prefix)"
     kinematics_parameters_file="$(arg right_kinematics_params)"
     transmission_hw_interface="$(arg transmission_hw_interface)"
