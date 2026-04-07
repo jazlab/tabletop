@@ -232,11 +232,7 @@ class AIOActionClient(ActionClient):
                 goal_handle.cancel_goal_async()
 
         if response.status != GoalStatus.STATUS_SUCCEEDED:
-            raise ActionResultUnsuccessfulError(
-                f"{self._action_name} action result request did not succeed "
-                f"with status: {response.status} "
-                f"and result: {msg_to_dict(response.result)}"
-            )
+            raise ActionResultUnsuccessfulError(self._action_name, response)
 
         return response.result
 

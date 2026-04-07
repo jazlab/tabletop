@@ -58,6 +58,7 @@ from rclpy.action.client import ClientGoalHandle
 from trajectory_msgs.msg import JointTrajectory
 
 from tabletop_rig.exceptions import (
+    ActionResultUnsuccessfulError,
     ExecutionInterruptedError,
     ExecutionRejectedError,
     MaxPlanningAttemptsReachedError,
@@ -977,6 +978,12 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 try:
                     result: FollowJointTrajectory.Result = (
                         await client.get_result_async(goal_handle)
+                    )
+                except ActionResultUnsuccessfulError as e:
+                    result: FollowJointTrajectory.Result = e.response.result
+                    assert (
+                        result.error_code
+                        != FollowJointTrajectory.Result.SUCCESSFUL
                     )
                 finally:
                     with self._goal_handle_lock:

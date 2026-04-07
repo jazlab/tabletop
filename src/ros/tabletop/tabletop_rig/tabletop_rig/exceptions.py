@@ -31,6 +31,8 @@ from moveit.core.controller_manager import (  # type: ignore[reportMissingModule
 )
 from moveit_msgs.msg import MoveItErrorCodes
 
+from tabletop_rig.utils.logging import msg_to_dict
+
 # Constants
 
 MOVEIT_ERROR_CODE_MAP: dict[int, str] = {
@@ -114,7 +116,21 @@ class ActionGoalNotAcceptedError(ActionError):
 
 
 class ActionResultUnsuccessfulError(ActionError):
-    """Raised when a ROS action get result request succeed returns an unsuccessful status."""
+    """Raised when a ROS action get result request succeed returns an unsuccessful status.
+
+    Attributes:
+        action_name: Name of Action client.
+        response: Get result response.
+    """
+
+    def __init__(self, action_name: str, response: Any):
+        self.action_name = action_name
+        self.response = response
+        super().__init__(
+            f"{action_name} action result request did not succeed "
+            f"with status: {response.status}, "
+            f"and result: {msg_to_dict(response.result)}"
+        )
 
 
 class MoveitRecoverableError(Exception):
