@@ -115,24 +115,24 @@ services:
         consistency: $BIND_CONSISTENCY
       - python-venv:/tabletop/.venv
     stop_signal: SIGINT
+    # init: true
     develop:
       watch:
         - path: ./build/last_built.txt
           action: restart
-    # init: true
 
-  discovery-server:
-    extends: ros-base
-    container_name: tabletop-discovery-server
-    profiles: !override
-      - real
-      - sim
-      - ursim
-      - dev
-    init: true
-    stop_signal: SIGTERM
-    restart: unless-stopped
-    command: tt-launch discovery
+  # discovery-server:
+  #   extends: ros-base
+  #   container_name: tabletop-discovery-server
+  #   profiles: !override
+  #     - real
+  #     - sim
+  #     - ursim
+  #     - dev
+  #   init: true
+  #   stop_signal: SIGTERM
+  #   restart: unless-stopped
+  #   command: tt-launch discovery
 
   foxglove:
     extends: ros-base
@@ -140,8 +140,8 @@ services:
     profiles: !override
       - real
       - sim
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch foxglove
 
@@ -156,8 +156,8 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-      discovery-server:
-        condition: service_started
+      # discovery-server:
+      #   condition: service_started
     restart: unless-stopped
     command: tt-launch rviz
 
@@ -171,8 +171,8 @@ services:
     ulimits:
       rtprio: 99
       memlock: -1
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch dual_ur robot_mode:=real
 
@@ -186,8 +186,8 @@ services:
     ulimits:
       rtprio: 99
       memlock: -1
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch dual_ur robot_mode:=mock
 
@@ -196,8 +196,8 @@ services:
     container_name: tabletop-optitrack
     profiles: !override
       - real
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch optitrack
 
@@ -221,8 +221,8 @@ services:
     #   - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
     # cpus: 8 # Limit cpu usage
     # runtime: $COMMANDER_RUNTIME
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch flir
 
@@ -233,8 +233,8 @@ services:
       - real
     devices:
       - $TEENSY_DEV
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
@@ -243,8 +243,8 @@ services:
     container_name: tabletop-teensy-sim
     profiles: !override
       - sim
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
@@ -258,8 +258,8 @@ services:
         condition: service_healthy
         # condition: service_started
         restart: true
-      discovery-server:
-        condition: service_started
+      # discovery-server:
+      #   condition: service_started
     restart: unless-stopped
     command: tt-launch flic simulate:=false
 
@@ -268,8 +268,8 @@ services:
     extends: ros-base
     profiles: !override
       - sim
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
@@ -286,8 +286,8 @@ services:
       - /hdd/bags:/hdd/bags
     environment:
       - ROS_BAG_DIR=/hdd/bags
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch eyelink simulate:=false
 
@@ -296,8 +296,8 @@ services:
     extends: ros-base
     profiles: !override
       - sim
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
@@ -319,8 +319,8 @@ services:
     # depends_on:
     #   novnc:
     #     condition: service_healthy
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     command: tt-launch commander
 
   dev:
@@ -357,8 +357,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
-    depends_on:
-      - discovery-server
+    # depends_on:
+    #   - discovery-server
     # depends_on:
     #   novnc:
     #     condition: service_healthy
