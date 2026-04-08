@@ -350,18 +350,18 @@ class DummyTask(BaseTask):
             for goal in ["idle", "fetched"]:
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(
-                        self.commander.moveit._plan_and_execute(
+                        self.commander.moveit.plan_and_execute(
                             goal=goal,
                             group_name="left_manipulator",
-                            cache_trajectory=False,
+                            cache_trajectories=False,
                             use_cache=False,
                         )
                     )
                     tg.create_task(
-                        self.commander.moveit._plan_and_execute(
+                        self.commander.moveit.plan_and_execute(
                             goal=goal,
                             group_name="right_manipulator",
-                            cache_trajectory=False,
+                            cache_trajectories=False,
                             use_cache=False,
                         )
                     )

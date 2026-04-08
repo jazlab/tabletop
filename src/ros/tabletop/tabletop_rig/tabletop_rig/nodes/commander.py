@@ -437,7 +437,9 @@ class Commander(BaseNode):
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
     @ensure_context
-    async def attach_object_manually(self, object_id: str) -> None:
+    async def attach_object_manually(
+        self, object_id: str, group_name: str
+    ) -> None:
         """Attach a non-grid object to the robot end-effector
 
         Used when the robot already has an object grasped and the planning
@@ -446,10 +448,12 @@ class Commander(BaseNode):
         Args:
             object_id: ID of the collision object to attach.
         """
-        await self.moveit.add_manually_attached_object(object_id)
+        await self.moveit.add_manually_attached_object(object_id, group_name)
 
     @ensure_context
-    async def detach_object_manually(self, object_id: str) -> None:
+    async def detach_object_manually(
+        self, object_id: str, group_name: str
+    ) -> None:
         """Detach a non-grid object from the robot end-effector
 
         Used when a previously manually attached object has been
@@ -458,7 +462,9 @@ class Commander(BaseNode):
         Args:
             object_id: ID of the currently attached collision object to detach.
         """
-        await self.moveit.remove_manually_attached_object(object_id)
+        await self.moveit.remove_manually_attached_object(
+            object_id, group_name
+        )
 
     @ensure_context
     async def plan(self, *args, **kwargs) -> RobotTrajectory:
@@ -479,7 +485,7 @@ class Commander(BaseNode):
 
     @ensure_context
     @safe_execution
-    async def execute(self, *args, **kwargs) -> None:
+    async def move(self, *args, **kwargs) -> None:
         """Execute a previously planned trajectory.
 
         Args:
@@ -490,11 +496,11 @@ class Commander(BaseNode):
             ExecutionError: If trajectory execution fails.
             NotSafeToExecuteError: If safety conditions not met.
         """
-        await self.moveit.execute(*args, **kwargs)
+        await self.moveit.move(*args, **kwargs)
 
     @ensure_context
     @safe_execution
-    async def plan_and_execute(self, *args, **kwargs) -> None:
+    async def plan_and_move(self, *args, **kwargs) -> None:
         """Plan and execute a motion to the specified goal.
 
         Combines planning and execution in a single call. Uses the
@@ -509,11 +515,11 @@ class Commander(BaseNode):
             ExecutionError: If trajectory execution fails.
             NotSafeToExecuteError: If safety conditions not met.
         """
-        await self.moveit.plan_and_execute(*args, **kwargs)
+        await self.moveit.plan_and_move(*args, **kwargs)
 
     @ensure_context
     @safe_execution
-    async def fetch_object(self, object_id: str):
+    async def fetch_object(self, object_id: str, group_name: str):
         """Fetch an object from its mount.
 
         The robot moves to the object's mount, attaches the object, and moves
@@ -527,17 +533,17 @@ class Commander(BaseNode):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        await self.moveit.fetch_object(object_id)
+        await self.moveit.fetch_object(object_id, group_name)
 
     @ensure_context
     @safe_execution
-    async def present_object(self, object_id: str):
+    async def present_object(self, object_id: str, group_name: str):
         """Move to present state with the currently attached object"""
-        await self.moveit.present_object(object_id)
+        await self.moveit.present_object(object_id, group_name)
 
     @ensure_context
     @safe_execution
-    async def reset_object(self, object_id: str):
+    async def reset_object(self, object_id: str, group_name: str):
         """Reset the currently attached object using its associated ObjectResetConfig
 
         Raises:
@@ -545,11 +551,11 @@ class Commander(BaseNode):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        await self.moveit.reset_object(object_id)
+        await self.moveit.reset_object(object_id, group_name)
 
     @ensure_context
     @safe_execution
-    async def return_object(self, object_id: str):
+    async def return_object(self, object_id: str, group_name: str):
         """Return the currently attached object to its mount.
 
         Raises:
@@ -557,12 +563,13 @@ class Commander(BaseNode):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        await self.moveit.return_object(object_id)
+        await self.moveit.return_object(object_id, group_name)
 
     async def _reset_commander(
         self,
+        *,
         timeout: Optional[float] = None,
-        end_goal: Optional[PlanGoalT] = None,
+        end_goals: Optional[dict[str, PlanGoalT]] = None,
     ) -> None:
         """Reset the robot to a known good state.
 
@@ -599,7 +606,7 @@ class Commander(BaseNode):
                     for ur in self.urs.values():
                         await ur.reset()
 
-                    await self.moveit.reset_rig(end_goal)
+                    await self.moveit.reset_rig(end_goals=end_goals)
                     return
                 except (
                     ServiceCallUnsuccessfulError,
@@ -664,7 +671,6 @@ class Commander(BaseNode):
                 exc_value = exc_value.exceptions[0]
 
             if isinstance(exc_value, MoveitRecoverableError):
-                # return False
                 self.log(
                     "Caught exception while running commander:",
                     severity="ERROR",
@@ -674,13 +680,20 @@ class Commander(BaseNode):
                     f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
                     severity="DEBUG",
                 )
+
                 # if exc_type is ExecutionError:
                 #     self.log(
                 #         "Sleeping for 5 seconds before resetting commander",
                 #         severity="WARN",
                 #     )
                 #     await asyncio.sleep(5)
-                await self._reset_commander(end_goal="idle")
+
+                end_goals = {}
+                for group_name in self.moveit.joint_model_group_names:
+                    end_goals[group_name] = "idle"
+
+                await self._reset_commander(end_goals=end_goals)
+
                 return True
 
         return False

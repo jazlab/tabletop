@@ -183,6 +183,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         return self.moveit_py.get_robot_model()
 
     @property
+    def joint_model_group_names(self) -> list[str]:
+        return self.moveit_py.get_robot_model().joint_model_group_names
+
+    @property
     def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
         """Get the trajectory execution manager."""
         return self.moveit_py.get_trajectory_execution_manager()
@@ -926,7 +930,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 if goal_handle is not None:
                     goal_handle.cancel_goal_async()
 
-    async def _execute(
+    async def execute(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
     ):
         """Execute the given robot trajectory.
@@ -951,9 +955,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if any(x.joint_model_group_name != group_name for x in trajectory):
             raise ValueError("All joint_model_group_names should be the same")
 
-        if group_name not in self._execution_clients:
+        if group_name not in self.joint_model_group_names:
             raise ValueError(
-                f"No joint trajectory controller found for joint group {group_name}"
+                f"Unknown joint model group name: {group_name}. "
+                f"Available group names: {self.joint_model_group_names}"
             )
 
         if self._execution_locks[group_name].locked():
@@ -1009,21 +1014,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 else:
                     raise ExecutionInterruptedError(result)
 
-    async def execute(
-        self, trajectory: RobotTrajectory | list[RobotTrajectory]
-    ):
-        """Execute the given robot trajectory.
-
-        Args:
-            trajectory: Trajectory to execute
-
-        Raises:
-            NotSafeToExecuteError: If the robot is not safe to execute.
-            ExecutionInterruptedError: If the robot moved but not to the goal.
-            ExecutionRejectedError: If the trajectory was rejected by the robot.
-        """
-        return await self._execute(trajectory)
-
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
         """Cache the given trajectory.
 
@@ -1038,17 +1028,18 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         else:
             self.log("Cache is frozen, skipping cache")
 
-    async def _plan_and_execute(
+    async def plan_and_execute(
         self,
         request: Optional[PlanRequest | ConcatPlanRequest] = None,
-        cache_trajectory: bool = True,
+        *,
+        cache_trajectories: bool = True,
         **kwargs: Any,
     ) -> list[TrajectoryCacheKwargs] | None:
         """Plan and execute a trajectory, using the cached trajectory if available.
 
         Args:
             *args: Arguments to pass to `create_plan_request()`.
-            cache_trajectory: Whether to cache the planned trajectory.
+            cache_trajectories: Whether to cache the planned trajectory.
             use_cache: Whether to use the cached trajectory.
             **kwargs: Keyword arguments to pass to `create_plan_request()`
                 and `execute()`.
@@ -1075,50 +1066,22 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         trajectory, cache_kwargs = await self.plan(request=request, **kwargs)
 
         # Execute desired request
-        await self._execute(trajectory)
+        await self.execute(trajectory)
 
         # Cache the trajectory if requested
-        if cache_trajectory and cache_kwargs is not None:
+        if cache_trajectories and cache_kwargs is not None:
             cache_kwargs[-1]["true_end_state"] = self.current_state
             self.cache_trajectories(cache_kwargs)
             return None
 
         return cache_kwargs
 
-    async def plan_and_execute(
-        self,
-        request: Optional[PlanRequest | ConcatPlanRequest] = None,
-        cache_trajectory: bool = True,
-        **kwargs: Any,
-    ) -> list[TrajectoryCacheKwargs] | None:
-        """Plan and execute a trajectory, using the cached trajectory if available.
-
-        Args:
-            *args: Arguments to pass to `create_plan_request()`.
-            cache_trajectory: Whether to cache the planned trajectory.
-            use_cache: Whether to use the cached trajectory.
-            **kwargs: Keyword arguments to pass to `create_plan_request()`
-                and `execute()`.
-
-        Returns:
-            A dictionary containing the kwargs to cache the trajectory, or None
-            if the trajectory was found in the cache.
-
-        Raises:
-            ValueError: If start_state is provided in kwargs.
-            PlanningError: If the planning fails.
-            ExecutionError: If the execution fails.
-        """
-        return await self._plan_and_execute(
-            request, cache_trajectory, **kwargs
-        )
-
     ###########################################################################
     ########## Reset (simulation) #############################################
     ###########################################################################
 
     async def clear_scene_and_reset(
-        self, end_goal: Optional[PlanGoalT] = None, **kwargs
+        self, end_goals: Optional[dict[str, PlanGoalT]] = None
     ):
         """Ignore collisions and move robot to end_goal asynchronously.
 
@@ -1144,9 +1107,19 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         )
 
         self.remove_all_collision_objects()
-        if end_goal is None:
-            end_goal = "idle"
-        await self._plan_and_execute(goal=end_goal, **kwargs)
+
+        for group_name in self.joint_model_group_names:
+            if end_goals is None:
+                goal = "idle"
+            elif group_name in end_goals:
+                goal = end_goals[group_name]
+            else:
+                raise ValueError(
+                    f"No end goal provided for joint model group {group_name}"
+                )
+
+            await self.plan_and_execute(goal=goal, group_name=group_name)
+
         self._init_planning_scene()
 
     def __enter__(self) -> Self:

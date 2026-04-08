@@ -700,6 +700,6 @@ class BaseNode(Node, LoggerMixin):
                 self.destroy_client(srv_client)
 
     def destroy_node(self):
-        for interface in self._interfaces:
+        for interface in reversed(self._interfaces):
             interface.destroy_interface()
         Node.destroy_node(self)
