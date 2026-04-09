@@ -87,6 +87,18 @@ EOT
 # Install starship
 RUN curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
 
+# Set working directory to /tabletop (just in case)
+WORKDIR /tabletop
+
+# Install pre-commit hook environments
+RUN --mount=type=bind,source=.pre-commit-config.yaml,target=.pre-commit-config.yaml <<EOT
+set -ex
+source /tabletop/.venv/bin/activate
+git init .
+pre-commit install-hooks
+rm -rf .git
+EOT
+
 # Update .bashrc and .inputrc
 RUN <<EOT
 set -e
