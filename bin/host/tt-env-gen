@@ -18,17 +18,32 @@ dotenv_get_required() {
         local file=$1
         shift
     else
-        print_error "Usage: dotenv_get_required [file] KEY VALUE"
+        print_error "Usage: dotenv_get_required [file] KEY"
         return 1
     fi
 
-    declare -n key=$1
-    key=$(dotenv --file $file get "${!key}")
+    declare -n value=$1
+    value=$(dotenv --file "$file" get "$1" || true)
 
-    if [[ -z "${!key}" ]]; then
+    if [[ -z "$value" ]]; then
         print_error "Required key '$1' not set or empty in $file"
         return 1
     fi
+}
+
+dotenv_get_optional() {
+    if [[ $# == 1 ]]; then
+        local file=.env
+    elif [[ $# == 2 ]]; then
+        local file=$1
+        shift
+    else
+        print_error "Usage: dotenv_get_required [file] KEY"
+        return 1
+    fi
+
+    declare -n value=$1
+    value=$(dotenv --file "$file" get "$1" || true)
 }
 
 # Set key to value in environment file
@@ -80,6 +95,18 @@ dotenv_get_required CUDA_VERSION
 dotenv_get_required BIND_CONSISTENCY
 dotenv_get_required FLIR_MAX_DEVS
 
+# Get optional variables (may be unset or empty)
+dotenv_get_optional ROS_BAG_DIR_HOST
+
+# Set the ROS bag directory mount
+if [[ -z "$ROS_BAG_DIR_HOST" ]]; then
+    dotenv_set ROS_BAG_DIR_MNT /dev/null:/dev/null
+    dotenv_set ROS_BAG_DIR_CONTAINER ""
+else
+    dotenv_set ROS_BAG_DIR_MNT "$ROS_BAG_DIR_HOST:/bags"
+    dotenv_set ROS_BAG_DIR_CONTAINER /bags
+fi
+
 # Set NVIDIA build args and runtime variables if available
 if command -v nvidia-smi >/dev/null 2>&1; then
     dotenv_set COMMANDER_RUNTIME nvidia
@@ -104,7 +131,7 @@ if [ -d /dev/flir ]; then
         if [ -L "$LINK" ]; then
             TARGET=$(readlink -f "$LINK" 2>/dev/null)
             if [ -n "$TARGET" ]; then
-                dotenv_set FLIR_DEV_$i $TARGET
+                dotenv_set "FLIR_DEV_$i" "$TARGET"
                 (( i+=1 ))
             fi
         fi
@@ -144,8 +171,8 @@ elif [ -S "$XDG_RUNTIME_DIR/pulse/native" ]; then
 fi
 
 if [[ -n $PULSE_SERVER_HOST ]]; then
-    dotenv_set PULSE_SERVER_MNT $PULSE_SERVER_HOST:/tmp/pulseaudio.socket
-    dotenv_set PULSE_COOKIE_MNT ~/.config/pulse/cookie:/home/$USER_NAME/.config/pulse/cookie
+    dotenv_set PULSE_SERVER_MNT "$PULSE_SERVER_HOST:/tmp/pulseaudio.socket"
+    dotenv_set PULSE_COOKIE_MNT "~/.config/pulse/cookie:/home/$USER_NAME/.config/pulse/cookie"
     dotenv_set PULSE_SERVER_CONTAINER unix:/tmp/pulseaudio.socket
 else
     dotenv_set PULSE_SERVER_MNT /dev/null:/dev/null
@@ -155,11 +182,11 @@ fi
 
 # Mount kitty socket if available
 if [[ $KITTY_LISTEN_ON = unix* ]]; then
-    dotenv_set KITTY_LISTEN_ON_MNT ${KITTY_LISTEN_ON#unix:}:/tmp/kitty
+    dotenv_set KITTY_LISTEN_ON_MNT "${KITTY_LISTEN_ON#unix:}:/tmp/kitty"
     dotenv_set KITTY_LISTEN_ON_CONTAINER unix:/tmp/kitty
 elif [[ $KITTY_LISTEN_ON = tcp* ]]; then
     dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
-    dotenv_set KITTY_LISTEN_ON_CONTAINER $KITTY_LISTEN_ON
+    dotenv_set KITTY_LISTEN_ON_CONTAINER "$KITTY_LISTEN_ON"
 else
     dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
     dotenv_set KITTY_LISTEN_ON_CONTAINER ""

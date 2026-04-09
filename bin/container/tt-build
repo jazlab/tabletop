@@ -164,7 +164,7 @@ fi
 
 # Set parallel workers
 if [[ -n $workers ]]; then
-    export MAKEFLAGS="-j$workers -l1"
+    # export MAKEFLAGS="-j$workers -l1"
     parallel_workers="--parallel-workers $workers"
 fi
 
