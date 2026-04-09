@@ -242,6 +242,15 @@ class Eyelink(BaseNode):
         """
         super().__init__("eyelink")
 
+        self.init_tracker()
+
+        self.init_state()
+
+        self.init_gaze_estimation()
+
+        self.init_ros()
+
+    def init_tracker(self) -> None:
         self.simulate = self.param("simulate")
 
         if not self.simulate:
@@ -258,13 +267,6 @@ class Eyelink(BaseNode):
             self._close_data_file(save=False)
         else:
             self.log("Simulating eyelink data...")
-
-        # pylink.endRealTimeMode()
-
-        self.init_state()
-        # self.init_bag_writer()
-        self.init_gaze_estimation()
-        self.init_ros()
 
     def init_state(self) -> None:
         """Initialize sample retrieval infrastructure.
@@ -323,6 +325,15 @@ class Eyelink(BaseNode):
             )
 
         if self.param("gaze_estimation.enable"):
+            weights_path = self.gaze_estimation_config["weights_path"]
+            if not os.path.exists(weights_path):
+                self.log(
+                    f"weights_path ({weights_path}) does not exist, "
+                    f"skipping live gaze estimation initialization",
+                    severity="WARN",
+                )
+                return
+
             device = self.param("gaze_estimation.device")
             if device is None:
                 device = torch.device(
@@ -340,9 +351,7 @@ class Eyelink(BaseNode):
             ).to(device)
 
             load_model_weights(
-                self.gaze_estimation_model,
-                self.gaze_estimation_config["weights_path"],
-                device,
+                self.gaze_estimation_model, weights_path, device
             )
             # self.gaze_estimation_model.compile(
             #     **self.gaze_estimation_config["compile"]
