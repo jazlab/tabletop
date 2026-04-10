@@ -32,10 +32,9 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
-from geometry_msgs.msg import PoseStamped
 from tabletop_rig.nodes import Commander
 
-from tabletop_tasks.tasks.base import BaseTask
+from tabletop_tasks.tasks.base import BaseObjectInteractionTask
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
     TrialFeedback,
@@ -43,7 +42,7 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class ForagingTask(BaseTask):
+class ForagingTask(BaseObjectInteractionTask):
     """Full behavioral task with stimulus, delay, and response phases.
 
     Implements a delayed match-to-sample paradigm with configurable
@@ -104,22 +103,8 @@ class ForagingTask(BaseTask):
     # Trial Phases
     ############################################################
 
-    async def prepare(self, pose: PoseStamped):
-        """Move the object to the presentation pose.
-
-        Called at the start of each trial to position the object.
-        Uses linear planning for smooth, predictable motion.
-
-        Args:
-            pose: Target pose for object presentation.
-        """
-        self.log("Prepare phase")
-        await self.commander.plan_and_execute(
-            goal=pose, planning_pipeline="linear"
-        )
-
     async def stimulus(self):
-        """Present the stimulus to the subject.
+        """Reveal the stimulus to the subject.
 
         Reveals the smartglass to make the object visible, then waits
         for the configured stimulus duration. This is the encoding
@@ -229,7 +214,6 @@ class ForagingTask(BaseTask):
         self.log(f"Foraging task trial spec: {trial_spec}")
 
         # Execute trial phases in sequence
-        await self.prepare(trial_spec.object_pose)
         await self.stimulus()
         await self.delay(trial_spec.occlude)
         feedback = await self.response(trial_spec.arm)

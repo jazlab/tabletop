@@ -25,12 +25,14 @@ Example:
 from .base import BaseTrialGenerator, TrialFeedback, TrialSpec
 from .blocked_cup_drawer import BlockedCupDrawer
 from .ordered_choice import OrderedChoice
+from .ordered_choice_alternating import OrderedChoiceAlternating
 from .random_choice import RandomChoice
 
 __all__ = [
     "BaseTrialGenerator",
     "BlockedCupDrawer",
     "OrderedChoice",
+    "OrderedChoiceAlternating",
     "RandomChoice",
     "TrialFeedback",
     "TrialSpec",

@@ -1069,11 +1069,13 @@ class PlanningSceneInterface(BaseInterface):
         assert len(existing) == len(self.collision_object_ids)
 
         for idx, overrides in object_kwargs.items():
+            x, y = map(int, idx.split(","))
+
             # Skip "empty" grid positions (assign None to object_id)
             object_id = overrides.pop("object_id", None)
             if object_id is None:
                 self.log(
-                    f"Skipping object at index {idx} because it does not have an id"
+                    f"Skipping object at index {(x, y)} because it does not have an id"
                 )
                 continue
 
@@ -1122,8 +1124,6 @@ class PlanningSceneInterface(BaseInterface):
                 pose_stamped=pose_stamped,
                 **kwargs,
             )
-            x, y = idx.split(",")
-            x, y = int(x), int(y)
 
             grid_object = GridObject(
                 object_id=object_id, grid_idx=(x, y), pose_stamped=pose_stamped

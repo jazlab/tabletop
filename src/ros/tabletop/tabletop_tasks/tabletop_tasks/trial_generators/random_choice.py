@@ -123,22 +123,22 @@ class RandomChoice(BaseTrialGenerator):
 
         # Make trial spec
         self._last_trial_spec = TrialSpec(
+            trial_number=self._trial_counter,
             object_id=object_id,
             object_pose=object_pose,
             arm=arm,
             occlude=occlude,
         )
-
         self._trial_counter += 1
-
         return self._last_trial_spec
 
-    def send(self, feedback: TrialFeedback):
-        """Process trial feedback (no-op for random generator).
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
+        """Process trial feedback.
 
         This generator does not adapt based on feedback.
 
         Args:
+            trial_spec: Unused original trial spec.
             feedback: Unused trial feedback.
         """
         pass

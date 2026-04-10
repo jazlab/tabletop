@@ -118,6 +118,60 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         """
         return self._commander
 
+    @abstractmethod
+    async def run(self) -> None:
+        """Run the complete task.
+
+        Subclasses must implement this method, which is called in run.py and
+        which defines the task runtime.
+
+        Users must remember to use the Commander as an asynchronous context
+        manager (`async with self.commander`) before calling any commander
+        methods.
+        """
+
+
+class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
+    """TODO"""
+
+    def __init__(
+        self,
+        name: str,
+        commander: Commander,
+        trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
+    ):
+        """Initialize the base task.
+
+        Args:
+            commander: Commander instance for robot and peripheral control.
+            trial_generator: Either a BaseTrialGenerator instance, or a dict
+                with "class" and "kwargs" keys for dynamic instantiation.
+                If None, tasks must handle trial generation themselves.
+            logger_name: Optional name for the ROS logger (currently unused).
+
+        Raises:
+            ValueError: If trial_generator dict specifies a class that isn't
+                a BaseTrialGenerator subclass.
+        """
+        self._commander = commander
+
+        self._logger = commander.get_logger().get_child(name)
+
+        # Create trial_generator from config dict if necessary
+        if trial_generator is None:
+            self._trial_generator = DefaultTrialGenerator(commander)
+        elif isinstance(trial_generator, BaseTrialGenerator):
+            self._trial_generator = trial_generator
+        if isinstance(trial_generator, Mapping):
+            self._trial_generator: BaseTrialGenerator = getattr(
+                importlib.import_module("tabletop_tasks.trial_generators"),
+                trial_generator["class"],
+            )(commander, **trial_generator["kwargs"])
+            if not isinstance(self._trial_generator, BaseTrialGenerator):
+                raise ValueError(
+                    "trial_generator class must be an instance of BaseTrialGenerator"
+                )
+
     async def _occlude_and_lock(self):
         """Occlude smartglass and lock arms concurrently.
 
@@ -138,16 +192,29 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         Args:
             trial_spec: Trial specification containing the object ID.
         """
-        await self.commander.fetch_object(trial_spec.object_id)
-        await self.commander.present_object(trial_spec.object_id)
+        await self.commander.fetch_object(
+            trial_spec.object_id, trial_spec.group_name
+        )
+        await self.commander.present_object(
+            trial_spec.object_id, trial_spec.group_name
+        )
+        await self.commander.plan_and_move(
+            goal=trial_spec.object_pose,
+            group_name=trial_spec.group_name,
+            planning_pipeline="linear",
+        )
 
     async def _reset_trial(self, trial_spec: TrialSpec):
         """Reset and return the object after a trial.
 
         Resets the object and returns it to its mount.
         """
-        await self.commander.reset_object(trial_spec.object_id)
-        await self.commander.return_object(trial_spec.object_id)
+        await self.commander.reset_object(
+            trial_spec.object_id, trial_spec.group_name
+        )
+        await self.commander.return_object(
+            trial_spec.object_id, trial_spec.group_name
+        )
 
     @abstractmethod
     async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
@@ -166,6 +233,100 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
             or None if no feedback should be sent to the generator.
         """
 
+    async def _run_trials(self, tg: asyncio.TaskGroup) -> None:
+        # Occlude smartglass and lock arms before starting
+        await self._occlude_and_lock()
+
+        active_trial: asyncio.Task[TrialFeedback] | None = None
+        active_spec: TrialSpec | None = None
+        next_spec: TrialSpec | None
+
+        try:
+            next_spec = next(self._trial_generator)
+        except StopIteration:
+            raise RuntimeError("Trial generator empty before starting task")
+
+        while not (next_spec is None and active_trial is None):
+            # If you wrote a good trial generator, the next trial will use a
+            # different robot from the one performing the active, in which
+            # case we can fetch the next object.
+            # Otherwise we must wait until the active trial has finished, so we
+            # skip starting the next trial until we've
+            skip_next: bool = False
+            if next_spec is not None:
+                if (
+                    active_spec is None
+                    or active_spec.group_name != next_spec.group_name
+                ):
+                    await self.commander.fetch_object(
+                        next_spec.object_id, next_spec.group_name
+                    )
+                else:
+                    assert active_trial is not None
+                    self.log(
+                        f"The next trial spec requested the robot "
+                        f"{next_spec.group_name}, but this robot is "
+                        f"already being used for the active trial.",
+                        severity="WARN",
+                    )
+                    skip_next = True
+
+            # Wait for active trial to finish, send trial feedback, then
+            # occlude smartglass, lock arms, and unpresent active object
+            prev_spec: TrialSpec | None = None
+            if active_trial is not None:
+                assert active_spec is not None
+
+                if not active_trial.done():
+                    self.log("Waiting for active trial to complete")
+
+                feedback = await active_trial
+                self._trial_generator.send(active_spec, feedback)
+
+                await self._occlude_and_lock()
+                await self.commander.unpresent_object(
+                    active_spec.object_id, active_spec.group_name
+                )
+
+                prev_spec = active_spec
+                active_trial = None
+                active_spec = None
+
+            # Present next object and move to goal pose, then start the new
+            # active trial and get the new next trial spec
+            if not skip_next and next_spec is not None:
+                await self.commander.present_object(
+                    next_spec.object_id, next_spec.group_name
+                )
+                await self.commander.plan_and_move(
+                    goal=next_spec.object_pose,
+                    group_name=next_spec.group_name,
+                    planning_pipeline="linear",
+                )
+
+                # Start trial
+                active_spec = next_spec
+                active_trial = tg.create_task(self.run_trial(next_spec))
+
+                try:
+                    next_spec = next(self._trial_generator)
+                except StopIteration:
+                    next_spec = None
+
+            # Reset the previous object and return it if there is no next
+            # trial or the next object is different from the previous
+            if prev_spec is not None:
+                await self.commander.reset_object(
+                    prev_spec.object_id, prev_spec.group_name
+                )
+                if (
+                    next_spec is None
+                    or next_spec.object_id != prev_spec.object_id
+                ):
+                    await self.commander.return_object(
+                        prev_spec.object_id, prev_spec.group_name
+                    )
+
     async def run(self) -> None:
         """Run the complete task.
 
@@ -178,21 +339,6 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
         """
         while True:
             async with self.commander:
-                await self._occlude_and_lock()
-                for trial_spec in self._trial_generator:
-                    # Prepare object for trial
-                    await self._prepare_trial(trial_spec)
-
-                    # Run trial and send feedback to trial generator
-                    feedback = await self.run_trial(trial_spec)
-                    if feedback is not None:
-                        self._trial_generator.send(feedback)
-
-                    # Occlude smartglass and lock arms before moving
-                    await self._occlude_and_lock()
-
-                    # Reset object before next trial
-                    await self._reset_trial(trial_spec)
-
-                # Reached end of trial generator, exit
-                return
+                async with asyncio.TaskGroup() as tg:
+                    await self._run_trials(tg)
+                    return

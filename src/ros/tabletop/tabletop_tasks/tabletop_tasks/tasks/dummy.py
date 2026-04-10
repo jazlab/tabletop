@@ -27,10 +27,6 @@ from tabletop_rig.utils.ros import (
 )
 
 from tabletop_tasks.tasks.base import BaseTask
-from tabletop_tasks.trial_generators.base import (
-    TrialFeedback,
-    TrialSpec,
-)
 
 
 class DummyTask(BaseTask):
@@ -54,20 +50,6 @@ class DummyTask(BaseTask):
         """
         super().__init__("dummy_task", commander)
 
-    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:  # pyright: ignore[reportReturnType]
-        """Not implemented for dummy task.
-
-        This method exists only to satisfy the abstract base class
-        requirement. DummyTask overrides run() directly.
-
-        Args:
-            trial_spec: Unused trial specification.
-
-        Returns:
-            None (never called).
-        """
-        pass
-
     async def test_robot_position(self) -> None:
         """Test method for debugging object grid positioning.
 
@@ -78,7 +60,7 @@ class DummyTask(BaseTask):
             pose={"position": [0.9525, 0.4, 0.4], "rpy": [1.5707, 1.5707, 0.0]}
         )
         group_name = "right_manipulator"
-        await self.commander.plan_and_execute(goal=goal, group_name=group_name)
+        await self.commander.plan_and_move(goal=goal, group_name=group_name)
         while True:
             pose_stamped = self.commander.moveit.get_link_pose_stamped(
                 self.commander.moveit.default_pose_link(group_name)
@@ -350,7 +332,7 @@ class DummyTask(BaseTask):
             for goal in ["idle", "fetched"]:
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(
-                        self.commander.moveit.plan_and_execute(
+                        self.commander.plan_and_move(
                             goal=goal,
                             group_name="left_manipulator",
                             cache_trajectories=False,
@@ -358,7 +340,7 @@ class DummyTask(BaseTask):
                         )
                     )
                     tg.create_task(
-                        self.commander.moveit.plan_and_execute(
+                        self.commander.plan_and_move(
                             goal=goal,
                             group_name="right_manipulator",
                             cache_trajectories=False,

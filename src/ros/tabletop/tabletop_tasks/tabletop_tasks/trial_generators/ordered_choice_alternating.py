@@ -18,7 +18,6 @@ Example:
     )
 """
 
-import itertools
 from collections.abc import Mapping
 from typing import Any, Iterator, Literal
 
@@ -32,7 +31,7 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class OrderedChoice(BaseTrialGenerator):
+class OrderedChoiceAlternating(BaseTrialGenerator):
     """Trial generator with deterministic ordered cycling.
 
     Generates trials by cycling through all combinations of parameters
@@ -57,12 +56,11 @@ class OrderedChoice(BaseTrialGenerator):
     def __init__(
         self,
         commander: Commander,
-        object_ids: list[str],
+        grouped_object_ids: dict[str, list[str]],
         poses: list[Mapping[str, Any]],
         arms: list[Literal["left", "right", "both"]],
         occlude: list[bool],
         num_trials: int,
-        skip_failed: bool = True,
     ):
         """Initialize the ordered choice generator.
 
@@ -77,21 +75,32 @@ class OrderedChoice(BaseTrialGenerator):
         Raises:
             ValueError: If num_trials is less than 1.
         """
-        super().__init__("ordered_choice_trial_generator", commander)
+        super().__init__(
+            "ordered_choice_alternating_trial_generator", commander
+        )
 
-        self._object_ids = object_ids
+        # Check if all objects are reachable
+        for group_name, object_ids in grouped_object_ids.items():
+            not_reachable = set(
+                object_ids
+            ) - self.commander.reachable_object_ids(group_name)
+            if len(not_reachable) > 0:
+                raise ValueError(
+                    f"group_object_ids contains objects not reachable by robot {group_name}: {not_reachable}"
+                )
+
+        # Check that num_trials is valid
+        if num_trials < 1:
+            raise ValueError("num_trials must be at least 1")
+
+        self._grouped_object_ids = grouped_object_ids
+        self._largest_group = max(len(x) for x in grouped_object_ids.values())
+        self._groups = list(grouped_object_ids.keys())
         self._poses = [pose_stamped_msg(**pose) for pose in poses]
         self._arms = arms
         self._occlude = occlude
-
-        if num_trials < 1:
-            raise ValueError("num_trials must be at least 1")
         self._num_trials = num_trials
         self._trial_counter = 0
-
-        # Store last TrialSpec in case we want to redo it
-        self._skip_failed = skip_failed
-        self._last_trial_spec: TrialSpec | None = None
 
         # Initialize iterator
         self._iterator = self.init_iterator()
@@ -99,17 +108,23 @@ class OrderedChoice(BaseTrialGenerator):
     def init_iterator(self) -> Iterator[TrialSpec]:
         """TODO"""
         while True:
-            generator = itertools.product(
-                self._occlude, self._poses, self._arms, self._object_ids
-            )
-            for occlude, pose, arm, object_id in generator:
-                yield TrialSpec(
-                    trial_number=self._trial_counter,
-                    object_id=object_id,
-                    object_pose=pose,
-                    arm=arm,
-                    occlude=occlude,
-                )
+            for occlude in self._occlude:
+                for pose in self._poses:
+                    for arm in self._arms:
+                        for i in range(self._largest_group):
+                            for (
+                                group_name,
+                                object_ids,
+                            ) in self._grouped_object_ids.items():
+                                object_id = object_ids[i % len(object_ids)]
+                                yield TrialSpec(
+                                    trial_number=self._trial_counter,
+                                    object_id=object_id,
+                                    group_name=group_name,
+                                    object_pose=pose,
+                                    arm=arm,
+                                    occlude=occlude,
+                                )
 
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
@@ -123,23 +138,20 @@ class OrderedChoice(BaseTrialGenerator):
         Raises:
             StopIteration: When num_trials have been generated.
         """
-        if not self._skip_failed and self._last_trial_spec is not None:
-            return self._last_trial_spec
-
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
-        self._last_trial_spec = next(self._iterator)
+        trial_spec = next(self._iterator)
         self._trial_counter += 1
-        return self._last_trial_spec
+        return trial_spec
 
     def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
-        """Process feedback from a completed trial.
+        """Process trial feedback.
 
-        Any feedback clears the last trial spec.
+        This generator does not adapt based on feedback.
 
         Args:
-            spec: Unused original trial spec.
+            trial_spec: Unused original trial spec.
             feedback: Unused trial feedback.
         """
-        self._last_trial_spec = None
+        pass

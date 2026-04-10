@@ -144,6 +144,23 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self._execution_goal_handles: dict[str, ClientGoalHandle | None] = {}
         self._goal_handle_lock: threading.Lock = threading.Lock()
 
+        self._joint_model_group_names: list[str] = self.node.param(
+            "joint_model_group_names"
+        )
+        available_group_names: list[str] = (
+            self.moveit_py.get_robot_model().joint_model_group_names
+        )
+        unavailable = set(self._joint_model_group_names) - set(
+            available_group_names
+        )
+
+        if len(unavailable) > 0:
+            raise ValueError(
+                f"joint_model_group_names parameter contains "
+                f"unavailabe group names: {unavailable}. "
+                f"Availabe group names: {available_group_names}"
+            )
+
         for group_name, controller in self.node.param(
             "execution.joint_trajectory_controllers"
         ).items():
@@ -184,7 +201,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     @property
     def joint_model_group_names(self) -> list[str]:
-        return self.moveit_py.get_robot_model().joint_model_group_names
+        return self._joint_model_group_names
 
     @property
     def trajectory_execution_manager(self) -> TrajectoryExecutionManager:

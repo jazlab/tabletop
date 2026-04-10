@@ -50,7 +50,9 @@ class TrialSpec:
         occlude: Whether to occlude the smartglass during delay period.
     """
 
+    trial_number: int
     object_id: str = ""
+    group_name: str = ""
     object_pose: PoseStamped = dataclasses.field(default_factory=PoseStamped)
     arm: Literal["left", "right", "both"] = "both"
     occlude: bool = False
@@ -133,13 +135,14 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def send(self, feedback: TrialFeedback):
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
         """Process feedback from a completed trial.
 
         Called after each trial completes with behavioral measures.
         Can be used to adapt subsequent trial generation.
 
         Args:
+            trial_spec: Original trial spec that feedback corresponds to.
             feedback: Behavioral feedback from the completed trial.
         """
 
@@ -161,6 +164,7 @@ class DefaultTrialGenerator(BaseTrialGenerator):
 
     def __init__(self, commander: Commander):
         super().__init__("default_trial_generator", commander)
+        self._trial_count = 0
 
     def __next__(self) -> TrialSpec:
         """Return None once, then stop iteration.
@@ -171,13 +175,15 @@ class DefaultTrialGenerator(BaseTrialGenerator):
         Raises:
             StopIteration: On subsequent calls.
         """
-        return TrialSpec()
+        trial_spec = TrialSpec(trial_number=self._trial_count)
+        self._trial_count += 1
+        return trial_spec
 
-    def send(self, *args, **kwargs):
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
         """Accept and ignore trial feedback.
 
         Args:
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
+            trial_spec: Unused trial spec.
+            feedback: Unused trial feedback.
         """
         pass

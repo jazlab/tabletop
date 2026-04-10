@@ -36,7 +36,6 @@ from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.tasks.base import BaseTask
-from tabletop_tasks.trial_generators.base import TrialFeedback, TrialSpec
 
 
 class SmoothPursuitTask(BaseTask):
@@ -67,6 +66,7 @@ class SmoothPursuitTask(BaseTask):
         motion_kwargs: Mapping[str, Any],
         num_repetitions: int,
         object_id: str,
+        group_name: str,
         velocity_scaling_factor: float = 1.0,
         max_motion_generation_attempts: int = 5,
     ):
@@ -108,6 +108,7 @@ class SmoothPursuitTask(BaseTask):
                 raise ValueError(f"Unsupported motion type: {motion_type}")
 
         self._object_id = object_id
+        self._group_name = group_name
         self._motion_type = motion_type
         self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
@@ -282,22 +283,7 @@ class SmoothPursuitTask(BaseTask):
             trajectory: The planned robot trajectory to execute.
         """
         for _ in range(self._num_repetitions):
-            await self.commander.execute(trajectory)
-
-    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:  # pyright: ignore[reportReturnType]
-        """Not used for smooth pursuit task.
-
-        This task overrides run() and does not use the trial-based
-        structure. This method exists only to satisfy the abstract
-        base class requirement.
-
-        Args:
-            trial_spec: Unused trial specification.
-
-        Returns:
-            None (never called).
-        """
-        pass
+            await self.commander.move(trajectory)
 
     async def run(self):
         """Run the smooth pursuit task.
@@ -317,7 +303,9 @@ class SmoothPursuitTask(BaseTask):
         async with self.commander:
             # TODO: Expose current manipulation_id
             if self.commander.moveit.attached_object_id != self._object_id:
-                await self.commander.fetch_object(self._object_id)
+                await self.commander.fetch_object(
+                    self._object_id, self._group_name
+                )
 
             # Occlude smartglass before running
             await self.commander.occlude_smartglass()
@@ -331,11 +319,14 @@ class SmoothPursuitTask(BaseTask):
 
                 try:
                     # Plan to first waypoint using default planning pipeline
-                    start_trajectory = await self.commander.plan(goal=goals[0])
+                    start_trajectory = await self.commander.plan(
+                        goal=goals[0], group_name=self._group_name
+                    )
 
                     # Plan the full concatenated trajectory through remaining waypoints
                     trajectory = await self.commander.plan(
                         goals=goals[1:],
+                        group_name=self._group_name,
                         start_state=start_trajectory[
                             len(start_trajectory) - 1
                         ],
@@ -363,7 +354,7 @@ class SmoothPursuitTask(BaseTask):
                 )
 
             # Move to first waypoint
-            await self.commander.execute(start_trajectory)
+            await self.commander.move(start_trajectory)
 
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()

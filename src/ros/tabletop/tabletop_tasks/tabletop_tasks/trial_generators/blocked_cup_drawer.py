@@ -85,27 +85,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
         self._num_correct = 0
         self._block_index = randrange(len(self._block_keys))
 
-    def send(self, feedback: TrialFeedback) -> None:
-        """Update generator state based on trial feedback.
-
-        Increments the correct trial counter when timeout is True.
-        Switches to the next block when the criterion is reached.
-
-        Note:
-            The logic here checks feedback.timeout - verify this matches
-            the intended experimental design.
-
-        Args:
-            feedback: Feedback from the completed trial.
-        """
-        # Increment counter based on timeout flag
-        if feedback.timeout:
-            self._num_correct += 1
-
-        # Update block index if criterion reached
-        if self._num_correct >= self._correct_trials_per_block:
-            self._num_correct = 0
-            self._block_index = (self._block_index + 1) % len(self._block_keys)
+        self._trial_counter = 0
 
     def __next__(self) -> TrialSpec:
         """Generate the next trial from the current block.
@@ -125,6 +105,7 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         # Make trial spec (always uses both arms and occlusion)
         trial_spec = TrialSpec(
+            trial_number=self._trial_counter,
             object_id=object_id,
             object_pose=object_pose,
             arm="both",
@@ -132,3 +113,26 @@ class BlockedCupDrawer(BaseTrialGenerator):
         )
 
         return trial_spec
+
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback) -> None:
+        """Update generator state based on trial feedback.
+
+        Increments the correct trial counter when timeout is True.
+        Switches to the next block when the criterion is reached.
+
+        Note:
+            The logic here checks feedback.timeout - verify this matches
+            the intended experimental design.
+
+        Args:
+            spec: Unused original trial spec.
+            feedback: Feedback from the completed trial.
+        """
+        # Increment counter based on timeout flag
+        if feedback.timeout:
+            self._num_correct += 1
+
+        # Update block index if criterion reached
+        if self._num_correct >= self._correct_trials_per_block:
+            self._num_correct = 0
+            self._block_index = (self._block_index + 1) % len(self._block_keys)

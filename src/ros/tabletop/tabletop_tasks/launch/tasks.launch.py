@@ -52,7 +52,7 @@ def declare_arguments():
     return [
         DeclareLaunchArgument(
             "task",
-            default_value="foraging_ordered",
+            default_value="foraging_ordered_alt",
             description="Task configuration file",
         )
     ]

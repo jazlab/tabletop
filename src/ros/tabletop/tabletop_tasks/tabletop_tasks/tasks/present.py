@@ -20,7 +20,7 @@ from typing import Any
 
 from tabletop_rig.nodes import Commander
 
-from tabletop_tasks.tasks.base import BaseTask
+from tabletop_tasks.tasks.base import BaseObjectInteractionTask
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
     TrialFeedback,
@@ -28,7 +28,7 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class PresentTask(BaseTask):
+class PresentTask(BaseObjectInteractionTask):
     """Task for presenting objects at specified poses.
 
     Moves objects to target poses as specified by the trial generator.
@@ -70,5 +70,4 @@ class PresentTask(BaseTask):
             ValueError: If trial_spec is None.
         """
         self.log(f"Present object task trial spec: {trial_spec}")
-        # await self.commander.plan_and_execute(goal=trial_spec.object_pose)
         return TrialFeedback()

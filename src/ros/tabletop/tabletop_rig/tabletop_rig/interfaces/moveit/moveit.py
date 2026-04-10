@@ -19,7 +19,7 @@ MoveIt functionality, providing:
 
 Usage:
     moveit = MoveItInterface(node, safe_to_execute_callback)
-    await moveit.plan_and_execute(PlanRequest(goal=target_pose))
+    await moveit.plan_and_move(PlanRequest(goal=target_pose))
 """
 
 from collections.abc import Callable

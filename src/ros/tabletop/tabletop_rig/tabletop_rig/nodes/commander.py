@@ -181,7 +181,7 @@ class Commander(BaseNode):
 
     Use as an async context manager for automatic setup and cleanup:
         async with Commander() as commander:
-            await commander.plan_and_execute(...)
+            await commander.plan_and_move(...)
 
     Attributes:
         sound: Audio feedback interface.
@@ -283,6 +283,15 @@ class Commander(BaseNode):
     ###########################################################################
     ########## User Interface #################################################
     ###########################################################################
+
+    @property
+    def joint_model_group_names(self) -> list[str]:
+        """TODO"""
+        return self.moveit.joint_model_group_names
+
+    def reachable_object_ids(self, group_name: str) -> set[str]:
+        """TODO"""
+        return self.moveit.reachable_object_ids(group_name)
 
     @ensure_context
     async def play_sound(
@@ -523,7 +532,7 @@ class Commander(BaseNode):
         """Fetch an object from its mount.
 
         The robot moves to the object's mount, attaches the object, and moves
-        to the object's post-fetch pose.
+        to the object's stagin area.
 
         Args:
             object_id: The ID of the object to fetch
@@ -538,13 +547,19 @@ class Commander(BaseNode):
     @ensure_context
     @safe_execution
     async def present_object(self, object_id: str, group_name: str):
-        """Move to present state with the currently attached object"""
+        """Moves the object from the staging area to the presentation area"""
+        await self.moveit.present_object(object_id, group_name)
+
+    @ensure_context
+    @safe_execution
+    async def unpresent_object(self, object_id: str, group_name: str):
+        """Moves the object from the presentation area back to the staging area"""
         await self.moveit.present_object(object_id, group_name)
 
     @ensure_context
     @safe_execution
     async def reset_object(self, object_id: str, group_name: str):
-        """Reset the currently attached object using its associated ObjectResetConfig
+        """Reset the object using its associated ObjectResetConfig
 
         Raises:
             RuntimeError: If exactly one object is not attached
@@ -596,6 +611,8 @@ class Commander(BaseNode):
             excs: list[Exception] = []
             for _ in range(max_attempts):
                 try:
+                    await self.teensy.set_smartglass(reveal=False)
+
                     if not self.teensy.safe_to_execute:
                         self.log(
                             "Cannot reset commander until safe to execute",
@@ -665,12 +682,13 @@ class Commander(BaseNode):
 
         if exc_type is not None:
             # We use only the first exception raised if an exception group is met
-            if isinstance(exc_value, ExceptionGroup):
-                if len(exc_value.exceptions) != 1:
-                    return False
-                exc_value = exc_value.exceptions[0]
-
-            if isinstance(exc_value, MoveitRecoverableError):
+            if isinstance(exc_value, MoveitRecoverableError) or (
+                isinstance(exc_value, ExceptionGroup)
+                and all(
+                    isinstance(e, MoveitRecoverableError)
+                    for e in exc_value.exceptions
+                )
+            ):
                 self.log(
                     "Caught exception while running commander:",
                     severity="ERROR",
@@ -680,6 +698,14 @@ class Commander(BaseNode):
                     f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
                     severity="DEBUG",
                 )
+                if isinstance(exc_value, ExceptionGroup):
+                    self.log("Exception group subexceptions:")
+                    for e in exc_value.exceptions:
+                        self.log(f"{type(e).__name__}: {e}", severity="ERROR")
+                        self.log(
+                            f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
+                            severity="DEBUG",
+                        )
 
                 # if exc_type is ExecutionError:
                 #     self.log(
@@ -924,6 +950,8 @@ def main_sync(args=None) -> None:
                 commander.destroy_node()
                 print("Shutting down executor")
                 executor.shutdown()
+                print("Raising executor spin errors")
+                spin_future.result()
     except KeyboardInterrupt:
         pass
     finally:
