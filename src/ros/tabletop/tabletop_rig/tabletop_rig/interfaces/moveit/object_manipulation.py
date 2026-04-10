@@ -1066,40 +1066,41 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         elif "group_name" in kwargs:
             group_name = kwargs["group_name"]
         else:
-            raise TypeError()
+            raise TypeError(
+                "plan_and_move missing required group_name (either in request or kwargs)"
+            )
 
-        async with self._manipulation_context(group_name):
-            match self._manipulation_state[group_name]:
-                case State.IDLE | State.MANUALLY_ATTACHED:
-                    needs_reset = False
-                case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
-                    needs_reset = True
-                case unexpected if isinstance(unexpected, State):
-                    raise StateTransitionError(
-                        f"Cannot plan_and_move from current state ({unexpected})"
-                    )
-                case unexpected:
-                    raise AssertionError(
-                        f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                    )
-
-            try:
-                result = await self.plan_and_execute(
-                    request, cache_trajectories=cache_trajectories, **kwargs
+        match self._manipulation_state[group_name]:
+            case State.IDLE | State.MANUALLY_ATTACHED:
+                needs_reset = False
+            case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
+                needs_reset = True
+            case unexpected if isinstance(unexpected, State):
+                raise StateTransitionError(
+                    f"Cannot plan_and_move from current state ({unexpected})"
                 )
-            except (
-                asyncio.CancelledError,
-                ExecutionInterruptedError,
-                NotSafeToExecuteError,
-            ):
-                if needs_reset:
-                    self._manipulation_state[group_name] = State.NEEDS_RESET
-                raise
+            case unexpected:
+                raise AssertionError(
+                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
+                )
 
+        try:
+            result = await self.plan_and_execute(
+                request, cache_trajectories=cache_trajectories, **kwargs
+            )
+        except (
+            asyncio.CancelledError,
+            ExecutionInterruptedError,
+            NotSafeToExecuteError,
+        ):
             if needs_reset:
                 self._manipulation_state[group_name] = State.NEEDS_RESET
+            raise
 
-            return result
+        if needs_reset:
+            self._manipulation_state[group_name] = State.NEEDS_RESET
+
+        return result
 
     async def _move_impl(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
@@ -1114,34 +1115,33 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     "joint_model_group_name should be the same for all trajectories"
                 )
 
-        async with self._manipulation_context(group_name):
-            match self._manipulation_state[group_name]:
-                case State.IDLE | State.MANUALLY_ATTACHED:
-                    needs_reset = False
-                case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
-                    needs_reset = True
-                case unexpected if isinstance(unexpected, State):
-                    raise StateTransitionError(
-                        f"Cannot execute from current state ({unexpected})"
-                    )
-                case unexpected:
-                    raise AssertionError(
-                        f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
-                    )
+        match self._manipulation_state[group_name]:
+            case State.IDLE | State.MANUALLY_ATTACHED:
+                needs_reset = False
+            case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
+                needs_reset = True
+            case unexpected if isinstance(unexpected, State):
+                raise StateTransitionError(
+                    f"Cannot execute from current state ({unexpected})"
+                )
+            case unexpected:
+                raise AssertionError(
+                    f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
+                )
 
-            try:
-                await self.execute(trajectory)
-            except (
-                asyncio.CancelledError,
-                ExecutionInterruptedError,
-                NotSafeToExecuteError,
-            ):
-                if needs_reset:
-                    self._manipulation_state[group_name] = State.NEEDS_RESET
-                raise
-
+        try:
+            await self.execute(trajectory)
+        except (
+            asyncio.CancelledError,
+            ExecutionInterruptedError,
+            NotSafeToExecuteError,
+        ):
             if needs_reset:
                 self._manipulation_state[group_name] = State.NEEDS_RESET
+            raise
+
+        if needs_reset:
+            self._manipulation_state[group_name] = State.NEEDS_RESET
 
     ###########################################################################
     ########## Attach object manually #########################################
@@ -1364,7 +1364,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         elif "group_name" in kwargs:
             group_name = kwargs["group_name"]
         else:
-            raise TypeError()
+            raise TypeError(
+                "plan_and_move missing required group_name (either in request or kwargs)"
+            )
 
         async with self._manipulation_context(group_name):
             return await self._plan_and_move_impl(
