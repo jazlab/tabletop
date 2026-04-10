@@ -77,8 +77,8 @@
       fallback_pipeline: rrt_star
       # fallback_pipeline: rrtc_star
       default_pose_links:
-        left_manipulator: left_eef_link
-        right_manipulator: right_eef_link
+        left_manipulator: left_eef
+        right_manipulator: right_eef
       # max_attempts: 5
       # planning_pipeline: rrt_star
       # apply_totg: true

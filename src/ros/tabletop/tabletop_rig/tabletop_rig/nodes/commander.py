@@ -67,7 +67,6 @@ from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
-    ObjectManipulationError,
     ServiceCallUnsuccessfulError,
 )
 from tabletop_rig.executors import AIOExecutor
@@ -360,7 +359,7 @@ class Commander(BaseNode):
 
     @ensure_context
     async def flic_response_time(
-        self, timeout: Optional[float] = None
+        self, object_id: str, *, timeout: Optional[float] = None
     ) -> float | None:
         """Measure response time using the Flic button.
 
@@ -375,10 +374,6 @@ class Commander(BaseNode):
             ROS timestamp (converted to seconds) that button was pressed
             or None if the timeout was reached before a press.
         """
-        object_id = self.moveit.attached_object_id
-        if object_id is None:
-            raise ObjectManipulationError("No attached object to reset")
-
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
         return await self.flic.response_time(bd_addr, timeout)
@@ -554,7 +549,7 @@ class Commander(BaseNode):
     @safe_execution
     async def unpresent_object(self, object_id: str, group_name: str):
         """Moves the object from the presentation area back to the staging area"""
-        await self.moveit.present_object(object_id, group_name)
+        await self.moveit.unpresent_object(object_id, group_name)
 
     @ensure_context
     @safe_execution
@@ -743,6 +738,7 @@ class Commander(BaseNode):
 
             # await self._reset_commander(end_goal="idle")
             await self._reset_commander()
+            # TODO!!!!!!!!!!!!!!!!
             self._context_stack.push_async_exit(
                 self._handle_recoverable_errors
             )

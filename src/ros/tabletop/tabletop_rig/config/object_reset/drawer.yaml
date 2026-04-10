@@ -15,4 +15,4 @@ reset_request: !ConcatPlanRequest
 object_allowed_collision_ids:
   - drawer_station
 additional_allowed_collisions:
-  - [eef_sphere, drawer_station]
+  - [right_eef_sphere, drawer_station]

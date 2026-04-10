@@ -4,7 +4,6 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /PlanningScene1
         - /PlanningScene1/Scene Robot1
       Splitter Ratio: 0.570588231086731
     Tree Height: 836
@@ -36,7 +35,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Markers
+      Name: Optitrack Markers
       Namespaces:
         {}
       Topic:
@@ -48,7 +47,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Predicted Markers
+      Name: Eyelink Predicted Markers
       Namespaces:
         {}
       Topic:
@@ -60,7 +59,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: RigidBodies
+      Name: Optitrack Rigid Bodies
       Namespaces:
         {}
       Topic:
@@ -69,6 +68,18 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /rigid_bodies_viz
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Display Contacts
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /display_contacts
       Value: true
     - Class: moveit_rviz_plugin/PlanningScene
       Enabled: true
@@ -426,25 +437,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.517149925231934
+      Distance: 5.739114761352539
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.5776985287666321
-        Y: 0.7236990332603455
-        Z: 0.0812356248497963
+        X: 0.8883512020111084
+        Y: 0.5427420735359192
+        Z: 0.3607841730117798
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.3229241371154785
+      Pitch: 0.4029245376586914
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.4473090171813965
+      Yaw: 3.932307720184326
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051

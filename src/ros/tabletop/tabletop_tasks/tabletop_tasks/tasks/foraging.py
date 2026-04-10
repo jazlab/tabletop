@@ -130,7 +130,7 @@ class ForagingTask(BaseObjectInteractionTask):
         await asyncio.sleep(self.delay_duration)
 
     async def response(
-        self, arm: Literal["left", "right", "both"]
+        self, object_id: str, arm: Literal["left", "right", "both"]
     ) -> TrialFeedback:
         """Collect behavioral response and deliver reward.
 
@@ -152,13 +152,14 @@ class ForagingTask(BaseObjectInteractionTask):
         self.log("Response phase")
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.commander.reveal_smartglass())
-            tg.create_task(self.commander.release_arm(arm))
+            # TODO: Remove!!!
+            # tg.create_task(self.commander.release_arm(arm))
 
         start_time = self.commander.ros_time()
 
         # Wait for response from monkey button press
         if response_time := await self.commander.flic_response_time(
-            self.response_timeout
+            object_id, timeout=self.response_timeout
         ):
             # Calculate reaction time from response time
             reaction_time = response_time - start_time
@@ -216,7 +217,7 @@ class ForagingTask(BaseObjectInteractionTask):
         # Execute trial phases in sequence
         await self.stimulus()
         await self.delay(trial_spec.occlude)
-        feedback = await self.response(trial_spec.arm)
+        feedback = await self.response(trial_spec.object_id, trial_spec.arm)
 
         # Only reveal on successful (non-timeout) trials
         if not feedback.timeout:

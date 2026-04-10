@@ -794,7 +794,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 next_state = State(State.POST_FETCH - return_progress)
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot fetch object from current state ({unexpected.name})"
+                    f"Cannot fetch object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -840,7 +840,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot present object from current state ({unexpected})"
+                    f"Cannot present object using Rofrom current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -848,7 +848,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
 
         await self.plan_and_execute(
-            goal="present", cache_trajectories=cache_trajectories
+            goal="present",
+            group_name=group_name,
+            cache_trajectories=cache_trajectories,
         )
         self._manipulation_state[group_name] = State.NEEDS_RESET
 
@@ -866,7 +868,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot present object from current state ({unexpected})"
+                    f"Cannot present object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -874,7 +876,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
 
         await self.plan_and_execute(
-            goal="fetched", cache_trajectories=cache_trajectories
+            goal="fetched",
+            group_name=group_name,
+            cache_trajectories=cache_trajectories,
         )
         # No change of state necessary
 
@@ -904,7 +908,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             #     return
             case unexpected if isinstance(unexpected, State):
                 raise ObjectManipulationError(
-                    f"Cannot reset object from current state ({unexpected})"
+                    f"Cannot reset object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -923,7 +927,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Plan and execute to start goal
         if not pre_reset_allow_collisions:
             kwargs = await self.plan_and_execute(
-                goal=config.start_goal, cache_trajectories=False
+                goal=config.start_goal,
+                group_name=group_name,
+                cache_trajectories=False,
             )
             if cache_trajectories and kwargs is not None:
                 cache_kwargs.extend(kwargs)
@@ -950,6 +956,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if pre_reset_allow_collisions:
                 await self.plan_and_execute(
                     goal=config.start_goal,
+                    group_name=group_name,
                     planning_pipeline="linear",
                     cache_trajectories=False,
                 )
@@ -1016,7 +1023,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
             case unexpected if isinstance(unexpected, State):
                 raise ObjectManipulationError(
-                    f"Cannot fetch object from current state ({unexpected})"
+                    f"Cannot fetch object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -1077,7 +1084,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 needs_reset = True
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot plan_and_move from current state ({unexpected})"
+                    f"Cannot plan_and_move from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -1086,7 +1093,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         try:
             result = await self.plan_and_execute(
-                request, cache_trajectories=cache_trajectories, **kwargs
+                request,
+                cache_trajectories=cache_trajectories,
+                **kwargs,
             )
         except (
             asyncio.CancelledError,
@@ -1122,7 +1131,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 needs_reset = True
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot execute from current state ({unexpected})"
+                    f"Cannot execute from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -1168,7 +1177,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot manually attach object from current state ({unexpected})"
+                    f"Cannot manually attach object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(
@@ -1226,7 +1235,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Cannot manually detach object from current state ({unexpected})"
+                    f"Cannot manually detach object from current state ({unexpected.name}) of robot {group_name}"
                 )
             case unexpected:
                 raise AssertionError(

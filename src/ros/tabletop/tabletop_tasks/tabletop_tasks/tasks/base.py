@@ -172,50 +172,6 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     "trial_generator class must be an instance of BaseTrialGenerator"
                 )
 
-    async def _occlude_and_lock(self):
-        """Occlude smartglass and lock arms concurrently.
-
-        Ensures safety before robot motion by blocking the subject's
-        view and constraining their arms. Waits for both operations
-        to complete.
-        """
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.commander.lock_arms_and_wait())
-            tg.create_task(self.commander.occlude_smartglass())
-
-    async def _prepare_trial(self, trial_spec: TrialSpec):
-        """Prepare the object for a trial.
-
-        Fetches the specified object and moves it to the pre-presentation
-        position.
-
-        Args:
-            trial_spec: Trial specification containing the object ID.
-        """
-        await self.commander.fetch_object(
-            trial_spec.object_id, trial_spec.group_name
-        )
-        await self.commander.present_object(
-            trial_spec.object_id, trial_spec.group_name
-        )
-        await self.commander.plan_and_move(
-            goal=trial_spec.object_pose,
-            group_name=trial_spec.group_name,
-            planning_pipeline="linear",
-        )
-
-    async def _reset_trial(self, trial_spec: TrialSpec):
-        """Reset and return the object after a trial.
-
-        Resets the object and returns it to its mount.
-        """
-        await self.commander.reset_object(
-            trial_spec.object_id, trial_spec.group_name
-        )
-        await self.commander.return_object(
-            trial_spec.object_id, trial_spec.group_name
-        )
-
     @abstractmethod
     async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
         """Run a single trial.
@@ -232,6 +188,22 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             TrialFeedback with behavioral measures from the trial,
             or None if no feedback should be sent to the generator.
         """
+
+    async def _occlude_and_lock(self):
+        """Occlude smartglass and lock arms concurrently.
+
+        Ensures safety before robot motion by blocking the subject's
+        view and constraining their arms. Waits for both operations
+        to complete.
+        """
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.commander.lock_arms_and_wait())
+            tg.create_task(self.commander.occlude_smartglass())
+
+    async def _trial_coro(self, trial_spec: TrialSpec) -> TrialFeedback:
+        feedback = await self.run_trial(trial_spec)
+        await self._occlude_and_lock()
+        return feedback
 
     async def _run_trials(self, tg: asyncio.TaskGroup) -> None:
         # Occlude smartglass and lock arms before starting
@@ -283,7 +255,6 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                 feedback = await active_trial
                 self._trial_generator.send(active_spec, feedback)
 
-                await self._occlude_and_lock()
                 await self.commander.unpresent_object(
                     active_spec.object_id, active_spec.group_name
                 )
@@ -303,10 +274,17 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     group_name=next_spec.group_name,
                     planning_pipeline="linear",
                 )
+                self.log(
+                    str(
+                        self.commander.moveit.current_state.get_joint_group_positions(
+                            next_spec.group_name
+                        )
+                    )
+                )
 
                 # Start trial
                 active_spec = next_spec
-                active_trial = tg.create_task(self.run_trial(next_spec))
+                active_trial = tg.create_task(self._trial_coro(active_spec))
 
                 try:
                     next_spec = next(self._trial_generator)
