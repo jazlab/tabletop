@@ -634,6 +634,7 @@ def all_close_poses(
 def all_close_poses_stamped(
     pose_stamped1: PoseStamped,
     pose_stamped2: PoseStamped,
+    *,
     position_tolerance: float | Iterable[float] | np.ndarray,
     orientation_tolerance: float | Iterable[float] | np.ndarray,
 ) -> bool:
@@ -661,9 +662,41 @@ def all_close_poses_stamped(
     )
 
 
+def get_joint_group_positions(
+    state: RobotState, group_name: str
+) -> dict[str, float]:
+    joint_names: list[str] = state.robot_model.get_joint_model_group(
+        group_name
+    ).active_joint_model_names
+    positions = state.joint_positions
+    return {x: positions[x] for x in joint_names}
+
+
+def get_joint_group_velocities(
+    state: RobotState, group_name: str
+) -> dict[str, float]:
+    joint_names: list[str] = state.robot_model.get_joint_model_group(
+        group_name
+    ).active_joint_model_names
+    velocities = state.joint_velocities
+    return {x: velocities[x] for x in joint_names}
+
+
+def get_joint_group_accelerations(
+    state: RobotState, group_name: str
+) -> dict[str, float]:
+    joint_names: list[str] = state.robot_model.get_joint_model_group(
+        group_name
+    ).active_joint_model_names
+    accelerations = state.joint_accelerations
+    return {x: accelerations[x] for x in joint_names}
+
+
 def all_close_robot_states(
     state1: RobotState,
     state2: RobotState,
+    *,
+    group_name: str | Literal["all"],
     position_tolerance: float | dict[str, float],
     velocity_tolerance: Optional[float | dict[str, float]] = None,
     acceleration_tolerance: Optional[float | dict[str, float]] = None,
@@ -683,24 +716,39 @@ def all_close_robot_states(
     Returns:
         True if all compared joint values are within their tolerances.
     """
-    if not all_close_dicts(
-        state1.joint_positions, state2.joint_positions, position_tolerance
-    ):
+    if group_name == "all":
+        positions1 = state1.joint_positions
+        positions2 = state2.joint_positions
+    else:
+        positions1 = get_joint_group_positions(state1, group_name)
+        positions2 = get_joint_group_positions(state2, group_name)
+
+    if not all_close_dicts(positions1, positions2, position_tolerance):
         return False
 
-    if velocity_tolerance is not None and not all_close_dicts(
-        state1.joint_velocities,
-        state2.joint_velocities,
-        velocity_tolerance,
-    ):
-        return False
+    if velocity_tolerance is not None:
+        if group_name == "all":
+            velocities1 = state1.joint_velocities
+            velocities2 = state2.joint_velocities
+        else:
+            velocities1 = get_joint_group_velocities(state1, group_name)
+            velocities2 = get_joint_group_velocities(state2, group_name)
 
-    if acceleration_tolerance is not None and not all_close_dicts(
-        state1.joint_accelerations,
-        state2.joint_accelerations,
-        acceleration_tolerance,
-    ):
-        return False
+        if not all_close_dicts(velocities1, velocities2, velocity_tolerance):
+            return False
+
+    if acceleration_tolerance is not None:
+        if group_name == "all":
+            accelerations1 = state1.joint_accelerations
+            accelerations2 = state2.joint_accelerations
+        else:
+            accelerations1 = get_joint_group_accelerations(state1, group_name)
+            accelerations2 = get_joint_group_accelerations(state2, group_name)
+
+        if not all_close_dicts(
+            accelerations1, accelerations2, acceleration_tolerance
+        ):
+            return False
 
     return True
 

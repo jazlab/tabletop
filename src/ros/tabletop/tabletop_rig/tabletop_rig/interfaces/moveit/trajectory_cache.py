@@ -609,6 +609,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
         if not all_close_robot_states(
             trajectory_start_state,
             key.start_state,
+            group_name=trajectory.joint_model_group_name,
             position_tolerance=self.robot_state_tolerance,
         ):
             raise ValueError(
@@ -623,6 +624,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
             if not all_close_robot_states(
                 trajectory_end_state,
                 true_end_state,
+                group_name=trajectory.joint_model_group_name,
                 position_tolerance=self.robot_state_tolerance,
             ):
                 raise ValueError(
@@ -681,6 +683,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
             if not all_close_robot_states(
                 trajectory_end_state,
                 key.goal,
+                group_name=trajectory.joint_model_group_name,
                 position_tolerance=self.robot_state_tolerance,
             ):
                 raise ValueError(

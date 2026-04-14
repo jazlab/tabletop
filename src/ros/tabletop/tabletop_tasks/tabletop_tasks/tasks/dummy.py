@@ -91,7 +91,7 @@ class DummyTask(BaseTask):
             f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
         )
 
-        group_name = "right_manipulator"
+        group_name = "left_manipulator"
 
         while True:
             pose_stamped = self.commander.moveit.get_link_pose_stamped(
@@ -353,7 +353,7 @@ class DummyTask(BaseTask):
         async with self.commander:
             # await self.test_teensy_latency()
             # await self.test_robot_position()
-            # await self.test_grid_position()
+            await self.test_grid_position()
             # await self.test_flic_latency_pre_pressed()
             # await self.test_flic_latency_human()
             # await self.test_flic_latency_button()
@@ -361,4 +361,4 @@ class DummyTask(BaseTask):
             # await self.test_robot_position()
             # await self.test_sound()
             # await self.test_smooth_pursuit()
-            await self.test_dual()
+            # await self.test_dual()

@@ -181,7 +181,7 @@ def declare_arguments():
             "trajectory_port": "50013",
             "tool_tcp_port": "54322",
             "base_origin_xyz": "0.7 1.0625 0.3085",
-            "base_origin_rpy": "0.0 0.0 -1.5707",
+            "base_origin_rpy": "0.0 0.0 1.5707",
         },
         "right": {
             "tf_prefix": "right_",

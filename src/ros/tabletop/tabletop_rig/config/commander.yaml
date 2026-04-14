@@ -3,6 +3,9 @@
     simulate: true
 
     ur:
+      namespaces:
+        left_manipulator: left
+        right_manipulator: right
       installation: default.installation
       program: external_control.urp
       reset:
@@ -164,6 +167,7 @@
         right_manipulator:
           right_eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
+      skip_idle_on_return: True
       state_offsets:
         pre_fetch: [-0.05, 0.0, -0.05] # relative to object init pose
         pre_attach: [-0.05, 0.0, 0.0] # relative to object init pose
@@ -299,7 +303,13 @@
             - left_base_link_inertia
             - right_base_link_inertia
           color: [1.0, 1.0, 1.0, 0.5]
-        project_safety_box:
+        robot_divider:
+          type: BOX
+          dimensions: [0.01, 0.72, 1.0]
+          pose_stamped:
+            position: [0.9525, 1.1625, 0.81]
+          color: [1.0, 0.0, 0.0, 0.1]
+        projector_safety_box:
           type: BOX
           dimensions: [0.5, 0.5, 1.9812]
           pose_stamped:

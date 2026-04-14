@@ -66,10 +66,6 @@ def generate_launch_description():
             file_path="srdf/dual_tabletop.srdf.xacro",
             mappings={"name": LaunchConfiguration("robot_name")},
         )
-        .planning_scene_monitor(
-            # publish_robot_description=True,
-            publish_robot_description_semantic=True,
-        )
         .moveit_cpp(
             file_path="config/moveit_cpp.yaml",
         )

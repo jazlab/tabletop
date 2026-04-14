@@ -144,13 +144,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         self._execution_goal_handles: dict[str, ClientGoalHandle | None] = {}
         self._goal_handle_lock: threading.Lock = threading.Lock()
 
-        self._joint_model_group_names: list[str] = self.node.param(
-            "joint_model_group_names"
-        )
         available_group_names: list[str] = (
             self.moveit_py.get_robot_model().joint_model_group_names
         )
-        unavailable = set(self._joint_model_group_names) - set(
+        unavailable = set(self.joint_model_group_names) - set(
             available_group_names
         )
 
@@ -201,7 +198,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
     @property
     def joint_model_group_names(self) -> list[str]:
-        return self._joint_model_group_names
+        return self.node.param("joint_model_group_names")
 
     @property
     def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
@@ -276,7 +273,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             resample_dt=resample_dt,
             min_angle_change=min_angle_change,
         ):
-            raise TrajectoryError(TrajectoryErrorCodes.TOTG_FAILED)
+            raise TrajectoryError(
+                TrajectoryErrorCodes.TOTG_FAILED,
+                group_name=trajectory.joint_model_group_name,
+            )
 
         # assert len(trajectory) > 1
 
@@ -335,7 +335,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             mitigate_overshoot=mitigate_overshoot,
             overshoot_threshold=overshoot_threshold,
         ):
-            raise TrajectoryError(TrajectoryErrorCodes.SMOOTHING_FAILED)
+            raise TrajectoryError(
+                TrajectoryErrorCodes.SMOOTHING_FAILED,
+                group_name=trajectory.joint_model_group_name,
+            )
 
         self.log(
             "Smoothing applied successfully with: "
@@ -401,7 +404,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 verbose=True,
                 invalid_index=[],
             ):
-                raise TrajectoryError(TrajectoryErrorCodes.INVALID_TRAJECTORY)
+                raise TrajectoryError(
+                    TrajectoryErrorCodes.INVALID_TRAJECTORY,
+                    group_name=trajectory.joint_model_group_name,
+                )
 
     ###########################################################################
     ########## Planning and execution #########################################
@@ -567,14 +573,18 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             if plan_response:
                 return plan_response.trajectory
             else:
-                error = PlanOnceError(plan_response.error_code)
+                error = PlanOnceError(
+                    plan_response.error_code, group_name=request.group_name
+                )
                 self.log(
                     f"Planning attempt {i + 1}/{request.max_attempts} failed: {error}",
                     severity="WARN",
                 )
                 errors.append(error)
         else:
-            raise MaxPlanningAttemptsReachedError(errors)
+            raise MaxPlanningAttemptsReachedError(
+                errors, group_name=request.group_name
+            )
 
     def _plan_impl(
         self,
@@ -960,9 +970,6 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             ExecutionInterruptedError: If the robot moved but not to the goal.
             ExecutionRejectedError: If the trajectory was rejected by the robot.
         """
-        # Check if the robot is safe to execute
-        if not self._safe_to_execute_callback():
-            raise NotSafeToExecuteError()
 
         if isinstance(trajectory, RobotTrajectory):
             trajectory = [trajectory]
@@ -983,10 +990,18 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 f"Execution for joint group {group_name} already in progress"
             )
 
+        # Check if the robot is safe to execute
+        if not self._safe_to_execute_callback():
+            raise NotSafeToExecuteError(
+                f"Not safe to execute for joint model group {group_name}.",
+                group_name=group_name,
+            )
+
         async with self._execution_locks[group_name]:
             initial_state = self.current_state
             client = self._execution_clients[group_name]
 
+            action_exc: ActionResultUnsuccessfulError | None = None
             for traj in trajectory:
                 msg: JointTrajectory = (
                     traj.get_robot_trajectory_msg().joint_trajectory
@@ -1003,10 +1018,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                     )
                 except ActionResultUnsuccessfulError as e:
                     result: FollowJointTrajectory.Result = e.response.result
-                    assert (
+                    if (
                         result.error_code
-                        != FollowJointTrajectory.Result.SUCCESSFUL
-                    )
+                        == FollowJointTrajectory.Result.SUCCESSFUL
+                    ):
+                        action_exc = e
                 finally:
                     with self._goal_handle_lock:
                         self._execution_goal_handles[group_name] = None
@@ -1016,20 +1032,42 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 if (
                     result.error_code
                     == FollowJointTrajectory.Result.SUCCESSFUL
+                    and action_exc is None
                 ):
                     continue
-                elif not self._safe_to_execute_callback():
-                    raise NotSafeToExecuteError(result)
+
+                if action_exc is None:
+                    err_reason = f"error: {result.error_string}"
+                else:
+                    err_reason = (
+                        f"action goal status: {action_exc.response.status}"
+                    )
+
+                if not self._safe_to_execute_callback():
+                    raise NotSafeToExecuteError(
+                        f"Not safe to execute during execution for joint "
+                        f"model group {group_name} with {err_reason}",
+                        group_name=group_name,
+                    )
                 elif all_close_robot_states(
                     initial_state,
                     self.current_state,
+                    group_name=group_name,
                     position_tolerance=self.node.param(
                         "trajectory_execution.allowed_start_tolerance"
                     ),
                 ):
-                    raise ExecutionRejectedError(result)
+                    raise ExecutionRejectedError(
+                        f"Execution rejected for joint model group "
+                        f"{group_name} with {err_reason}",
+                        group_name=group_name,
+                    )
                 else:
-                    raise ExecutionInterruptedError(result)
+                    raise ExecutionInterruptedError(
+                        f"Execution interrupted for joint model group "
+                        f"{group_name} with {err_reason}",
+                        group_name=group_name,
+                    )
 
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
         """Cache the given trajectory.

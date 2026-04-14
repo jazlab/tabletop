@@ -23,12 +23,8 @@ Exception Hierarchy:
 """
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
-from control_msgs.action import FollowJointTrajectory
-from moveit.core.controller_manager import (  # type: ignore[reportMissingModuleSource]
-    ExecutionStatus,
-)
 from moveit_msgs.msg import MoveItErrorCodes
 
 from tabletop_rig.utils.logging import msg_to_dict
@@ -82,7 +78,16 @@ class ROSSleepError(Exception):
     """
 
 
-class ServiceCallTimeoutError(Exception):
+class ServiceClientError(Exception):
+    """Raised when a ROS service client call fails.
+
+    This indicates that the service server did not respond within the
+    expected time, which may suggest the server is unavailable, overloaded,
+    or has crashed.
+    """
+
+
+class ServiceCallTimeoutError(ServiceClientError):
     """Raised when a ROS service call exceeds its timeout duration.
 
     This indicates that the service server did not respond within the
@@ -91,7 +96,7 @@ class ServiceCallTimeoutError(Exception):
     """
 
 
-class ServiceCallUnsuccessfulError(Exception):
+class ServiceCallUnsuccessfulError(ServiceClientError):
     """Raised when a ROS service call completes but returns a failure status.
 
     Unlike ServiceCallTimeoutError, this indicates the service responded
@@ -99,7 +104,7 @@ class ServiceCallUnsuccessfulError(Exception):
     """
 
 
-class ActionError(Exception):
+class ActionClientError(Exception):
     """Raised when a ROS action call fails.
 
     This covers action failures including rejected goals, aborted execution,
@@ -107,15 +112,15 @@ class ActionError(Exception):
     """
 
 
-class ActionServerWaitTimeoutError(ActionError):
+class ActionServerWaitTimeoutError(ActionClientError):
     """Raised when waiting for a ROS action server times out."""
 
 
-class ActionGoalNotAcceptedError(ActionError):
+class ActionGoalNotAcceptedError(ActionClientError):
     """Raised when a ROS action goal request is not accepted."""
 
 
-class ActionResultUnsuccessfulError(ActionError):
+class ActionResultUnsuccessfulError(ActionClientError):
     """Raised when a ROS action get result request succeed returns an unsuccessful status.
 
     Attributes:
@@ -140,7 +145,20 @@ class MoveitRecoverableError(Exception):
     execution that are potentially transient and may succeed if retried,
     such as planning failures due to unlucky random sampling or brief
     environmental changes.
+
+    Attributes:
+        group_name: Name of joint model group that caused the error.
     """
+
+    def __init__(self, *args, group_name: str):
+        """Initialize with the group name for proper handling
+
+        Args:
+            group_name: Joint model group name that caused the error.
+        """
+        self.group_name = group_name
+
+        super().__init__(*args)
 
 
 class PlanningError(MoveitRecoverableError):
@@ -161,7 +179,9 @@ class PlanOnceError(PlanningError):
         error_code: The MoveItErrorCodes message containing the failure reason.
     """
 
-    def __init__(self, error_code: MoveItErrorCodes) -> None:
+    def __init__(
+        self, error_code: MoveItErrorCodes, *, group_name: str
+    ) -> None:
         """Initialize with the MoveIt error code.
 
         Args:
@@ -169,7 +189,8 @@ class PlanOnceError(PlanningError):
         """
         self.error_code = error_code
         super().__init__(
-            f"Plan once error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}"
+            f"Plan once error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}",
+            group_name=group_name,
         )
 
     def __eq__(self, other: Any) -> bool:
@@ -196,7 +217,9 @@ class MaxPlanningAttemptsReachedError(PlanningError):
         errors: List of PlanOnceError instances from each failed attempt.
     """
 
-    def __init__(self, errors: list[PlanOnceError]) -> None:
+    def __init__(
+        self, errors: list[PlanOnceError], *, group_name: str
+    ) -> None:
         """Initialize with the list of errors from each planning attempt.
 
         Args:
@@ -209,7 +232,8 @@ class MaxPlanningAttemptsReachedError(PlanningError):
             error_code_strs = [str(e) for e in errors]
             error_code_str = f"different errors: {error_code_strs}"
         super().__init__(
-            f"Max planning attempts ({len(errors)}) reached with {error_code_str}"
+            f"Max planning attempts ({len(errors)}) reached with {error_code_str}",
+            group_name=group_name,
         )
 
 
@@ -223,14 +247,18 @@ class TrajectoryError(PlanningError):
         error_code: The TrajectoryErrorCodes enum value indicating failure type.
     """
 
-    def __init__(self, error_code: TrajectoryErrorCodes) -> None:
+    def __init__(
+        self, error_code: TrajectoryErrorCodes, *, group_name: str
+    ) -> None:
         """Initialize with the trajectory error code.
 
         Args:
             error_code: The TrajectoryErrorCodes enum value for the failure.
         """
         self.error_code = error_code
-        super().__init__(f"Trajectory error: {error_code}")
+        super().__init__(
+            f"Trajectory error: {error_code.name}", group_name=group_name
+        )
 
     def __eq__(self, other: Any) -> bool:
         """Check equality based on error code.
@@ -260,28 +288,7 @@ class ExecutionRejectedError(ExecutionError):
     This indicates the trajectory was not started, typically due to the
     robot being in protective stop, an invalid trajectory, or controller
     issues. The robot has not moved.
-
-    Attributes:
-        execution_status: The ExecutionStatus from MoveIt with rejection details.
     """
-
-    def __init__(
-        self, execution_status: ExecutionStatus | FollowJointTrajectory.Result
-    ) -> None:
-        """Initialize with the execution status.
-
-        Args:
-            execution_status: The ExecutionStatus containing rejection details.
-        """
-        self.execution_status = execution_status
-        if isinstance(execution_status, ExecutionStatus):
-            super().__init__(
-                f"Execution rejected with status: {execution_status.status}"
-            )
-        else:
-            super().__init__(
-                f"Execution rejected with status: {execution_status.error_string}"
-            )
 
 
 class ExecutionInterruptedError(ExecutionError):
@@ -290,28 +297,7 @@ class ExecutionInterruptedError(ExecutionError):
     This indicates the robot started moving but stopped before reaching
     the goal, possibly due to an emergency stop, collision detection,
     or external intervention. The robot position is indeterminate.
-
-    Attributes:
-        execution_status: The ExecutionStatus from MoveIt with interruption details.
     """
-
-    def __init__(
-        self, execution_status: ExecutionStatus | FollowJointTrajectory.Result
-    ) -> None:
-        """Initialize with the execution status.
-
-        Args:
-            execution_status: The ExecutionStatus containing interruption details.
-        """
-        self.execution_status = execution_status
-        if isinstance(execution_status, ExecutionStatus):
-            super().__init__(
-                f"Execution interrupted with status: {execution_status.status}"
-            )
-        else:
-            super().__init__(
-                f"Execution interrupted with status: {execution_status.error_string}"
-            )
 
 
 class NotSafeToExecuteError(ExecutionError):
@@ -320,34 +306,7 @@ class NotSafeToExecuteError(ExecutionError):
     This exception is raised when pre-execution safety validation fails,
     such as when the robot's current state doesn't match the trajectory
     start state or when collision checks fail.
-
-    Attributes:
-        execution_status: Optional ExecutionStatus with additional context.
     """
-
-    def __init__(
-        self,
-        execution_status: Optional[
-            ExecutionStatus | FollowJointTrajectory.Result
-        ] = None,
-    ) -> None:
-        """Initialize with optional execution status.
-
-        Args:
-            execution_status: Optional ExecutionStatus providing context for
-                why execution was deemed unsafe.
-        """
-        self.execution_status = execution_status
-        if execution_status is None:
-            super().__init__("Not safe to execute")
-        elif isinstance(execution_status, ExecutionStatus):
-            super().__init__(
-                f"Not safe to execute with status: {execution_status.status}"
-            )
-        else:
-            super().__init__(
-                f"Not safe to execute with status: {execution_status.error_string}"
-            )
 
 
 class ObjectManipulationError(MoveitRecoverableError):

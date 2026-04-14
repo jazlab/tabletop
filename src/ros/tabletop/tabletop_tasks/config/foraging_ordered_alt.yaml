@@ -18,13 +18,13 @@ tasks:
               - small_object_9
               - small_object_10
               - small_object_11
-              - small_object_12
-              - small_object_13
-              - small_object_14
+              # - small_object_12
+              # - small_object_13
+              # - small_object_14
             right_manipulator:
-              - small_object_15
-              - small_object_16
-              - small_object_17
+              # - small_object_15
+              # - small_object_16
+              # - small_object_17
               # - small_object_19
               - small_object_20
               - small_object_21
@@ -50,11 +50,11 @@ tasks:
           occlude:
             - true
           num_trials: 100000
-      stimulus_duration: 0.5
-      delay_duration: 1.0
-      response_timeout: 5.0
-      reward_duration: 1.0
-      reveal_duration: 0.5
+      stimulus_duration: 0.25
+      delay_duration: 0.25
+      response_timeout: 1.0
+      reward_duration: 0.25
+      reveal_duration: 0.25
       reward_sound: true
       sound_kwargs:
-        duration: 0.5
+        duration: 0.25

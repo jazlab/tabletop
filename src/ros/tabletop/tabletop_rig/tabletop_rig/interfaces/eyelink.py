@@ -83,8 +83,8 @@ class EyelinkInterface(BaseInterface):
             queue.put_nowait, feedback.is_smoothly_pursuing
         )
         self.log(
-            f"Monkey {'' if feedback.is_smoothly_pursuing else 'not '}smoothly pursuing",
-            severity="INFO",
+            f"Monkey {'is' if feedback.is_smoothly_pursuing else 'is not'} "
+            f"smoothly pursuing",
         )
 
     async def _smooth_pursuit_consumer(
@@ -102,10 +102,11 @@ class EyelinkInterface(BaseInterface):
             queue: Queue of pursuit status updates from the producer.
             callback: User callback to invoke with each status update.
         """
-        while True:
-            if inspect.iscoroutinefunction(callback):
+        if inspect.iscoroutinefunction(callback):
+            while True:
                 await callback(await queue.get())
-            else:
+        else:
+            while True:
                 callback(await queue.get())
 
     async def smooth_pursuit(

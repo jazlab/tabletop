@@ -26,7 +26,7 @@ from ur_dashboard_msgs.srv import (
 )
 
 from tabletop_rig.exceptions import (
-    ActionError,
+    ActionClientError,
     ServiceCallTimeoutError,
     ServiceCallUnsuccessfulError,
 )
@@ -406,7 +406,7 @@ class URInterface(BaseInterface):
                 except (
                     ServiceCallUnsuccessfulError,
                     ServiceCallTimeoutError,
-                    ActionError,
+                    ActionClientError,
                 ) as e:
                     self.log(
                         f"Caught exception while resetting dashboard | {type(e).__name__}: {e}",

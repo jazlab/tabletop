@@ -62,18 +62,16 @@ from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
 
 from tabletop_rig.exceptions import (
-    ActionError,
-    ExecutionError,
+    ActionClientError,
     ExecutionInterruptedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
-    ServiceCallUnsuccessfulError,
+    ServiceClientError,
 )
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
-from tabletop_rig.interfaces.moveit.requests import PlanGoalT
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.interfaces.ur import URInterface
@@ -135,17 +133,16 @@ def safe_execution(coro_fn):
 
                 self.log(
                     f"Safe execution violated while running {coro_fn.__name__}: {e}. "
-                    f"Locking arms and waiting for safety, then resetting dashboard "
-                    f"before retrying",
+                    f"Locking arms and waiting for safety, then resetting URInterface "
+                    f"for robot {e.group_name} before retrying",
                     severity="WARN",
                 )
-                await self.teensy.lock_arms_and_wait()
 
-                for ur in self.urs.values():
-                    await ur.reset()
+                await self.teensy.lock_arms_and_wait()
+                await self.urs[e.group_name].reset()
 
                 self.log(
-                    f"Arms locked and safe to execute and dashboard reset, "
+                    f"Arms locked and safe to execute and URInterface reset, "
                     f"retrying {coro_fn.__name__}",
                     severity="WARN",
                 )
@@ -155,15 +152,14 @@ def safe_execution(coro_fn):
 
                 self.log(
                     f"Execution interrupted while running {coro_fn.__name__}: {e}. "
-                    f"Resetting dashboard before retrying",
+                    f"Resetting URInterface for {e.group_name} before retrying",
                     severity="WARN",
                 )
 
-                for ur in self.urs.values():
-                    await ur.reset()
+                await self.urs[e.group_name].reset()
 
                 self.log(
-                    f"Dashboard reset, retrying {coro_fn.__name__}",
+                    f"URInterface reset, retrying {coro_fn.__name__}",
                     severity="WARN",
                 )
 
@@ -252,13 +248,15 @@ class Commander(BaseNode):
         self.eyelink = EyelinkInterface(self)
 
         self.urs: dict[str, URInterface] = {}
-        for side in ["left", "right"]:
-            self.urs[side] = URInterface(side, self)
+        for group_name in self.joint_model_group_names:
+            ns = self.param(f"ur.namespaces.{group_name}")
+            self.urs[group_name] = URInterface(ns, self)
 
         self.moveit = MoveItInterface(
             self, safe_to_execute_callback=lambda: self.teensy.safe_to_execute
         )
 
+        self._initial_reset = False
         self._entered_context = False
 
         self.log("Commander initialized")
@@ -285,8 +283,7 @@ class Commander(BaseNode):
 
     @property
     def joint_model_group_names(self) -> list[str]:
-        """TODO"""
-        return self.moveit.joint_model_group_names
+        return self.param("joint_model_group_names")
 
     def reachable_object_ids(self, group_name: str) -> set[str]:
         """TODO"""
@@ -441,7 +438,11 @@ class Commander(BaseNode):
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
     @ensure_context
-    async def attach_object_manually(
+    def current_manipulation_id(self, group_name: str) -> str | None:
+        return self.moveit.current_manipulation_id(group_name)
+
+    @ensure_context
+    async def manually_atatch_object(
         self, object_id: str, group_name: str
     ) -> None:
         """Attach a non-grid object to the robot end-effector
@@ -452,10 +453,10 @@ class Commander(BaseNode):
         Args:
             object_id: ID of the collision object to attach.
         """
-        await self.moveit.add_manually_attached_object(object_id, group_name)
+        await self.moveit.manually_attach_object(object_id, group_name)
 
     @ensure_context
-    async def detach_object_manually(
+    async def manually_detach_object(
         self, object_id: str, group_name: str
     ) -> None:
         """Detach a non-grid object from the robot end-effector
@@ -466,9 +467,7 @@ class Commander(BaseNode):
         Args:
             object_id: ID of the currently attached collision object to detach.
         """
-        await self.moveit.remove_manually_attached_object(
-            object_id, group_name
-        )
+        await self.moveit.manually_attach_object(object_id, group_name)
 
     @ensure_context
     async def plan(self, *args, **kwargs) -> RobotTrajectory:
@@ -578,8 +577,8 @@ class Commander(BaseNode):
     async def _reset_commander(
         self,
         *,
-        timeout: Optional[float] = None,
-        end_goals: Optional[dict[str, PlanGoalT]] = None,
+        group_names: list[str] | Literal["all"],
+        reset_to_idle: bool,
     ) -> None:
         """Reset the robot to a known good state.
 
@@ -596,62 +595,61 @@ class Commander(BaseNode):
         """
         self.log("Resetting commander")
 
-        async with asyncio.timeout(timeout):
-            max_attempts = self.param("recovery.max_attempts")
-            if max_attempts < 1:
-                raise ValueError(
-                    "recover.max_attempts parameter must be at least 1"
-                )
+        max_attempts = self.param("recovery.max_attempts")
+        if max_attempts < 1:
+            raise ValueError(
+                "recover.max_attempts parameter must be at least 1"
+            )
 
-            excs: list[Exception] = []
-            for _ in range(max_attempts):
-                try:
-                    await self.teensy.set_smartglass(reveal=False)
+        excs: list[Exception] = []
+        for i in range(max_attempts):
+            try:
+                await self.teensy.set_smartglass(reveal=False)
 
-                    if not self.teensy.safe_to_execute:
-                        self.log(
-                            "Cannot reset commander until safe to execute",
-                            severity="WARN",
-                        )
-                        await self.teensy.lock_arms_and_wait()
-
-                    for ur in self.urs.values():
-                        await ur.reset()
-
-                    await self.moveit.reset_rig(end_goals=end_goals)
-                    return
-                except (
-                    ServiceCallUnsuccessfulError,
-                    ActionError,
-                    MoveitRecoverableError,
-                ) as e:
-                    excs.append(e)
+                if not self.teensy.safe_to_execute:
                     self.log(
-                        "Caught exception while resetting commander:",
+                        "Cannot reset commander until safe to execute",
                         severity="WARN",
                     )
-                    self.log(f"{type(e).__name__}: {e}", severity="WARN")
-                    self.log(
-                        f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
-                        severity="DEBUG",
-                    )
-                    if isinstance(e, ExecutionError):
-                        sleep_time = 1
-                    else:
-                        sleep_time = 1
-                    self.log(
-                        f"Sleeping for {sleep_time} seconds before retrying",
-                        severity="WARN",
-                    )
-                    await asyncio.sleep(sleep_time)
+                    await self.teensy.lock_arms_and_wait()
 
-            if len(excs) == 1:
-                raise excs[0]
-            if len(excs) > 1:
-                raise ExceptionGroup(
-                    f"Failed to reset commander after {max_attempts} attempts",
-                    excs,
+                if group_names == "all":
+                    group_names = self.joint_model_group_names
+
+                for group_name in group_names:
+                    await self.urs[group_name].reset()
+                    await self.moveit.reset_manipulation(
+                        group_name, reset_to_idle=reset_to_idle
+                    )
+
+                return
+            except (
+                ServiceClientError,
+                ActionClientError,
+                MoveitRecoverableError,
+            ) as e:
+                excs.append(e)
+                self.log(
+                    "Caught exception while resetting commander:",
+                    severity="WARN",
                 )
+                self.log(f"{type(e).__name__}: {e}", severity="WARN")
+                self.log(
+                    f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
+                    severity="DEBUG",
+                )
+                self.log(f"Retrying {max_attempts - i - 1} more times")
+
+                # Set group_names to "all" to see if that helps
+                group_names = "all"
+
+        if len(excs) == 1:
+            raise excs[0]
+        if len(excs) > 1:
+            raise ExceptionGroup(
+                f"Failed to reset commander after {max_attempts} attempts",
+                excs,
+            )
 
     ###########################################################################
     ########## Context manager ################################################
@@ -693,27 +691,23 @@ class Commander(BaseNode):
                     f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
                     severity="DEBUG",
                 )
-                if isinstance(exc_value, ExceptionGroup):
+                group_names: set[str] = set()
+                if isinstance(exc_value, MoveitRecoverableError):
+                    group_names.add(exc_value.group_name)
+                else:
                     self.log("Exception group subexceptions:")
                     for e in exc_value.exceptions:
+                        assert isinstance(e, MoveitRecoverableError)
                         self.log(f"{type(e).__name__}: {e}", severity="ERROR")
                         self.log(
                             f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
                             severity="DEBUG",
                         )
+                        group_names.add(e.group_name)
 
-                # if exc_type is ExecutionError:
-                #     self.log(
-                #         "Sleeping for 5 seconds before resetting commander",
-                #         severity="WARN",
-                #     )
-                #     await asyncio.sleep(5)
-
-                end_goals = {}
-                for group_name in self.moveit.joint_model_group_names:
-                    end_goals[group_name] = "idle"
-
-                await self._reset_commander(end_goals=end_goals)
+                await self._reset_commander(
+                    group_names=list(group_names), reset_to_idle=True
+                )
 
                 return True
 
@@ -736,17 +730,21 @@ class Commander(BaseNode):
                 elif isinstance(interface, AbstractContextManager):
                     self._context_stack.enter_context(interface)
 
-            # await self._reset_commander(end_goal="idle")
-            await self._reset_commander()
-            # TODO!!!!!!!!!!!!!!!!
+            if not self._initial_reset:
+                await self._reset_commander(
+                    group_names="all", reset_to_idle=False
+                )
+                self._initial_reset = True
+
             self._context_stack.push_async_exit(
                 self._handle_recoverable_errors
             )
         except BaseException as e:
             await self._context_stack.__aexit__(type(e), e, e.__traceback__)
-            raise e
+            raise
 
         self._entered_context = True
+
         return self
 
     async def __aexit__(
