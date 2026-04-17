@@ -123,6 +123,10 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         """
         return self._commander
 
+    @property
+    @abstractmethod
+    def group_names(self) -> list[str]: ...
+
     @abstractmethod
     def __next__(self) -> TrialSpec:
         """Generate the next trial specification.
@@ -135,7 +139,7 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
         """Process feedback from a completed trial.
 
         Called after each trial completes with behavioral measures.
@@ -179,7 +183,11 @@ class DefaultTrialGenerator(BaseTrialGenerator):
         self._trial_count += 1
         return trial_spec
 
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
+    @property
+    def group_names(self) -> list[str]:
+        return []
+
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
         """Accept and ignore trial feedback.
 
         Args:

@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tabletop_rig.nodes import Commander
+from tabletop_rig.nodes.commander import ManipulationContextManager
 
 from tabletop_tasks.tasks.base import BaseObjectInteractionTask
 from tabletop_tasks.trial_generators.base import (
@@ -54,7 +55,9 @@ class PresentTask(BaseObjectInteractionTask):
         """
         super().__init__("present_task", commander, trial_generator)
 
-    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
+    async def run_trial(
+        self, trial_spec: TrialSpec, manipulator: ManipulationContextManager
+    ) -> TrialFeedback:
         """Execute a single presentation trial.
 
         Moves the object to the specified pose and returns empty
@@ -69,5 +72,4 @@ class PresentTask(BaseObjectInteractionTask):
         Raises:
             ValueError: If trial_spec is None.
         """
-        self.log(f"Present object task trial spec: {trial_spec}")
         return TrialFeedback()

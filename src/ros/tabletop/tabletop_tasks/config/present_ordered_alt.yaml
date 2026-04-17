@@ -1,14 +1,6 @@
 tasks:
-  - class: ForagingTask
+  - class: PresentTask
     kwargs:
-      stimulus_duration: 0.25
-      delay_duration: 0.25
-      response_timeout: 1.0
-      reward_duration: 0.25
-      reveal_duration: 0.25
-      reward_sound: true
-      sound_kwargs:
-        duration: 0.25
       trial_generator:
         class: OrderedChoiceAlternating
         kwargs:

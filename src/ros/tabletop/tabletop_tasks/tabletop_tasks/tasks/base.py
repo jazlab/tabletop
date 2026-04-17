@@ -26,7 +26,6 @@ Example:
 
 import asyncio
 from abc import ABCMeta, abstractmethod
-from collections import deque
 from collections.abc import Mapping
 from typing import Any
 
@@ -175,8 +174,8 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     "trial_generator class must be an instance of BaseTrialGenerator"
                 )
 
+        self._trial_lock = asyncio.Lock()
         self._trial_condition = asyncio.Condition()
-        self._trial_queue = deque()
 
     @abstractmethod
     async def run_trial(
@@ -208,102 +207,156 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             tg.create_task(self.commander.lock_arms_and_wait())
             tg.create_task(self.commander.occlude_smartglass())
 
-    async def _run_one_trial(
-        self, trial_spec: TrialSpec, ready_event: asyncio.Event
-    ) -> TrialFeedback:
-        async with self.commander.manipulation_context(
-            trial_spec.group_name
-        ) as manipulator:
-            if trial_spec.object_id != manipulator.current_manipulation_id:
-                await manipulator.reset_manipulation()
+    async def _run_one_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
+        presented: bool = False
+        unpresented: bool = False
+        try:
+            async with self.commander.manipulation_context(
+                trial_spec.group_name
+            ) as manipulator:
+                if trial_spec.object_id != manipulator.current_manipulation_id:
+                    await manipulator.reset_manipulation()
 
-            await manipulator.fetch_object(trial_spec.object_id)
+                await manipulator.fetch_object(trial_spec.object_id)
 
-            await ready_event.wait()
+                await self._trial_lock.acquire()
+                presented = True
 
-            await manipulator.present_object(trial_spec.object_id)
-            await manipulator.plan_and_move(
-                goal=trial_spec.object_pose,
-                planning_pipeline="linear",
-            )
+                await manipulator.present_object(trial_spec.object_id)
+                await manipulator.plan_and_move(
+                    goal=trial_spec.object_pose,
+                    planning_pipeline="linear",
+                )
 
-            feedback = await self.run_trial(trial_spec, manipulator)
-            await self._occlude_and_lock()
+                feedback = await self.run_trial(trial_spec, manipulator)
 
-            await manipulator.unpresent_object(trial_spec.object_id)
+                await self._occlude_and_lock()
+                await manipulator.unpresent_object(trial_spec.object_id)
 
-            return feedback
+                unpresented = True
+                self._trial_lock.release()
 
-    async def _run_trials_simultaneously(self):
+                return feedback
+        except ManipulationContextExitedError:
+            if presented and not unpresented:
+                assert self._trial_lock.locked()
+                self._trial_lock.release()
+            raise
+
+    async def _run_trials_asynchronously(self):
         # Occlude smartglass and lock arms before starting
         await self._occlude_and_lock()
 
-        active_trial: asyncio.Task[TrialFeedback] | None = None
-        active_spec: TrialSpec | None = None
-        next_spec: TrialSpec | None
+        active_trials: dict[str, asyncio.Task[TrialFeedback] | None] = {
+            x: None for x in self._trial_generator.group_names
+        }
+        active_specs: dict[str, TrialSpec | None] = {
+            x: None for x in self._trial_generator.group_names
+        }
 
-        try:
-            next_spec = next(self._trial_generator)
-        except StopIteration:
-            raise RuntimeError("Trial generator empty before starting task")
+        for next_spec in self._trial_generator:
+            if active_trials[next_spec.group_name] is None:
+                active_specs[next_spec.group_name] = next_spec
+                active_trials[next_spec.group_name] = asyncio.create_task(
+                    self._run_one_trial(next_spec)
+                )
+            else:
+                self.log(
+                    f"The next trial spec requested the robot "
+                    f"{next_spec.group_name}, but this robot is "
+                    f"already being used for an active trial. "
+                    f"Waiting for any trials to finish.",
+                    severity="WARN",
+                )
 
-        while not (next_spec is None and active_trial is None):
-            # If you wrote a good trial generator, the next trial will use a
-            # different robot from the one performing the active, in which
-            # case we can fetch the next object.
-            # Otherwise we must wait until the active trial has finished, so we
-            # skip starting the next trial until we've
-            next_trial: asyncio.Task[TrialFeedback] | None = None
-            next_ready_event: asyncio.Event | None = None
-            if next_spec is not None:
-                if (
-                    active_spec is None
-                    or active_spec.group_name != next_spec.group_name
-                ):
-                    next_ready_event = asyncio.Event()
-                    next_trial = asyncio.create_task(
-                        self._run_one_trial(next_spec, next_ready_event)
-                    )
-                else:
-                    assert active_trial is not None
-                    self.log(
-                        f"The next trial spec requested the robot "
-                        f"{next_spec.group_name}, but this robot is "
-                        f"already being used for the active trial.",
-                        severity="WARN",
-                    )
+                await asyncio.wait(
+                    [x for x in active_trials.values() if x is not None],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for group_name, active_trial in active_trials.items():
+                    if active_trial is not None and active_trial.done():
+                        active_spec = active_specs[group_name]
+                        assert active_spec is not None
+                        try:
+                            feedback = await active_trial
+                            self._trial_generator.send(active_spec, feedback)
+                        except ManipulationContextExitedError:
+                            self._trial_generator.send(active_spec, None)
 
-            # Wait for active trial to finish, send trial feedback, then
-            # occlude smartglass, lock arms, and unpresent active object
-            if active_trial is not None:
-                assert active_spec is not None
+                        active_trials[group_name] = None
+                        active_specs[group_name] = None
+                        break
 
-                if not active_trial.done():
-                    self.log("Waiting for active trial to complete")
-
-                try:
-                    feedback = await active_trial
-                    self._trial_generator.send(active_spec, feedback)
-                except ManipulationContextExitedError:
-                    pass
-
-                active_trial = None
-                active_spec = None
-
-            if next_trial is not None:
-                assert next_ready_event is not None
-                assert next_spec is not None
-
-                next_ready_event.set()
-
-                active_trial = next_trial
-                active_spec = next_spec
-
-                try:
-                    next_spec = next(self._trial_generator)
-                except StopIteration:
-                    next_spec = None
-
+    # async def _run_trials_simultaneously(self):
+    #     # Occlude smartglass and lock arms before starting
+    #     await self._occlude_and_lock()
+    #
+    #     active_trial: asyncio.Task[TrialFeedback] | None = None
+    #     active_spec: TrialSpec | None = None
+    #     next_spec: TrialSpec | None
+    #
+    #     try:
+    #         next_spec = next(self._trial_generator)
+    #     except StopIteration:
+    #         raise RuntimeError("Trial generator empty before starting task")
+    #
+    #     while not (next_spec is None and active_trial is None):
+    #         # If you wrote a good trial generator, the next trial will use a
+    #         # different robot from the one performing the active, in which
+    #         # case we can fetch the next object.
+    #         # Otherwise we must wait until the active trial has finished, so we
+    #         # skip starting the next trial until we've
+    #         next_trial: asyncio.Task[TrialFeedback] | None = None
+    #         next_ready_event: asyncio.Event | None = None
+    #         if next_spec is not None:
+    #             if (
+    #                 active_spec is None
+    #                 or active_spec.group_name != next_spec.group_name
+    #             ):
+    #                 next_ready_event = asyncio.Event()
+    #                 next_trial = asyncio.create_task(
+    #                     self._run_one_trial(next_spec, next_ready_event)
+    #                 )
+    #             else:
+    #                 assert active_trial is not None
+    #                 self.log(
+    #                     f"The next trial spec requested the robot "
+    #                     f"{next_spec.group_name}, but this robot is "
+    #                     f"already being used for the active trial.",
+    #                     severity="WARN",
+    #                 )
+    #
+    #         # Wait for active trial to finish, send trial feedback, then
+    #         # occlude smartglass, lock arms, and unpresent active object
+    #         if active_trial is not None:
+    #             assert active_spec is not None
+    #
+    #             if not active_trial.done():
+    #                 self.log("Waiting for active trial to complete")
+    #
+    #             try:
+    #                 feedback = await active_trial
+    #                 self._trial_generator.send(active_spec, feedback)
+    #             except ManipulationContextExitedError:
+    #                 pass
+    #
+    #             active_trial = None
+    #             active_spec = None
+    #
+    #         if next_trial is not None:
+    #             assert next_ready_event is not None
+    #             assert next_spec is not None
+    #
+    #             next_ready_event.set()
+    #
+    #             active_trial = next_trial
+    #             active_spec = next_spec
+    #
+    #             try:
+    #                 next_spec = next(self._trial_generator)
+    #             except StopIteration:
+    #                 next_spec = None
+    #
     # async def _run_trials(self, tg: asyncio.TaskGroup) -> None:
     #     # Occlude smartglass and lock arms before starting
     #     await self._occlude_and_lock()
@@ -407,4 +460,4 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
         The loop runs indefinitely, restarting the trial generator
         when exhausted. Override this method for custom task structures.
         """
-        await self._run_trials_simultaneously()
+        await self._run_trials_asynchronously()

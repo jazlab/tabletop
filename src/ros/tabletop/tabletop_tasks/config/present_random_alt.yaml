@@ -1,16 +1,8 @@
 tasks:
-  - class: ForagingTask
+  - class: PresentTask
     kwargs:
-      stimulus_duration: 0.25
-      delay_duration: 0.25
-      response_timeout: 1.0
-      reward_duration: 0.25
-      reveal_duration: 0.25
-      reward_sound: true
-      sound_kwargs:
-        duration: 0.25
       trial_generator:
-        class: OrderedChoiceAlternating
+        class: RandomChoiceAlternating
         kwargs:
           grouped_object_ids:
             left_manipulator:
@@ -21,10 +13,10 @@ tasks:
               - small_object_4
               - small_object_5
               - small_object_6
-              - small_object_7
+              # - small_object_7
               - small_object_8
               - small_object_9
-              - small_object_10
+              # - small_object_10
               - small_object_11
               # - small_object_12
               # - small_object_13
@@ -55,6 +47,6 @@ tasks:
             - left
             - right
             - both
-          occlude:
-            - true
+          occlude_prob: 1.0
           num_trials: 100000
+          skip_failed: False

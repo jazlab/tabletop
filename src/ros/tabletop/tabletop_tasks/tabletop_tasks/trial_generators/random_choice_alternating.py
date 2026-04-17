@@ -19,8 +19,9 @@ Example:
 """
 
 from collections.abc import Mapping
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
+import numpy as np
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import pose_stamped_msg
 
@@ -31,7 +32,7 @@ from tabletop_tasks.trial_generators.base import (
 )
 
 
-class OrderedChoiceAlternating(BaseTrialGenerator):
+class RandomChoiceAlternating(BaseTrialGenerator):
     """Trial generator with deterministic ordered cycling.
 
     Generates trials by cycling through all combinations of parameters
@@ -59,8 +60,9 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         grouped_object_ids: dict[str, list[str]],
         poses: list[Mapping[str, Any]],
         arms: list[Literal["left", "right", "both"]],
-        occlude: list[bool],
+        occlude_prob: float,
         num_trials: int,
+        skip_failed: bool = True,
     ):
         """Initialize the ordered choice generator.
 
@@ -98,37 +100,20 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         self._group_names = list(grouped_object_ids.keys())
         self._poses = [pose_stamped_msg(**pose) for pose in poses]
         self._arms = arms
-        self._occlude = occlude
+        self._occlude_prob = occlude_prob
         self._num_trials = num_trials
-        self._trial_counter = 0
+        self._skip_failed = skip_failed
 
-        # Initialize iterator
-        self._iterator = self.init_iterator()
+        self._trial_counter = 0
+        self._last_trial_spec: dict[str, TrialSpec | None] = {
+            x: None for x in self._group_names
+        }
+        self._last_feedback_group: str | None = None
+        self._next_group_idx: int = 0
 
     @property
     def group_names(self) -> list[str]:
         return self._group_names
-
-    def init_iterator(self) -> Iterator[TrialSpec]:
-        """TODO"""
-        while True:
-            for occlude in self._occlude:
-                for pose in self._poses:
-                    for arm in self._arms:
-                        for i in range(self._largest_group):
-                            for (
-                                group_name,
-                                object_ids,
-                            ) in self._grouped_object_ids.items():
-                                object_id = object_ids[i % len(object_ids)]
-                                yield TrialSpec(
-                                    trial_number=self._trial_counter,
-                                    object_id=object_id,
-                                    group_name=group_name,
-                                    object_pose=pose,
-                                    arm=arm,
-                                    occlude=occlude,
-                                )
 
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
@@ -142,14 +127,46 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         Raises:
             StopIteration: When num_trials have been generated.
         """
+
+        group_name: str
+        if self._last_feedback_group is not None:
+            group_name = self._last_feedback_group
+            self._last_feedback_group = None
+        else:
+            group_name = self._group_names[self._next_group_idx]
+            self._next_group_idx = (self._next_group_idx + 1) % len(
+                self._group_names
+            )
+
+        if not self._skip_failed:
+            last_trial_spec = self._last_trial_spec[group_name]
+            if last_trial_spec is not None:
+                return last_trial_spec
+
         if self._trial_counter >= self._num_trials:
             raise StopIteration
 
-        trial_spec = next(self._iterator)
+        object_pose = np.random.choice(self._poses)  # type: ignore[arg-type]
+        object_id = np.random.choice(self._grouped_object_ids[group_name])
+        arm = np.random.choice(self._arms)
+        occlude = np.random.choice(
+            [True, False], p=[self._occlude_prob, 1 - self._occlude_prob]
+        )
+        trial_spec = TrialSpec(
+            trial_number=self._trial_counter,
+            object_id=object_id,
+            group_name=group_name,
+            object_pose=object_pose,
+            arm=arm,
+            occlude=occlude,
+        )
+
+        self._last_trial_spec[group_name] = trial_spec
         self._trial_counter += 1
+
         return trial_spec
 
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
         """Process trial feedback.
 
         This generator does not adapt based on feedback.
@@ -158,4 +175,9 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
             trial_spec: Unused original trial spec.
             feedback: Unused trial feedback.
         """
-        pass
+        if trial_spec is not None:
+            assert trial_spec == self._last_trial_spec[trial_spec.group_name]
+            if feedback is not None:
+                self._last_trial_spec[trial_spec.group_name] = None
+
+            self._last_feedback_group = trial_spec.group_name

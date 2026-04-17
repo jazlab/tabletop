@@ -23,6 +23,8 @@ all=false
 clang=false
 only_modules=false
 verbose=false
+skip_uv=
+skip_apt=
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
@@ -50,6 +52,9 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-uv)
             skip_uv=--skip-uv
+            ;;
+        --skip-apt)
+            skip_apt=--skip-apt
             ;;
         --apt-upgrade)
             apt_upgrade=--apt-upgrade
@@ -132,7 +137,7 @@ elif [[ $clean = true ]]; then
 fi
 
 # Install ROS 2 build dependencies
-tt-dep-install --type build $skip_moveit_apt_removal $apt_upgrade $skip_uv $from_paths
+tt-dep-install --type build $skip_uv $skip_apt $skip_moveit_apt_removal $apt_upgrade $from_paths
 
 # Install tabletop_py python project
 print_status "Building/installing tabletop_py"
@@ -192,7 +197,7 @@ print_status "Successfully built ROS 2 packages!"
 source install/setup.bash
 
 # Install ROS 2 runtime dependencies
-tt-dep-install --type exec $from_paths --skip-uv
+tt-dep-install --type exec $from_paths --skip-uv $skip_apt
 
 # Write to build/last_built.txt to indicate to docker containers a rebuild has occured
 date > "build/last_built.txt"

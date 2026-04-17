@@ -27,6 +27,7 @@ from .blocked_cup_drawer import BlockedCupDrawer
 from .ordered_choice import OrderedChoice
 from .ordered_choice_alternating import OrderedChoiceAlternating
 from .random_choice import RandomChoice
+from .random_choice_alternating import RandomChoiceAlternating
 
 __all__ = [
     "BaseTrialGenerator",
@@ -34,6 +35,7 @@ __all__ = [
     "OrderedChoice",
     "OrderedChoiceAlternating",
     "RandomChoice",
+    "RandomChoiceAlternating",
     "TrialFeedback",
     "TrialSpec",
 ]
