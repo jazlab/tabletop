@@ -49,4 +49,4 @@ tasks:
             - both
           occlude_prob: 1.0
           num_trials: 100000
-          skip_failed: False
+          skip_failed: True

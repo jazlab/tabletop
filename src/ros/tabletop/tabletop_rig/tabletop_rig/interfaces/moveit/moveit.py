@@ -366,6 +366,11 @@ class MoveItInterface(BaseInterface):
         with self.planning_scene_ro() as scene:
             return deepcopy(scene.current_state)
 
+    def get_joint_names(self, group_name: str) -> list[str]:
+        return self.robot_model.get_joint_model_group(
+            group_name
+        ).active_joint_model_names
+
     def get_planning_component(self, group_name: str) -> PlanningComponent:
         """Get the planning component for a given planning group name.
 
@@ -379,17 +384,20 @@ class MoveItInterface(BaseInterface):
 
     def get_named_target_states(self, group_name: str) -> list[str]:
         """Get the named target states from the planning component."""
-        return self.get_planning_component(group_name).named_target_states()
+        return self.get_planning_component(group_name).named_target_states
 
     def get_target_state(
         self, target_name: str, group_name: str
     ) -> RobotState:
         """Get the named target state from the planning component."""
-        joint_state_dict = self.get_planning_component(
+        joint_positions: dict[str, float] = self.get_planning_component(
             group_name
         ).get_named_target_state_values(target_name)
+        assert set(joint_positions.keys()) == set(
+            self.get_joint_names(group_name)
+        )
         robot_state = self.get_current_state()
-        robot_state.joint_positions = joint_state_dict
+        robot_state.joint_positions = joint_positions
         robot_state.update()
         return robot_state
 

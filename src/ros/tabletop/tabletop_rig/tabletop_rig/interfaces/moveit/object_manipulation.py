@@ -50,7 +50,6 @@ from tabletop_py.utils.common import KwargYamlLoader, yaml_dump_string
 from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
     ExecutionRejectedError,
-    NotSafeToExecuteError,
     ObjectManipulationError,
     ObjectMismatchError,
     StateTransitionError,
@@ -105,14 +104,15 @@ class State(IntEnum):
     POST_ATTACH = 4
     POST_FETCH = 5
     FETCHED = 6
-    NEEDS_RESET = 7
-    PRE_RESET = 8
-    RESETTED = 9
-    PRE_RETURN = 10
-    PRE_DETACH = 11
-    DETACH = 12
-    POST_DETACH = 13
-    POST_RETURN = 14
+    PRESENTED = 7
+    NEEDS_RESET = 8
+    PRE_RESET = 9
+    RESETTED = 10
+    PRE_RETURN = 11
+    PRE_DETACH = 12
+    DETACH = 13
+    POST_DETACH = 14
+    POST_RETURN = 15
     MANUALLY_ATTACHED = 98
     UNINITIALIZED = 99
 
@@ -151,6 +151,7 @@ GRID_OBJECT_ATTACHED_STATES = set(
         State.POST_ATTACH,
         State.POST_FETCH,
         State.FETCHED,
+        State.PRESENTED,
         State.NEEDS_RESET,
         State.PRE_RESET,
         State.RESETTED,
@@ -173,12 +174,16 @@ ALLOWED_MOUNT_COLLISION_STATES = set(
 )
 
 # Mapping of manipulation states to their corresponding pose offsets
-STATE_OFFSET_MAP = {
+MANIPULATION_STATE_GOAL_NAME = {
+    State.IDLE: "idle",
     State.PRE_FETCH: "pre_fetch",
     State.PRE_ATTACH: "pre_attach",
     State.ATTACH: "attach",
     State.POST_ATTACH: "post_attach",
     State.POST_FETCH: "post_fetch",
+    State.FETCHED: "fetched",
+    State.PRESENTED: "present",
+    State.NEEDS_RESET: "fetched",
     State.PRE_RETURN: "post_fetch",
     State.PRE_DETACH: "post_attach",
     State.DETACH: "attach",
@@ -552,7 +557,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     def _get_state_goal(
         self,
         state: State,
-        object_id: str,
+        object_id: Optional[str],
     ) -> PlanGoalT:
         """Get the goal for the given state and object.
 
@@ -564,28 +569,50 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Returns:
             The goal for the given state and object.
         """
-        match state:
-            case State.IDLE:
-                return "idle"
-            case State.FETCHED:
-                return "fetched"
-            case _:
-                if (
-                    state == State.PRE_RETURN
-                    and object_id in self._post_fetch_states
-                ):
-                    return self._post_fetch_states[object_id]
-                try:
-                    offset = self.param(
-                        f"state_offsets_overrides.{object_id}.{STATE_OFFSET_MAP[state]}"
-                    )
-                except ParameterNotDeclaredException:
-                    offset = self.param(
-                        f"state_offsets.{STATE_OFFSET_MAP[state]}"
-                    )
+        goal_name = MANIPULATION_STATE_GOAL_NAME[state]
+        param_name = f"manipulation_state_goals.object_overrides.{object_id}.{goal_name}"
+        goal_config: dict[str, Any]
+        if object_id is not None:
+            try:
+                goal_config = self.param(param_name)
+            except ParameterNotDeclaredException:
+                param_name = f"manipulation_state_goals.{goal_name}"
+                goal_config = self.param(param_name)
+        else:
+            param_name = f"manipulation_state_goals.{goal_name}"
+            goal_config = self.param(param_name)
 
+        goal_type: str = goal_config["type"]
+        match goal_type:
+            case "offset":
+                assert object_id is not None
+                offset: list[float] = goal_config["value"]
                 return self._grid_object_pose_stamped_with_offset(
                     object_id, offset
+                )
+            case "named_target_state":
+                named_target_state: str = goal_config["value"]
+                assert (
+                    named_target_state
+                    in self._moveit.get_named_target_states(self.group_name)
+                )
+                return named_target_state
+            case "joint_positions":
+                joint_positions: dict[str, float] = goal_config["value"]
+                assert set(joint_positions.keys()) == set(
+                    self._moveit.get_joint_names(self.group_name)
+                )
+                robot_state = self._moveit.get_current_state()
+                robot_state.joint_positions = joint_positions
+                robot_state.update()
+                return robot_state
+            case "pose_stamped":
+                pose_stamped: dict[str, Any] = goal_config["value"]
+                return pose_stamped_msg(**pose_stamped)
+            case _:
+                raise ValueError(
+                    f"Unknown manipulation_state_goal type for parameter "
+                    f"{param_name}: {goal_type}"
                 )
 
     async def _fetch_or_return_transition(
@@ -777,7 +804,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match self._manipulation_state:
             case State.FETCHED | State.RESETTED:
-                pass
+                next_state = State.PRESENTED
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
                     f"Cannot present object "
@@ -789,11 +816,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
+        goal = self._get_state_goal(next_state, object_id)
         await self.plan_and_execute(
-            goal="present",
+            goal=goal,
             cache_trajectories=cache_trajectories,
         )
-        self._manipulation_state = State.NEEDS_RESET
+        self._manipulation_state = next_state
 
     async def _unpresent_object_impl(
         self, object_id: str, *, cache_trajectories=True
@@ -803,8 +831,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._validate_target_object(object_id, expect_grid_object=True)
 
         match self._manipulation_state:
-            case State.FETCHED | State.NEEDS_RESET:
-                pass
+            case State.PRESENTED:
+                next_state = State.NEEDS_RESET
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
                     f"Cannot unpresent object from current state: {unexpected.name}",
@@ -815,11 +843,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
+        goal = self._get_state_goal(next_state, object_id)
         await self.plan_and_execute(
-            goal="fetched",
+            goal=goal,
             cache_trajectories=cache_trajectories,
         )
-        # No change of state necessary
+        self._manipulation_state = next_state
 
     async def _reset_object_impl(
         self,
@@ -997,12 +1026,16 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         *,
         cache_trajectories: bool = True,
         **kwargs: Any,
-    ) -> list[TrajectoryCacheKwargs] | None:
+    ) -> None:
         match self._manipulation_state:
-            case State.IDLE | State.MANUALLY_ATTACHED:
-                needs_reset = False
-            case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
-                needs_reset = True
+            case (
+                State.IDLE
+                | State.MANUALLY_ATTACHED
+                | State.FETCHED
+                | State.PRESENTED
+                | State.RESETTED
+            ):
+                pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
                     f"Cannot plan_and_move from current state: {unexpected.name}",
@@ -1013,34 +1046,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        try:
-            result = await self.plan_and_execute(
-                request,
-                cache_trajectories=cache_trajectories,
-                **kwargs,
-            )
-        except (
-            asyncio.CancelledError,
-            ExecutionInterruptedError,
-            NotSafeToExecuteError,
-        ):
-            if needs_reset:
-                self._manipulation_state = State.NEEDS_RESET
-            raise
-
-        if needs_reset:
-            self._manipulation_state = State.NEEDS_RESET
-
-        return result
+        await self.plan_and_execute(
+            request,
+            cache_trajectories=cache_trajectories,
+            **kwargs,
+        )
+        # No state update needed
 
     async def _move_impl(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
     ):
         match self._manipulation_state:
-            case State.IDLE | State.MANUALLY_ATTACHED:
-                needs_reset = False
-            case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
-                needs_reset = True
+            case (
+                State.IDLE
+                | State.MANUALLY_ATTACHED
+                | State.FETCHED
+                | State.PRESENTED
+                | State.RESETTED
+            ):
+                pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
                     f"Cannot move from current state: {unexpected.name}",
@@ -1051,19 +1075,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        try:
-            await self.execute(trajectory)
-        except (
-            asyncio.CancelledError,
-            ExecutionInterruptedError,
-            NotSafeToExecuteError,
-        ):
-            if needs_reset:
-                self._manipulation_state = State.NEEDS_RESET
-            raise
+        await self.execute(trajectory)
 
-        if needs_reset:
-            self._manipulation_state = State.NEEDS_RESET
+        # No state update needed
 
     async def _manually_attach_object_impl(self, object_id: str):
         self.log(f"Manually attaching object {object_id}")
@@ -1247,10 +1261,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         *,
         cache_trajectories: bool = True,
         **kwargs: Any,
-    ) -> list[TrajectoryCacheKwargs] | None:
+    ) -> None:
         """TODO"""
         async with self.manipulation_context(wait=False):
-            return await self._plan_and_move_impl(
+            await self._plan_and_move_impl(
                 request, cache_trajectories=cache_trajectories, **kwargs
             )
 
@@ -1505,24 +1519,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                             "Object seems stuck, aborting"
                         ) from e
 
+            # Unpresent object if needed
+            if self._manipulation_state == State.PRESENTED:
+                await self._unpresent_object_impl(object_id)
+
             # Reset object if needed
-            elif self._manipulation_state in (
+            if self._manipulation_state in (
                 State.NEEDS_RESET,
                 State.PRE_RESET,
             ):
-                await self._reset_object_impl(
-                    object_id, cache_trajectories=False
-                )
+                await self._reset_object_impl(object_id)
 
             # Return object
-            await self._return_object_impl(object_id, cache_trajectories=False)
+            await self._return_object_impl(object_id)
 
         if reset_to_idle:
-            await self._plan_and_move_impl(
-                goal="idle", cache_trajectories=False
-            )
+            goal = self._get_state_goal(State.IDLE, object_id=None)
+            await self._plan_and_move_impl(goal=goal, cache_trajectories=False)
 
-    async def reset_manipulation(self, *, reset_to_idle: bool = True) -> None:
+    async def reset_manipulation(self, *, reset_to_idle: bool = False) -> None:
         """Reset robot manipulation state.
 
         If manipulating a grid object (aka not a manually attached object),

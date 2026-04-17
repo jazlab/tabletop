@@ -138,10 +138,9 @@ class RandomChoiceAlternating(BaseTrialGenerator):
                 self._group_names
             )
 
-        if not self._skip_failed:
-            last_trial_spec = self._last_trial_spec[group_name]
-            if last_trial_spec is not None:
-                return last_trial_spec
+        last_trial_spec = self._last_trial_spec[group_name]
+        if last_trial_spec is not None:
+            return last_trial_spec
 
         if self._trial_counter >= self._num_trials:
             raise StopIteration
@@ -176,8 +175,15 @@ class RandomChoiceAlternating(BaseTrialGenerator):
             feedback: Unused trial feedback.
         """
         if trial_spec is not None:
-            assert trial_spec == self._last_trial_spec[trial_spec.group_name]
-            if feedback is not None:
+            last_trial_spec = self._last_trial_spec[trial_spec.group_name]
+            print(
+                f"TrialSpec: {trial_spec}, Last TrialSpec: {last_trial_spec}"
+            )
+            assert (
+                last_trial_spec is not None
+                and trial_spec.trial_number == last_trial_spec.trial_number
+            )
+            if feedback is not None or self._skip_failed:
                 self._last_trial_spec[trial_spec.group_name] = None
 
             self._last_feedback_group = trial_spec.group_name

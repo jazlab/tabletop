@@ -218,11 +218,24 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     await manipulator.reset_manipulation()
 
                 await manipulator.fetch_object(trial_spec.object_id)
+                pose = self.commander._moveit.get_link_pose_stamped(
+                    manipulator._manipulator.attach_link
+                )
+                self.log("-" * 100)
+                self.log_ros_msg(
+                    pose, title=f"Robot {trial_spec.group_name} fetch pose:"
+                )
+                self.log("-" * 100)
 
                 await self._trial_lock.acquire()
                 presented = True
 
                 await manipulator.present_object(trial_spec.object_id)
+                self.log("-" * 100)
+                self.log_ros_msg(
+                    pose, title=f"Robot {trial_spec.group_name} fetch pose:"
+                )
+                self.log("-" * 100)
                 await manipulator.plan_and_move(
                     goal=trial_spec.object_pose,
                     planning_pipeline="linear",
