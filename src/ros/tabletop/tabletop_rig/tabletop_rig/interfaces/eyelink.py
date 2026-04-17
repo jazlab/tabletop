@@ -13,7 +13,7 @@ import inspect
 from collections.abc import (
     Callable,
 )
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from tabletop_interfaces.action import EyelinkSmoothPursuit
@@ -33,7 +33,13 @@ class EyelinkInterface(BaseInterface):
         eyelink_smooth_pursuit_client: Action client for smooth pursuit monitoring.
     """
 
-    def __init__(self, node: BaseNode) -> None:
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        parameter_fallback_prefix: Optional[str] = None,
+    ) -> None:
         """Initialize the Eyelink interface.
 
         Sets up the action client for smooth pursuit monitoring and waits
@@ -42,13 +48,12 @@ class EyelinkInterface(BaseInterface):
         Args:
             node: Parent ROS2 node to create the action client on.
         """
-        super().__init__("eyelink_interface", node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
 
         self.log("Waiting for eyelink node")
-        if not self.node.wait_for_node(
-            "eyelink",
-            timeout=self.node.param("wait_for_node_timeout"),
-        ):
+        if not self.node.wait_for_node_blocking("eyelink"):
             raise RuntimeError("eyelink node not available")
 
         # Smooth pursuit action client

@@ -36,14 +36,9 @@ import concurrent.futures
 import functools
 import importlib
 import inspect
-import signal
 import traceback
-from collections.abc import Callable, Coroutine, Mapping
-from contextlib import (
-    AbstractAsyncContextManager,
-    AbstractContextManager,
-    AsyncExitStack,
-)
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any, Literal, Optional, Self
 
@@ -64,14 +59,18 @@ from tabletop_interfaces.msg import TeensySensor
 from tabletop_rig.exceptions import (
     ActionClientError,
     ExecutionInterruptedError,
+    ManipulationContextExitedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
     ServiceClientError,
 )
-from tabletop_rig.executors import AIOExecutor
+from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
+from tabletop_rig.interfaces.moveit.object_manipulation import (
+    ObjectManipulationInterface,
+)
 from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.interfaces.ur import URInterface
@@ -82,10 +81,14 @@ def ensure_context(fn):
     if inspect.iscoroutinefunction(fn):
 
         @functools.wraps(fn)
-        async def async_wrapper(self: "Commander", *args, **kwargs):
+        async def async_wrapper(
+            self: "ManipulationContextManager", *args, **kwargs
+        ):
             if not self._entered_context:
                 raise RuntimeError(
-                    "Commander context manager not entered, use 'async with commander:' before calling any Commander methods"
+                    "ManipulationContextManager not entered, use as follows: "
+                    "'async with commander.manipulation_context(robot_name) as manipulator: ...' "
+                    "before calling any of the context manager's methods"
                 )
             return await fn(self, *args, **kwargs)
 
@@ -93,7 +96,7 @@ def ensure_context(fn):
     else:
 
         @functools.wraps(fn)
-        def wrapper(self: "Commander", *args, **kwargs):
+        def wrapper(self: "ManipulationContextManager", *args, **kwargs):
             if not self._entered_context:
                 raise RuntimeError(
                     "Commander context manager not entered, use 'async with commander:' before calling any Commander methods"
@@ -103,7 +106,7 @@ def ensure_context(fn):
         return wrapper
 
 
-def safe_execution(coro_fn):
+def handle_interruptions(coro_fn):
     """Decorator for methods requiring safety-checked robot execution.
 
     Wraps coroutines that execute robot motions to handle common error
@@ -119,51 +122,419 @@ def safe_execution(coro_fn):
     """
 
     @functools.wraps(coro_fn)
-    async def wrapper(self: "Commander", *args, **kwargs):
-        max_retries = self.param("safe_execution.max_retries")
-        if max_retries < 0:
-            raise ValueError("safe_execution.max_retries must be at least 0")
+    async def wrapper(self: "ManipulationContextManager", *args, **kwargs):
+        max_attempts = self.param("safe_execution.max_attempts")
+        if max_attempts < 1:
+            raise ValueError(
+                "'safe_execution.max_attempts' parameter must be at least 1"
+            )
 
-        for i in range(max_retries + 1):
+        excs: list[Exception] = []
+        for i in range(max_attempts):
             try:
                 return await coro_fn(self, *args, **kwargs)
-            except NotSafeToExecuteError as e:
-                if i == max_retries:
-                    raise
-
+            except (NotSafeToExecuteError, ExecutionInterruptedError) as e:
+                excs.append(e)
                 self.log(
-                    f"Safe execution violated while running {coro_fn.__name__}: {e}. "
-                    f"Locking arms and waiting for safety, then resetting URInterface "
-                    f"for robot {e.group_name} before retrying",
+                    f"Caught exception while running '{coro_fn.__name__}' | "
+                    f"{type(e).__name__}: {e}",
                     severity="WARN",
                 )
-
-                await self.teensy.lock_arms_and_wait()
-                await self.urs[e.group_name].reset()
-
                 self.log(
-                    f"Arms locked and safe to execute and URInterface reset, "
-                    f"retrying {coro_fn.__name__}",
-                    severity="WARN",
-                )
-            except ExecutionInterruptedError as e:
-                if i == max_retries:
-                    raise
-
-                self.log(
-                    f"Execution interrupted while running {coro_fn.__name__}: {e}. "
-                    f"Resetting URInterface for {e.group_name} before retrying",
-                    severity="WARN",
+                    f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
+                    severity="DEBUG",
                 )
 
-                await self.urs[e.group_name].reset()
+                remaining = max_attempts - i - 1
 
-                self.log(
-                    f"URInterface reset, retrying {coro_fn.__name__}",
-                    severity="WARN",
-                )
+                if remaining > 0:
+                    if isinstance(e, NotSafeToExecuteError):
+                        self.log(
+                            "Locking arms and waiting for safety",
+                            severity="WARN",
+                        )
+                        await self._teensy.lock_arms_and_wait()
+
+                    self.log(
+                        "Resetting UR interface for before retrying",
+                        severity="WARN",
+                    )
+                    await self._ur.reset()
+
+                    self.log(
+                        f"Reset successful, retrying '{coro_fn.__name__}' {remaining} more times",
+                        severity="WARN",
+                    )
+
+        if len(excs) == 1:
+            raise excs[0]
+        if len(excs) > 1:
+            raise ExceptionGroup(
+                f"Failed to reset commander after {max_attempts} attempts",
+                excs,
+            )
 
     return wrapper
+
+
+class ManipulationContextManager(BaseInterface):
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        teensy_interface: TeensyInterface,
+        ur_interface: URInterface,
+        manipulation_interface: ObjectManipulationInterface,
+        parameter_fallback_prefix: Optional[str] = None,
+    ):
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
+
+        self._teensy = teensy_interface
+        self._ur = ur_interface
+        self._manipulator = manipulation_interface
+
+        self._initial_reset = False
+        self._entered_context = False
+
+    @ensure_context
+    @property
+    def current_manipulation_id(self) -> str | None:
+        return self._manipulator.current_manipulation_id
+
+    @ensure_context
+    async def manually_atatch_object(self, object_id: str) -> None:
+        """Attach a non-grid object to the robot end-effector
+
+        Used when the robot already has an object grasped and the planning
+        scene needs updating.
+
+        Args:
+            object_id: ID of the collision object to attach.
+        """
+        await self._manipulator.manually_attach_object(object_id)
+
+    @ensure_context
+    async def manually_detach_object(self, object_id: str) -> None:
+        """Detach a non-grid object from the robot end-effector
+
+        Used when a previously manually attached object has been
+        detached by hand and the planning scene needs updating.
+
+        Args:
+            object_id: ID of the currently attached collision object to detach.
+        """
+        await self._manipulator.manually_detach_object(object_id)
+
+    @ensure_context
+    async def plan(self, *args, **kwargs) -> RobotTrajectory:
+        """Plan a trajectory to the specified goal.
+
+        Generates a motion plan without executing it. Useful for
+        previewing trajectories or caching plans for later execution.
+
+        Args:
+            *args: Positional arguments passed to MoveItInterface.plan.
+            **kwargs: Keyword arguments passed to MoveItInterface.plan.
+
+        Returns:
+            Planned trajectory, or None if planning failed.
+        """
+        trajectory, _ = await self._manipulator.plan(*args, **kwargs)
+        return trajectory
+
+    @ensure_context
+    @handle_interruptions
+    async def move(self, *args, **kwargs) -> None:
+        """Execute a previously planned trajectory.
+
+        Args:
+            *args: Positional arguments passed to MoveItInterface.execute.
+            **kwargs: Keyword arguments passed to MoveItInterface.execute.
+
+        Raises:
+            ExecutionError: If trajectory execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
+        """
+        await self._manipulator.move(*args, **kwargs)
+
+    @ensure_context
+    @handle_interruptions
+    async def plan_and_move(self, *args, **kwargs) -> None:
+        """Plan and execute a motion to the specified goal.
+
+        Combines planning and execution in a single call. Uses the
+        trajectory cache when available.
+
+        Args:
+            *args: Positional arguments passed to MoveItInterface.
+            **kwargs: Keyword arguments passed to MoveItInterface.
+
+        Raises:
+            PlanningError: If motion planning fails.
+            ExecutionError: If trajectory execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
+        """
+        await self._manipulator.plan_and_move(*args, **kwargs)
+
+    @ensure_context
+    @handle_interruptions
+    async def fetch_object(self, object_id: str):
+        """Fetch an object from its mount.
+
+        The robot moves to the object's mount, attaches the object, and moves
+        to the object's stagin area.
+
+        Args:
+            object_id: The ID of the object to fetch
+
+        Raises:
+            ValueError: If the object ID is not a valid collision object
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self._manipulator.fetch_object(object_id)
+
+    @ensure_context
+    @handle_interruptions
+    async def present_object(self, object_id: str):
+        """Moves the object from the staging area to the presentation area"""
+        await self._manipulator.present_object(object_id)
+
+    @ensure_context
+    @handle_interruptions
+    async def unpresent_object(self, object_id: str):
+        """Moves the object from the presentation area back to the staging area"""
+        await self._manipulator.unpresent_object(object_id)
+
+    @ensure_context
+    @handle_interruptions
+    async def reset_object(self, object_id: str):
+        """Reset the object using its associated ObjectResetConfig
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self._manipulator.reset_object(object_id)
+
+    @ensure_context
+    @handle_interruptions
+    async def return_object(self, object_id: str):
+        """Return the currently attached object to its mount.
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        await self._manipulator.return_object(object_id)
+
+    @ensure_context
+    @handle_interruptions
+    async def reset_manipulation(self, *, reset_to_idle: bool = True) -> None:
+        """Reset robot manipulation state.
+
+        If manipulating a grid object (aka not a manually attached object),
+        reset and return the grid object to its mount if necessary.
+
+        Then, move to idle position.
+        """
+        await self._manipulator.reset_manipulation(reset_to_idle=reset_to_idle)
+
+    async def _reset(
+        self,
+        *,
+        reset_to_idle: bool,
+    ) -> None:
+        """Reset the robot to a known good state.
+
+        Performs a full reset sequence: locks arms, waits for safety,
+        resets the UR dashboard, and optionally moves to a goal pose.
+        Retries automatically on recoverable errors.
+
+        Args:
+            reset_to_idle: Whether or not to return to idle state after
+                resetting
+
+        Raises:
+            asyncio.TimeoutError: If reset not completed within timeout.
+        """
+        self.log("Resetting manipulation")
+
+        max_attempts = self.param("reset.max_attempts")
+        if max_attempts < 1:
+            raise ValueError(
+                "'reset.max_attempts' parameter must be at least 1"
+            )
+
+        excs: list[Exception] = []
+        for i in range(max_attempts):
+            try:
+                await self._teensy.set_smartglass(reveal=False)
+
+                if not self._teensy.safe_to_execute:
+                    self.log(
+                        "Cannot reset manipulation context until safe to execute",
+                        severity="WARN",
+                    )
+                    await self._teensy.lock_arms_and_wait()
+
+                await self._ur.reset()
+                await self._manipulator.reset_manipulation(
+                    reset_to_idle=reset_to_idle
+                )
+
+                return
+            except (
+                ServiceClientError,
+                ActionClientError,
+                MoveitRecoverableError,
+            ) as e:
+                assert (
+                    not isinstance(e, MoveitRecoverableError)
+                    or e.group_name == self._manipulator.group_name
+                )
+
+                excs.append(e)
+                self.log(
+                    f"Caught exception while resetting manipulation context | "
+                    f"{type(e).__name__}: {e}",
+                    severity="WARN",
+                )
+                self.log(
+                    f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
+                    severity="DEBUG",
+                )
+
+                remaining = max_attempts - i - 1
+                if remaining > 0:
+                    self.log(f"Retrying {remaining} more times")
+
+        if len(excs) == 1:
+            raise excs[0]
+        elif len(excs) > 1:
+            raise ExceptionGroup(
+                f"Failed to reset manipulation after {max_attempts} attempts",
+                excs,
+            )
+
+        assert False
+
+    def _parse_group_names(self, exc: Exception) -> set[str]:
+        group_names: set[str] = set()
+        if isinstance(exc, MoveitRecoverableError):
+            group_names.add(exc.group_name)
+        elif isinstance(exc, ExceptionGroup):
+            for e in exc.exceptions:
+                group_names |= self._parse_group_names(e)
+        else:
+            assert False
+
+        return group_names
+
+    async def __aenter__(self) -> Self:
+        """Enter the async context manager.
+
+        Initializes MoveIt and resets the commander to the idle state.
+
+        Returns:
+            The Commander instance.
+        """
+        self.log("Entering manipulation context manager", severity="DEBUG")
+
+        if self._entered_context:
+            raise RuntimeError(
+                "Cannot reenter manipulation context until it has been exited"
+            )
+
+        if not self._initial_reset:
+            await self._reset(reset_to_idle=False)
+            self._initial_reset = True
+
+        self._entered_context = True
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool | None:
+        """Exit the async context manager.
+
+        Handles recoverable errors by resetting the commander.
+        Always cleans up MoveIt resources.
+
+        Args:
+            exc_type: Exception type if an exception occurred.
+            exc_value: Exception instance if an exception occurred.
+            exc_tb: Traceback if an exception occurred.
+
+        Returns:
+            True if a recoverable error was handled, False otherwise.
+        """
+        try:
+            self.log("Exiting manipulation context manager", severity="DEBUG")
+
+            if exc_type is not None:
+                unrecoverable_excs: ExceptionGroup | None = None
+                if isinstance(exc_value, ExceptionGroup):
+                    exc_value, unrecoverable_excs = exc_value.split(
+                        MoveitRecoverableError
+                    )
+                    assert exc_value is not None
+                elif not isinstance(exc_value, MoveitRecoverableError):
+                    return False
+
+                self.log(
+                    f"Caught recoverable exception(s) in manipulation context | "
+                    f"{exc_type.__name__}: {exc_value}",
+                    severity="ERROR",
+                )
+                self.log(
+                    f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
+                    severity="DEBUG",
+                )
+                if isinstance(exc_value, ExceptionGroup):
+                    self.log("ExceptionGroup subexceptions:", severity="ERROR")
+                    for e in exc_value.exceptions:
+                        self.log(f"{type(e).__name__}: {e}", severity="ERROR")
+                        self.log(
+                            f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
+                            severity="DEBUG",
+                        )
+
+                group_names = self._parse_group_names(exc_value)
+
+                if self._manipulator.group_name in group_names:
+                    group_names.remove(self._manipulator.group_name)
+                    await self._reset(reset_to_idle=True)
+
+                if len(group_names) > 0:
+                    self.log(
+                        f"Exception(s) caught in this manipulation "
+                        f"context have different joint model group "
+                        f"name! Expected {self._manipulator.group_name}, "
+                        f"got {group_names}",
+                        severity="WARN",
+                    )
+                    return False
+
+                if unrecoverable_excs is not None:
+                    return False
+
+                raise ManipulationContextExitedError(
+                    "Succesfully handled recoverable errors"
+                ) from exc_value
+
+            return False
+        finally:
+            self._entered_context = False
 
 
 class Commander(BaseNode):
@@ -187,43 +558,44 @@ class Commander(BaseNode):
         moveit: Motion planning and execution interface.
     """
 
-    default_params: dict[str, Any] = BaseNode.default_params | {
-        "wait_for_node_timeout": 5.0,
-        "recovery.max_attempts": 5,
-        "initial_attached_object_id": "null",
-        "initial_attached_object_idx": "null",
-    }
     required_params: set[str] = BaseNode.required_params | {
         "simulate",
-        "ur.installation",
-        "ur.program",
-        "teensy.spin_period",
-        "link_padding",
-        "planning_scene.cache_dir",
-        "planning_scene.use_saved_scene",
-        "planning_scene.object_meshes",
-        "planning_scene.rig_meshes",
-        # "planning.defaults", TODO
-        # "planning.pose_tolerance.position_tolerance",
-        # "planning.pose_tolerance.orientation_tolerance",
-        # "predefined_states.idle_state",
-        "trajectory_cache.use_cached_trajectories",
-        "trajectory_cache.freeze_cache",
-        "trajectory_cache.kwargs",
-        "object_manipulation.touch_links",
-        "object_manipulation.mount_ids",
-        "object_manipulation.allowed_mount_collisions",
-        "object_manipulation.detach_velocity_scaling_factor",
-        "object_manipulation.state_offsets.pre_fetch",
-        "object_manipulation.state_offsets.pre_attach",
-        "object_manipulation.state_offsets.attach",
-        "object_manipulation.state_offsets.post_attach",
-        "object_manipulation.state_offsets.post_fetch",
-        # "object_manipulation.unpresent_pose_stamped",
-        "smooth_pursuit.reward_duration",
-        "smooth_pursuit.reward_interval",
-        "smooth_pursuit.reward_threshold_ratio",
-        "safe_execution.max_retries",
+        "smooth_pursuit",
+        "flic",
+        "sound_interface",
+        "teensy_interface",
+        "common_ur_interface",
+        "left_ur_interface",
+        "right_ur_interface",
+        "common_manipulation_interface",
+        "left_manipulation_interface",
+        "right_manipulation_interface",
+        "common_manipulation_context_interface",
+        # "ur.installation",
+        # "ur.program",
+        # "teensy.spin_period",
+        # "link_padding",
+        # "planning_scene.cache_dir",
+        # "planning_scene.use_saved_scene",
+        # "planning_scene.object_meshes",
+        # "planning_scene.rig_meshes",
+        # "trajectory_cache.use_cached_trajectories",
+        # "trajectory_cache.freeze_cache",
+        # "trajectory_cache.kwargs",
+        # "object_manipulation.touch_links",
+        # "object_manipulation.mount_ids",
+        # "object_manipulation.allowed_mount_collisions",
+        # "object_manipulation.detach_velocity_scaling_factor",
+        # "object_manipulation.state_offsets.pre_fetch",
+        # "object_manipulation.state_offsets.pre_attach",
+        # "object_manipulation.state_offsets.attach",
+        # "object_manipulation.state_offsets.post_attach",
+        # "object_manipulation.state_offsets.post_fetch",
+        # # "object_manipulation.unpresent_pose_stamped",
+        # "smooth_pursuit.reward_duration",
+        # "smooth_pursuit.reward_interval",
+        # "smooth_pursuit.reward_threshold_ratio",
+        # "safe_execution.max_retries",
     }
 
     ###########################################################################
@@ -240,21 +612,49 @@ class Commander(BaseNode):
             "commander", automatically_declare_parameters_from_overrides=True
         )
 
-        self.sound = SoundInterface(self)
-        self.teensy = TeensyInterface(
-            self, additional_subscription_callback=self._teensy_sensor_callback
+        self._sound = SoundInterface(self, "sound_interface")
+        self._teensy = TeensyInterface(
+            self,
+            "teensy_interface",
+            additional_subscription_callback=self._teensy_sensor_callback,
         )
-        self.flic = FlicInterface(self)
-        self.eyelink = EyelinkInterface(self)
+        self._flic = FlicInterface(self, "flic_interface")
+        self._eyelink = EyelinkInterface(self, "eyelink_interface")
 
-        self.urs: dict[str, URInterface] = {}
-        for group_name in self.joint_model_group_names:
-            ns = self.param(f"ur.namespaces.{group_name}")
-            self.urs[group_name] = URInterface(ns, self)
+        self._moveit = MoveItInterface(self, "moveit_interface")
 
-        self.moveit = MoveItInterface(
-            self, safe_to_execute_callback=lambda: self.teensy.safe_to_execute
-        )
+        self._urs: dict[str, URInterface] = {}
+        self._manipulators: dict[str, ObjectManipulationInterface] = {}
+        self._manipulation_contexts: dict[str, ManipulationContextManager] = {}
+
+        for robot_name, interface_names in self.param(
+            "robot_interface_names"
+        ).items():
+            ur_interface = URInterface(
+                self,
+                interface_names["ur_interface_name"],
+                simulate=self.param("simulate"),
+                parameter_fallback_prefix="common_ur_interface",
+            )
+            manipulation_interface = ObjectManipulationInterface(
+                self,
+                interface_names["manipulation_interface_name"],
+                simulate=self.param("simulate"),
+                moveit_interface=self._moveit,
+                safe_to_execute_condition=self._safe_to_execute_condition,
+                parameter_fallback_prefix="common_manipulation_interface",
+            )
+            manipulation_context = ManipulationContextManager(
+                self,
+                interface_names["manipulation_context_interface_name"],
+                teensy_interface=self._teensy,
+                ur_interface=ur_interface,
+                manipulation_interface=manipulation_interface,
+                parameter_fallback_prefix="common_manipulation_context_interface",
+            )
+            self._urs[robot_name] = ur_interface
+            self._manipulators[robot_name] = manipulation_interface
+            self._manipulation_contexts[robot_name] = manipulation_context
 
         self._initial_reset = False
         self._entered_context = False
@@ -270,26 +670,22 @@ class Commander(BaseNode):
         Args:
             msg: Current sensor state from the Teensy.
         """
-        if not self.teensy.safe_to_execute and self.moveit.executing:
-            self.log(
-                "Not safe to execute, stopping execution",
-                severity="WARN",
-            )
-            self.moveit.stop_execution()
+        if not self._teensy.safe_to_execute:
+            for robot_name, manipulator in self._manipulators.items():
+                if manipulator.executing:
+                    self.log(
+                        f"Not safe to execute for {robot_name}, stopping execution",
+                        severity="WARN",
+                    )
+                    manipulator.stop_execution()
+
+    def _safe_to_execute_condition(self) -> bool:
+        return self._teensy.safe_to_execute
 
     ###########################################################################
     ########## User Interface #################################################
     ###########################################################################
 
-    @property
-    def joint_model_group_names(self) -> list[str]:
-        return self.param("joint_model_group_names")
-
-    def reachable_object_ids(self, group_name: str) -> set[str]:
-        """TODO"""
-        return self.moveit.reachable_object_ids(group_name)
-
-    @ensure_context
     async def play_sound(
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
@@ -301,18 +697,16 @@ class Commander(BaseNode):
             note: Note to play. If None, the default note is used.
             duration: Duration of the sound in seconds. If None, the default duration is used.
         """
-        await self.sound.play(note, duration)
+        await self._sound.play(note, duration)
 
-    @ensure_context
     async def release_arm(self, arm: Literal["left", "right", "both"]) -> None:
         """Release the specified arm lock(s).
 
         Args:
             arm: Which arm(s) to release - "left", "right", or "both".
         """
-        await self.teensy.set_arm_lock(arm, lock=False)
+        await self._teensy.set_arm_lock(arm, lock=False)
 
-    @ensure_context
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
@@ -328,33 +722,28 @@ class Commander(BaseNode):
         Returns:
             True if safety conditions met within timeout.
         """
-        return await self.teensy.lock_arms_and_wait(timeout)
+        return await self._teensy.lock_arms_and_wait(timeout)
 
-    @ensure_context
     async def reveal_smartglass(self) -> None:
         """Make the smartglass transparent (subject can see through)."""
-        await self.teensy.set_smartglass(reveal=True)
+        await self._teensy.set_smartglass(reveal=True)
 
-    @ensure_context
     async def occlude_smartglass(self) -> None:
         """Make the smartglass opaque (subject's view is blocked)."""
-        await self.teensy.set_smartglass(reveal=False)
+        await self._teensy.set_smartglass(reveal=False)
 
-    @ensure_context
     async def stop_reward(self) -> None:
         """Stop any active reward delivery immediately."""
-        await self.teensy.set_reward(activate=False)
+        await self._teensy.set_reward(activate=False)
 
-    @ensure_context
     async def start_reward_and_wait(self, duration: float) -> None:
         """Deliver reward for the specified duration.
 
         Args:
             duration: Reward duration in seconds.
         """
-        await self.teensy.start_reward_and_wait(duration)
+        await self._teensy.start_reward_and_wait(duration)
 
-    @ensure_context
     async def flic_response_time(
         self, object_id: str, *, timeout: Optional[float] = None
     ) -> float | None:
@@ -373,9 +762,8 @@ class Commander(BaseNode):
         """
         bd_addr = self.param(f"flic.bd_addrs.{object_id}")
 
-        return await self.flic.response_time(bd_addr, timeout)
+        return await self._flic.response_time(bd_addr, timeout)
 
-    @ensure_context
     async def smooth_pursuit_and_reward(self) -> None:
         """Monitor smooth pursuit and provide contingent reward.
 
@@ -409,16 +797,16 @@ class Commander(BaseNode):
                 pursuit_count += 1
                 if not last_smooth_pursuit:
                     self.log("Smooth pursuit started", severity="INFO")
-                    self.sound.start_note()
+                    self._sound.start_note()
             elif last_smooth_pursuit:
                 self.log("Smooth pursuit ended", severity="INFO")
-                self.sound.stop_note()
+                self._sound.stop_note()
 
             if interval_start_time is None:
                 interval_start_time = self.ros_time()
             elif self.ros_time() - interval_start_time >= interval:
                 if pursuit_count / count >= reward_threshold:
-                    await self.teensy.set_reward(
+                    await self._teensy.set_reward(
                         activate=True, duration=duration
                     )
 
@@ -429,291 +817,40 @@ class Commander(BaseNode):
             last_smooth_pursuit = smooth_pursuit
 
         try:
-            await self.eyelink.smooth_pursuit(callback)
+            await self._eyelink.smooth_pursuit(callback)
         finally:
-            self.sound.stop_everything()
+            self._sound.stop_everything()
             try:
-                await self.teensy.set_reward(activate=False)
+                await self._teensy.set_reward(activate=False)
             except Exception as e:
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
-    @ensure_context
-    def current_manipulation_id(self, group_name: str) -> str | None:
-        return self.moveit.current_manipulation_id(group_name)
+    @property
+    def robot_names(self) -> list[str]:
+        return list(self._manipulation_contexts.keys())
 
-    @ensure_context
-    async def manually_atatch_object(
-        self, object_id: str, group_name: str
-    ) -> None:
-        """Attach a non-grid object to the robot end-effector
-
-        Used when the robot already has an object grasped and the planning
-        scene needs updating.
-
-        Args:
-            object_id: ID of the collision object to attach.
-        """
-        await self.moveit.manually_attach_object(object_id, group_name)
-
-    @ensure_context
-    async def manually_detach_object(
-        self, object_id: str, group_name: str
-    ) -> None:
-        """Detach a non-grid object from the robot end-effector
-
-        Used when a previously manually attached object has been
-        detached by hand and the planning scene needs updating.
-
-        Args:
-            object_id: ID of the currently attached collision object to detach.
-        """
-        await self.moveit.manually_attach_object(object_id, group_name)
-
-    @ensure_context
-    async def plan(self, *args, **kwargs) -> RobotTrajectory:
-        """Plan a trajectory to the specified goal.
-
-        Generates a motion plan without executing it. Useful for
-        previewing trajectories or caching plans for later execution.
-
-        Args:
-            *args: Positional arguments passed to MoveItInterface.plan.
-            **kwargs: Keyword arguments passed to MoveItInterface.plan.
-
-        Returns:
-            Planned trajectory, or None if planning failed.
-        """
-        trajectory, _ = await self.moveit.plan(*args, **kwargs)
-        return trajectory
-
-    @ensure_context
-    @safe_execution
-    async def move(self, *args, **kwargs) -> None:
-        """Execute a previously planned trajectory.
-
-        Args:
-            *args: Positional arguments passed to MoveItInterface.execute.
-            **kwargs: Keyword arguments passed to MoveItInterface.execute.
-
-        Raises:
-            ExecutionError: If trajectory execution fails.
-            NotSafeToExecuteError: If safety conditions not met.
-        """
-        await self.moveit.move(*args, **kwargs)
-
-    @ensure_context
-    @safe_execution
-    async def plan_and_move(self, *args, **kwargs) -> None:
-        """Plan and execute a motion to the specified goal.
-
-        Combines planning and execution in a single call. Uses the
-        trajectory cache when available.
-
-        Args:
-            *args: Positional arguments passed to MoveItInterface.
-            **kwargs: Keyword arguments passed to MoveItInterface.
-
-        Raises:
-            PlanningError: If motion planning fails.
-            ExecutionError: If trajectory execution fails.
-            NotSafeToExecuteError: If safety conditions not met.
-        """
-        await self.moveit.plan_and_move(*args, **kwargs)
-
-    @ensure_context
-    @safe_execution
-    async def fetch_object(self, object_id: str, group_name: str):
-        """Fetch an object from its mount.
-
-        The robot moves to the object's mount, attaches the object, and moves
-        to the object's stagin area.
-
-        Args:
-            object_id: The ID of the object to fetch
-
-        Raises:
-            ValueError: If the object ID is not a valid collision object
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        await self.moveit.fetch_object(object_id, group_name)
-
-    @ensure_context
-    @safe_execution
-    async def present_object(self, object_id: str, group_name: str):
-        """Moves the object from the staging area to the presentation area"""
-        await self.moveit.present_object(object_id, group_name)
-
-    @ensure_context
-    @safe_execution
-    async def unpresent_object(self, object_id: str, group_name: str):
-        """Moves the object from the presentation area back to the staging area"""
-        await self.moveit.unpresent_object(object_id, group_name)
-
-    @ensure_context
-    @safe_execution
-    async def reset_object(self, object_id: str, group_name: str):
-        """Reset the object using its associated ObjectResetConfig
-
-        Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        await self.moveit.reset_object(object_id, group_name)
-
-    @ensure_context
-    @safe_execution
-    async def return_object(self, object_id: str, group_name: str):
-        """Return the currently attached object to its mount.
-
-        Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        await self.moveit.return_object(object_id, group_name)
-
-    async def _reset_commander(
-        self,
-        *,
-        group_names: list[str] | Literal["all"],
-        reset_to_idle: bool,
-    ) -> None:
-        """Reset the robot to a known good state.
-
-        Performs a full reset sequence: locks arms, waits for safety,
-        resets the UR dashboard, and optionally moves to a goal pose.
-        Retries automatically on recoverable errors.
-
-        Args:
-            timeout: Maximum total time for reset sequence.
-            end_goal: Optional pose or state to move to after reset.
-
-        Raises:
-            asyncio.TimeoutError: If reset not completed within timeout.
-        """
-        self.log("Resetting commander")
-
-        max_attempts = self.param("recovery.max_attempts")
-        if max_attempts < 1:
+    def reachable_object_ids(self, robot_name: str) -> set[str]:
+        """Get the reachable objects for this robot"""
+        if robot_name not in self.robot_names:
             raise ValueError(
-                "recover.max_attempts parameter must be at least 1"
+                f"Unsupported robot_name: {robot_name}. "
+                f"Available: {self.robot_names}"
             )
+        return self._manipulators[robot_name].reachable_object_ids
 
-        excs: list[Exception] = []
-        for i in range(max_attempts):
-            try:
-                await self.teensy.set_smartglass(reveal=False)
-
-                if not self.teensy.safe_to_execute:
-                    self.log(
-                        "Cannot reset commander until safe to execute",
-                        severity="WARN",
-                    )
-                    await self.teensy.lock_arms_and_wait()
-
-                if group_names == "all":
-                    group_names = self.joint_model_group_names
-
-                for group_name in group_names:
-                    await self.urs[group_name].reset()
-                    await self.moveit.reset_manipulation(
-                        group_name, reset_to_idle=reset_to_idle
-                    )
-
-                return
-            except (
-                ServiceClientError,
-                ActionClientError,
-                MoveitRecoverableError,
-            ) as e:
-                excs.append(e)
-                self.log(
-                    "Caught exception while resetting commander:",
-                    severity="WARN",
-                )
-                self.log(f"{type(e).__name__}: {e}", severity="WARN")
-                self.log(
-                    f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
-                    severity="DEBUG",
-                )
-                self.log(f"Retrying {max_attempts - i - 1} more times")
-
-                # Set group_names to "all" to see if that helps
-                group_names = "all"
-
-        if len(excs) == 1:
-            raise excs[0]
-        if len(excs) > 1:
-            raise ExceptionGroup(
-                f"Failed to reset commander after {max_attempts} attempts",
-                excs,
+    @asynccontextmanager
+    async def manipulation_context(
+        self, robot_name: str
+    ) -> AsyncIterator[ManipulationContextManager]:
+        if robot_name not in self.robot_names:
+            raise ValueError(
+                f"Unsupported robot_name: {robot_name}. "
+                f"Available: {self.robot_names}"
             )
+        async with self._manipulation_contexts[robot_name] as ctx:
+            yield ctx
 
-    ###########################################################################
-    ########## Context manager ################################################
-    ###########################################################################
-
-    async def _handle_recoverable_errors(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
-    ) -> bool | None:
-        """Handles recoverable errors by resetting the commander.
-
-        Args:
-            exc_type: Exception type if an exception occurred.
-            exc_value: Exception instance if an exception occurred.
-            exc_tb: Traceback if an exception occurred.
-
-        Returns:
-            True if a recoverable error was handled, False otherwise.
-        """
-        self.log("Exiting commander context manager", severity="DEBUG")
-
-        if exc_type is not None:
-            # We use only the first exception raised if an exception group is met
-            if isinstance(exc_value, MoveitRecoverableError) or (
-                isinstance(exc_value, ExceptionGroup)
-                and all(
-                    isinstance(e, MoveitRecoverableError)
-                    for e in exc_value.exceptions
-                )
-            ):
-                self.log(
-                    "Caught exception while running commander:",
-                    severity="ERROR",
-                )
-                self.log(f"{exc_type.__name__}: {exc_value}", severity="ERROR")
-                self.log(
-                    f"Traceback: \n {' '.join(traceback.format_tb(exc_tb))}",
-                    severity="DEBUG",
-                )
-                group_names: set[str] = set()
-                if isinstance(exc_value, MoveitRecoverableError):
-                    group_names.add(exc_value.group_name)
-                else:
-                    self.log("Exception group subexceptions:")
-                    for e in exc_value.exceptions:
-                        assert isinstance(e, MoveitRecoverableError)
-                        self.log(f"{type(e).__name__}: {e}", severity="ERROR")
-                        self.log(
-                            f"Traceback: \n {' '.join(traceback.format_tb(e.__traceback__))}",
-                            severity="DEBUG",
-                        )
-                        group_names.add(e.group_name)
-
-                await self._reset_commander(
-                    group_names=list(group_names), reset_to_idle=True
-                )
-
-                return True
-
-        return False
-
-    async def __aenter__(self) -> Self:
+    def __enter__(self) -> Self:
         """Enter the async context manager.
 
         Initializes MoveIt and resets the commander to the idle state.
@@ -722,32 +859,11 @@ class Commander(BaseNode):
             The Commander instance.
         """
         self.log("Entering commander context manager", severity="DEBUG")
-        self._context_stack = await AsyncExitStack().__aenter__()
-        try:
-            for interface in self._interfaces:
-                if isinstance(interface, AbstractAsyncContextManager):
-                    await self._context_stack.enter_async_context(interface)
-                elif isinstance(interface, AbstractContextManager):
-                    self._context_stack.enter_context(interface)
-
-            if not self._initial_reset:
-                await self._reset_commander(
-                    group_names="all", reset_to_idle=False
-                )
-                self._initial_reset = True
-
-            self._context_stack.push_async_exit(
-                self._handle_recoverable_errors
-            )
-        except BaseException as e:
-            await self._context_stack.__aexit__(type(e), e, e.__traceback__)
-            raise
-
+        self._teensy.set_sync_pulse_solenoid_blocking(activate=True)
         self._entered_context = True
-
         return self
 
-    async def __aexit__(
+    def __exit__(
         self,
         exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
@@ -767,9 +883,8 @@ class Commander(BaseNode):
             True if a recoverable error was handled, False otherwise.
         """
         try:
-            return await self._context_stack.__aexit__(
-                exc_type, exc_value, exc_tb
-            )
+            self._teensy.set_sync_pulse_solenoid_blocking(activate=True)
+            self.destroy_node()
         finally:
             self._entered_context = False
 
@@ -786,17 +901,6 @@ async def debug_commander(
         commander: The Commander instance.
         config: Unused configuration path.
     """
-    del config
-
-    commander.log("Running commander interactively")
-
-    # grid_origin = commander.object_grid_origin_pose_stamped()
-    # grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
-    # position, euler = arrays_from_pose_msg(grid_origin.pose, euler=True)
-    # commander.log(
-    #     f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
-    # )
-
     while True:
         # pose_stamped = commander.eef_pose_stamped()
         # old_frame_transform = commander.get_frame_transform(
@@ -930,18 +1034,17 @@ def main_sync(args=None) -> None:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
             spin_future = tpe.submit(executor.spin)
             try:
-                asyncio.run(
-                    asyncio_runner(
-                        coro_fn,
-                        commander,
-                        args.coro_config,
-                        spin_future,
-                        args.max_workers,
+                with commander:
+                    asyncio.run(
+                        asyncio_runner(
+                            coro_fn,
+                            commander,
+                            args.coro_config,
+                            spin_future,
+                            args.max_workers,
+                        )
                     )
-                )
             finally:
-                print("Shutting down commander")
-                commander.destroy_node()
                 print("Shutting down executor")
                 executor.shutdown()
                 print("Raising executor spin errors")
@@ -951,98 +1054,6 @@ def main_sync(args=None) -> None:
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
-
-
-# @pyinstrument.profile(async_mode="enabled")
-async def main_async(args=None):
-    """Async entry point for the Flic node.
-
-    Initializes ROS2, creates the node, connects to the Flic server,
-    and spins until shutdown or connection loss.
-
-    Args:
-        args: Command line arguments (passed to rclpy.init).
-    """
-    # rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
-    rclpy.init(args=args)
-
-    # Parse non-ROS arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--coro-module", type=str, default=None)
-    parser.add_argument("--coro-name", type=str, default=None)
-    parser.add_argument("--coro-config", type=str, default=None)
-    parser.add_argument("--max-workers", type=int, default=4)
-    parser.add_argument("--debug", action="store_true", default=False)
-
-    non_ros_args = rclpy.utilities.remove_ros_args(args)
-    args, _ = parser.parse_known_args(non_ros_args)
-
-    if args.coro_module is not None and args.coro_name is not None:
-        print(
-            f"Loading coroutine {args.coro_name} from module {args.coro_module} "
-        )
-        coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-            importlib.import_module(args.coro_module),
-            args.coro_name,
-        )
-    elif args.coro_name is not None or args.coro_module is not None:
-        raise ValueError(
-            "Both coro_module and coro_name must be provided when one is provided"
-        )
-    else:
-        print("No coroutine module or name provided, running in debug mode")
-        coro_fn = debug_commander
-        args.coro_config = None
-        args.debug = True
-
-    if args.coro_config is not None:
-        print(f"Config file: {args.coro_config}")
-
-    if args.debug:
-        import debugpy
-
-        print("Debug mode enabled")
-        debugpy.listen(1300)
-        print("Waiting for debugger to attach")
-        debugpy.wait_for_client()
-        print("Debugger attached")
-
-    try:
-        executor = AIOExecutor()
-        commander = Commander()
-        executor.add_node(commander)
-
-        p = None
-        try:
-            # future = executor.create_task(coro_fn(commander, args.coro_config))
-            # await executor.spin_until_future_complete(future)
-            async with asyncio.TaskGroup() as tg:
-                spin_task = tg.create_task(executor.spin())
-                user_task = tg.create_task(
-                    coro_fn(commander, args.coro_config)
-                )
-                await asyncio.wait(
-                    [spin_task, user_task], return_when=asyncio.FIRST_COMPLETED
-                )
-            # with pyinstrument.Profiler(async_mode="enabled") as p:
-        finally:
-            if p is not None:
-                p.print(show_all=True, timeline=True)
-            print("Destroying commander")
-            commander.destroy_node()
-            print("Shutting down executor")
-            executor.shutdown()
-    finally:
-        print("Shutting down rclpy")
-        rclpy.try_shutdown()  # type: ignore
-
-
-def print_signal_handler():
-    handler = signal.getsignal(signal.SIGINT)
-    if handler is signal.default_int_handler:
-        print(f"Default signal handler: {handler}")
-    else:
-        print(f"Non-default signal handler: {handler}")
 
 
 def main(args=None):

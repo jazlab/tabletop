@@ -28,7 +28,7 @@ Example:
 
 from abc import ABCMeta, abstractmethod
 from collections.abc import Callable, Hashable, Iterable, Mapping
-from typing import Any
+from typing import Any, MutableMapping
 
 import yaml
 
@@ -241,3 +241,12 @@ def without_keys(d, keys: Hashable | Iterable[Hashable]):
         return {x: d[x] for x in d if x not in keys_set}
     else:
         raise ValueError(f"Keys {keys} not found in dictionary {d}")
+
+
+def dict_update_recursive(d: MutableMapping, u: Mapping):
+    for k, v in u.items():
+        if isinstance(v, Mapping):
+            d[k] = dict_update_recursive(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d

@@ -31,16 +31,12 @@ import asyncio
 import threading
 from collections.abc import Callable
 from copy import deepcopy
-from types import TracebackType
-from typing import Any, Optional, Self
+from typing import Any, Optional
 
 from control_msgs.action import FollowJointTrajectory
 from geometry_msgs.msg import PoseStamped
 from moveit.core.planning_interface import (  # type: ignore[reportMissingModuleSource]
     MotionPlanResponse,
-)
-from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
-    RobotModel,
 )
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
     RobotState,
@@ -52,7 +48,6 @@ from moveit.planning import (
     MultiPipelinePlanRequestParameters,
     PlanningComponent,
     PlanRequestParameters,
-    TrajectoryExecutionManager,
 )
 from rclpy.action.client import ClientGoalHandle
 from trajectory_msgs.msg import JointTrajectory
@@ -68,9 +63,8 @@ from tabletop_rig.exceptions import (
     TrajectoryError,
     TrajectoryErrorCodes,
 )
-from tabletop_rig.interfaces.moveit.planning_scene import (
-    PlanningSceneInterface,
-)
+from tabletop_rig.interfaces.base import BaseInterface
+from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
 from tabletop_rig.interfaces.moveit.requests import (
     ConcatPlanRequest,
     PlanGoalT,
@@ -88,7 +82,7 @@ from tabletop_rig.utils.ros import (
 )
 
 
-class PlanAndExecuteInterface(PlanningSceneInterface):
+class PlanAndExecuteInterface(BaseInterface):
     """Interface for motion planning and trajectory execution.
 
     Extends PlanningSceneInterface with:
@@ -112,7 +106,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
     def __init__(
         self,
         node: BaseNode,
-        safe_to_execute_callback: Callable[[], bool],
+        name: str,
+        *,
+        moveit_interface: MoveItInterface,
+        safe_to_execute_condition: Callable[[], bool],
+        parameter_fallback_prefix: Optional[str] = None,
     ):
         """Initializes the MoveItPlanInterface
 
@@ -120,105 +118,72 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             safe_to_execute_callback: Function to evaluate before executing to
                 determine if it is safe to execute
         """
-        super().__init__(node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
+
+        self._moveit = moveit_interface
+
+        available: list[str] = self._moveit.robot_model.joint_model_group_names
+        if self.group_name not in available:
+            raise ValueError(
+                f"group_name '{self.group_name}' not in present in MoveIt "
+                f"RobotModel (defined in the SRDF in your MoveIt config). "
+                f"Available joint model group names: {available}"
+            )
 
         # REQUIRED user callback that is checked before executing
-        self._safe_to_execute_callback = safe_to_execute_callback
+        self._safe_to_execute_condition = safe_to_execute_condition
 
         # Trajectory cache to store previously executed trajectories
-        trajectory_cache_config = self.node.param("trajectory_cache.kwargs")
-        allowed_start_tolerance = self.node.param(
-            "trajectory_execution.allowed_start_tolerance"
-        )
+        cache_kwargs = self.param("trajectory_cache.kwargs")
         self._trajectory_cache = FuzzyTrajectoryCache(
-            scene_hash=self.scene_hash(include_robot=True),
-            planning_frame=self.planning_frame,
-            robot_state_tolerance=allowed_start_tolerance,
+            scene_hash=self._moveit.scene_hash(include_robot=True),
+            planning_frame=self._moveit.planning_frame,
             parent_logger=self.get_logger(),
-            **trajectory_cache_config,
+            **cache_kwargs,
         )
+        self._trajectory_cache.open()
 
         # Execution lock to ensure only one execution command is run at a time
-        self._execution_clients: dict[str, AIOActionClient] = {}
-        self._execution_locks: dict[str, asyncio.Lock] = {}
-        self._execution_goal_handles: dict[str, ClientGoalHandle | None] = {}
+
+        controller = self.param("execution.joint_trajectory_controller")
+        action_name = f"{controller}/follow_joint_trajectory"
+        self._execution_client = AIOActionClient(
+            self.node, FollowJointTrajectory, action_name
+        )
+
+        self.log(f"Waiting for {action_name} to become available")
+        self._execution_client.wait_for_server()
+
+        self._execution_goal_handle: ClientGoalHandle | None = None
+        self._execution_lock: asyncio.Lock = asyncio.Lock()
         self._goal_handle_lock: threading.Lock = threading.Lock()
 
-        available_group_names: list[str] = (
-            self.moveit_py.get_robot_model().joint_model_group_names
-        )
-        unavailable = set(self.joint_model_group_names) - set(
-            available_group_names
-        )
-
-        if len(unavailable) > 0:
-            raise ValueError(
-                f"joint_model_group_names parameter contains "
-                f"unavailabe group names: {unavailable}. "
-                f"Availabe group names: {available_group_names}"
-            )
-
-        for group_name, controller in self.node.param(
-            "execution.joint_trajectory_controllers"
-        ).items():
-            action_name = f"{controller}/follow_joint_trajectory"
-            client = AIOActionClient(
-                self.node, FollowJointTrajectory, action_name
-            )
-
-            self.log(f"Waiting for {action_name} to become available")
-            client.wait_for_server()
-
-            self._execution_clients[group_name] = client
-            self._execution_locks[group_name] = asyncio.Lock()
-            self._execution_goal_handles[group_name] = None
-
         self.log("MoveIt plan and execute interface initialized")
+
+    ###########################################################################
+    ########## Properties #####################################################
+    ###########################################################################
+
+    @property
+    def executing(self) -> bool:
+        """Get the execution status of this robot"""
+        return self._execution_lock.locked()
 
     ###########################################################################
     ########## Parameter Convenience Properties ###############################
     ###########################################################################
 
-    def default_pose_link(self, group_name: str) -> str:
+    @property
+    def default_pose_link(self) -> str:
         """Get the planning link from the parameter server."""
-        return self.node.param(f"planning.default_pose_links.{group_name}")
-
-    ###########################################################################
-    ########## MoveIt Convenience Methods and Properties ######################
-    ###########################################################################
+        return self.param("planning.default_pose_link")
 
     @property
-    def executing(self) -> bool:
-        return any(x.locked() for x in self._execution_locks.values())
-
-    @property
-    def robot_model(self) -> RobotModel:
-        """Get the robot model."""
-        return self.moveit_py.get_robot_model()
-
-    @property
-    def joint_model_group_names(self) -> list[str]:
-        return self.node.param("joint_model_group_names")
-
-    @property
-    def trajectory_execution_manager(self) -> TrajectoryExecutionManager:
-        """Get the trajectory execution manager."""
-        return self.moveit_py.get_trajectory_execution_manager()
-
-    def get_planning_component(self, group_name: str) -> PlanningComponent:
-        """Get the planning component for a given planning group name.
-
-        Args:
-            group_name: The name of the planning group.
-
-        Returns:
-            The planning component for the specified group.
-        """
-        return self.moveit_py.get_planning_component(group_name)
-
-    def get_named_target_states(self, group_name: str) -> list[str]:
-        """Get the named target states from the planning component."""
-        return self.get_planning_component(group_name).named_target_states()
+    def group_name(self) -> str:
+        """Get the group name of this interface"""
+        return self.param("group_name")
 
     ###########################################################################
     ########## Trajectory processing and validation ###########################
@@ -259,6 +224,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             f"min_angle_change {min_angle_change}",
             severity="DEBUG",
         )
+
+        assert trajectory.joint_model_group_name == self.group_name
 
         trajectory = robot_trajectory_copy(trajectory)
 
@@ -314,6 +281,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Raises:
             TrajectoryError: If smoothing fails.
         """
+        assert trajectory.joint_model_group_name == self.group_name
+
         trajectory = robot_trajectory_copy(trajectory)
 
         old_num_waypoints = len(trajectory)
@@ -363,6 +332,8 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         Returns:
             The preprocessed trajectory.
         """
+        assert trajectory.joint_model_group_name == self.group_name
+
         if request.apply_totg:
             trajectory = self._apply_totg(
                 trajectory,
@@ -395,35 +366,17 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         """
         self.log("Validating trajectory", severity="DEBUG")
 
-        group_name = trajectory.joint_model_group_name
+        assert trajectory.joint_model_group_name == self.group_name
 
-        with self.planning_scene_ro() as scene:
-            if not scene.is_path_valid(
-                trajectory,
-                joint_model_group_name=group_name,
-                verbose=True,
-                invalid_index=[],
-            ):
-                raise TrajectoryError(
-                    TrajectoryErrorCodes.INVALID_TRAJECTORY,
-                    group_name=trajectory.joint_model_group_name,
-                )
+        if not self._moveit.is_path_valid(trajectory):
+            raise TrajectoryError(
+                TrajectoryErrorCodes.INVALID_TRAJECTORY,
+                group_name=trajectory.joint_model_group_name,
+            )
 
     ###########################################################################
     ########## Planning and execution #########################################
     ###########################################################################
-
-    def get_target_state(
-        self, target_name: str, group_name: str
-    ) -> RobotState:
-        """Get the named target state from the planning component."""
-        joint_state_dict = self.get_planning_component(
-            group_name
-        ).get_named_target_state_values(target_name)
-        robot_state = self.current_state
-        robot_state.joint_positions = joint_state_dict
-        robot_state.update()
-        return robot_state
 
     def _get_cached_trajectory(
         self,
@@ -479,7 +432,16 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             severity="DEBUG",
         )
 
-        planning_component = self.get_planning_component(request.group_name)
+        assert request.group_name is not None
+
+        if request.group_name != self.group_name:
+            raise ValueError(
+                "'group_name' must be the same as the group name used to initialize this interface"
+            )
+
+        planning_component = self._moveit.get_planning_component(
+            self.group_name
+        )
 
         # Set workspace
         planning_component.set_workspace(
@@ -492,19 +454,9 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         ):
             raise ValueError(f"Invalid start state: {request.start_state}")
 
-        # Check that pose_link is the planning link
-        # TODO: Implement pose_link functionality
-        # if (
-        #     request.pose_link is not None
-        #     and request.pose_link != self.default_pose_link
-        # ):
-        #     raise NotImplementedError(
-        #         "pose_link functionality is not implemented"
-        #     )
-
         # Verify goal has already been transformed correctly
         if isinstance(request.goal, PoseStamped):
-            assert request.goal.header.frame_id == self.planning_frame
+            assert request.goal.header.frame_id == self._moveit.planning_frame
         else:
             assert isinstance(request.goal, RobotState)
 
@@ -526,14 +478,14 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         # Create request parameters
         if isinstance(request.planning_pipeline, str):
             request_params = PlanRequestParameters(
-                self.moveit_py, request.planning_pipeline
+                self._moveit.moveit_py, request.planning_pipeline
             )
             if request.planning_time is not None:
                 request_params.planning_time = request.planning_time
         else:
             assert isinstance(request.planning_pipeline, (list, tuple))
             request_params = MultiPipelinePlanRequestParameters(
-                self.moveit_py, request.planning_pipeline
+                self._moveit.moveit_py, request.planning_pipeline
             )
             if request.planning_time is not None:
                 for params in request_params.multi_plan_request_parameters:
@@ -559,13 +511,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
             if isinstance(request_params, MultiPipelinePlanRequestParameters):
                 plan_response: MotionPlanResponse = planning_component.plan(
-                    self.moveit_py,
+                    self._moveit.moveit_py,
                     multi_plan_parameters=request_params,
                     planning_scene=request.planning_scene,
                 )
             else:
                 plan_response: MotionPlanResponse = planning_component.plan(
-                    self.moveit_py,
+                    self._moveit.moveit_py,
                     single_plan_parameters=request_params,
                     planning_scene=request.planning_scene,
                 )
@@ -574,7 +526,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 return plan_response.trajectory
             else:
                 error = PlanOnceError(
-                    plan_response.error_code, group_name=request.group_name
+                    plan_response.error_code, group_name=self.group_name
                 )
                 self.log(
                     f"Planning attempt {i + 1}/{request.max_attempts} failed: {error}",
@@ -583,7 +535,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 errors.append(error)
         else:
             raise MaxPlanningAttemptsReachedError(
-                errors, group_name=request.group_name
+                errors, group_name=self.group_name
             )
 
     def _plan_impl(
@@ -598,50 +550,31 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
             if not request.goal.header.frame_id:
-                request.goal.header.frame_id = self.planning_frame
-            elif request.goal.header.frame_id != self.planning_frame:
-                request.goal = self.change_reference_frame(
-                    request.goal, self.planning_frame
+                request.goal.header.frame_id = self._moveit.planning_frame
+            elif request.goal.header.frame_id != self._moveit.planning_frame:
+                request.goal = self._moveit.change_reference_frame(
+                    request.goal, self._moveit.planning_frame
                 )
         elif isinstance(request.goal, str):
-            request.goal = self.get_target_state(
-                request.goal, request.group_name
+            request.goal = self._moveit.get_target_state(
+                request.goal, self.group_name
             )
 
         # Set start state to current state if None
         if request.start_state is None:
-            request.start_state = self.current_state
+            request.start_state = self._moveit.get_current_state()
 
         # Set pose link to default if not provided
         if request.pose_link is None:
-            request.pose_link = self.default_pose_link(request.group_name)
+            request.pose_link = self.default_pose_link
 
-        # if request.group_name is None:
-        #     request.group_name = self.default_group_name
-
-        # Check if the goal is already reached (this is wrong)
-        # if isinstance(request.goal, PoseStamped):
-        #     tolerance_kwargs = self.node.param(
-        #         "planning.pose_tolerance"
-        #     )
-        #     if all_close_poses_stamped(
-        #         request.goal, self.eef_pose_stamped(), **tolerance_kwargs
-        #     ):
-        #         self.log("Already at goal pose, skipping planning")
-        #         return None, []
-        # else:
-        #     tolerance = self.node.param(
-        #         "trajectory_execution.allowed_start_tolerance"
-        #     )
-        #     if all_close_robot_states(
-        #         request.goal, self.current_state, position_tolerance=tolerance
-        #     ):
-        #         self.log("Already at goal state, skipping planning")
-        #         return None, []
+        # Set to default group name
+        if request.group_name is None:
+            request.group_name = self.group_name
 
         # Attempt to retrieve cached trajectories for this request
         if (
-            self.node.param("trajectory_cache.use_cached_trajectories")
+            self.param("trajectory_cache.use_cached_trajectories")
             and request.use_cache
         ):
             trajectory = self._get_cached_trajectory(request, cancel_event)
@@ -654,10 +587,10 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         attempts: list[int] = []
         if request.planning_pipeline is None:
             if isinstance(request.goal, PoseStamped):
-                pipelines.append(self.node.param("planning.fast_pipeline"))
+                pipelines.append(self.param("planning.fast_pipeline"))
                 attempts.append(1)
 
-            pipelines.append(self.node.param("planning.fallback_pipeline"))
+            pipelines.append(self.param("planning.fallback_pipeline"))
             attempts.append(request.max_attempts)
         elif request.planning_pipeline == "linear" and not isinstance(
             request.goal, PoseStamped
@@ -718,7 +651,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Set initial start state if None
         if request.start_state is None:
-            start_state = self.current_state
+            start_state = self._moveit.get_current_state()
         else:
             start_state = request.start_state
 
@@ -780,7 +713,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                 raise
 
         # Concatenate all trajectories with given dt
-        concat_trajectory = RobotTrajectory(self.robot_model)
+        concat_trajectory = RobotTrajectory(self._moveit.robot_model)
         concat_trajectory.joint_model_group_name = trajectories[
             0
         ].joint_model_group_name
@@ -867,95 +800,11 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         finally:
             cancel_event.set()
 
-    # def _execute_and_wait(self) -> ExecutionStatus:
-    #     with self._execution_lock:
-    #         return self.trajectory_execution_manager.execute_and_wait()
-    #
-    # def stop_execution(self):
-    #     """Stop execution of the trajectory, if currently executing"""
-    #     if self._execution_lock.locked():
-    #         self.trajectory_execution_manager.stop_execution()
-    #
-    # async def _execute_moveit(
-    #     self, trajectory: RobotTrajectory | list[RobotTrajectory]
-    # ):
-    #     """Execute the given robot trajectory.
-    #
-    #     Args:
-    #         trajectory: Trajectory to execute
-    #
-    #     Raises:
-    #         NotSafeToExecuteError: If the robot is not safe to execute.
-    #         ExecutionInterruptedError: If the robot moved but not to the goal.
-    #         ExecutionRejectedError: If the trajectory was rejected by the robot.
-    #     """
-    #     if (
-    #         self._execute_future is not None
-    #         and not self._execute_future.done()
-    #     ):
-    #         raise RuntimeError("Last _execute_future did not complete")
-    #     if (
-    #         self._stop_execution_future is not None
-    #         and not self._stop_execution_future.done()
-    #     ):
-    #         raise RuntimeError("Last _stop_execution_future did not complete")
-    #
-    #     # Check if the robot is safe to execute
-    #     if not self._safe_to_execute_callback():
-    #         raise NotSafeToExecuteError()
-    #
-    #     if isinstance(trajectory, RobotTrajectory):
-    #         trajectory = [trajectory]
-    #
-    #     initial_state = self.current_state
-    #
-    #     # Push all trajectories to TEM
-    #     for traj in trajectory:
-    #         self.trajectory_execution_manager.push(
-    #             traj.get_robot_trajectory_msg()
-    #         )
-    #
-    #     assert not self._execution_lock.locked()
-    #     tpe: concurrent.futures.ThreadPoolExecutor = (
-    #         asyncio.get_running_loop()._default_executor  # type: ignore
-    #     )
-    #     try:
-    #         # self._execute_future = tpe.submit(
-    #         #     _execute_and_wait, weakref.proxy(self)
-    #         # )
-    #         self._execute_future = tpe.submit(self._execute_and_wait)
-    #         status = await asyncio.wrap_future(self._execute_future)
-    #     except asyncio.CancelledError:
-    #         # self._stop_execution_future = tpe.submit(
-    #         #     _stop_execution, weakref.proxy(self)
-    #         # )
-    #         self.stop_execution()
-    #         # self._stop_execution_future = tpe.submit(self._stop_execution)
-    #         raise
-    #
-    #     # Return the trajectory if the execution was successful, otherwise raise
-    #     # an error based on the execution status and safe to execute flag
-    #     if status:
-    #         return
-    #     elif not self._safe_to_execute_callback():
-    #         raise NotSafeToExecuteError(status)
-    #     elif all_close_robot_states(
-    #         initial_state,
-    #         self.current_state,
-    #         position_tolerance=self.node.param(
-    #             "trajectory_execution.allowed_start_tolerance"
-    #         ),
-    #     ):
-    #         raise ExecutionRejectedError(status)
-    #     else:
-    #         raise ExecutionInterruptedError(status)
-
     def stop_execution(self):
         """Stop execution of the trajectory, if currently executing"""
         with self._goal_handle_lock:
-            for goal_handle in self._execution_goal_handles.values():
-                if goal_handle is not None:
-                    goal_handle.cancel_goal_async()
+            if self._execution_goal_handle is not None:
+                self._execution_goal_handle.cancel_goal_async()
 
     async def execute(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
@@ -974,47 +823,44 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
         if isinstance(trajectory, RobotTrajectory):
             trajectory = [trajectory]
 
-        group_name = trajectory[0].joint_model_group_name
+        group_names = set(x.joint_model_group_name for x in trajectory)
 
-        if any(x.joint_model_group_name != group_name for x in trajectory):
-            raise ValueError("All joint_model_group_names should be the same")
-
-        if group_name not in self.joint_model_group_names:
+        if len(group_names - set([self.group_name])) > 0:
             raise ValueError(
-                f"Unknown joint model group name: {group_name}. "
-                f"Available group names: {self.joint_model_group_names}"
+                f"joint_model_group_name for one or more provided "
+                f"trajectories does not match self.group_name. "
+                f"Expected {self.group_name}, got {group_names}"
             )
 
-        if self._execution_locks[group_name].locked():
-            raise RuntimeError(
-                f"Execution for joint group {group_name} already in progress"
-            )
+        if self._execution_lock.locked():
+            raise RuntimeError("Execution already in progress")
 
         # Check if the robot is safe to execute
-        if not self._safe_to_execute_callback():
+        if not self._safe_to_execute_condition():
             raise NotSafeToExecuteError(
-                f"Not safe to execute for joint model group {group_name}.",
-                group_name=group_name,
+                "Not safe to execute.",
+                group_name=self.group_name,
             )
 
-        async with self._execution_locks[group_name]:
-            initial_state = self.current_state
-            client = self._execution_clients[group_name]
+        async with self._execution_lock:
+            initial_state = self._moveit.get_current_state()
 
             action_exc: ActionResultUnsuccessfulError | None = None
             for traj in trajectory:
                 msg: JointTrajectory = (
                     traj.get_robot_trajectory_msg().joint_trajectory
                 )
-                goal_handle = await client.send_goal_async(
+                goal_handle = await self._execution_client.send_goal_async(
                     FollowJointTrajectory.Goal(trajectory=msg)
                 )
                 with self._goal_handle_lock:
-                    self._execution_goal_handles[group_name] = goal_handle
+                    self._execution_goal_handle = goal_handle
 
                 try:
                     result: FollowJointTrajectory.Result = (
-                        await client.get_result_async(goal_handle)
+                        await self._execution_client.get_result_async(
+                            goal_handle
+                        )
                     )
                 except ActionResultUnsuccessfulError as e:
                     result: FollowJointTrajectory.Result = e.response.result
@@ -1025,7 +871,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                         action_exc = e
                 finally:
                     with self._goal_handle_lock:
-                        self._execution_goal_handles[group_name] = None
+                        self._execution_goal_handle = None
 
                 # Return the trajectory if the execution was successful, otherwise raise
                 # an error based on the execution status and safe to execute flag
@@ -1043,30 +889,27 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
                         f"action goal status: {action_exc.response.status}"
                     )
 
-                if not self._safe_to_execute_callback():
+                if not self._safe_to_execute_condition():
                     raise NotSafeToExecuteError(
-                        f"Not safe to execute during execution for joint "
-                        f"model group {group_name} with {err_reason}",
-                        group_name=group_name,
+                        f"Not safe to execute during execution with {err_reason}",
+                        group_name=self.group_name,
                     )
                 elif all_close_robot_states(
                     initial_state,
-                    self.current_state,
-                    group_name=group_name,
-                    position_tolerance=self.node.param(
-                        "trajectory_execution.allowed_start_tolerance"
+                    self._moveit.get_current_state(),
+                    group_name=self.group_name,
+                    position_tolerance=self.param(
+                        "execution.robot_state_move_tolerance"
                     ),
                 ):
                     raise ExecutionRejectedError(
-                        f"Execution rejected for joint model group "
-                        f"{group_name} with {err_reason}",
-                        group_name=group_name,
+                        f"Execution rejected with {err_reason}",
+                        group_name=self.group_name,
                     )
                 else:
                     raise ExecutionInterruptedError(
-                        f"Execution interrupted for joint model group "
-                        f"{group_name} with {err_reason}",
-                        group_name=group_name,
+                        f"Execution interrupted with {err_reason}",
+                        group_name=self.group_name,
                     )
 
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
@@ -1076,7 +919,7 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
             trajectory: The trajectory to cache.
             **kwargs: Keyword arguments to pass to `FuzzyTrajectoryCache.cache_trajectory()`.
         """
-        if not self.node.param("trajectory_cache.freeze_cache"):
+        if not self.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:
                 self._trajectory_cache.cache_trajectory(**kwargs)
             self.log(f"Cached {len(cache_kwargs)} trajectories successfully")
@@ -1125,71 +968,13 @@ class PlanAndExecuteInterface(PlanningSceneInterface):
 
         # Cache the trajectory if requested
         if cache_trajectories and cache_kwargs is not None:
-            cache_kwargs[-1]["true_end_state"] = self.current_state
+            cache_kwargs[-1]["true_end_state"] = (
+                self._moveit.get_current_state()
+            )
             self.cache_trajectories(cache_kwargs)
             return None
 
         return cache_kwargs
-
-    ###########################################################################
-    ########## Reset (simulation) #############################################
-    ###########################################################################
-
-    async def clear_scene_and_reset(
-        self, end_goals: Optional[dict[str, PlanGoalT]] = None
-    ):
-        """Ignore collisions and move robot to end_goal asynchronously.
-
-        To be used only in simulation. With the real robot, the user should
-        manually (via the teach pendant) move the robot away from the collision
-        objects.
-
-        Using this function will reset any attached collision objects
-        to their initial poses and move the robot to the target pose, ignoring
-        collisions.
-
-        Args:
-            end_goal: The goal to move to after moving out of collision.
-            **kwargs: Keyword arguments to pass to `plan_and_execute()`.
-        """
-        if not self.node.param("simulate"):
-            raise RuntimeError(
-                "Planning scene can only be cleared in simulation!"
-            )
-
-        self.log(
-            "Clearing planning scene and moving out of collision (simulation only)"
-        )
-
-        self.remove_all_collision_objects()
-
-        for group_name in self.joint_model_group_names:
-            if end_goals is None:
-                goal = "idle"
-            elif group_name in end_goals:
-                goal = end_goals[group_name]
-            else:
-                raise ValueError(
-                    f"No end goal provided for joint model group {group_name}"
-                )
-
-            await self.plan_and_execute(goal=goal, group_name=group_name)
-
-        self._init_planning_scene()
-
-    def __enter__(self) -> Self:
-        """Enter the context manager."""
-        self._trajectory_cache.__enter__()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
-    ):
-        """Exit the context manager."""
-        self._trajectory_cache.__exit__(exc_type, exc_value, exc_tb)
 
     ###########################################################################
     ########## Destroy ########################################################

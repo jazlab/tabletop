@@ -10,8 +10,14 @@ The interface pattern separates concerns by grouping related functionality
 that operate on behalf of a node.
 """
 
+from typing import Any, Optional
+
+from rclpy.exceptions import (
+    ParameterNotDeclaredException,
+)
 from rclpy.impl.rcutils_logger import RcutilsLogger
 
+from tabletop_py.utils.common import dict_update_recursive
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.logging import LoggerMixin
 
@@ -41,16 +47,25 @@ class BaseInterface(LoggerMixin):
                 self.log("Doing something", severity="DEBUG")
     """
 
-    def __init__(self, name: str, node: BaseNode) -> None:
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        parameter_fallback_prefix: Optional[str] = None,
+    ) -> None:
         """Initialize the interface with a parent node.
 
         Args:
             node: The parent ROS2 node that owns this interface. The interface
                 will use the node's resources for ROS communication.
-            logger_name: Name suffix for this interface's logger. The full
-                logger name will be "{node_name}.{logger_name}".
+            name: Name of this interface. Used to set the logger name and
+                retrieve parameters with the name as prefix
         """
         self._node = node
+        self._name = name
+        self._parameter_fallback_prefix = parameter_fallback_prefix
+
         self._logger = node.get_logger().get_child(name)
         self._node.register_interface(self)  # type: ignore
 
@@ -72,6 +87,58 @@ class BaseInterface(LoggerMixin):
             The BaseNode instance that owns this interface.
         """
         return self._node
+
+    def param(self, name: str) -> Any:
+        """Get a parameter value from the node, prefixed by the interface name.
+
+        If name is an emptry string, all parameters for this interface will be
+        returned
+
+        Args:
+            name: Parameter name (may be dot-separated for nested access).
+
+        Returns:
+            Parameter value, or nested dict if name is a prefix.
+            Returns None for parameters set to "null" string.
+        """
+        if name != "":
+            name = f".{name}"
+
+        param_name = f"{self._name}{name}"
+        fallback_name = f"{self._parameter_fallback_prefix}{name}"
+
+        try:
+            param = self._node.param(param_name)
+        except ParameterNotDeclaredException:
+            if self._parameter_fallback_prefix is not None:
+                return self._node.param(fallback_name)
+            else:
+                raise
+
+        if self._parameter_fallback_prefix is not None:
+            try:
+                fallback_param = self._node.param(fallback_name)
+            except ParameterNotDeclaredException:
+                return param
+        else:
+            return param
+
+        if isinstance(param, dict):
+            if not isinstance(fallback_param, dict):
+                raise ValueError(
+                    f"If parameter {param_name} is a dictionary (i.e. is a "
+                    f"parameter prefix for one or more parameters), then "
+                    f"fallback parameter {fallback_name} should also be a dictionary"
+                )
+            return dict_update_recursive(fallback_param, param)
+        else:
+            if isinstance(fallback_param, dict):
+                raise ValueError(
+                    f"If parameter {param_name} is a not a dictionary (i.e. "
+                    f"it is not a parameter prefix for any parameters), then "
+                    f"fallback parameter {fallback_name} should not be a dictionary"
+                )
+            return param
 
     def destroy_interface(self):
         """Placeholder method to clean up resources"""

@@ -35,7 +35,13 @@ class SoundInterface(BaseInterface):
         _default_duration: The default duration for note playback in seconds.
     """
 
-    def __init__(self, node: BaseNode) -> None:
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        parameter_fallback_prefix: Optional[str] = None,
+    ) -> None:
         """Initialize the sound interface.
 
         Loads configuration from the node's parameters, initializes FluidSynth
@@ -50,9 +56,11 @@ class SoundInterface(BaseInterface):
             RuntimeError: If FluidSynth fails to initialize.
             ValueError: If default_duration is not a positive number.
         """
-        super().__init__("sound_interface", node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
 
-        config: dict[str, Any] = self.node.param("sound")
+        config: dict[str, Any] = self.param("")
 
         self.enabled = config["enable"]
         if not self.enabled:

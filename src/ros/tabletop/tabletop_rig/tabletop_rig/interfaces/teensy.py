@@ -12,8 +12,7 @@ import asyncio
 import threading
 from collections.abc import Callable
 from copy import copy, deepcopy
-from types import TracebackType
-from typing import Literal, Optional, Self
+from typing import Literal, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
@@ -62,9 +61,12 @@ class TeensyInterface(BaseInterface):
     def __init__(
         self,
         node: BaseNode,
+        name: str,
+        *,
         additional_subscription_callback: Optional[
             Callable[[TeensySensor], None]
         ] = None,
+        parameter_fallback_prefix: Optional[str] = None,
     ) -> None:
         """Initialize the Teensy interface.
 
@@ -76,13 +78,12 @@ class TeensyInterface(BaseInterface):
             additional_subscription_callback: Optional callback invoked with
                 each TeensySensor message after internal processing.
         """
-        super().__init__("teensy_interface", node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
 
         self.log("Waiting for teensy node")
-        if not self.node.wait_for_node(
-            "teensy",
-            timeout=self.node.param("wait_for_node_timeout"),
-        ):
+        if not self.node.wait_for_node_blocking("teensy"):
             raise RuntimeError("teensy node not available")
 
         # Subscribers
@@ -158,9 +159,7 @@ class TeensyInterface(BaseInterface):
         Returns:
             True if all safety conditions are met, False otherwise.
         """
-        max_sensor_delay = self.node.param(
-            "teensy.safe_to_execute.max_sensor_delay"
-        )
+        max_sensor_delay = self.param("safe_to_execute.max_sensor_delay")
 
         with self._teensy_sensor_lock:
             current_time = self.node.ros_time()
@@ -203,8 +202,8 @@ class TeensyInterface(BaseInterface):
             msg: The incoming sensor message.
         """
         current_time = self.node.ros_time()
-        required_time = self.node.param("teensy.safe_to_execute.required_time")
-        warn_threshold = self.node.param("teensy.sensor_delay_warn_threshold")
+        required_time = self.param("safe_to_execute.required_time")
+        warn_threshold = self.param("sensor_delay_warn_threshold")
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
@@ -277,7 +276,7 @@ class TeensyInterface(BaseInterface):
         self.log("Locking arms and waiting until safe to execute")
         await self.set_arm_lock("both", lock=True)
 
-        spin_period = self.node.param("teensy.spin_period")
+        spin_period = self.param("spin_period")
         try:
             async with asyncio.timeout(timeout):
                 while not self.safe_to_execute:
@@ -287,9 +286,9 @@ class TeensyInterface(BaseInterface):
             return False
 
     async def set_smartglass(self, reveal: bool) -> None:
-        """Control the smartglass goggles transparency.
+        """Control the smartglass transparency.
 
-        Smartglass goggles can switch between opaque and transparent states
+        Smartglass can switch between opaque and transparent states
         to control what the subject can see during trials.
 
         Args:
@@ -301,17 +300,32 @@ class TeensyInterface(BaseInterface):
             srv_client=self._set_smartglass_client,
         )
 
-    async def set_solenoid(self, activate: bool) -> None:
-        """Control the smartglass goggles transparency.
+    async def set_sync_pulse_solenoid(self, activate: bool) -> None:
+        """Control the sync pulse solenoid.
 
-        Smartglass goggles can switch between opaque and transparent states
-        to control what the subject can see during trials.
+        The sync pulse solenoid can be activated to fire when the Teensy
+        sync pulse fires
 
         Args:
-            reveal: True to make goggles transparent, False to make opaque.
+            activate: True to start the sync pulse solenoid, False to stop
         """
         self.log(f"Solenoid {'activate' if activate else 'deactivate'}")
         await self.node.service_call_async(
+            srv_request=SetSolenoid.Request(activate=activate),
+            srv_client=self._set_solenoid_client,
+        )
+
+    def set_sync_pulse_solenoid_blocking(self, activate: bool) -> None:
+        """Control the sync pulse solenoid.
+
+        The sync pulse solenoid can be activated to fire when the Teensy
+        sync pulse fires
+
+        Args:
+            activate: True to start the sync pulse solenoid, False to stop
+        """
+        self.log(f"Solenoid {'activate' if activate else 'deactivate'}")
+        self.node.service_call_blocking(
             srv_request=SetSolenoid.Request(activate=activate),
             srv_client=self._set_solenoid_client,
         )
@@ -368,7 +382,7 @@ class TeensyInterface(BaseInterface):
         """
         await self.set_reward(activate=True, duration=duration)
 
-        spin_period = self.node.param("teensy.spin_period")
+        spin_period = self.param("spin_period")
 
         await asyncio.sleep(spin_period)
         assert self.last_teensy_sensor.is_reward_active, (
@@ -384,15 +398,3 @@ class TeensyInterface(BaseInterface):
             raise RuntimeError(
                 "Reward still active after duration (I fucked up, this shouldn't happen)"
             )
-
-    async def __aenter__(self) -> Self:
-        await self.set_solenoid(activate=True)
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
-    ) -> bool | None:
-        await self.set_solenoid(activate=False)

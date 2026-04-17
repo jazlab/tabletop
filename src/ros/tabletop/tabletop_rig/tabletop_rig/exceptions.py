@@ -323,3 +323,7 @@ class ObjectMismatchError(ObjectManipulationError):
 
 class StateTransitionError(ObjectManipulationError):
     """Raised when an object manipulation state transition cannot be completed"""
+
+
+class ManipulationContextExitedError(Exception):
+    """Raised when the ManipulationContextManager successfully recovers the manipulation state"""

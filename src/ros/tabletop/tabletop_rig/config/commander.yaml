@@ -1,35 +1,8 @@
 /commander:
   ros__parameters:
+    # Commander parameters
+
     simulate: true
-
-    ur:
-      namespaces:
-        left_manipulator: left
-        right_manipulator: right
-      installation: default.installation
-      program: external_control.urp
-      reset:
-        max_attempts: 5
-        num_attempts_before_safety_restart: null
-        safety_restart_timeout: 10
-
-    sound:
-      enable: true
-      soundfont_path: $(find-pkg-share tabletop_rig)/soundfonts/moog.sf2
-      instrument: 62
-      default_note:
-        name: C
-        octave: 6
-        velocity: 127
-        channel: 0
-      default_duration: 0.5
-
-    teensy:
-      safe_to_execute:
-        required_time: 2.0
-        max_sensor_delay: 0.1
-      spin_period: 0.05
-      sensor_delay_warn_threshold: 0.01
 
     smooth_pursuit:
       reward_duration: 0.1
@@ -71,103 +44,77 @@
         small_object_28: 90:88:a9:50:66:09
         small_object_29: 90:88:a9:50:5f:68
 
-    joint_model_group_names:
-      - left_manipulator
-      - right_manipulator
+    robot_interface_names:
+      left_manipulator:
+        ur_interface_name: left_ur_interface
+        manipulation_interface_name: left_manipulation_interface
+        manipulation_context_interface_name: left_manipulation_context_interface
+      right_manipulator:
+        ur_interface_name: right_ur_interface
+        manipulation_interface_name: right_manipulation_interface
+        manipulation_context_interface_name: right_manipulation_context_interface
 
-    planning:
-      fast_pipeline: linear
-      fallback_pipeline: rrt_star
-      # fallback_pipeline: rrtc_star
-      default_pose_links:
-        left_manipulator: left_eef
-        right_manipulator: right_eef
-      # max_attempts: 5
-      # planning_pipeline: rrt_star
-      # apply_totg: true
-      # apply_smoothing: false
-      # velocity_scaling_factor: 1.0
-      # acceleration_scaling_factor: 1.0
-      # path_tolerance: 0.001
-      # resample_dt: 0.05
-      # min_angle_change: 0.001
-      # mitigate_overshoot: false
-      # overshoot_threshold: 0.002
-      # pose_tolerance:
-      #   position_tolerance: 0.01
-      #   orientation_tolerance: 0.01
+    # Interface parameters
 
-    trajectory_cache:
-      use_cached_trajectories: true
-      freeze_cache: false
-      kwargs:
-        path: $TABLETOP_CACHE_DIR/trajectories
-        position_tolerance: 0.03 # meters
-        orientation_tolerance: 0.01 # radians
-        max_trajectories: 5
-        new_cache: false
+    sound_interface:
+      enable: true
+      soundfont_path: $(find-pkg-share tabletop_rig)/soundfonts/moog.sf2
+      instrument: 62
+      default_note:
+        name: C
+        octave: 6
+        velocity: 127
+        channel: 0
+      default_duration: 0.5
 
-    execution:
-      joint_trajectory_controllers:
-        left_manipulator: left_scaled_joint_trajectory_controller
-        right_manipulator: right_scaled_joint_trajectory_controller
-        # left_manipulator: left_passthrough_trajectory_controller
-        # right_manipulator: right_passthrough_trajectory_controller
+    teensy_interface:
+      safe_to_execute:
+        required_time: 2.0
+        max_sensor_delay: 0.1
+      spin_period: 0.05
+      sensor_delay_warn_threshold: 0.01
 
-    # predefined_states:
-    #   idle_state: ready_for_action
-    #   present_state: present
-    #
-    # predefined_poses:
-    #   pre_fetch_offset: [-0.03, 0.0, -0.05] # relative to object init pose
-    #   pre_attach_offset: [-0.03, 0.0, 0.0] # relative to object init pose
-    #   post_attach_offset: [0.077, 0.0, 0.0] # relative to object init pose
-    #   post_fetch_offset: [0.077, 0.0, -0.15] # relative to object init pose
-    #   present_pose:
-    #     position: [0.9525, 0.4, 0.6]
-    #     rpy: [0.0, 0.0, -1.5707]
+    common_ur_interface:
+      installation: default.installation
+      program: external_control.urp
+      reset:
+        max_attempts: 5
+        num_attempts_before_safety_restart: null
+        safety_restart_timeout: 10
 
-    object_manipulation:
-      group_name_to_prefix:
-        left_manipulator: left_
-        right_manipulator: right_
+    left_ur_interface:
+      namespace: left
+
+    right_ur_interface:
+      namespace: right
+
+    common_manipulation_interface:
+      planning:
+        fast_pipeline: linear
+        fallback_pipeline: rrt_star
+        # fallback_pipeline: rrtc_star
+      trajectory_cache:
+        use_cached_trajectories: true
+        freeze_cache: false
+        kwargs:
+          position_tolerance: 0.03 # meters
+          orientation_tolerance: 0.01 # radians
+          robot_state_tolerance: 0.02 # radians
+          max_trajectories: 5
+          new_cache: false
+      execution:
+        robot_state_move_tolerance: 0.02 # radians
       test_object_attached:
         enable: false
-        goals:
-          left_manipulator: test_object_attached
-          right_manipulator: test_object_attached
+        topic: /joint_states
         object_id: test_object
-        joint_names:
-          left_manipulator: left_elbow_joint
-          right_manipulator: right_elbow_joint
         num_samples: 2500
         effort_threshold: -1.615
         greater_than: false
-      # test_object_attached:
-      #   goal: test_object_attached
-      #   object_id: test_object
-      #   topic: /force_torque_sensor_broadcaster/wrench
-      #   num_samples: 2500
-      #   force_dim: "y"
-      #   torque_dim: "y"
-      #   force_threshold: 1.54
-      #   torque_threshold: 1.0
-      touch_links:
-        left_manipulator:
-          - left_eef_link
-          - left_eef_sphere
-        right_manipulator:
-          - right_eef_link
-          - right_eef_sphere
-      mount_ids:
-        - rig
-      allowed_mount_collisions:
-        left_manipulator:
-          left_eef_sphere: rig
-        right_manipulator:
-          right_eef_sphere: rig
       detach_velocity_scaling_factor: 1.0
       skip_idle_on_return: True
+      mount_collision_ids:
+        - rig
       state_offsets:
         pre_fetch: [-0.05, 0.0, -0.05] # relative to object init pose
         pre_attach: [-0.05, 0.0, 0.0] # relative to object init pose
@@ -178,39 +125,13 @@
         smooth_pursuit_object:
           post_attach: [0.12, 0.0, 0.0]
           post_fetch: [0.12, 0.0, -0.15]
-      reachable_grid_indices:
-        left_manipulator:
-          - 0,0
-          - 0,1
-          - 0,2
-          - 1,0
-          - 1,1
-          - 1,2
-          - 2,0
-          - 2,1
-          - 2,2
-          - 3,0
-          - 3,1
-          - 3,2
-          - 4,0
-          - 4,1
-          - 4,2
-        right_manipulator:
-          - 5,0
-          - 5,1
-          - 5,2
-          - 6,0
-          - 6,1
-          - 6,2
-          - 7,0
-          - 7,1
-          - 7,2
-          - 8,0
-          - 8,1
-          - 8,2
-          - 9,0
-          - 9,1
-          - 9,2
+      manually_attach:
+        mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
+        collision_object_kwargs:
+          # allowed_collision_ids:
+          #   - eef_sphere
+          simplification: bounding_primitive
+          color: [1.0, 1.0, 1.0, 0.5]
       reset_config_map:
         small_object_0: null
         small_object_1: null
@@ -244,320 +165,364 @@
         small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/drawer.yaml
         smooth_pursuit_object: null
 
-    safe_execution:
-      max_retries: 3
+    left_manipulation_interface:
+      group_name: left_manipulator
+      planning:
+        default_pose_link: left_eef
+      trajectory_cache:
+        kwargs:
+          path: $TABLETOP_CACHE_DIR/left_trajectory_cache
+      execution:
+        joint_trajectory_controller: left_scaled_joint_trajectory_controller
+      test_object_attached:
+        joint_name: left_eblow_joint
+      attach_link: left_eef
+      touch_links:
+        - left_eef_link
+        - left_eef_sphere
+      allowed_mount_collisions:
+        left_eef_sphere: rig
+      reachable_grid_indices:
+        - 0,0
+        - 0,1
+        - 0,2
+        - 1,0
+        - 1,1
+        - 1,2
+        - 2,0
+        - 2,1
+        - 2,2
+        - 3,0
+        - 3,1
+        - 3,2
+        - 4,0
+        - 4,1
+        - 4,2
 
-    link_padding:
-      left_base_link_inertia: 0.03
-      left_shoulder_link: 0.03
-      left_upper_arm_link: 0.03
-      left_forearm_link: 0.03
-      left_wrist_1_link: 0.03
-      left_wrist_2_link: 0.01
-      left_wrist_3_link: 0.01
-      right_base_link_inertia: 0.03
-      right_shoulder_link: 0.03
-      right_upper_arm_link: 0.03
-      right_forearm_link: 0.03
-      right_wrist_1_link: 0.03
-      right_wrist_2_link: 0.01
-      right_wrist_3_link: 0.01
+    right_manipulation_interface:
+      group_name: right_manipulator
+      planning:
+        default_pose_link: right_eef
+      trajectory_cache:
+        kwargs:
+          path: $TABLETOP_CACHE_DIR/right_trajectory_cache
+      execution:
+        joint_trajectory_controller: right_scaled_joint_trajectory_controller
+      test_object_attached:
+        joint_name: right_eblow_joint
+      attach_link: right_eef
+      touch_links:
+        - right_eef_link
+        - right_eef_sphere
+      allowed_mount_collisions:
+        right_eef_sphere: rig
+      reachable_grid_indices:
+        - 5,0
+        - 5,1
+        - 5,2
+        - 6,0
+        - 6,1
+        - 6,2
+        - 7,0
+        - 7,1
+        - 7,2
+        - 8,0
+        - 8,1
+        - 8,2
+        - 9,0
+        - 9,1
+        - 9,2
 
-    manually_attached_object_kwargs:
-      # allowed_collision_ids:
-      #   - eef_sphere
-      simplification: bounding_primitive
-      color: [1.0, 1.0, 1.0, 0.5]
+    common_manipulation_context_interface:
+      safe_execution:
+        max_attempts: 3
+      reset:
+        max_attempts: 5
 
-    planning_scene:
-      cache_dir: $TABLETOP_CACHE_DIR/planning_scene
-      use_saved_scene: true
-      # planes:
-      #   floor:
-      #     coef: [0.0, 0.0, 1.0, 0.0]
-      #     pose_stamped:
-      #       position: [0.0, 0.0, 0.0]
-      #   front_wall:
-      #     coef: [0.0, 1.0, 0.0, 0.0635]
-      #     pose_stamped:
-      #       position: [0.0, 0.0, 0.0]
-      #   back_wall:
-      #     coef: [0.0, 1.0, 0.0, 1.8923]
-      #     pose_stamped:
-      #       position: [0.0, 0.0, 0.0]
-      #   left_wall:
-      #     coef: [1.0, 0.0, 0.0, 0.0381]
-      #     pose_stamped:
-      #       position: [0.0, 0.0, 0.0]
-      #   right_wall:
-      #     coef: [1.0, 0.0, 0.0, 1.8669]
-      #     pose_stamped:
-      #       position: [0.0, 0.0, 0.0]
-      primitives:
-        robot_platform:
-          type: BOX
-          dimensions: [0.92, 0.92, 0.31]
-          pose_stamped:
-            position: [0.9525, 1.0625, 0.155]
-          allowed_collision_ids:
-            - left_base_link_inertia
-            - right_base_link_inertia
-          color: [1.0, 1.0, 1.0, 0.5]
-        robot_divider:
-          type: BOX
-          dimensions: [0.01, 0.72, 1.0]
-          pose_stamped:
-            position: [0.9525, 1.1625, 0.81]
-          color: [1.0, 0.0, 0.0, 0.1]
-        projector_safety_box:
-          type: BOX
-          dimensions: [0.5, 0.5, 1.9812]
-          pose_stamped:
-            position: [1.655, 0.25, 0.9906]
-          color: [1.0, 0.0, 0.0, 0.1]
-        optitrack_safety_box:
-          type: BOX
-          dimensions: [1.905, 0.5, 0.2]
-          pose_stamped:
-            position: [0.9525, 0.25, 1.2845]
-          color: [1.0, 0.0, 0.0, 0.1]
-        floor:
-          type: BOX
-          dimensions: [2.0, 2.0, 0.0]
-          pose_stamped:
-            position: [1.0, 1.0, 0.0]
-          color: [1.0, 1.0, 1.0, 0.1]
-        front_wall:
-          type: BOX
-          dimensions: [2.0, 0.0, 2.0]
-          pose_stamped:
-            position: [1.0, 0.0635, 1.0]
-          color: [1.0, 1.0, 1.0, 0.1]
-        back_wall:
-          type: BOX
-          dimensions: [2.0, 0.0, 2.0]
-          pose_stamped:
-            position: [1.0, 1.8923, 1.0]
-          color: [1.0, 1.0, 1.0, 0.1]
-        left_wall:
-          type: BOX
-          dimensions: [0.0, 2.0, 2.0]
-          pose_stamped:
-            position: [0.0381, 1.0, 1.0]
-          color: [1.0, 1.0, 1.0, 0.1]
-        right_wall:
-          type: BOX
-          dimensions: [0.0, 2.0, 2.0]
-          pose_stamped:
-            position: [1.8669, 1.0, 1.0]
-          color: [1.0, 1.0, 1.0, 0.1]
-        drawer_station:
-          type: BOX
-          dimensions: [0.1, 0.2, 1.0]
-          pose_stamped:
-            position: [1.85, 1.0, 0.5]
-          color: [0.0, 0.0, 1.0, 0.5]
-      rig_meshes:
-        rig:
-          pose_stamped:
-            position: [0.0, 0.0, 0.0]
-          path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.dae
-          simplification: bounding_primitive
-          allowed_collision_ids:
-            - left_base_link_inertia
-            - right_base_link_inertia
-          color: [1.0, 1.0, 1.0, 0.5]
-      object_meshes:
-        path: $(find-pkg-share tabletop_rig)/meshes/objects/
-        # TODO: Remove grid origin, use global coordinates for each object
-        grid_origin:
-          position: [0.282, 0.7652, 1.1845]
-        common_kwargs:
-          # allowed_collision_ids:
-          #   - eef_sphere
-          simplification: bounding_primitive
-        object_kwargs:
-          0,0:
-            object_id: small_object_0
-            color: [1.0, 0.0, 0.0, 0.5] # red
-            rel_pose:
+    moveit_interface:
+      link_padding:
+        left_base_link_inertia: 0.03
+        left_shoulder_link: 0.03
+        left_upper_arm_link: 0.03
+        left_forearm_link: 0.03
+        left_wrist_1_link: 0.03
+        left_wrist_2_link: 0.01
+        left_wrist_3_link: 0.01
+        right_base_link_inertia: 0.03
+        right_shoulder_link: 0.03
+        right_upper_arm_link: 0.03
+        right_forearm_link: 0.03
+        right_wrist_1_link: 0.03
+        right_wrist_2_link: 0.01
+        right_wrist_3_link: 0.01
+      planning_scene:
+        cache_dir: $TABLETOP_CACHE_DIR/planning_scene
+        use_saved_scene: true
+        primitives:
+          robot_platform:
+            type: BOX
+            dimensions: [0.92, 0.92, 0.31]
+            pose_stamped:
+              position: [0.9525, 1.0625, 0.155]
+            allowed_collision_ids:
+              - left_base_link_inertia
+              - right_base_link_inertia
+            color: [1.0, 1.0, 1.0, 0.5]
+          robot_divider:
+            type: BOX
+            dimensions: [0.01, 0.72, 1.0]
+            pose_stamped:
+              position: [0.9525, 1.1625, 0.81]
+            color: [1.0, 0.0, 0.0, 0.1]
+          projector_safety_box:
+            type: BOX
+            dimensions: [0.5, 0.5, 1.9812]
+            pose_stamped:
+              position: [1.655, 0.25, 0.9906]
+            color: [1.0, 0.0, 0.0, 0.1]
+          optitrack_safety_box:
+            type: BOX
+            dimensions: [1.905, 0.5, 0.2]
+            pose_stamped:
+              position: [0.9525, 0.25, 1.2845]
+            color: [1.0, 0.0, 0.0, 0.1]
+          floor:
+            type: BOX
+            dimensions: [2.0, 2.0, 0.0]
+            pose_stamped:
+              position: [1.0, 1.0, 0.0]
+            color: [1.0, 1.0, 1.0, 0.1]
+          front_wall:
+            type: BOX
+            dimensions: [2.0, 0.0, 2.0]
+            pose_stamped:
+              position: [1.0, 0.0635, 1.0]
+            color: [1.0, 1.0, 1.0, 0.1]
+          back_wall:
+            type: BOX
+            dimensions: [2.0, 0.0, 2.0]
+            pose_stamped:
+              position: [1.0, 1.8923, 1.0]
+            color: [1.0, 1.0, 1.0, 0.1]
+          left_wall:
+            type: BOX
+            dimensions: [0.0, 2.0, 2.0]
+            pose_stamped:
+              position: [0.0381, 1.0, 1.0]
+            color: [1.0, 1.0, 1.0, 0.1]
+          right_wall:
+            type: BOX
+            dimensions: [0.0, 2.0, 2.0]
+            pose_stamped:
+              position: [1.8669, 1.0, 1.0]
+            color: [1.0, 1.0, 1.0, 0.1]
+          drawer_station:
+            type: BOX
+            dimensions: [0.1, 0.2, 1.0]
+            pose_stamped:
+              position: [1.85, 1.0, 0.5]
+            color: [0.0, 0.0, 1.0, 0.5]
+        rig_meshes:
+          rig:
+            pose_stamped:
               position: [0.0, 0.0, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          0,1:
-            object_id: small_object_1
-            color: [0.0, 1.0, 0.0, 0.5] # green
-            rel_pose:
-              position: [0.0, 0.314, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          0,2:
-            object_id: small_object_2
-            color: [0.0, 0.0, 1.0, 0.5] # blue
-            rel_pose:
-              position: [0.0, 0.628, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          1,0:
-            object_id: small_object_3
-            color: [1.0, 1.0, 0.0, 0.5] # yellow
-            rel_pose:
-              position: [0.1489, 0.0, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          1,1:
-            object_id: small_object_4
-            color: [1.0, 0.0, 1.0, 0.5] # purple
-            rel_pose:
-              position: [0.1489, 0.314, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          1,2:
-            object_id: small_object_5
-            color: [0.0, 1.0, 1.0, 0.5] # cyan
-            rel_pose:
-              position: [0.1489, 0.628, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          2,0:
-            object_id: small_object_6
-            color: [1.0, 0.5, 0.0, 0.5] # orange
-            rel_pose:
-              position: [0.2978, 0.0, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          2,1:
-            object_id: small_object_7
-            color: [0.5, 0.0, 0.5, 0.5] # magenta
-            rel_pose:
-              position: [0.2978, 0.314, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          2,2:
-            object_id: small_object_8
-            color: [0.5, 0.5, 0.0, 0.5] # olive
-            rel_pose:
-              position: [0.2978, 0.628, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          3,0:
-            object_id: small_object_9
-            color: [0.0, 0.5, 0.5, 0.5] # teal
-            rel_pose:
-              position: [0.4467, 0.0, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          3,1:
-            object_id: small_object_10
-            color: [0.5, 0.0, 0.0, 0.5] # maroon
-            rel_pose:
-              position: [0.4467, 0.314, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          3,2:
-            object_id: small_object_11
-            color: [0.0, 0.5, 0.0, 0.5] # lime
-            rel_pose:
-              position: [0.4467, 0.628, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          4,0:
-            object_id: small_object_12
-            color: [0.0, 0.0, 0.5, 0.5] # navy
-            rel_pose:
-              position: [0.5956, 0.0, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          4,1:
-            object_id: small_object_13
-            color: [0.5, 0.5, 0.5, 0.5] # gray
-            rel_pose:
-              position: [0.5956, 0.314, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          4,2:
-            object_id: small_object_14
-            color: [0.75, 0.75, 0.75, 0.5] # light gray
-            rel_pose:
-              position: [0.5956, 0.628, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          5,0:
-            object_id: small_object_15
-            color: [0.5, 0.25, 0.0, 0.5] # brown
-            rel_pose:
-              position: [0.7452, 0.0007, 0.0004]
-              rpy: [0.0, -0.0174, -1.5707]
-          5,1:
-            object_id: small_object_16
-            color: [0.25, 0.5, 0.0, 0.5] # dark green
-            rel_pose:
-              position: [0.746, 0.3161, -0.0034]
-              rpy: [0.0, 0.0, -1.5707]
-          5,2:
-            object_id: small_object_17
-            color: [0.0, 0.25, 0.5, 0.5] # dark blue
-            rel_pose:
-              position: [0.7457, 0.6245, -0.0075]
-              rpy: [0.0147, -0.0047, -1.5707]
-          6,0:
-            object_id: smooth_pursuit_object
-            color: [0.5, 0.0, 0.25, 0.5] # dark red
-            rel_pose:
-              position: [0.8933, 0.0011, 0.0005]
-              rpy: [0.0, -0.0174, -1.5707]
-          6,1:
-            object_id: small_object_19
-            color: [0.25, 0.0, 0.5, 0.5] # dark purple
-            rel_pose:
-              position: [0.8934, 0.3161, -0.0034]
-              rpy: [0.0, 0.0, -1.5707]
-          6,2:
-            object_id: small_object_20
-            color: [0.0, 0.5, 0.25, 0.5] # dark cyan
-            rel_pose:
-              position: [0.896, 0.6283, -0.0058]
-              rpy: [0.0058, -0.025, -1.5707]
-          7,0:
-            object_id: small_object_21
-            color: [0.75, 0.25, 0.0, 0.5] # dark orange
-            rel_pose:
-              position: [1.0433, 0.0024, 0.0009]
-              rpy: [0.0, 0.0, -1.5707]
-          7,1:
-            object_id: small_object_22
-            color: [0.25, 0.75, 0.0, 0.5] # light green
-            rel_pose:
-              position: [1.0423, 0.3161, 0.0]
-              rpy: [0.0, 0.0, -1.5707]
-          7,2:
-            object_id: small_object_23
-            color: [0.0, 0.25, 0.75, 0.5] # light blue
-            rel_pose:
-              position: [1.0481, 0.6323, -0.0051]
-              rpy: [0.0095, -0.0187, -1.5707]
-          8,0:
-            object_id: small_object_24
-            color: [0.75, 0.0, 0.25, 0.5] # light red
-            rel_pose:
-              position: [1.1927, 0.0048, 0.001]
-              rpy: [0.0, 0.0, -1.5707]
-          8,1:
-            object_id: small_object_25
-            color: [0.25, 0.0, 0.75, 0.5] # light purple
-            rel_pose:
-              position: [1.19103, 0.3167, -0.001]
-              rpy: [0.0, 0.01, -1.5707]
-          8,2:
-            object_id: small_object_26
-            color: [0.0, 0.75, 0.25, 0.5] # light cyan
-            rel_pose:
-              position: [1.1973, 0.6292, -0.005]
-              rpy: [0.0, -0.02, -1.5707]
-          9,0:
-            object_id: small_object_27
-            color: [0.75, 0.5, 0.25, 0.5] # peach
-            rel_pose:
-              position: [1.3421, 0.0046, 0.0]
-              rpy: [0.0, -0.0174, -1.5707]
-          9,1:
-            object_id: small_object_28
-            color: [0.25, 0.75, 0.5, 0.5] # mint
-            rel_pose:
-              position: [1.3405, 0.3175, 0.0001]
-              rpy: [0.0, 0.0, -1.5707]
-          9,2:
-            object_id: small_object_29
-            color: [0.5, 0.25, 0.75, 0.5] # lavender
-            rel_pose:
-              position: [1.3462, 0.632, -0.0026]
-              rpy: [0.018, -0.0148, -1.5707]
-        # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
-        # x width of rig = 1.8288
-        # radius of robot_base ~= 0.075
-        # current_offset = array([ 0.00139239, -0.02443377,  0.06574952])
+            path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.dae
+            simplification: bounding_primitive
+            allowed_collision_ids:
+              - left_base_link_inertia
+              - right_base_link_inertia
+            color: [1.0, 1.0, 1.0, 0.5]
+        object_meshes:
+          path: $(find-pkg-share tabletop_rig)/meshes/objects
+          # TODO: Remove grid origin, use global coordinates for each object
+          grid_origin:
+            position: [0.282, 0.7652, 1.1845]
+          common_kwargs:
+            # allowed_collision_ids:
+            #   - eef_sphere
+            simplification: bounding_primitive
+          object_kwargs:
+            0,0:
+              object_id: small_object_0
+              color: [1.0, 0.0, 0.0, 0.5] # red
+              rel_pose:
+                position: [0.0, 0.0, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            0,1:
+              object_id: small_object_1
+              color: [0.0, 1.0, 0.0, 0.5] # green
+              rel_pose:
+                position: [0.0, 0.314, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            0,2:
+              object_id: small_object_2
+              color: [0.0, 0.0, 1.0, 0.5] # blue
+              rel_pose:
+                position: [0.0, 0.628, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            1,0:
+              object_id: small_object_3
+              color: [1.0, 1.0, 0.0, 0.5] # yellow
+              rel_pose:
+                position: [0.1489, 0.0, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            1,1:
+              object_id: small_object_4
+              color: [1.0, 0.0, 1.0, 0.5] # purple
+              rel_pose:
+                position: [0.1489, 0.314, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            1,2:
+              object_id: small_object_5
+              color: [0.0, 1.0, 1.0, 0.5] # cyan
+              rel_pose:
+                position: [0.1489, 0.628, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            2,0:
+              object_id: small_object_6
+              color: [1.0, 0.5, 0.0, 0.5] # orange
+              rel_pose:
+                position: [0.2978, 0.0, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            2,1:
+              object_id: small_object_7
+              color: [0.5, 0.0, 0.5, 0.5] # magenta
+              rel_pose:
+                position: [0.2978, 0.314, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            2,2:
+              object_id: small_object_8
+              color: [0.5, 0.5, 0.0, 0.5] # olive
+              rel_pose:
+                position: [0.2978, 0.628, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            3,0:
+              object_id: small_object_9
+              color: [0.0, 0.5, 0.5, 0.5] # teal
+              rel_pose:
+                position: [0.4467, 0.0, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            3,1:
+              object_id: small_object_10
+              color: [0.5, 0.0, 0.0, 0.5] # maroon
+              rel_pose:
+                position: [0.4467, 0.314, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            3,2:
+              object_id: small_object_11
+              color: [0.0, 0.5, 0.0, 0.5] # lime
+              rel_pose:
+                position: [0.4467, 0.628, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            4,0:
+              object_id: small_object_12
+              color: [0.0, 0.0, 0.5, 0.5] # navy
+              rel_pose:
+                position: [0.5956, 0.0, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            4,1:
+              object_id: small_object_13
+              color: [0.5, 0.5, 0.5, 0.5] # gray
+              rel_pose:
+                position: [0.5956, 0.314, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            4,2:
+              object_id: small_object_14
+              color: [0.75, 0.75, 0.75, 0.5] # light gray
+              rel_pose:
+                position: [0.5956, 0.628, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            5,0:
+              object_id: small_object_15
+              color: [0.5, 0.25, 0.0, 0.5] # brown
+              rel_pose:
+                position: [0.7452, 0.0007, 0.0004]
+                rpy: [0.0, -0.0174, -1.5707]
+            5,1:
+              object_id: small_object_16
+              color: [0.25, 0.5, 0.0, 0.5] # dark green
+              rel_pose:
+                position: [0.746, 0.3161, -0.0034]
+                rpy: [0.0, 0.0, -1.5707]
+            5,2:
+              object_id: small_object_17
+              color: [0.0, 0.25, 0.5, 0.5] # dark blue
+              rel_pose:
+                position: [0.7457, 0.6245, -0.0075]
+                rpy: [0.0147, -0.0047, -1.5707]
+            6,0:
+              object_id: smooth_pursuit_object
+              color: [0.5, 0.0, 0.25, 0.5] # dark red
+              rel_pose:
+                position: [0.8933, 0.0011, 0.0005]
+                rpy: [0.0, -0.0174, -1.5707]
+            6,1:
+              object_id: small_object_19
+              color: [0.25, 0.0, 0.5, 0.5] # dark purple
+              rel_pose:
+                position: [0.8934, 0.3161, -0.0034]
+                rpy: [0.0, 0.0, -1.5707]
+            6,2:
+              object_id: small_object_20
+              color: [0.0, 0.5, 0.25, 0.5] # dark cyan
+              rel_pose:
+                position: [0.896, 0.6283, -0.0058]
+                rpy: [0.0058, -0.025, -1.5707]
+            7,0:
+              object_id: small_object_21
+              color: [0.75, 0.25, 0.0, 0.5] # dark orange
+              rel_pose:
+                position: [1.0433, 0.0024, 0.0009]
+                rpy: [0.0, 0.0, -1.5707]
+            7,1:
+              object_id: small_object_22
+              color: [0.25, 0.75, 0.0, 0.5] # light green
+              rel_pose:
+                position: [1.0423, 0.3161, 0.0]
+                rpy: [0.0, 0.0, -1.5707]
+            7,2:
+              object_id: small_object_23
+              color: [0.0, 0.25, 0.75, 0.5] # light blue
+              rel_pose:
+                position: [1.0481, 0.6323, -0.0051]
+                rpy: [0.0095, -0.0187, -1.5707]
+            8,0:
+              object_id: small_object_24
+              color: [0.75, 0.0, 0.25, 0.5] # light red
+              rel_pose:
+                position: [1.1927, 0.0048, 0.001]
+                rpy: [0.0, 0.0, -1.5707]
+            8,1:
+              object_id: small_object_25
+              color: [0.25, 0.0, 0.75, 0.5] # light purple
+              rel_pose:
+                position: [1.19103, 0.3167, -0.001]
+                rpy: [0.0, 0.01, -1.5707]
+            8,2:
+              object_id: small_object_26
+              color: [0.0, 0.75, 0.25, 0.5] # light cyan
+              rel_pose:
+                position: [1.1973, 0.6292, -0.005]
+                rpy: [0.0, -0.02, -1.5707]
+            9,0:
+              object_id: small_object_27
+              color: [0.75, 0.5, 0.25, 0.5] # peach
+              rel_pose:
+                position: [1.3421, 0.0046, 0.0]
+                rpy: [0.0, -0.0174, -1.5707]
+            9,1:
+              object_id: small_object_28
+              color: [0.25, 0.75, 0.5, 0.5] # mint
+              rel_pose:
+                position: [1.3405, 0.3175, 0.0001]
+                rpy: [0.0, 0.0, -1.5707]
+            9,2:
+              object_id: small_object_29
+              color: [0.5, 0.25, 0.75, 0.5] # lavender
+              rel_pose:
+                position: [1.3462, 0.632, -0.0026]
+                rpy: [0.018, -0.0148, -1.5707]
+          # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
+          # x width of rig = 1.8288
+          # radius of robot_base ~= 0.075
+          # current_offset = array([ 0.00139239, -0.02443377,  0.06574952])

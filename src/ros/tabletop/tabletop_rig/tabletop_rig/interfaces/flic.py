@@ -31,7 +31,13 @@ class FlicInterface(BaseInterface):
         response_time_client: Action client for the FlicResponseTime action.
     """
 
-    def __init__(self, node: BaseNode) -> None:
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        parameter_fallback_prefix: Optional[str] = None,
+    ) -> None:
         """Initialize the Flic interface.
 
         Sets up the action client for communicating with the Flic node
@@ -40,13 +46,12 @@ class FlicInterface(BaseInterface):
         Args:
             node: Parent ROS2 node to create the action client on.
         """
-        super().__init__("flic_interface", node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
 
         self.log("Waiting for flic node")
-        if not self.node.wait_for_node(
-            "flic",
-            timeout=self.node.param("wait_for_node_timeout"),
-        ):
+        if not self.node.wait_for_node_blocking("flic"):
             raise RuntimeError("flic node not available")
 
         self._response_time_client = AIOActionClient(

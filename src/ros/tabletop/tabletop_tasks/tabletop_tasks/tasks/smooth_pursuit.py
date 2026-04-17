@@ -33,6 +33,7 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
 )
 from tabletop_rig.exceptions import PlanningError
 from tabletop_rig.nodes import Commander
+from tabletop_rig.nodes.commander import ManipulationContextManager
 from tabletop_rig.utils.ros import pose_stamped_msg
 
 from tabletop_tasks.tasks.base import BaseTask
@@ -273,7 +274,11 @@ class SmoothPursuitTask(BaseTask):
 
         return goals
 
-    async def execute_loop(self, trajectory: RobotTrajectory):
+    async def execute_loop(
+        self,
+        manipulator: ManipulationContextManager,
+        trajectory: RobotTrajectory,
+    ):
         """Execute the trajectory repeatedly.
 
         Executes the planned trajectory for the specified number of
@@ -283,7 +288,7 @@ class SmoothPursuitTask(BaseTask):
             trajectory: The planned robot trajectory to execute.
         """
         for _ in range(self._num_repetitions):
-            await self.commander.move(trajectory)
+            await manipulator.move(trajectory)
 
     async def run(self):
         """Run the smooth pursuit task.
@@ -300,31 +305,25 @@ class SmoothPursuitTask(BaseTask):
         """
         self.log("Starting smooth pursuit task")
 
-        async with self.commander:
-            # TODO: Expose current manipulation_id
-            if self.commander.moveit.attached_object_id != self._object_id:
-                await self.commander.fetch_object(
-                    self._object_id, self._group_name
-                )
+        # Occlude smartglass before running
+        await self.commander.occlude_smartglass()
 
-            # Occlude smartglass before running
-            await self.commander.occlude_smartglass()
-
-            # Attach object to end effector if using a non-grid object
-            # TODO: Implement grid object fetch logic
-            # if self._object_id is not None:
+        async with self.commander.manipulation_context(
+            self._group_name
+        ) as manipulator:
+            await manipulator.fetch_object(self._object_id)
 
             for i in range(self._max_motion_generation_attempts):
                 goals = self._motion_fn(**self._motion_kwargs)
 
                 try:
                     # Plan to first waypoint using default planning pipeline
-                    start_trajectory = await self.commander.plan(
+                    start_trajectory = await manipulator.plan(
                         goal=goals[0], group_name=self._group_name
                     )
 
                     # Plan the full concatenated trajectory through remaining waypoints
-                    trajectory = await self.commander.plan(
+                    trajectory = await manipulator.plan(
                         goals=goals[1:],
                         group_name=self._group_name,
                         start_state=start_trajectory[
@@ -354,7 +353,7 @@ class SmoothPursuitTask(BaseTask):
                 )
 
             # Move to first waypoint
-            await self.commander.move(start_trajectory)
+            await manipulator.move(start_trajectory)
 
             # Make stimulus visible to subject
             await self.commander.reveal_smartglass()
@@ -372,7 +371,9 @@ class SmoothPursuitTask(BaseTask):
                 await asyncio.sleep(wait_time)
 
                 # Run trajectory execution and eye tracking concurrently
-                execution_task = tg.create_task(self.execute_loop(trajectory))
+                execution_task = tg.create_task(
+                    self.execute_loop(manipulator, trajectory)
+                )
 
                 # Wait for either task to complete, then cancel the other
                 await asyncio.wait(

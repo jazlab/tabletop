@@ -52,6 +52,7 @@ from tabletop_rig.utils.ros import (
     all_close_poses_stamped,
     all_close_robot_states,
     arrays_from_pose_msg,
+    get_joint_group_positions,
     pose_stamped_msg,
     robot_trajectory_from_msg,
 )
@@ -200,17 +201,20 @@ class FuzzyTrajectoryCacheKey:
         fuzzy_key_dict = {}
 
         # Fuzz the start state
+        positions = get_joint_group_positions(
+            self.start_state, self.group_name
+        )
         fuzzy_key_dict["start_state"] = self._fuzz_dict(
-            self.start_state.joint_positions,
-            robot_state_tolerance,
+            positions, robot_state_tolerance
         )
 
         # Fuzz the goal if it is a PoseStamped or a RobotState
         # If it is a string, it is a named goal and an exact match is required
 
         if isinstance(self.goal, RobotState):
+            positions = get_joint_group_positions(self.goal, self.group_name)
             fuzzy_key_dict["goal"] = self._fuzz_dict(
-                self.goal.joint_positions, robot_state_tolerance
+                positions, robot_state_tolerance
             )
         else:
             if not isinstance(self.goal.header.frame_id, str):

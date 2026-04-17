@@ -33,6 +33,7 @@ from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
 from tabletop_rig.nodes import Commander
+from tabletop_rig.nodes.commander import ManipulationContextManager
 
 from tabletop_tasks.tasks.base import BaseObjectInteractionTask
 from tabletop_tasks.trial_generators.base import (
@@ -192,7 +193,9 @@ class ForagingTask(BaseObjectInteractionTask):
         await self.commander.reveal_smartglass()
         await asyncio.sleep(self.reveal_duration)
 
-    async def run_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
+    async def run_trial(
+        self, trial_spec: TrialSpec, manipulator: ManipulationContextManager
+    ) -> TrialFeedback:
         """Execute a single foraging trial.
 
         Runs through all trial phases in sequence:

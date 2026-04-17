@@ -40,6 +40,7 @@ from rclpy.exceptions import (
 )
 from rclpy.impl.logging_severity import LoggingSeverity
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import (
     QoSProfile,
     qos_profile_default,
@@ -62,6 +63,20 @@ from tabletop_rig.utils.ros import SrvType, SrvTypeRequest, SrvTypeResponse
 
 if TYPE_CHECKING:
     from tabletop_rig.interfaces.base import BaseInterface
+
+
+def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
+    if not isinstance(d, dict):
+        return {prefix: d}
+
+    if prefix != "":
+        prefix = f"{prefix}{sep}"
+
+    result = {}
+    for k, v in d.items():
+        result.update(flatten_dict(v, f"{prefix}{k}", sep))
+
+    return result
 
 
 # TODO: Maybe add cancellation forwarding here ala asyncio.wrap_future
@@ -265,6 +280,7 @@ class BaseNode(Node, LoggerMixin):
     default_params: dict[str, Any] = {
         "default_service_wait_timeout": 5.0,
         "default_service_call_timeout": 5.0,
+        "default_node_wait_timeout": 5.0,
         "enable_service_introspection": True,
     }
     required_params: set[str] = set()
@@ -311,10 +327,10 @@ class BaseNode(Node, LoggerMixin):
         for name in self.required_params:
             try:
                 self.param(name)
-            except ParameterNotDeclaredException:
-                msg = f"Required parameter {name} not declared for {self.get_name()} node"
-                self.log(msg, severity="ERROR")
-                raise ParameterNotDeclaredException(msg)
+            except ParameterNotDeclaredException as e:
+                raise ParameterNotDeclaredException(
+                    f"Required parameter {name} not declared for {self.get_name()} node"
+                ) from e
 
     def _declare_default_parameters(self):
         """Declare default parameters if not already declared.
@@ -369,7 +385,7 @@ class BaseNode(Node, LoggerMixin):
         else:
             return False
 
-    def get_nested_parameters(self, prefix: str = "") -> dict:
+    def get_nested_parameters(self, prefix: str = "") -> dict[str, Any]:
         """Get parameters as a nested dictionary structure.
 
         Retrieves all parameters matching the prefix and structures them
@@ -403,6 +419,20 @@ class BaseNode(Node, LoggerMixin):
             current_level[keys[-1]] = value if value != "null" else None
 
         return nested_params
+
+    def set_or_declare_nested_parameters(
+        self, nested_parameters: dict[str, Any], prefix: str = ""
+    ) -> None:
+        flattened = flatten_dict(nested_parameters, prefix=prefix)
+
+        params: list[Parameter] = []
+        for k, v in flattened.items():
+            if self.has_parameter(k):
+                params.append(Parameter(name=k, value=v))
+            else:
+                self.declare_parameter(k, v)
+
+        self.set_parameters(params)
 
     def param(self, name: str) -> Any:
         """Get a parameter value by name.
@@ -444,8 +474,16 @@ class BaseNode(Node, LoggerMixin):
         if not self.get_clock().sleep_for(Duration(seconds=seconds)):
             raise ROSSleepError("ROS2 clock did not sleep correctly")
 
+    def wait_for_node_blocking(
+        self, fully_qualified_node_name: str, timeout: Optional[float] = None
+    ) -> bool:
+        if timeout is None:
+            timeout = cast(float, self.param("default_node_wait_timeout"))
+
+        return super().wait_for_node(fully_qualified_node_name, timeout)
+
     async def wait_for_node_async(
-        self, fully_qualified_node_name: str, timeout: float
+        self, fully_qualified_node_name: str, timeout: Optional[float] = None
     ) -> bool:
         """Async version of wait_for_node.
 
@@ -460,6 +498,9 @@ class BaseNode(Node, LoggerMixin):
         Returns
             True if the node was found, False if timeout.
         """
+        if timeout is None:
+            timeout = cast(float, self.param("default_node_wait_timeout"))
+
         return await asyncio.to_thread(
             self.wait_for_node, fully_qualified_node_name, timeout
         )

@@ -79,9 +79,9 @@ class _BasePlanRequest(
         overshoot_threshold: Threshold for overshoot detection.
     """
 
-    group_name: str
     start_state: Optional[RobotState] = None
     pose_link: Optional[str] = None
+    group_name: Optional[str] = None
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None

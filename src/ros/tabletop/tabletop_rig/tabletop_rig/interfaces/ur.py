@@ -48,7 +48,14 @@ class URInterface(BaseInterface):
     time to allow flexible service discovery.
     """
 
-    def __init__(self, ur_ns: str, node: BaseNode) -> None:
+    def __init__(
+        self,
+        node: BaseNode,
+        name: str,
+        *,
+        simulate: bool,
+        parameter_fallback_prefix: Optional[str] = None,
+    ) -> None:
         """Initialize the UR interface.
 
         Args:
@@ -56,25 +63,22 @@ class URInterface(BaseInterface):
                 (not including the node names)
             node: Parent ROS2 node for creating service clients.
         """
-        name = f"{ur_ns.strip('/').replace('/', '_')}_ur_interface"
-        super().__init__(name, node)
+        super().__init__(
+            node, name, parameter_fallback_prefix=parameter_fallback_prefix
+        )
 
-        ur_ns = ur_ns.rstrip("/")
+        self._simulate = simulate
+
+        ur_ns = self.param("namespace")
         self._dashboard_ns = f"{ur_ns}/dashboard_client"
         self._state_helper_ns = f"{ur_ns}/ur_robot_state_helper"
 
         self.log(f"Waiting for {self._dashboard_ns} node")
-        if not self.node.wait_for_node(
-            self._dashboard_ns,
-            timeout=self.node.param("wait_for_node_timeout"),
-        ):
+        if not self.node.wait_for_node_blocking(self._dashboard_ns):
             raise RuntimeError(f"{self._dashboard_ns} node not available")
 
         self.log(f"Waiting for {self._state_helper_ns} node")
-        if not self.node.wait_for_node(
-            self._state_helper_ns,
-            timeout=self.node.param("wait_for_node_timeout"),
-        ):
+        if not self.node.wait_for_node_blocking(self._state_helper_ns):
             raise RuntimeError(f"{self._state_helper_ns} node not available")
 
         self._set_mode_client = AIOActionClient(
@@ -88,9 +92,8 @@ class URInterface(BaseInterface):
     async def _ensure_mock(
         self, node_ns: str, timeout: Optional[float] = None
     ):
-        simulate = self.node.param("simulate")
         self.log(
-            f"Ensuring {node_ns} is running in {'mock' if simulate else 'real'} hardware mode"
+            f"Ensuring {node_ns} is running in {'mock' if self._simulate else 'real'} hardware mode"
         )
 
         response = cast(
@@ -111,9 +114,9 @@ class URInterface(BaseInterface):
             and values[0].bool_value
         )
 
-        if simulate != is_mock:
+        if self._simulate != is_mock:
             raise RuntimeError(
-                f"simulate parameter is {simulate}, but {node_ns} node is "
+                f"simulate parameter is {self._simulate}, but {node_ns} node is "
                 f"running in {'mock' if is_mock else 'real'} hardware mode. "
                 f"Please ensure this node and the UR robot driver are launched "
                 f"with the same robot_mode"
@@ -304,7 +307,7 @@ class URInterface(BaseInterface):
             ActionError: If the SetMode action fails.
         """
         self.log("Resetting dashboard")
-        config = self.node.param("ur")
+        config = self.param("")
 
         if not self._connected:
             await self._ensure_mock(self._dashboard_ns)
@@ -385,9 +388,9 @@ class URInterface(BaseInterface):
             ServiceCallUnsuccessfulError: If a dashboard service call fails.
             ActionError: If the SetMode action fails.
         """
-        max_attempts: int = self.node.param("ur.reset.max_attempts")
-        num_attempts_before_safety_restart: Optional[int] = self.node.param(
-            "ur.reset.num_attempts_before_safety_restart"
+        max_attempts: int = self.param("reset.max_attempts")
+        num_attempts_before_safety_restart: Optional[int] = self.param(
+            "reset.num_attempts_before_safety_restart"
         )
 
         if (
@@ -419,9 +422,7 @@ class URInterface(BaseInterface):
                     ):
                         await self._trigger(
                             "restart_safety",
-                            timeout=self.node.param(
-                                "ur.reset.safety_restart_timeout"
-                            ),
+                            timeout=self.param("reset.safety_restart_timeout"),
                         )
 
                     if i == max_attempts - 1:

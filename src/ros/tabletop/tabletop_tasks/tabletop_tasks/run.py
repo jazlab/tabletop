@@ -63,14 +63,17 @@ async def run_tasks(commander: Commander, config_file: str) -> None:
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
 
-    commander.log(f"Tasks config: {yaml_dump_string(config, width=80)}")
+    print(f"Tasks config: {yaml_dump_string(config, width=80)}")
 
     # Dynamically instantiate and run each configured task
-    for task_config in config["tasks"]:
-        task: BaseTask = getattr(
-            importlib.import_module("tabletop_tasks.tasks"),
-            task_config["class"],
-        )(commander=commander, **task_config["kwargs"])
+    try:
+        for task_config in config["tasks"]:
+            task: BaseTask = getattr(
+                importlib.import_module("tabletop_tasks.tasks"),
+                task_config["class"],
+            )(commander=commander, **task_config["kwargs"])
 
-        commander.log(f"Running task: {task_config['class']}")
-        await task.run()
+            print(f"Running task: {task_config['class']}")
+            await task.run()
+    except:
+        raise

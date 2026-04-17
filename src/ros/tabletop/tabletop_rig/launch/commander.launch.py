@@ -75,9 +75,14 @@ def declare_arguments():
             choices=["true", "false", "null"],
         ),
         DeclareLaunchArgument(
-            "initial_object",
+            "left_initial_object",
             default_value="null",
-            description="The name or index of the initial attached object",
+            description="The name or index of the initial attached object for the left robot",
+        ),
+        DeclareLaunchArgument(
+            "right_initial_object",
+            default_value="null",
+            description="The name or index of the initial attached object for the right robot",
         ),
         DeclareLaunchArgument(
             "use_sound",
@@ -142,43 +147,49 @@ def save_commander_overrides_fn(context, path: str):
     commander_overrides["simulate"] = simulate
 
     # Clear cache
-    new_cache_value = LaunchConfiguration("new_cache").perform(context)
-    if new_cache_value != "null":
+    new_cache = LaunchConfiguration("new_cache").perform(context)
+    if new_cache != "null":
         commander_overrides["trajectory_cache.kwargs.new_cache"] = (
-            new_cache_value == "true"
+            new_cache == "true"
         )
 
     # Use cache
-    use_cache_value = LaunchConfiguration("use_cache").perform(context)
-    if use_cache_value != "null":
+    use_cache = LaunchConfiguration("use_cache").perform(context)
+    if use_cache != "null":
         commander_overrides["trajectory_cache.use_cached_trajectories"] = (
-            use_cache_value == "true"
+            use_cache == "true"
         )
 
     # Use sound
-    use_sound_value = LaunchConfiguration("use_sound").perform(context)
-    if use_sound_value != "null":
-        commander_overrides["sound.enable"] = use_sound_value == "true"
+    use_sound = LaunchConfiguration("use_sound").perform(context)
+    if use_sound != "null":
+        commander_overrides["sound.enable"] = use_sound == "true"
 
     # Initial attached object
-    initial_object_value = LaunchConfiguration("initial_object").perform(
-        context
-    )
-    if initial_object_value != "null":
-        idx = initial_object_value.split(",")
-        if len(idx) == 1:
-            commander_overrides["initial_attached_object_id"] = (
-                initial_object_value
-            )
-        elif len(idx) == 2:
-            commander_overrides["initial_attached_object_idx"] = [
-                int(idx[0]),
-                int(idx[1]),
-            ]
-        else:
-            raise ValueError(
-                f"Invalid initial object index: {initial_object_value}"
-            )
+    for prefix in ["left_", "right_"]:
+        launch_config_name = f"{prefix}initial_object"
+        param_prefix = f"{prefix}manipulation_interface"
+
+        initial_object = LaunchConfiguration(launch_config_name).perform(
+            context
+        )
+        if initial_object != "null":
+            idx = initial_object.split(",")
+            if len(idx) == 1:
+                commander_overrides[
+                    f"{param_prefix}.initial_attached_object_id"
+                ] = initial_object
+            elif len(idx) == 2:
+                commander_overrides[
+                    f"{param_prefix}.initial_attached_object_idx"
+                ] = [
+                    int(idx[0]),
+                    int(idx[1]),
+                ]
+            else:
+                raise ValueError(
+                    f"Invalid initial object index: {initial_object}"
+                )
 
     # Save the scoped overrides
     commander_overrides_scoped = {

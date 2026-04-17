@@ -31,7 +31,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from enum import IntEnum
 from glob import glob
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import yaml
@@ -46,7 +46,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.exceptions import ParameterNotDeclaredException
 from sensor_msgs.msg import JointState
 
-from tabletop_py.utils.common import KwargYamlLoader
+from tabletop_py.utils.common import KwargYamlLoader, yaml_dump_string
 from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
     ExecutionRejectedError,
@@ -55,6 +55,7 @@ from tabletop_rig.exceptions import (
     ObjectMismatchError,
     StateTransitionError,
 )
+from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
 from tabletop_rig.interfaces.moveit.plan_and_execute import (
     PlanAndExecuteInterface,
 )
@@ -196,71 +197,73 @@ class ResetLoader(KwargYamlLoader):
 
 
 class ObjectManipulationInterface(PlanAndExecuteInterface):
-    # TODO: Documentation
-    _manipulation_state: dict[str, State]
-    _current_manipulation_id: dict[str, str | None]
-    _manipulation_lock: dict[str, asyncio.Lock]
-    _reachable_object_ids: dict[str, set[str]]
+    """TODO"""
+
+    _manipulation_state: State
+    _current_manipulation_id: str | None
+    _manipulation_lock: asyncio.Lock
+    _reachable_object_ids: set[str]
     _reset_configs: dict[str, ObjectResetConfig]
     _post_fetch_states: dict[str, RobotState]
 
     def __init__(
         self,
         node: BaseNode,
-        safe_to_execute_callback: Callable[[], bool],
+        name: str,
+        *,
+        moveit_interface: MoveItInterface,
+        safe_to_execute_condition: Callable[[], bool],
+        simulate: bool,
+        parameter_fallback_prefix: Optional[str] = None,
     ):
-        """Initializes the MoveItObjectInterface"""
-        super().__init__(node, safe_to_execute_callback)
+        """Initializes the ObjectInterface"""
+        super().__init__(
+            node,
+            name,
+            moveit_interface=moveit_interface,
+            safe_to_execute_condition=safe_to_execute_condition,
+            parameter_fallback_prefix=parameter_fallback_prefix,
+        )
+        print(yaml_dump_string(self.param("")))
 
         self._init_reachable_indices()
 
         self._init_reset_configs()
 
-        self._manipulation_state = {}
-        self._current_manipulation_id = {}
-        self._manipulation_lock = {}
+        self._manipulation_state = State.UNINITIALIZED
+        self._current_manipulation_id = None
+        self._manipulation_lock = asyncio.Lock()
 
-        for group_name in self.joint_model_group_names:
-            self._manipulation_state[group_name] = State.UNINITIALIZED
-            self._current_manipulation_id[group_name] = None
-            self._manipulation_lock[group_name] = asyncio.Lock()
+        self._simulate = simulate
 
         self._post_fetch_states = {}
 
         self.log("MoveIt object manipulation interface initialized")
 
     def _init_reachable_indices(self):
-        self._reachable_object_ids = {}
+        self._reachable_object_ids = set()
 
-        for group_name in self.joint_model_group_names:
-            self._reachable_object_ids[group_name] = set()
+        indices: list[str] = self.param("reachable_grid_indices")
+        for idx in indices:
+            x, y = map(int, idx.split(","))
 
-            indices: list[str] = self.node.param(
-                f"object_manipulation.reachable_grid_indices.{group_name}"
-            )
-            for idx in indices:
-                x, y = map(int, idx.split(","))
+            if (x, y) not in self._moveit.grid_objects_by_idx:
+                raise ValueError(
+                    f"Parameter reachable_grid_indices "
+                    f"contains index {(x, y)}, which is not in the existing "
+                    f"object grid"
+                )
 
-                if (x, y) not in self.grid_objects_by_idx:
-                    raise ValueError(
-                        f"object_manipulation.reachable_grid_indices.{group_name} "
-                        f"contains index {(x, y)}, which is not in the existing "
-                        f"object grid"
-                    )
-
-                object_id = self.grid_objects_by_idx[(x, y)].object_id
-                self._reachable_object_ids[group_name].add(object_id)
+            object_id = self._moveit.grid_objects_by_idx[(x, y)].object_id
+            self._reachable_object_ids.add(object_id)
 
     def _init_reset_configs(self):
         # Check that all grid objects have reset configurations
-        grid_objects = set(self.grid_objects_by_id.keys())
 
-        reset_config_map: dict[str, str] = self.node.param(
-            "object_manipulation.reset_config_map"
-        )
+        reset_config_map: dict[str, str] = self.param("reset_config_map")
         reset_objects = set(reset_config_map.keys())
 
-        missing = grid_objects - reset_objects
+        missing = self.reachable_object_ids - reset_objects
         if len(missing) > 0:
             raise ValueError(
                 f"All grid objects must have associated reset "
@@ -271,7 +274,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Parse and save the configurations for each unique file
         self._reset_configs = {}
 
-        for object_id in grid_objects:
+        for object_id in self.reachable_object_ids:
             filename = reset_config_map[object_id]
 
             if filename is None:
@@ -313,67 +316,59 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
                 self._reset_configs[filename] = config
 
-            group_name = self._reset_configs[filename].reset_request.group_name
+            # if object_id not in self.reachable_object_ids:
+            #     raise ValueError(
+            #         f"Error in reset config ({filename}) for object {object_id}: "
+            #         f"{object_id} is unreachable by {self.group_name}"
+            #     )
 
-            if object_id not in self.reachable_object_ids(group_name):
-                raise ValueError(
-                    f"Error in reset config ({filename}) for object {object_id}: "
-                    f"{object_id} is unreachable by reset_request.group_name "
-                    f"{group_name}"
-                )
-
-    def _init_attached_object(self, group_name: str) -> str | None:
+    def _init_attached_object(self) -> str | None:
         """Initialize the attached object."""
-        prefix = self.node.param(
-            f"object_manipulation.group_name_to_prefix.{group_name}"
-        )
         object_id = None
         idx = None
 
         try:
-            object_id = self.node.param(f"{prefix}initial_attached_object_id")
+            object_id = self.param("initial_attached_object_id")
         except ParameterNotDeclaredException:
             pass
 
         try:
-            idx = self.node.param(f"{prefix}initial_attached_object_idx")
+            idx = self.param("initial_attached_object_idx")
         except ParameterNotDeclaredException:
             pass
 
         if object_id is not None:
             if idx is not None:
                 raise ValueError(
-                    f"Cannot specify both {prefix}initial_attached_object_id "
-                    f"and {prefix}initial_attached_object_idx"
+                    "Cannot specify both "
+                    "initial_attached_object_id and "
+                    "initial_attached_object_idx"
                 )
-            if object_id not in self.grid_objects_by_id:
+            if object_id not in self._moveit.grid_objects_by_id:
                 raise ValueError(
-                    f"{prefix}initial_attached_object_id parameter "
+                    f"initial_attached_object_id parameter "
                     f"({object_id}) not an existing grid object"
                 )
         elif idx is not None:
             x, y = idx
-            if (x, y) not in self.grid_objects_by_idx:
+            if (x, y) not in self._moveit.grid_objects_by_idx:
                 raise ValueError(
-                    f"{prefix}initial_attached_object_idx parameter "
+                    f"initial_attached_object_idx parameter "
                     f"{object_id} not found in existing grid objects"
                 )
-            object_id = self.grid_objects_by_idx[(x, y)].object_id
+            object_id = self._moveit.grid_objects_by_idx[(x, y)].object_id
         else:
             self.log("No initial attached object specified")
             return None
 
         assert isinstance(object_id, str)
-        assert object_id in self.collision_object_ids
+        assert object_id in self._moveit.collision_object_ids
 
-        self.move_collision_object(
-            object_id,
-            self.get_link_pose_stamped(self.attach_link(group_name)),
+        self._moveit.move_collision_object(
+            object_id, self._moveit.get_link_pose_stamped(self.attach_link)
         )
-        self.attach_collision_object(
-            object_id,
-            self.attach_link(group_name),
-            touch_links=self.touch_links(group_name),
+        self._moveit.attach_collision_object(
+            object_id, self.attach_link, touch_links=self.touch_links
         )
 
         return object_id
@@ -382,60 +377,49 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ########## User-Accessible Read-Only Properties ###########################
     ###########################################################################
 
-    def reachable_object_ids(self, group_name: str) -> set[str]:
-        if group_name not in self.joint_model_group_names:
-            raise ValueError(
-                f"Unknown joint model group name: {group_name}. "
-                f"Available group names: {self.joint_model_group_names}"
-            )
-
-        return self._reachable_object_ids[group_name]
+    @property
+    def reachable_object_ids(self) -> set[str]:
+        """Get the reachable objects for this robot"""
+        return self._reachable_object_ids
 
     ###########################################################################
     ########## Parameter Convenience Properties and Methods ###################
     ###########################################################################
 
     @property
-    def mount_ids(self) -> list[str]:
+    def mount_collision_ids(self) -> list[str]:
         """Get the object mount ids from the parameter server."""
-        return self.node.param("object_manipulation.mount_ids")
+        return self.param("mount_collision_ids")
 
-    def attach_link(self, group_name: str) -> str:
-        return self.default_pose_link(group_name)
+    @property
+    def attach_link(self) -> str:
+        return self.default_pose_link
 
-    def touch_links(self, group_name: str) -> list[str]:
+    @property
+    def touch_links(self) -> list[str]:
         """Get the touch links from the parameter server."""
-        return self.node.param(f"object_manipulation.touch_links.{group_name}")
+        return self.param("touch_links")
 
-    def allowed_mount_collisions(
-        self, group_name: str
-    ) -> list[tuple[str, str]]:
+    @property
+    def allowed_mount_collisions(self) -> list[tuple[str, str]]:
         """Get the allowed object mount collisions from the parameter server."""
         return [
             (id_0, id_1)
-            for id_0, id_1 in self.node.param(
-                f"object_manipulation.allowed_mount_collisions.{group_name}"
-            ).items()
+            for id_0, id_1 in self.param("allowed_mount_collisions").items()
         ]
 
     def _get_reset_config(self, object_id: str) -> ObjectResetConfig | None:
         """Get the mapping of object ids to reset configuration filenames"""
-        filename = self.node.param(
-            f"object_manipulation.reset_config_map.{object_id}"
-        )
+        filename = self.param(f"reset_config_map.{object_id}")
         if filename is None:
             return None
         return self._reset_configs[filename]
-
-        # ret = self.node.param("object_manipulation.mount_allowed_collisions")
-        # print(ret)
-        # return ret
 
     ###########################################################################
     ########## Object Manipulation Convenience Methods ########################
     ###########################################################################
 
-    def _attached_object_id(self, group_name: str) -> str | None:
+    def _get_attached_object_id(self) -> str | None:
         """Get the ID of the attached collision object
 
         Returns:
@@ -444,8 +428,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Raises:
             RuntimeError: If there is not exactly one attached collision object
         """
-        attached_objects = self.attached_collision_objects
-        attach_link = self.attach_link(group_name)
+        attached_objects = self._moveit.attached_collision_objects
+        attach_link = self.attach_link
 
         attached_ids: list[str] = []
         for object_id, attached_object in attached_objects.items():
@@ -459,19 +443,21 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         else:
             raise RuntimeError(
                 f"Expected exactly one collision object to be attached to "
-                f"joint model group {group_name} but got {len(attached_ids)} "
-                f"({attached_ids})"
+                f"{attach_link} of joint model group {self.group_name} but "
+                f"got {len(attached_ids)} ({attached_ids})"
             )
 
     def _grid_object_pose_stamped_with_offset(
         self, object_id: str, offset: list[float]
     ) -> PoseStamped:
         """Get the initial pose of an object from the parameters with an offset."""
-        old_pose_stamped = self.grid_objects_by_id[object_id].pose_stamped
+        old_pose_stamped = self._moveit.grid_objects_by_id[
+            object_id
+        ].pose_stamped
         old_frame_transform = matrix_from_pose_msg(old_pose_stamped.pose)
         new_frame_id = old_pose_stamped.header.frame_id
-        assert new_frame_id == self.planning_frame
-        new_frame_transform = self.get_frame_transform(new_frame_id)
+        assert new_frame_id == self._moveit.planning_frame
+        new_frame_transform = self._moveit.get_frame_transform(new_frame_id)
 
         pose_stamped = pose_stamped_msg(position=offset)
 
@@ -482,95 +468,82 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             new_frame_id=new_frame_id,
         )
 
-    def _validate_manipulation_state(self, group_name: str):
+    def _validate_manipulation_state(self):
         # Check that joint model group name exists
         assert (
-            self._manipulation_state[group_name]
-            in (State.IDLE, State.UNINITIALIZED)
-        ) == (self._current_manipulation_id[group_name] is None), (
+            self._manipulation_state in (State.IDLE, State.UNINITIALIZED)
+        ) == (self._current_manipulation_id is None), (
             f"_current_manipulation_id should be None (got "
-            f"{self._current_manipulation_id[group_name]}) iff _manipulation_state is IDLE "
-            f"(got {self._manipulation_state[group_name].name})"
+            f"{self._current_manipulation_id}) iff _manipulation_state is IDLE "
+            f"(got {self._manipulation_state.name})"
         )
 
-        attached_object_id = self._attached_object_id(group_name)
+        attached_object_id = self._get_attached_object_id()
         if attached_object_id is None:
-            assert (
-                self._manipulation_state[group_name] in OBJECT_DETACHED_STATES
-            ), (
+            assert self._manipulation_state in OBJECT_DETACHED_STATES, (
                 f"If object is not attached, we can only be in "
                 f"{(x.name for x in OBJECT_DETACHED_STATES)} states, "
-                f"got: {self._manipulation_state[group_name].name}"
+                f"got: {self._manipulation_state.name}"
             )
         else:
-            assert (
-                attached_object_id == self._current_manipulation_id[group_name]
-            )
+            assert attached_object_id == self._current_manipulation_id
 
-            if attached_object_id in self.grid_objects_by_id:
+            if attached_object_id in self._moveit.grid_objects_by_id:
                 assert (
-                    self._manipulation_state[group_name]
-                    in GRID_OBJECT_ATTACHED_STATES
+                    self._manipulation_state in GRID_OBJECT_ATTACHED_STATES
                 ), (
                     f"If grid object is attached, we can only be in "
                     f"{(x.name for x in GRID_OBJECT_ATTACHED_STATES)} states, "
-                    f"got: {self._manipulation_state[group_name].name}"
+                    f"got: {self._manipulation_state.name}"
                 )
             else:
-                assert (
-                    self._manipulation_state[group_name]
-                    == State.MANUALLY_ATTACHED
-                ), (
+                assert self._manipulation_state == State.MANUALLY_ATTACHED, (
                     f"If non-grid object is attached, we can only be in "
-                    f"MANUALLY_ATTACHED state, got: {self._manipulation_state[group_name].name}"
+                    f"MANUALLY_ATTACHED state, got: {self._manipulation_state.name}"
                 )
 
     def _validate_target_object(
-        self, object_id: str, group_name: str, *, expect_grid_object: bool
+        self, object_id: str, *, expect_grid_object: bool
     ):
         # Check that grid object exists and is reachable
         if expect_grid_object:
-            if object_id not in self.grid_objects_by_id:
+            if object_id not in self._moveit.grid_objects_by_id:
                 raise ValueError(f"'{object_id}' is not a valid grid object")
-            if object_id not in self._reachable_object_ids[group_name]:
+            if object_id not in self._reachable_object_ids:
                 raise ValueError(
-                    f"'{object_id}' is not reachable by robot {group_name}"
+                    f"'{object_id}' is not reachable by robot {self.group_name}"
                 )
+        else:
+            if object_id in self._moveit.grid_objects_by_id:
+                raise ValueError(f"'{object_id}' should not be grid object")
 
         # Check that target grid object is consistent with manipulation id
         if (
-            self._current_manipulation_id[group_name] is not None
-            and object_id != self._current_manipulation_id[group_name]
+            self._current_manipulation_id is not None
+            and object_id != self._current_manipulation_id
         ):
             raise ObjectMismatchError(
-                f"Robot {group_name} cannot manipulate object {object_id} "
-                f"because object {self._current_manipulation_id[group_name]} "
+                f"Cannot manipulate object {object_id} "
+                f"because object {self._current_manipulation_id} "
                 f"is already being manipulated",
-                group_name=group_name,
+                group_name=self.group_name,
             )
 
     @asynccontextmanager
-    async def _manipulation_context(self, group_name: str, *, wait: bool):
-        # Check that joint model group name exists
-        if group_name not in self.joint_model_group_names:
-            raise ValueError(
-                f"Unknown joint model group name: {group_name}. "
-                f"Available group names: {self.joint_model_group_names}"
-            )
-
-        if not wait and self._manipulation_lock[group_name].locked():
+    async def manipulation_context(self, *, wait: bool):
+        if not wait and self._manipulation_lock.locked():
             raise ObjectManipulationError(
-                f"Robot {group_name} cannot cannot acquire manipulation "
-                f"lock while while another operation is in progress",
-                group_name=group_name,
+                "Robot cannot cannot acquire manipulation "
+                "lock while while another operation is in progress",
+                group_name=self.group_name,
             )
 
-        async with self._manipulation_lock[group_name]:
-            self._validate_manipulation_state(group_name)
+        async with self._manipulation_lock:
+            self._validate_manipulation_state()
             try:
                 yield
             finally:
-                self._validate_manipulation_state(group_name)
+                self._validate_manipulation_state()
 
     ###########################################################################
     ########## Object Manipulation State Transition Logic #####################
@@ -603,12 +576,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 ):
                     return self._post_fetch_states[object_id]
                 try:
-                    offset = self.node.param(
-                        f"object_manipulation.state_offsets_overrides.{object_id}.{STATE_OFFSET_MAP[state]}"
+                    offset = self.param(
+                        f"state_offsets_overrides.{object_id}.{STATE_OFFSET_MAP[state]}"
                     )
                 except ParameterNotDeclaredException:
-                    offset = self.node.param(
-                        f"object_manipulation.state_offsets.{STATE_OFFSET_MAP[state]}"
+                    offset = self.param(
+                        f"state_offsets.{STATE_OFFSET_MAP[state]}"
                     )
 
                 return self._grid_object_pose_stamped_with_offset(
@@ -616,7 +589,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
 
     async def _fetch_or_return_transition(
-        self, object_id: str, group_name: str, next_state: State
+        self, object_id: str, next_state: State
     ) -> list[TrajectoryCacheKwargs] | None:
         """Plan and execute a state transition of the object manipulation process.
 
@@ -632,24 +605,22 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if the trajectory was found in the cache.
         """
         self.log(
-            f"Robot {group_name} transitioning from "
-            f"{self._manipulation_state[group_name].name} to "
+            f"Transitioning from "
+            f"{self._manipulation_state.name} to "
             f"{next_state.name} state for object {object_id}"
         )
 
         assert (
-            self._manipulation_state[group_name] == State.RESETTED
-            or self._manipulation_state[group_name] in FETCH_OR_RETURN_STATES
+            self._manipulation_state == State.RESETTED
+            or self._manipulation_state in FETCH_OR_RETURN_STATES
         )
         assert next_state in FETCH_OR_RETURN_STATES
 
-        if next_state == State.IDLE and self.node.param(
-            "object_manipulation.skip_idle_on_return"
-        ):
+        if next_state == State.IDLE and self.param("skip_idle_on_return"):
             return None
 
         goal = self._get_state_goal(next_state, object_id)
-        request = PlanRequest(goal=goal, group_name=group_name)
+        request = PlanRequest(goal=goal)
 
         match next_state:
             case (
@@ -664,17 +635,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 request.use_cache = False
 
         if next_state == State.DETACH:
-            PlanRequest.velocity_scaling_factor = self.node.param(
-                "object_manipulation.detach_velocity_scaling_factor"
+            PlanRequest.velocity_scaling_factor = self.param(
+                "detach_velocity_scaling_factor"
             )
 
         collisions_to_allow: list[tuple[str, str]] = []
         modified_collisions: list[tuple[str, str]] = []
 
         if next_state in ALLOWED_MOUNT_COLLISION_STATES:
-            collisions_to_allow.extend(
-                self.allowed_mount_collisions(group_name)
-            )
+            collisions_to_allow.extend(self.allowed_mount_collisions)
 
         match next_state:
             case (
@@ -684,15 +653,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 | State.POST_RETURN
             ):
                 collisions_to_allow.extend(
-                    [(object_id, x) for x in self.touch_links(group_name)]
+                    [(object_id, x) for x in self.touch_links]
                 )
             case State.POST_ATTACH | State.DETACH:
                 collisions_to_allow.extend(
-                    [(object_id, x) for x in self.mount_ids]
+                    [(object_id, x) for x in self.mount_collision_ids]
                 )
 
         if len(collisions_to_allow) > 0:
-            modified_collisions = self.allow_collision(
+            modified_collisions = self._moveit.allow_collision(
                 *zip(*collisions_to_allow)
             )
         try:
@@ -701,26 +670,28 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         finally:
             if len(modified_collisions) > 0:
-                self.disallow_collision(*zip(*modified_collisions))
+                self._moveit.disallow_collision(*zip(*modified_collisions))
 
         match next_state:
             case State.POST_FETCH:
-                self._post_fetch_states[object_id] = self.current_state
-            case State.ATTACH:
-                self.move_collision_object(
-                    object_id,
-                    self.get_link_pose_stamped(self.attach_link(group_name)),
+                self._post_fetch_states[object_id] = (
+                    self._moveit.get_current_state()
                 )
-                self.attach_collision_object(
+            case State.ATTACH:
+                self._moveit.move_collision_object(
                     object_id,
-                    self.attach_link(group_name),
-                    touch_links=self.touch_links(group_name),
+                    self._moveit.get_link_pose_stamped(self.attach_link),
+                )
+                self._moveit.attach_collision_object(
+                    object_id,
+                    self.attach_link,
+                    touch_links=self.touch_links,
                 )
             case State.DETACH:
-                self.detach_collision_object(object_id)
-                self.move_collision_object(
+                self._moveit.detach_collision_object(object_id)
+                self._moveit.move_collision_object(
                     object_id,
-                    self.grid_objects_by_id[object_id].pose_stamped,
+                    self._moveit.grid_objects_by_id[object_id].pose_stamped,
                 )
 
         return cache_kwargs
@@ -728,17 +699,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def _fetch_object_impl(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ) -> None:
-        self.log(f"Fetching object {object_id} with robot {group_name}")
+        self.log(f"Fetching object {object_id}")
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=True
-        )
+        self._validate_target_object(object_id, expect_grid_object=True)
 
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case (
                 State.IDLE
                 | State.PRE_FETCH
@@ -747,7 +715,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 | State.POST_ATTACH
                 | State.POST_FETCH
             ):
-                next_state = State(self._manipulation_state[group_name] + 1)
+                next_state = State(self._manipulation_state + 1)
             case State.FETCHED:
                 self.log(
                     "Already at FETCHED state, skipping fetch",
@@ -763,15 +731,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 | State.POST_DETACH
                 | State.POST_RETURN
             ):
-                return_progress = (
-                    self._manipulation_state[group_name] - State.PRE_RETURN
-                )
+                return_progress = self._manipulation_state - State.PRE_RETURN
                 next_state = State(State.POST_FETCH - return_progress)
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot fetch object "
-                    f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    f"Cannot fetch object from current state: {unexpected.name}",
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -783,18 +748,18 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
         # Iterate through the fetch states
-        while self._manipulation_state[group_name] != State.FETCHED:
+        while self._manipulation_state != State.FETCHED:
             kwargs = await self._fetch_or_return_transition(
-                object_id, group_name, next_state
+                object_id, next_state
             )
 
-            self._manipulation_state[group_name] = next_state
-            next_state = State(self._manipulation_state[group_name] + 1)
+            self._manipulation_state = next_state
+            next_state = State(self._manipulation_state + 1)
 
-            if self._manipulation_state[group_name] != State.IDLE:
-                self._current_manipulation_id[group_name] = object_id
+            if self._manipulation_state != State.IDLE:
+                self._current_manipulation_id = object_id
 
-            self._validate_manipulation_state(group_name)
+            self._validate_manipulation_state()
 
             if cache_trajectories and kwargs is not None:
                 cache_kwargs.extend(kwargs)
@@ -804,22 +769,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             self.cache_trajectories(cache_kwargs)
 
     async def _present_object_impl(
-        self, object_id: str, group_name: str, *, cache_trajectories=True
+        self, object_id: str, *, cache_trajectories=True
     ):
-        self.log(f"Presenting object {object_id} with robot {group_name}")
+        self.log(f"Presenting object {object_id}")
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=True
-        )
+        self._validate_target_object(object_id, expect_grid_object=True)
 
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.FETCHED | State.RESETTED:
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot present object "
+                    f"Cannot present object "
                     f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -828,28 +791,24 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         await self.plan_and_execute(
             goal="present",
-            group_name=group_name,
             cache_trajectories=cache_trajectories,
         )
-        self._manipulation_state[group_name] = State.NEEDS_RESET
+        self._manipulation_state = State.NEEDS_RESET
 
     async def _unpresent_object_impl(
-        self, object_id: str, group_name: str, *, cache_trajectories=True
+        self, object_id: str, *, cache_trajectories=True
     ):
-        self.log(f"Unpresenting object {object_id} with robot {group_name}")
+        self.log(f"Unpresenting object {object_id}")
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=True
-        )
+        self._validate_target_object(object_id, expect_grid_object=True)
 
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.FETCHED | State.NEEDS_RESET:
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot unpresent object "
-                    f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    f"Cannot unpresent object from current state: {unexpected.name}",
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -858,7 +817,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         await self.plan_and_execute(
             goal="fetched",
-            group_name=group_name,
             cache_trajectories=cache_trajectories,
         )
         # No change of state necessary
@@ -866,32 +824,28 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def _reset_object_impl(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ):
-        self.log(f"Resetting object {object_id} with robot {group_name}")
+        self.log(f"Resetting object {object_id}")
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=True
-        )
+        self._validate_target_object(object_id, expect_grid_object=True)
 
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.NEEDS_RESET:
                 pre_reset_allow_collisions = False
             case State.PRE_RESET:
                 pre_reset_allow_collisions = True
             # case State.POST_FETCH | State.FETCHED | State.RESETTED:
             #     self.log(
-            #         f"No need to reset object {object_id} from current state ({self._manipulation_state[group_name]}), skipping",
+            #         f"No need to reset object {object_id} from current state ({self._manipulation_state}), skipping",
             #         severity="WARN",
             #     )
             #     return
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot reset object "
-                    f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    f"Cannot reset object from current state: {unexpected.name}",
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -901,7 +855,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Retrieve reset config
         config = self._get_reset_config(object_id)
         if config is None:
-            self._manipulation_state[group_name] = State.RESETTED
+            self._manipulation_state = State.RESETTED
             return
         assert config.reset_request.planning_pipeline == "linear"
 
@@ -911,13 +865,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if not pre_reset_allow_collisions:
             kwargs = await self.plan_and_execute(
                 goal=config.start_goal,
-                group_name=group_name,
                 cache_trajectories=False,
             )
             if cache_trajectories and kwargs is not None:
                 cache_kwargs.extend(kwargs)
 
-            self._manipulation_state[group_name] = State.PRE_RESET
+            self._manipulation_state = State.PRE_RESET
 
         # Plan and execute reset path with allowed collisions
         collisions_to_allow: list[tuple[str, str]] = []
@@ -932,14 +885,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             collisions_to_allow.extend(config.additional_allowed_collisions)
 
         if len(collisions_to_allow) > 0:
-            modified_collisions = self.allow_collision(
+            modified_collisions = self._moveit.allow_collision(
                 *zip(*collisions_to_allow)
             )
         try:
             if pre_reset_allow_collisions:
                 await self.plan_and_execute(
                     goal=config.start_goal,
-                    group_name=group_name,
+                    group_name=self.group_name,
                     planning_pipeline="linear",
                     cache_trajectories=False,
                 )
@@ -949,12 +902,12 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         finally:
             if len(modified_collisions) > 0:
-                self.disallow_collision(*zip(*modified_collisions))
+                self._moveit.disallow_collision(*zip(*modified_collisions))
 
         if cache_trajectories and kwargs is not None:
             cache_kwargs.extend(kwargs)
 
-        self._manipulation_state[group_name] = State.RESETTED
+        self._manipulation_state = State.RESETTED
 
         # Cache all trajectories if requested
         if len(cache_kwargs) > 0:
@@ -963,17 +916,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def _return_object_impl(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ) -> None:
-        self.log(f"Returning object {object_id} with robot {group_name}")
+        self.log(f"Returning object {object_id}")
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=True
-        )
+        self._validate_target_object(object_id, expect_grid_object=True)
 
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.IDLE:
                 self.log(
                     "Already at IDLE state, skipping return",
@@ -987,9 +937,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 | State.POST_ATTACH
                 | State.POST_FETCH
             ):
-                fetch_progress = (
-                    self._manipulation_state[group_name] - State.PRE_FETCH
-                )
+                fetch_progress = self._manipulation_state - State.PRE_FETCH
                 next_state = State(State.POST_RETURN - fetch_progress)
             case State.FETCHED | State.RESETTED:
                 next_state = State.PRE_RETURN
@@ -1001,14 +949,13 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 | State.POST_RETURN
             ):
                 next_state = State(
-                    (self._manipulation_state[group_name] + 1)
-                    % (State.POST_RETURN + 1)
+                    (self._manipulation_state + 1) % (State.POST_RETURN + 1)
                 )
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot return object "
+                    f"Cannot return object "
                     f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -1022,21 +969,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
         # Iterate through the fetch states
-        while self._manipulation_state[group_name] != State.IDLE:
+        while self._manipulation_state != State.IDLE:
             kwargs = await self._fetch_or_return_transition(
-                object_id, group_name, next_state
+                object_id, next_state
             )
 
-            self._manipulation_state[group_name] = next_state
+            self._manipulation_state = next_state
             next_state = State(
-                (self._manipulation_state[group_name] + 1)
-                % (State.POST_RETURN + 1)
+                (self._manipulation_state + 1) % (State.POST_RETURN + 1)
             )
 
-            if self._manipulation_state[group_name] == State.IDLE:
-                self._current_manipulation_id[group_name] = None
+            if self._manipulation_state == State.IDLE:
+                self._current_manipulation_id = None
 
-            self._validate_manipulation_state(group_name)
+            self._validate_manipulation_state()
 
             if cache_trajectories and kwargs is not None:
                 cache_kwargs.extend(kwargs)
@@ -1052,26 +998,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         cache_trajectories: bool = True,
         **kwargs: Any,
     ) -> list[TrajectoryCacheKwargs] | None:
-        group_name: str
-        if request is not None:
-            group_name = request.group_name
-        elif "group_name" in kwargs:
-            group_name = kwargs["group_name"]
-        else:
-            raise TypeError(
-                "plan_and_move missing required group_name (either in request or kwargs)"
-            )
-
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.IDLE | State.MANUALLY_ATTACHED:
                 needs_reset = False
             case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
                 needs_reset = True
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot plan_and_move "
-                    f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    f"Cannot plan_and_move from current state: {unexpected.name}",
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -1090,37 +1025,26 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             NotSafeToExecuteError,
         ):
             if needs_reset:
-                self._manipulation_state[group_name] = State.NEEDS_RESET
+                self._manipulation_state = State.NEEDS_RESET
             raise
 
         if needs_reset:
-            self._manipulation_state[group_name] = State.NEEDS_RESET
+            self._manipulation_state = State.NEEDS_RESET
 
         return result
 
     async def _move_impl(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
     ):
-        if isinstance(trajectory, RobotTrajectory):
-            group_name = trajectory.joint_model_group_name
-        else:
-            group_name = trajectory[0].joint_model_group_name
-
-            if any(x.joint_model_group_name != group_name for x in trajectory):
-                raise ValueError(
-                    "joint_model_group_name should be the same for all trajectories"
-                )
-
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.IDLE | State.MANUALLY_ATTACHED:
                 needs_reset = False
             case State.FETCHED | State.RESETTED | State.NEEDS_RESET:
                 needs_reset = True
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot move "
-                    f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    f"Cannot move from current state: {unexpected.name}",
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -1135,36 +1059,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             NotSafeToExecuteError,
         ):
             if needs_reset:
-                self._manipulation_state[group_name] = State.NEEDS_RESET
+                self._manipulation_state = State.NEEDS_RESET
             raise
 
         if needs_reset:
-            self._manipulation_state[group_name] = State.NEEDS_RESET
+            self._manipulation_state = State.NEEDS_RESET
 
-    async def _manually_attach_object_impl(
-        self, object_id: str, group_name: str
-    ):
-        self.log(
-            f"Manually attaching object {object_id} to robot {group_name}"
-        )
+    async def _manually_attach_object_impl(self, object_id: str):
+        self.log(f"Manually attaching object {object_id}")
 
-        if object_id in self.grid_objects_by_id:
-            raise NotImplementedError(
-                "Need to implement manually attached grid objects (maybe)"
-            )
+        self._validate_target_object(object_id, expect_grid_object=False)
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=False
-        )
-
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.IDLE:
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot manually attach object "
+                    f"Cannot manually attach object "
                     f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
@@ -1172,7 +1085,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 )
 
         # Get mesh path
-        mesh_dir = self.node.param("planning_scene.object_meshes.path")
+        mesh_dir = self.param("manually_attach.mesh_dir")
         mesh_paths = glob(os.path.join(mesh_dir, f"{object_id}.*"))
         if not mesh_paths:
             raise FileNotFoundError(
@@ -1184,70 +1097,55 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         mesh_path = mesh_paths[0]
 
-        self.add_mesh_collision_object(
+        self._moveit.add_mesh_collision_object(
             object_id,
             path=mesh_path,
-            pose_stamped=self.get_link_pose_stamped(
-                self.attach_link(group_name)
-            ),
-            **self.node.param("manually_attached_object_kwargs"),
+            pose_stamped=self._moveit.get_link_pose_stamped(self.attach_link),
+            **self.param("manually_attach.collision_object_kwargs"),
         )
-        self.attach_collision_object(
-            object_id,
-            self.attach_link(group_name),
-            touch_links=self.touch_links(group_name),
+        self._moveit.attach_collision_object(
+            object_id, self.attach_link, touch_links=self.touch_links
         )
 
-        self._current_manipulation_id[group_name] = object_id
-        self._manipulation_state[group_name] = State.MANUALLY_ATTACHED
+        self._current_manipulation_id = object_id
+        self._manipulation_state = State.MANUALLY_ATTACHED
 
-    async def _manually_detach_object_impl(
-        self, object_id: str, group_name: str
-    ):
-        self.log(
-            f"Manually detaching object {object_id} from robot {group_name}"
-        )
+    async def _manually_detach_object_impl(self, object_id: str):
+        self.log(f"Manually detaching object {object_id}")
 
-        if object_id in self.grid_objects_by_id:
-            raise NotImplementedError(
-                "Need to implement manually attached grid objects (maybe)"
-            )
+        self._validate_target_object(object_id, expect_grid_object=False)
 
-        self._validate_target_object(
-            object_id, group_name, expect_grid_object=False
-        )
-
-        match self._manipulation_state[group_name]:
+        match self._manipulation_state:
             case State.MANUALLY_ATTACHED:
                 pass
             case unexpected if isinstance(unexpected, State):
                 raise StateTransitionError(
-                    f"Robot {group_name} cannot manually detach object "
+                    f"Cannot manually detach object "
                     f"from current state: {unexpected.name}",
-                    group_name=group_name,
+                    group_name=self.group_name,
                 )
             case unexpected:
                 raise AssertionError(
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        self.detach_collision_object(object_id)
-        self.remove_collision_object(object_id)
+        self._moveit.detach_collision_object(object_id)
+        self._moveit.remove_collision_object(object_id)
 
-        self._current_manipulation_id[group_name] = None
-        self._manipulation_state[group_name] = State.IDLE
+        self._current_manipulation_id = None
+        self._manipulation_state = State.IDLE
 
     ###########################################################################
     ########## Object Manipulation User Interface #############################
     ###########################################################################
 
-    def current_manipulation_id(self, group_name: str) -> str | None:
-        return self._current_manipulation_id[group_name]
+    @property
+    def current_manipulation_id(self) -> str | None:
+        return self._current_manipulation_id
 
     async def fetch_object(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ) -> None:
@@ -1270,54 +1168,50 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._fetch_object_impl(
-                object_id, group_name, cache_trajectories=cache_trajectories
+                object_id, cache_trajectories=cache_trajectories
             )
 
-    async def present_object(
-        self, object_id: str, group_name: str, *, cache_trajectories=True
-    ):
+    async def present_object(self, object_id: str, *, cache_trajectories=True):
         """Present the object to the present pose
 
         Args:
             goal: The goal to present the object at
         """
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._present_object_impl(
-                object_id, group_name, cache_trajectories=cache_trajectories
+                object_id, cache_trajectories=cache_trajectories
             )
 
     async def unpresent_object(
-        self, object_id: str, group_name: str, *, cache_trajectories=True
+        self, object_id: str, *, cache_trajectories=True
     ):
         """Unpresent the currently attached object
 
         Args:
             goal: The goal to present the object at
         """
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._unpresent_object_impl(
-                object_id, group_name, cache_trajectories=cache_trajectories
+                object_id, cache_trajectories=cache_trajectories
             )
 
     async def reset_object(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ):
         """Perform the reset procedure for an object"""
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._reset_object_impl(
-                object_id, group_name, cache_trajectories=cache_trajectories
+                object_id, cache_trajectories=cache_trajectories
             )
 
     async def return_object(
         self,
         object_id: str,
-        group_name: str,
         *,
         cache_trajectories: bool = True,
     ) -> None:
@@ -1332,20 +1226,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             PlanningError: If the planning fails
             ExecutionError: If the execution fails
         """
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._return_object_impl(
-                object_id, group_name, cache_trajectories=cache_trajectories
+                object_id, cache_trajectories=cache_trajectories
             )
 
-    async def manually_attach_object(self, object_id: str, group_name: str):
+    async def manually_attach_object(self, object_id: str):
         """Manually attach collision object to the robot end effector."""
-        async with self._manipulation_context(group_name, wait=False):
-            await self._manually_attach_object_impl(object_id, group_name)
+        async with self.manipulation_context(wait=False):
+            await self._manually_attach_object_impl(object_id)
 
-    async def manually_detach_object(self, object_id: str, group_name: str):
+    async def manually_detach_object(self, object_id: str):
         """Manually detach collision object from the robot end effector."""
-        async with self._manipulation_context(group_name, wait=False):
-            await self._manually_detach_object_impl(object_id, group_name)
+        async with self.manipulation_context(wait=False):
+            await self._manually_detach_object_impl(object_id)
 
     async def plan_and_move(
         self,
@@ -1355,48 +1249,26 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         **kwargs: Any,
     ) -> list[TrajectoryCacheKwargs] | None:
         """TODO"""
-        group_name: str
-        if request is not None:
-            group_name = request.group_name
-        elif "group_name" in kwargs:
-            group_name = kwargs["group_name"]
-        else:
-            raise TypeError(
-                "plan_and_move missing required group_name (either in request or kwargs)"
-            )
-
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             return await self._plan_and_move_impl(
                 request, cache_trajectories=cache_trajectories, **kwargs
             )
 
     async def move(self, trajectory: RobotTrajectory | list[RobotTrajectory]):
         """TODO"""
-        if isinstance(trajectory, RobotTrajectory):
-            group_name = trajectory.joint_model_group_name
-        else:
-            group_name = trajectory[0].joint_model_group_name
-
-            if any(x.joint_model_group_name != group_name for x in trajectory):
-                raise ValueError(
-                    "joint_model_group_name should be the same for all trajectories"
-                )
-
-        async with self._manipulation_context(group_name, wait=False):
+        async with self.manipulation_context(wait=False):
             await self._move_impl(trajectory)
 
     ###########################################################################
     ########## Reset ##########################################################
     ###########################################################################
 
-    async def _test_object_attached(self, group_name: str):
+    async def _test_object_attached(self):
         self.log("Testing if an object is attached")
 
-        assert self._manipulation_state[group_name] == State.UNINITIALIZED
+        assert self._manipulation_state == State.UNINITIALIZED
 
-        config: dict[str, Any] = self.node.param(
-            "object_manipulation.test_object_attached"
-        )
+        config: dict[str, Any] = self.param("test_object_attached")
         goal: str = config["goal"]
         object_id: str = config["object_id"]
         topic: str = config["topic"]
@@ -1405,7 +1277,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         effort_threshold: float = config["effort_threshold"]
         greater_than: bool = config["greater_than"]
 
-        if joint_name not in self.current_state.joint_efforts:
+        if joint_name not in self._moveit.get_current_state().joint_efforts:
             raise RuntimeError(f"Unknown joint_name: {joint_name}")
 
         done_event = asyncio.Event()
@@ -1435,14 +1307,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 raise
 
         try:
-            self._manipulation_state[group_name] = State.IDLE
-            await self._manually_attach_object_impl(object_id, group_name)
+            self._manipulation_state = State.IDLE
+            await self._manually_attach_object_impl(object_id)
             try:
                 await self._plan_and_move_impl(
-                    goal=goal, group_name=group_name, cache_trajectories=False
+                    goal=goal, cache_trajectories=False
                 )
             finally:
-                await self._manually_detach_object_impl(object_id, group_name)
+                await self._manually_detach_object_impl(object_id)
 
             # Sleep to allow robot to stop
             await asyncio.sleep(1)
@@ -1477,7 +1349,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             else:
                 is_attached = avg_effort < effort_threshold
 
-            initial_object_id = self._init_attached_object(group_name)
+            initial_object_id = self._init_attached_object()
 
             if is_attached and initial_object_id is None:
                 raise RuntimeError(
@@ -1491,18 +1363,16 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
             return initial_object_id
         finally:
-            self._manipulation_state[group_name] = State.UNINITIALIZED
+            self._manipulation_state = State.UNINITIALIZED
 
-    async def _test_object_attached_eef(self, group_name: str):
+    async def _test_object_attached_eef(self):
         self.log("Testing if an object is attached")
 
-        assert self._manipulation_state[group_name] == State.UNINITIALIZED
+        assert self._manipulation_state == State.UNINITIALIZED
 
         dim_to_idx = {"x": 0, "y": 1, "z": 2}
 
-        config: dict[str, Any] = self.node.param(
-            "object_manipulation.test_object_attached"
-        )
+        config: dict[str, Any] = self.param("test_object_attached")
         goal: str = config["goal"]
         object_id: str = config["object_id"]
         topic: str = config["topic"]
@@ -1540,12 +1410,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 raise
 
         try:
-            self._manipulation_state[group_name] = State.IDLE
-            await self._manually_attach_object_impl(object_id, group_name)
-            await self._plan_and_move_impl(
-                goal=goal, group_name=group_name, cache_trajectories=False
-            )
-            await self._manually_detach_object_impl(object_id, group_name)
+            self._manipulation_state = State.IDLE
+            await self._manually_attach_object_impl(object_id)
+            await self._plan_and_move_impl(goal=goal, cache_trajectories=False)
+            await self._manually_detach_object_impl(object_id)
 
             # Sleep to allow robot to stop
             await asyncio.sleep(1)
@@ -1573,7 +1441,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             is_attached = (avg_force > force_threshold) or (
                 avg_torque > torque_threshold
             )
-            initial_object_id = self._init_attached_object(group_name)
+            initial_object_id = self._init_attached_object()
 
             if is_attached and initial_object_id is None:
                 raise RuntimeError(
@@ -1588,55 +1456,49 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             return initial_object_id
 
         finally:
-            self._manipulation_state[group_name] = State.UNINITIALIZED
+            self._manipulation_state = State.UNINITIALIZED
 
-    async def _reset_manipulation_impl(
-        self, group_name: str, *, reset_to_idle: bool
-    ):
-        self.log(f"Resetting object manipulation for robot {group_name}")
+    async def _reset_manipulation_impl(self, *, reset_to_idle: bool):
+        self.log("Resetting object manipulation")
 
         # Test if object is attached and
-        if self._manipulation_state[group_name] == State.UNINITIALIZED:
-            if self.node.param("simulate") or not self.node.param(
-                "object_manipulation.test_object_attached.enable"
-            ):
-                self._current_manipulation_id[group_name] = (
-                    self._init_attached_object(group_name)
+        if self._manipulation_state == State.UNINITIALIZED:
+            if self._simulate or not self.param("test_object_attached.enable"):
+                self._current_manipulation_id = self._init_attached_object()
+            else:
+                self._current_manipulation_id = (
+                    await self._test_object_attached()
                 )
-            else:
-                self._current_manipulation_id[
-                    group_name
-                ] = await self._test_object_attached(group_name)
 
-            if self._current_manipulation_id[group_name] is None:
-                self._manipulation_state[group_name] = State.IDLE
+            if self._current_manipulation_id is None:
+                self._manipulation_state = State.IDLE
             else:
-                self._manipulation_state[group_name] = State.NEEDS_RESET
+                self._manipulation_state = State.NEEDS_RESET
 
         # Reset and return object if attached
-        if self._manipulation_state[group_name] not in (
+        if self._manipulation_state not in (
             State.IDLE,
             State.MANUALLY_ATTACHED,
         ):
-            object_id = self._current_manipulation_id[group_name]
+            object_id = self._current_manipulation_id
             assert object_id is not None
 
             # Handle case where robot may be stuck in detach state
-            if self._manipulation_state[group_name] == State.DETACH:
+            if self._manipulation_state == State.DETACH:
                 try:
                     await self._fetch_or_return_transition(
-                        object_id, group_name, State.ATTACH
+                        object_id, State.ATTACH
                     )
-                    self._manipulation_state[group_name] = State.ATTACH
+                    self._manipulation_state = State.ATTACH
                     await self._fetch_or_return_transition(
-                        object_id, group_name, State.POST_ATTACH
+                        object_id, State.POST_ATTACH
                     )
-                    self._manipulation_state[group_name] = State.POST_ATTACH
+                    self._manipulation_state = State.POST_ATTACH
                 except (
                     ExecutionRejectedError,
                     ExecutionInterruptedError,
                 ) as e:
-                    if self.node.param("simulate"):
+                    if self._simulate:
                         raise
                     else:
                         raise RuntimeError(
@@ -1644,27 +1506,23 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                         ) from e
 
             # Reset object if needed
-            elif self._manipulation_state[group_name] in (
+            elif self._manipulation_state in (
                 State.NEEDS_RESET,
                 State.PRE_RESET,
             ):
                 await self._reset_object_impl(
-                    object_id, group_name, cache_trajectories=False
+                    object_id, cache_trajectories=False
                 )
 
             # Return object
-            await self._return_object_impl(
-                object_id, group_name, cache_trajectories=False
-            )
+            await self._return_object_impl(object_id, cache_trajectories=False)
 
         if reset_to_idle:
             await self._plan_and_move_impl(
-                goal="idle", group_name=group_name, cache_trajectories=False
+                goal="idle", cache_trajectories=False
             )
 
-    async def reset_manipulation(
-        self, group_name: str, *, reset_to_idle: bool
-    ) -> None:
+    async def reset_manipulation(self, *, reset_to_idle: bool = True) -> None:
         """Reset robot manipulation state.
 
         If manipulating a grid object (aka not a manually attached object),
@@ -1673,7 +1531,5 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Then, move to idle position.
         """
         # TODO: Maybe change wait to True here
-        async with self._manipulation_context(group_name, wait=False):
-            await self._reset_manipulation_impl(
-                group_name, reset_to_idle=reset_to_idle
-            )
+        async with self.manipulation_context(wait=False):
+            await self._reset_manipulation_impl(reset_to_idle=reset_to_idle)

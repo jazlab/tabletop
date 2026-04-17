@@ -36,7 +36,6 @@ import argparse
 import os
 import threading
 from collections import deque
-from collections.abc import Mapping, MutableMapping
 from copy import copy
 from enum import Enum
 from typing import Any
@@ -81,6 +80,7 @@ from tabletop_py.gaze.utils import (
     init_model,
     load_model_weights,
 )
+from tabletop_py.utils.common import dict_update_recursive
 from tabletop_rig.executors import ErrorHandlingMultiThreadedExecutor
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import seconds_from_ros_time
@@ -165,15 +165,6 @@ class EyelinkMessageQueue:
         """Remove all messages from the queue (thread-safe)."""
         with self.lock:
             self.queue.clear()
-
-
-def dict_update_recursive(d: MutableMapping, u: Mapping):
-    for k, v in u.items():
-        if isinstance(v, Mapping):
-            d[k] = dict_update_recursive(d.get(k, {}), v)
-        else:
-            d[k] = v
-    return d
 
 
 class Eyelink(BaseNode):
