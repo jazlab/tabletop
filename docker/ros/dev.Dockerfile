@@ -27,13 +27,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # nvm install 24
 # EOT
 
-# Install npm packages globally
-# RUN \. "$HOME/.nvm/nvm.sh" && npm install -g @google/gemini-cli opencode-ai
-
-
-# Install claude code
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
 ARG TARGETARCH
 
 # Install Neovim

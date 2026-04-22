@@ -569,6 +569,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Returns:
             The goal for the given state and object.
         """
+        if state == State.PRE_RETURN and object_id in self._post_fetch_states:
+            return self._post_fetch_states[object_id]
+
         goal_name = MANIPULATION_STATE_GOAL_NAME[state]
         param_name = f"manipulation_state_goals.object_overrides.{object_id}.{goal_name}"
         goal_config: dict[str, Any]
@@ -654,6 +657,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 State.PRE_ATTACH
                 | State.ATTACH
                 | State.POST_ATTACH
+                | State.POST_FETCH
+                | State.PRE_DETACH
                 | State.DETACH
                 | State.POST_DETACH
                 | State.POST_RETURN

@@ -480,6 +480,7 @@ class PlanAndExecuteInterface(BaseInterface):
             request_params = PlanRequestParameters(
                 self._moveit.moveit_py, request.planning_pipeline
             )
+            print(request_params.planning_time)
             if request.planning_time is not None:
                 request_params.planning_time = request.planning_time
         else:

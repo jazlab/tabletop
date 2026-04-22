@@ -181,8 +181,8 @@ def declare_arguments():
             "trajectory_port": "50013",
             "tool_tcp_port": "54322",
             # "base_origin_xyz": "0.7 1.0625 0.3085",
-            "base_origin_xyz": "0.6025 1.0625 0.3085",
-            # "base_origin_xyz": "0.5566 0.7215 0.3085",
+            # "base_origin_xyz": "0.6025 1.0625 0.3085",
+            "base_origin_xyz": "0.5566 0.7215 0.3085",
             "base_origin_rpy": "0.0 0.0 1.5707",
         },
         "right": {
@@ -193,8 +193,8 @@ def declare_arguments():
             "trajectory_port": "50003",
             "tool_tcp_port": "54321",
             # "base_origin_xyz": "1.2554 1.0625 0.3085",
-            "base_origin_xyz": "1.3025 1.0625 0.3085",
-            # "base_origin_xyz": "1.3484 0.7215 0.3085",
+            # "base_origin_xyz": "1.3025 1.0625 0.3085",
+            "base_origin_xyz": "1.3484 0.7215 0.3085",
             "base_origin_rpy": "0.0 0.0 -1.5707",
         },
     }

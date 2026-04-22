@@ -535,12 +535,7 @@ class MoveItInterface(BaseInterface):
                         )
 
         # Dynamic collision objects
-        hash_algorithm.update(
-            json.dumps(
-                config["object_meshes"]["grid_origin"], sort_keys=True
-            ).encode("utf-8")
-        )
-        keys_to_hash = ["rel_pose", "correction", "scale"]
+        keys_to_hash = ["pose_stamped", "correction", "scale"]
         for kwargs in config["object_meshes"]["object_kwargs"].values():
             for key in keys_to_hash:
                 if key in kwargs:
@@ -1075,28 +1070,20 @@ class MoveItInterface(BaseInterface):
         self,
         *,
         path: str,
-        grid_origin: PoseStamped | Mapping[str, Any],
         common_kwargs: dict[str, Any],
         object_kwargs: dict[str, dict[str, Any]],
     ):
-        """Add grid object meshes as collision objects to the planning scene.
+        """Add object meshes as collision objects to the planning scene.
 
-        Loads meshes from a directory and adds them in a grid
-        pattern based on the their index and the origin and delta.
+        Loads meshes from a directory and adds them using the global
+        pose_stamped specified for each object.
 
         Args:
             path: The directory path to the object meshes.
-            origin: The origin of the object meshes.
-            delta: The delta of the object meshes in the x, y, and z directions.
             common_kwargs: The common kwargs for the object meshes.
-            object_kwargs: The object kwargs for the object meshes.
+            object_kwargs: The object kwargs for the object meshes, keyed
+                by grid index (e.g., "0,0").
         """
-        # Get object origin and delta to calculate object position from index
-        if not isinstance(grid_origin, PoseStamped):
-            grid_origin = self.create_pose_stamped(**grid_origin)
-        grid_origin_matrix = matrix_from_pose_msg(grid_origin.pose)
-        origin_matrix = self.get_frame_transform(self.planning_frame)
-
         # Get object meshes paths
         if not os.path.isdir(path):
             if not os.path.exists(path):
@@ -1148,18 +1135,9 @@ class MoveItInterface(BaseInterface):
             kwargs: dict[str, Any] = deepcopy(common_kwargs)
             kwargs.update(overrides)
 
-            # Calculate global pose from relative pose and grid origin
-            rel_pose = kwargs.pop("rel_pose")
-            if not isinstance(rel_pose, Pose):
-                rel_pose = pose_msg(**rel_pose)
-            rel_pose_stamped = pose_stamped_msg(pose=rel_pose)
-
-            pose_stamped = change_reference_frame_pose_stamped(
-                old_pose_stamped=rel_pose_stamped,
-                old_frame_transform=grid_origin_matrix,
-                new_frame_transform=origin_matrix,
-                new_frame_id=self.planning_frame,
-            )
+            pose_stamped = kwargs.pop("pose_stamped")
+            if not isinstance(pose_stamped, PoseStamped):
+                pose_stamped = self.create_pose_stamped(**pose_stamped)
 
             try:
                 mesh_path = object_id_to_path[object_id]

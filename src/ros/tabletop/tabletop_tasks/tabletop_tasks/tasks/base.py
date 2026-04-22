@@ -35,6 +35,7 @@ from tabletop_rig.exceptions import ManipulationContextExitedError
 from tabletop_rig.nodes import Commander
 from tabletop_rig.nodes.commander import ManipulationContextManager
 from tabletop_rig.utils.logging import LoggerMixin
+from tabletop_rig.utils.ros import get_joint_group_positions
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
@@ -218,22 +219,18 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     await manipulator.reset_manipulation()
 
                 await manipulator.fetch_object(trial_spec.object_id)
-                pose = self.commander._moveit.get_link_pose_stamped(
-                    manipulator._manipulator.attach_link
-                )
-                self.log("-" * 100)
-                self.log_ros_msg(
-                    pose, title=f"Robot {trial_spec.group_name} fetch pose:"
-                )
-                self.log("-" * 100)
 
                 await self._trial_lock.acquire()
                 presented = True
 
                 await manipulator.present_object(trial_spec.object_id)
                 self.log("-" * 100)
-                self.log_ros_msg(
-                    pose, title=f"Robot {trial_spec.group_name} fetch pose:"
+                joint_positions = get_joint_group_positions(
+                    self.commander._moveit.get_current_state(),
+                    trial_spec.group_name,
+                )
+                self.log(
+                    f"Robot {trial_spec.group_name} present state: {joint_positions}"
                 )
                 self.log("-" * 100)
                 await manipulator.plan_and_move(

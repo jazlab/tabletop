@@ -335,7 +335,7 @@ class ManipulationContextManager(BaseInterface):
 
     @ensure_context
     @handle_interruptions
-    async def reset_manipulation(self, *, reset_to_idle: bool = True) -> None:
+    async def reset_manipulation(self, *, reset_to_idle: bool = False) -> None:
         """Reset robot manipulation state.
 
         If manipulating a grid object (aka not a manually attached object),

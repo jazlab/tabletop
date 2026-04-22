@@ -33,6 +33,22 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: world
       Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Tree:
+        {}
+      Update Interval: 0
+      Value: false
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Optitrack Markers
@@ -73,7 +89,23 @@ Visualization Manager:
       Enabled: true
       Name: Display Contacts
       Namespaces:
-        {}
+        left_forearm_link=robot_divider: true
+        left_forearm_link=small_object_1: true
+        left_forearm_link=small_object_4: true
+        left_forearm_link=small_object_7: true
+        left_upper_arm_link=robot_divider: true
+        left_wrist_1_link=rig: true
+        left_wrist_1_link=small_object_1: true
+        left_wrist_1_link=small_object_10: true
+        left_wrist_1_link=small_object_4: true
+        left_wrist_1_link=small_object_7: true
+        rig=right_eef_sphere: true
+        right_forearm_link=small_object_25: true
+        right_forearm_link=small_object_28: true
+        right_wrist_1_link=rig: true
+        right_wrist_1_link=small_object_22: true
+        right_wrist_1_link=small_object_25: true
+        right_wrist_1_link=small_object_28: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -437,25 +469,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.739114761352539
+      Distance: 5.2021565437316895
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.8883512020111084
-        Y: 0.5427420735359192
-        Z: 0.3607841730117798
+        X: 0.9045069217681885
+        Y: 1.213905692100525
+        Z: 0.3120221495628357
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4029245376586914
+      Pitch: 0.4401569962501526
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.932307720184326
+      Yaw: 4.228687763214111
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051

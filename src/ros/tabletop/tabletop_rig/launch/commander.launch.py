@@ -149,21 +149,21 @@ def save_commander_overrides_fn(context, path: str):
     # Clear cache
     new_cache = LaunchConfiguration("new_cache").perform(context)
     if new_cache != "null":
-        commander_overrides["trajectory_cache.kwargs.new_cache"] = (
-            new_cache == "true"
-        )
+        commander_overrides[
+            "common_manipulation_interface.trajectory_cache.kwargs.new_cache"
+        ] = new_cache == "true"
 
     # Use cache
     use_cache = LaunchConfiguration("use_cache").perform(context)
     if use_cache != "null":
-        commander_overrides["trajectory_cache.use_cached_trajectories"] = (
-            use_cache == "true"
-        )
+        commander_overrides[
+            "common_manipulation_interface.trajectory_cache.use_cached_trajectories"
+        ] = use_cache == "true"
 
     # Use sound
     use_sound = LaunchConfiguration("use_sound").perform(context)
     if use_sound != "null":
-        commander_overrides["sound.enable"] = use_sound == "true"
+        commander_overrides["sound_interface.enable"] = use_sound == "true"
 
     # Initial attached object
     for prefix in ["left_", "right_"]:

@@ -43,15 +43,15 @@
       <joint name="left_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="fetched" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="0.2" />
-      <joint name="left_shoulder_lift_joint" value="${-pi/2}" />
-      <joint name="left_elbow_joint" value="${-pi/2}" />
-      <joint name="left_wrist_1_joint" value="${-pi/2}" />
+      <joint name="left_shoulder_pan_joint" value="0" />
+      <joint name="left_shoulder_lift_joint" value="${-pi/6}" />
+      <joint name="left_elbow_joint" value="${-2*pi/3}" />
+      <joint name="left_wrist_1_joint" value="${-2*pi/3}" />
       <joint name="left_wrist_2_joint" value="${-pi/2}" />
       <joint name="left_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="present" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="0.553" />
+      <joint name="left_shoulder_pan_joint" value="1.1485" />
       <joint name="left_shoulder_lift_joint" value="-2.4295" />
       <joint name="left_elbow_joint" value="-1.5077" />
       <joint name="left_wrist_1_joint" value="-0.7742" />
@@ -77,10 +77,10 @@
       <joint name="right_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="fetched" group="right_manipulator">
-      <joint name="right_shoulder_pan_joint" value="-0.2" />
-      <joint name="right_shoulder_lift_joint" value="${-pi/2}" />
-      <joint name="right_elbow_joint" value="${pi/2}" />
-      <joint name="right_wrist_1_joint" value="${-pi/2}" />
+      <joint name="right_shoulder_pan_joint" value="0" />
+      <joint name="right_shoulder_lift_joint" value="${-5*pi/6}" />
+      <joint name="right_elbow_joint" value="${2*pi/3}" />
+      <joint name="right_wrist_1_joint" value="${-pi/3}" />
       <joint name="right_wrist_2_joint" value="${pi/2}" />
       <joint name="right_wrist_3_joint" value="${pi}" />
     </group_state>

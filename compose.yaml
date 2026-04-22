@@ -346,8 +346,6 @@ services:
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
       - python-venv:/tabletop/.venv
-      - ~/.claude:/home/$USER_NAME/.claude
-      - ~/.claude.json:/home/$USER_NAME/.claude.json
       - $KITTY_LISTEN_ON_MNT
     environment:
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
