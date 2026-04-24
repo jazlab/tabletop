@@ -25,7 +25,7 @@ dependencies = [
   "torcheval>=0.0.7",
   "tqdm>=4.67.1",
   "transformations>=2025.8.1",
-  "trimesh[easy]>=4.7.4",
+  "trimesh[easy,recommend]>=4.7.4",
 ]
 
 [project.scripts]

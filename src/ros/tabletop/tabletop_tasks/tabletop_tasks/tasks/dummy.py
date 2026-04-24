@@ -19,10 +19,6 @@ from tabletop_interfaces.srv import Ping
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
-    change_reference_frame_pose,
-    matrix_from_pose_msg,
-    pose_msg,
-    pose_stamped_msg,
     seconds_from_ros_time,
 )
 
@@ -50,66 +46,28 @@ class DummyTask(BaseTask):
         """
         super().__init__("dummy_task", commander)
 
-    async def test_robot_position(self) -> None:
+    async def test_link_position(self) -> None:
         """Test method for debugging object grid positioning.
 
         Continuously logs the end-effector position relative to the
         grid origin. Useful for calibrating object placement.
         """
-        goal = pose_stamped_msg(
-            pose={"position": [0.9525, 0.4, 0.4], "rpy": [1.5707, 1.5707, 0.0]}
-        )
-        group_name = "right_manipulator"
-        await self.commander.plan_and_move(goal=goal, group_name=group_name)
+        link_names = ["left_eef", "right_eef"]
         while True:
-            pose_stamped = self.commander.moveit.get_link_pose_stamped(
-                self.commander.moveit.default_pose_link(group_name)
-            )
-            position, euler = arrays_from_pose_msg(
-                pose_stamped.pose, euler=True
-            )
-            position = position + np.array([0.0, -0.017, 0.0315])
-            self.commander.log(
-                f"Eef pose in {pose_stamped.header.frame_id} frame: "
-                f"{position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
-            )
-            await asyncio.sleep(1.0)
-
-    async def test_grid_position(self) -> None:
-        """Test method for debugging object grid positioning.
-
-        Continuously logs the end-effector position relative to the
-        grid origin. Useful for calibrating object placement.
-        """
-        grid_origin_kwargs = self.commander.param(
-            "planning_scene.object_meshes.grid_origin"
-        )
-        grid_origin = pose_msg(**grid_origin_kwargs)
-        grid_origin_matrix = matrix_from_pose_msg(grid_origin)
-        position, euler = arrays_from_pose_msg(grid_origin, euler=True)
-        self.commander.log(
-            f"Object grid origin position: {position.round(4)}, euler: {euler.round(4)}"
-        )
-
-        group_name = "left_manipulator"
-
-        while True:
-            pose_stamped = self.commander.moveit.get_link_pose_stamped(
-                self.commander.moveit.default_pose_link(group_name)
-            )
-            old_frame_transform = self.commander.moveit.get_frame_transform(
-                pose_stamped.header.frame_id
-            )
-            rel_pose = change_reference_frame_pose(
-                old_pose=pose_stamped.pose,
-                old_frame_transform=old_frame_transform,
-                new_frame_transform=grid_origin_matrix,
-            )
-            position, euler = arrays_from_pose_msg(rel_pose, euler=True)
-            self.commander.log(
-                f"Eef relative position: {position.round(4).tolist()}, euler: {euler.round(4).tolist()}"
-            )
-            await asyncio.sleep(1.0)
+            for link_name in link_names:
+                pose_stamped = self.commander._moveit.get_link_pose_stamped(
+                    link_name
+                )
+                position, euler = arrays_from_pose_msg(
+                    pose_stamped.pose, euler=True
+                )
+                # position = position + np.array([0.0, -0.017, 0.0315])
+                self.commander.log(
+                    f"Pose of {link_name} in {pose_stamped.header.frame_id} frame:\n"
+                    f"position: {position.round(4).tolist()}\n"
+                    f"rpy: {euler.round(4).tolist()}"
+                )
+            await asyncio.sleep(5.0)
 
     async def test_teensy_latency(self):
         client = self.commander.create_client(
@@ -178,7 +136,7 @@ class DummyTask(BaseTask):
             bd_addr = self.commander.param(f"flic.bd_addrs.small_object_{i}")
 
             start_time = self.commander.ros_time()
-            reported_rt = await self.commander.flic.response_time(bd_addr)
+            reported_rt = await self.commander._flic.response_time(bd_addr)
             assert reported_rt is not None
             reported_latency = reported_rt - start_time
             total_latency = self.commander.ros_time() - start_time
@@ -230,7 +188,7 @@ class DummyTask(BaseTask):
                 async with asyncio.TaskGroup() as tg:
                     start_time = self.commander.ros_time()
                     flic_task = tg.create_task(
-                        self.commander.flic.response_time(bd_addr)
+                        self.commander._flic.response_time(bd_addr)
                     )
 
                     await asyncio.sleep(2.0)
@@ -274,12 +232,12 @@ class DummyTask(BaseTask):
                     bd_addr = self.commander.param(
                         f"flic.bd_addrs.small_object_{i}"
                     )
-                    flic_time = await self.commander.flic.response_time(
+                    flic_time = await self.commander._flic.response_time(
                         bd_addr
                     )
                     assert flic_time is not None
 
-                    teensy_time_msg = self.commander.teensy.last_teensy_sensor.button_last_time_pressed
+                    teensy_time_msg = self.commander._teensy.last_teensy_sensor.button_last_time_pressed
                     teensy_time = (
                         float(Time.from_msg(teensy_time_msg).nanoseconds) / 1e9
                     )
@@ -327,38 +285,15 @@ class DummyTask(BaseTask):
             await self.commander.play_sound()
             await asyncio.sleep(1)
 
-    async def test_dual(self):
-        while True:
-            for goal in ["idle", "fetched"]:
-                async with asyncio.TaskGroup() as tg:
-                    tg.create_task(
-                        self.commander.plan_and_move(
-                            goal=goal,
-                            group_name="left_manipulator",
-                            cache_trajectories=False,
-                            use_cache=False,
-                        )
-                    )
-                    tg.create_task(
-                        self.commander.plan_and_move(
-                            goal=goal,
-                            group_name="right_manipulator",
-                            cache_trajectories=False,
-                            use_cache=False,
-                        )
-                    )
-
     async def run(self) -> None:
         """Run one or more of the tests"""
-        async with self.commander:
-            # await self.test_teensy_latency()
-            # await self.test_robot_position()
-            await self.test_grid_position()
-            # await self.test_flic_latency_pre_pressed()
-            # await self.test_flic_latency_human()
-            # await self.test_flic_latency_button()
-            # await self.test_optitrack_latency_solenoid()
-            # await self.test_robot_position()
-            # await self.test_sound()
-            # await self.test_smooth_pursuit()
-            # await self.test_dual()
+        # await self.test_teensy_latency()
+        await self.test_link_position()
+        # await self.test_flic_latency_pre_pressed()
+        # await self.test_flic_latency_human()
+        # await self.test_flic_latency_button()
+        # await self.test_optitrack_latency_solenoid()
+        # await self.test_robot_position()
+        # await self.test_sound()
+        # await self.test_smooth_pursuit()
+        # await self.test_dual()

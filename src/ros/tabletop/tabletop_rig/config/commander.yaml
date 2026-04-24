@@ -290,78 +290,78 @@
         primitives:
           robot_platform:
             type: BOX
-            dimensions: [ 0.92, 0.92, 0.31 ]
+            dimensions: [ 0.914, 0.914, 0.3085 ]
             pose_stamped:
-              position: [ 0.9525, 1.0625, 0.155 ]
+              position: [ 0.9525, 1.0845, 0.15425 ]
             allowed_collision_ids:
               - left_base_link_inertia
               - right_base_link_inertia
             color: [ 1.0, 1.0, 1.0, 0.5 ]
           robot_divider:
             type: BOX
-            dimensions: [ 0.001, 0.72, 1.0 ]
+            dimensions: [ 0.001, 0.714, 1.0 ]
             pose_stamped:
-              position: [ 0.915, 1.1625, 0.81 ]
+              position: [ 0.9525, 1.1845, 0.8085 ]
             color: [ 1.0, 0.0, 0.0, 0.3 ]
           projector_safety_box:
             type: BOX
-            dimensions: [ 0.5, 0.3, 1.9812 ]
+            dimensions: [ 0.5, 0.3, 1.25 ]
             pose_stamped:
-              position: [ 1.655, 0.15, 0.9906 ]
+              position: [ 1.655, 0.15, 0.625 ]
             color: [ 1.0, 0.0, 0.0, 0.1 ]
           optitrack_safety_box:
             type: BOX
-            dimensions: [ 1.905, 0.5, 0.2 ]
+            dimensions: [ 1.8288, 0.5, 0.2 ]
             pose_stamped:
               position: [ 0.9525, 0.25, 1.2845 ]
             color: [ 1.0, 0.0, 0.0, 0.1 ]
           floor:
             type: BOX
-            dimensions: [ 2.0, 2.0, 0.0 ]
+            dimensions: [ 1.8288, 1.8288, 0.0 ]
             pose_stamped:
-              position: [ 1.0, 1.0, 0.0 ]
+              position: [ 0.9525, 0.9779, 0.0 ]
             color: [ 1.0, 1.0, 1.0, 0.1 ]
           front_wall:
             type: BOX
-            dimensions: [ 2.0, 0.0, 2.0 ]
+            dimensions: [ 1.8288, 0.0, 2.0 ]
             pose_stamped:
-              position: [ 1.0, 0.0635, 1.0 ]
+              position: [ 0.9525, 0.0635, 1.0 ]
             color: [ 1.0, 1.0, 1.0, 0.1 ]
           back_wall:
             type: BOX
-            dimensions: [ 2.0, 0.0, 2.0 ]
+            dimensions: [ 1.8288, 0.0, 2.0 ]
             pose_stamped:
-              position: [ 1.0, 1.8923, 1.0 ]
+              position: [ 0.9525, 1.8923, 1.0 ]
             color: [ 1.0, 1.0, 1.0, 0.1 ]
           left_wall:
             type: BOX
-            dimensions: [ 0.0, 2.0, 2.0 ]
+            dimensions: [ 0.0, 1.8288, 2.0 ]
             pose_stamped:
-              position: [ 0.0381, 1.0, 1.0 ]
+              position: [ 0.0381, 0.9779, 1.0 ]
             color: [ 1.0, 1.0, 1.0, 0.1 ]
           right_wall:
             type: BOX
-            dimensions: [ 0.0, 2.0, 2.0 ]
+            dimensions: [ 0.0, 1.8288, 2.0 ]
             pose_stamped:
-              position: [ 1.8669, 1.0, 1.0 ]
+              position: [ 1.8669, 0.9779, 1.0 ]
             color: [ 1.0, 1.0, 1.0, 0.1 ]
           left_drawer_station:
             type: BOX
             dimensions: [ 0.1, 0.2, 1.0 ]
             pose_stamped:
-              position: [ 0.05, 1.0, 0.5 ]
+              position: [ 0.0881, 1.0, 0.5 ]
             color: [ 0.0, 0.0, 1.0, 0.5 ]
           right_drawer_station:
             type: BOX
             dimensions: [ 0.1, 0.2, 1.0 ]
             pose_stamped:
-              position: [ 1.85, 1.0, 0.5 ]
+              position: [ 1.8169, 1.0, 0.5 ]
             color: [ 0.0, 0.0, 1.0, 0.5 ]
         rig_meshes:
           rig:
             pose_stamped:
               position: [ 0.0, 0.0, 0.0 ]
-            path: $(find-pkg-share tabletop_rig)/meshes/rig/rig2.dae
+            path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
             simplification: bounding_primitive
             allowed_collision_ids:
               - left_base_link_inertia
@@ -552,9 +552,12 @@
               object_id: small_object_29
               color: [ 0.5, 0.25, 0.75, 0.5 ] # lavender
               pose_stamped:
-                position: [ 1.5882, 1.3572, 1.035 ]
-                rpy: [ -1.5707, 1.5707, 0.0 ]
+                position: [ 1.6148, 1.3867, 1.0182 ]
+                rpy: [ 0.2495, 1.5611, 1.829 ]
           # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
-          # x width of rig = 1.8288
           # radius of robot_base ~= 0.075
-          # current_offset = array([ 0.00139239, -0.02443377,  0.06574952])
+          # center of
+          # width of rig (left base to right base): 1.905m (center 0.9525m)
+          # width of rig (left post to right post): 1.8288m (0.0381m - 1.8669m)
+          # length of rig (front base to back base): 1.9558m (center 0.9779m)
+          # length of rig (front post to back post): 1.8288m (0.0635m - 1.8923m)

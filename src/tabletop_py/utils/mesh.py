@@ -111,7 +111,9 @@ def load_geometry(
         )
 
     extension = os.path.splitext(path)[1]
-    if extension == ".dae":
+    if extension == ".stl":
+        geometry = trimesh.load_mesh(path)
+    else:
         geometry = trimesh.load_scene(path)
         if len(geometry.geometry) == 1:
             geometry = cast(trimesh.Trimesh, geometry.to_mesh())
@@ -119,12 +121,10 @@ def load_geometry(
             # Dump the scene to a new scene to "bake" any metadata
             # into each mesh
             geometry = trimesh.Scene(geometry.dump())
-    elif extension == ".stl":
-        geometry = trimesh.load_mesh(path)
-    else:
-        raise ValueError(
-            f"Unsupported mesh file extension '{extension}' for {path}"
-        )
+    # else:
+    #     raise ValueError(
+    #         f"Unsupported mesh file extension '{extension}' for {path}"
+    #     )
 
     if scale is not None:
         geometry = scale_geometry(geometry, scale)

@@ -16,16 +16,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     nodejs \
     npm
 
-# Install npm
-# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-#     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-#     <<EOT
-# set -e
-# sudo apt-get update
-# curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-# \. "$HOME/.nvm/nvm.sh"
-# nvm install 24
-# EOT
+# Install claude code
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 ARG TARGETARCH
 

@@ -238,6 +238,8 @@ This gets its own section because it's a pain in the ass.
     Please move the robot manually back into a valid configuration (might have to spin the
     joint fully around)
 
+3. If the robot position seems off with respect to the rig, the ground is always a good reference point
+
 ## Environment and Configuration
 
 1. If commands like `tt-build` or `tt-launch` aren't found, make sure you've
