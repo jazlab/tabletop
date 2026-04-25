@@ -1,17 +1,17 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [1.65, 1.0, 0.7]
-  rpy: [0.0, 0.0, 0.0]
+  position: [ 1.65, 1.0, 0.7 ]
+  rpy: [ 0.0, 0.0, 0.0 ]
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [1.75, 1.0, 0.7]
-      rpy: [0.0, 0.0, 0.0]
+      position: [ 1.7, 1.0, 0.7 ]
+      rpy: [ 0.0, 0.0, 0.0 ]
     - !PoseStamped
-      position: [1.65, 1.0, 0.7]
-      rpy: [0.0, 0.0, 0.0]
+      position: [ 1.65, 1.0, 0.7 ]
+      rpy: [ 0.0, 0.0, 0.0 ]
   acceleration_scaling_factor: 0.5
 object_allowed_collision_ids:
   - drawer_station
 additional_allowed_collisions:
-  - [right_eef_sphere, drawer_station]
+  - [ right_eef_sphere, drawer_station ]

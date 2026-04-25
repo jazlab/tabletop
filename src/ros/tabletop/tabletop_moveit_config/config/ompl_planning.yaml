@@ -63,8 +63,8 @@ planner_configs:
     goal_bias: 0.05 # When close to goal select goal, with this probability? default: 0.05
     max_states_failed: 10 # when to start increasing temp. default: 10
     temp_change_factor: 2.0 # how much to increase or decrease temp. default: 2.0
-    min_temperature: 10e-10 # lower limit of temp change. default: 10e-10
-    init_temperature: 10e-6 # initial temperature. default: 10e-6
+    min_temperature: 1e-9 # lower limit of temp change. default: 10e-10
+    init_temperature: 1e-5 # initial temperature. default: 10e-6
     frountier_threshold: 0.0 # dist new state to nearest neighbor to disqualify as frontier. default: 0.0 set in setup()
     frountierNodeRatio: 0.1 # 1/10, or 1 nonfrontier for every 10 frontier. default: 0.1
     k_constant: 0.0 # value used to normalize expression. default: 0.0 set in setup()
@@ -111,7 +111,7 @@ planner_configs:
     init_temperature: 100 # initial temperature. default: 100
     frountier_threshold: 0.0 # dist new state to nearest neighbor to disqualify as frontier. default: 0.0 set in setup()
     frountier_node_ratio: 0.1 # 1/10, or 1 nonfrontier for every 10 frontier. default: 0.1
-    cost_threshold: 1e300 # the cost threshold. Any motion cost that is not better will not be expanded. default: inf
+    cost_threshold: 1e+300 # the cost threshold. Any motion cost that is not better will not be expanded. default: inf
   LBTRRT:
     type: geometric::LBTRRT
     range: 0.0 # Max motion added to tree. ==> maxDistance_ default: 0.0, if 0.0, set on setup()
@@ -148,24 +148,38 @@ planner_configs:
     range: 30.0 # Max motion added to tree. ==> maxDistance_ default: 0.0, if 0.0, set on setup()
     goal_bias: 0.05 # When close to goal select goal, with this probability? default: 0.05
     delay_collision_checking: 1 # Stop collision checking as soon as C-free parent found. default 1
-  PersistentLazyPRMstar: # use this with a representative environment to create a roadmap
+  PersistentSPARStwo:
+    type: geometric::SPARStwo
+    stretch_factor: 3.0 # roadmap spanner stretch factor. multiplicative upper bound on path quality. It does not make sense to make this parameter more than 3. default: 3.0
+    sparse_delta_fraction: 0.25 # delta fraction for connection distance. This value represents the visibility range of sparse samples. default: 0.25
+    dense_delta_fraction: 0.001 # delta fraction for interface detection. default: 0.001
+    max_failures: 5000 # maximum consecutive failure limit. default: 5000
+    multi_query_planning_enabled: 1
+    store_planner_data: 1
+    load_planner_data: 1
+    planner_data_path: /tabletop/.cache/tabletop/spars2_roadmap.graph
+  PersistentLazyPRMstar:
+    # use this with a representative environment to create a roadmap
     type: geometric::LazyPRMstar
     multi_query_planning_enabled: 1
     store_planner_data: 1
-    load_planner_data: 0
-    planner_data_path: /tabletop/cache/roadmap.graph
-  PersistentLazyPRM: # use this to load a previously created roadmap
+    load_planner_data: 1
+    planner_data_path: /tabletop/.cache/tabletop/roadmap.graph
+  PersistentLazyPRM:
+    # use this to load a previously created roadmap
     type: geometric::LazyPRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 1
     planner_data_path: /tabletop/cache/roadmap.graph
-  SemiPersistentLazyPRMstar: # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
+  SemiPersistentLazyPRMstar:
+    # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
     type: geometric::LazyPRMstar
     multi_query_planning_enabled: 1
     store_planner_data: 0
     load_planner_data: 0
-  SemiPersistentLazyPRM: # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
+  SemiPersistentLazyPRM:
+    # reuses roadmap during lifetime of node but doesn't save/load roadmap to/from disk
     type: geometric::LazyPRM
     multi_query_planning_enabled: 1
     store_planner_data: 0
@@ -177,11 +191,13 @@ planner_configs:
     max_hybrid_paths: 8 # Number of hybrid paths generated per iteration
     num_planners: 4 # The number of default planners to use for planning
     termination_condition: CostConvergence[10,0.1]
-    planners:
-      "LazyPRMstar[multi_query_planning_enabled=0 store_planner_data=1 load_planner_data=1 planner_data_path=/tabletop/cache/roadmap.graph],\
-      LazyPRM[multi_query_planning_enabled=0 store_planner_data=0 load_planner_data=1 planner_data_path=/tabletop/cache/roadmap.graph],\
-      RRTstar[range=0.0 goal_bias=0.05 delay_collision_checking=1],\
-      RRTstar[range=0.0 goal_bias=0.05 delay_collision_checking=1]"
+    planners: "LazyPRMstar[multi_query_planning_enabled=0 store_planner_data=1
+      load_planner_data=1
+      planner_data_path=/tabletop/cache/roadmap.graph],LazyPRM[multi_query_plan\
+      ning_enabled=0 store_planner_data=0 load_planner_data=1
+      planner_data_path=/tabletop/cache/roadmap.graph],RRTstar[range=0.0
+      goal_bias=0.05 delay_collision_checking=1],RRTstar[range=0.0
+      goal_bias=0.05 delay_collision_checking=1]"
   APSRRTConnect:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
@@ -195,7 +211,7 @@ planner_configs:
   APSRRTstar:
     type: geometric::AnytimePathShortening
     shortcut: 1 # Attempt to shortcut all new solution paths
-    hybridize: 1 # Compute hybrid solution trajectories
+    hybridize: 0 # Compute hybrid solution trajectories
     max_hybrid_paths: 8 # Number of hybrid paths generated per iteration
     num_planners: 16 # The number of default planners to use for planning
     planners: RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar,RRTstar
@@ -236,6 +252,7 @@ left_manipulator:
     - SPARS
     - SPARStwo
     - CustomRRTstar
+    - PersistentSPARStwo
     - PersistentLazyPRMstar
     - PersistentLazyPRM
     - SemiPersistentLazyPRMstar
@@ -277,6 +294,7 @@ right_manipulator:
     - SPARS
     - SPARStwo
     - CustomRRTstar
+    - PersistentSPARStwo
     - PersistentLazyPRMstar
     - PersistentLazyPRM
     - SemiPersistentLazyPRMstar

@@ -176,9 +176,6 @@ class RandomChoiceAlternating(BaseTrialGenerator):
         """
         if trial_spec is not None:
             last_trial_spec = self._last_trial_spec[trial_spec.group_name]
-            print(
-                f"TrialSpec: {trial_spec}, Last TrialSpec: {last_trial_spec}"
-            )
             assert (
                 last_trial_spec is not None
                 and trial_spec.trial_number == last_trial_spec.trial_number

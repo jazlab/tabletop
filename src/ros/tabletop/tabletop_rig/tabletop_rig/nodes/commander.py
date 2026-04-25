@@ -37,8 +37,7 @@ import functools
 import importlib
 import inspect
 import traceback
-from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Coroutine, Mapping
 from types import TracebackType
 from typing import Any, Literal, Optional, Self
 
@@ -838,17 +837,15 @@ class Commander(BaseNode):
             )
         return self._manipulators[robot_name].reachable_object_ids
 
-    @asynccontextmanager
-    async def manipulation_context(
+    def manipulation_context(
         self, robot_name: str
-    ) -> AsyncIterator[ManipulationContextManager]:
+    ) -> ManipulationContextManager:
         if robot_name not in self.robot_names:
             raise ValueError(
                 f"Unsupported robot_name: {robot_name}. "
                 f"Available: {self.robot_names}"
             )
-        async with self._manipulation_contexts[robot_name] as ctx:
-            yield ctx
+        return self._manipulation_contexts[robot_name]
 
     def __enter__(self) -> Self:
         """Enter the async context manager.
@@ -883,7 +880,7 @@ class Commander(BaseNode):
             True if a recoverable error was handled, False otherwise.
         """
         try:
-            self._teensy.set_sync_pulse_solenoid_blocking(activate=True)
+            self._teensy.set_sync_pulse_solenoid_blocking(activate=False)
             self.destroy_node()
         finally:
             self._entered_context = False

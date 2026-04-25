@@ -307,7 +307,6 @@ class URInterface(BaseInterface):
             ActionError: If the SetMode action fails.
         """
         self.log("Resetting dashboard")
-        config = self.param("")
 
         if not self._connected:
             await self._ensure_mock(self._dashboard_ns)
@@ -325,7 +324,7 @@ class URInterface(BaseInterface):
                     "Could not connect to dashboard client"
                 ) from e
 
-            await self._load_file("load_program", config["program"])
+            await self._load_file("load_program", self.param("program"))
 
             await self._set_robot_mode_running(
                 stop_program=False, play_program=False
@@ -354,15 +353,16 @@ class URInterface(BaseInterface):
         await self._trigger("play")
 
         safety_mode = await self.get_safety_mode()
+        delay = self.param("check_safety_mode_delay")
         while safety_mode.mode != SafetyMode.NORMAL:
             self.log(
-                f"Safety mode is {safety_mode.mode}, retrying after {config['play_retry_delay']} seconds until NORMAL...",
+                f"Safety mode is {safety_mode.mode}, retrying after {delay} seconds until NORMAL...",
                 severity="WARN",
             )
-            await asyncio.sleep(config["play_retry_delay"])
+            await asyncio.sleep(delay)
             safety_mode = await self.get_safety_mode()
 
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(self.param("post_reset_delay"))
 
     async def reset(self, timeout: Optional[float] = None):
         """Execute full dashboard recovery sequence.
@@ -388,9 +388,9 @@ class URInterface(BaseInterface):
             ServiceCallUnsuccessfulError: If a dashboard service call fails.
             ActionError: If the SetMode action fails.
         """
-        max_attempts: int = self.param("reset.max_attempts")
+        max_attempts: int = self.param("max_reset_attempts")
         num_attempts_before_safety_restart: Optional[int] = self.param(
-            "reset.num_attempts_before_safety_restart"
+            "num_reset_attempts_before_safety_restart"
         )
 
         if (
@@ -398,7 +398,7 @@ class URInterface(BaseInterface):
             and num_attempts_before_safety_restart >= max_attempts
         ):
             raise ValueError(
-                "num_attempts_before_safety_restart parameter must be less than max_attempts"
+                "num_reset_attempts_before_safety_restart parameter must be less than max_attempts"
             )
 
         async with asyncio.timeout(timeout):
@@ -422,7 +422,7 @@ class URInterface(BaseInterface):
                     ):
                         await self._trigger(
                             "restart_safety",
-                            timeout=self.param("reset.safety_restart_timeout"),
+                            timeout=self.param("safety_restart_timeout"),
                         )
 
                     if i == max_attempts - 1:

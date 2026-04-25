@@ -310,9 +310,8 @@ services:
       - $ROS_BAG_DIR_MNT
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
-      - ./.claude/claude_dir_container:/home/$USER_NAME/.claude
-      - ~/.claude.json:/home/$USER_NAME/.claude.json
       - $KITTY_LISTEN_ON_MNT
+      - ~/.claude:/home/$USER_NAME/.claude
       - python-venv:/tabletop/.venv
     environment:
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
@@ -321,6 +320,9 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
+      - CLAUDE_CONFIG_DIR=/home/$USER_NAME/.claude
+      - PROMPT_COMMAND="history -a"
+      - HISTFILE=/tabletop/.cache/devcontainer.bash_history
     init: true
     privileged: true
     command: sleep infinity

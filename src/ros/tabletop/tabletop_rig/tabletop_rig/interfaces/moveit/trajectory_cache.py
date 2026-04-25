@@ -605,6 +605,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
         true_end_state: Optional[RobotState] = None,
     ):
         """Validate that the trajectory is valid for the given ground truth states and pose."""
+        group_name = trajectory.joint_model_group_name
         trajectory_start_state: RobotState = trajectory[0]
         trajectory_end_state: RobotState = trajectory[len(trajectory) - 1]
 
@@ -613,13 +614,13 @@ class FuzzyTrajectoryCache(LoggerMixin):
         if not all_close_robot_states(
             trajectory_start_state,
             key.start_state,
-            group_name=trajectory.joint_model_group_name,
+            group_name=group_name,
             position_tolerance=self.robot_state_tolerance,
         ):
             raise ValueError(
                 "Key start state is not close to the trajectory start state. "
-                f"Key start state joint positions: {key.start_state.joint_positions}, "
-                f"Trajectory start state joint positions: {trajectory_start_state.joint_positions}"
+                f"Key start state joint positions: {get_joint_group_positions(key.start_state, group_name)}, "
+                f"Trajectory start state joint positions: {get_joint_group_positions(trajectory_start_state, group_name)}"
             )
 
         # Check that the trajectory end state and pose
@@ -628,13 +629,13 @@ class FuzzyTrajectoryCache(LoggerMixin):
             if not all_close_robot_states(
                 trajectory_end_state,
                 true_end_state,
-                group_name=trajectory.joint_model_group_name,
+                group_name=group_name,
                 position_tolerance=self.robot_state_tolerance,
             ):
                 raise ValueError(
                     "True end state is not close to the trajectory end state. "
-                    f"True end state joint positions: {true_end_state.joint_positions}, "
-                    f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
+                    f"True end state joint positions: {get_joint_group_positions(true_end_state, group_name)}, "
+                    f"Trajectory end state joint positions: {get_joint_group_positions(trajectory_end_state, group_name)}"
                 )
 
         trajectory_end_pose = None
@@ -687,13 +688,13 @@ class FuzzyTrajectoryCache(LoggerMixin):
             if not all_close_robot_states(
                 trajectory_end_state,
                 key.goal,
-                group_name=trajectory.joint_model_group_name,
+                group_name=group_name,
                 position_tolerance=self.robot_state_tolerance,
             ):
                 raise ValueError(
                     f"Key goal state is not close to the trajectory end state. "
-                    f"Key goal state joint positions: {key.goal.joint_positions}, "
-                    f"Trajectory end state joint positions: {trajectory_end_state.joint_positions}"
+                    f"Key goal state joint positions: {get_joint_group_positions(key.goal, group_name)}, "
+                    f"Trajectory end state joint positions: {get_joint_group_positions(trajectory_end_state, group_name)}"
                 )
         else:
             assert trajectory_end_pose is not None

@@ -24,6 +24,15 @@ linear:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
+prm_star:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: PersistentLazyPRMstar
+    planning_time: 2.0
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+
 rrt_star:
   plan_request_params:
     planning_attempts: 1
@@ -51,6 +60,7 @@ rrtc_star:
     planning_time: 0.5
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
+
 #
 # ompl_aps_persistent:
 #   plan_request_params:

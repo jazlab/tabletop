@@ -61,7 +61,6 @@ class DummyTask(BaseTask):
                 position, euler = arrays_from_pose_msg(
                     pose_stamped.pose, euler=True
                 )
-                # position = position + np.array([0.0, -0.017, 0.0315])
                 self.commander.log(
                     f"Pose of {link_name} in {pose_stamped.header.frame_id} frame:\n"
                     f"position: {position.round(4).tolist()}\n"

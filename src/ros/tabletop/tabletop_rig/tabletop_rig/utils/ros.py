@@ -16,7 +16,7 @@ trimesh for mesh processing.
 
 import os
 from collections.abc import Iterable, Mapping
-from copy import deepcopy
+from copy import copy, deepcopy
 from typing import Any, Literal, Optional, Protocol
 
 import numpy as np
@@ -717,13 +717,21 @@ def all_close_robot_states(
         True if all compared joint values are within their tolerances.
     """
     if group_name == "all":
-        positions1 = state1.joint_positions
-        positions2 = state2.joint_positions
+        positions1 = copy(state1.joint_positions)
+        positions2 = copy(state2.joint_positions)
     else:
         positions1 = get_joint_group_positions(state1, group_name)
         positions2 = get_joint_group_positions(state2, group_name)
 
-    if not all_close_dicts(positions1, positions2, position_tolerance):
+    diffs: dict[str, float] = {}
+    for joint in positions1.keys():
+        diffs[joint] = (positions1[joint] - positions2[joint] + np.pi) % (
+            2 * np.pi
+        ) - np.pi
+
+    if not all_close_dicts(
+        diffs, {k: 0 for k in diffs.keys()}, position_tolerance
+    ):
         return False
 
     if velocity_tolerance is not None:

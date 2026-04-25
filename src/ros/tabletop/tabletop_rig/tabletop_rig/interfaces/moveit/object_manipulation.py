@@ -46,7 +46,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.exceptions import ParameterNotDeclaredException
 from sensor_msgs.msg import JointState
 
-from tabletop_py.utils.common import KwargYamlLoader, yaml_dump_string
+from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
     ExecutionRejectedError,
@@ -229,7 +229,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             safe_to_execute_condition=safe_to_execute_condition,
             parameter_fallback_prefix=parameter_fallback_prefix,
         )
-        print(yaml_dump_string(self.param("")))
+        # print(yaml_dump_string(self.param("")))
 
         self._init_reachable_indices()
 
