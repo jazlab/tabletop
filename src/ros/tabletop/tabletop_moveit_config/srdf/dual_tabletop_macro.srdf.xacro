@@ -51,12 +51,12 @@
       <joint name="left_wrist_3_joint" value="${pi}" />
     </group_state>
     <group_state name="present" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="1.1485" />
-      <joint name="left_shoulder_lift_joint" value="-2.4295" />
-      <joint name="left_elbow_joint" value="-1.5077" />
-      <joint name="left_wrist_1_joint" value="-0.7742" />
-      <joint name="left_wrist_2_joint" value="-1.5707" />
-      <joint name="left_wrist_3_joint" value="2.5884" />
+      <joint name="left_shoulder_pan_joint" value="1.1109" />
+      <joint name="left_shoulder_lift_joint" value="-2.1167" />
+      <joint name="left_elbow_joint" value="-2.2282" />
+      <joint name="left_wrist_1_joint" value="-0.3597" />
+      <joint name="left_wrist_2_joint" value="-1.5763" />
+      <joint name="left_wrist_3_joint" value="2.0311" />
     </group_state>
     <group_state name="test_object_attached" group="left_manipulator">
       <joint name="left_shoulder_pan_joint" value="${-pi/4}" />
@@ -82,15 +82,15 @@
       <joint name="right_elbow_joint" value="${2*pi/3}" />
       <joint name="right_wrist_1_joint" value="${-pi/3}" />
       <joint name="right_wrist_2_joint" value="${pi/2}" />
-      <joint name="right_wrist_3_joint" value="${pi}" />
+      <joint name="right_wrist_3_joint" value="${-pi}" />
     </group_state>
     <group_state name="present" group="right_manipulator">
-      <joint name="right_shoulder_pan_joint" value="-0.6065" />
-      <joint name="right_shoulder_lift_joint" value="-0.6788" />
-      <joint name="right_elbow_joint" value="1.4381" />
-      <joint name="right_wrist_1_joint" value="-2.3351" />
+      <joint name="right_shoulder_pan_joint" value="-1.1504" />
+      <joint name="right_shoulder_lift_joint" value="-0.9975" />
+      <joint name="right_elbow_joint" value="2.1476" />
+      <joint name="right_wrist_1_joint" value="-2.7118" />
       <joint name="right_wrist_2_joint" value="1.5686" />
-      <joint name="right_wrist_3_joint" value="3.7411" />
+      <joint name="right_wrist_3_joint" value="-1.9871" />
     </group_state>
     <group_state name="test_object_attached" group="right_manipulator">
       <joint name="right_shoulder_pan_joint" value="${-pi/6}" />

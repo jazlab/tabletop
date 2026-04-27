@@ -24,7 +24,7 @@ clang=false
 only_modules=false
 verbose=false
 skip_uv=
-skip_apt=
+skip_apt=--skip-apt
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
@@ -53,8 +53,8 @@ while [[ $# -gt 0 ]]; do
         --skip-uv)
             skip_uv=--skip-uv
             ;;
-        --skip-apt)
-            skip_apt=--skip-apt
+        --update-apt)
+            skip_apt=
             ;;
         --apt-upgrade)
             apt_upgrade=--apt-upgrade

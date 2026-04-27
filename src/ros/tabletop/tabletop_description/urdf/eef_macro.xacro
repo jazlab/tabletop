@@ -18,8 +18,8 @@
           <mesh filename="package://tabletop_description/meshes/visual/eef.stl" />
         </geometry>
         <origin xyz="0 0 0" rpy="0 0 0" />
-        <material name="black">
-          <color rgba="0 0 0 1" />
+        <material name="dark_gray">
+          <color rgba="0.2 0.2 0.2 1" />
         </material>
       </visual>
       <collision>

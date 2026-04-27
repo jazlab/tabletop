@@ -452,13 +452,11 @@ class MoveItInterface(BaseInterface):
             new_frame_id=new_frame_id,
         )
 
-    def get_frame_pose_stamped(
-        self, frame_id: str, **kwargs: Any
-    ) -> PoseStamped:
+    def get_frame_pose_stamped(self, frame_id: str) -> PoseStamped:
         """Get the frame pose relative to the planning frame for a given frame id."""
-        return self.create_pose_stamped(
+        return pose_stamped_msg(
             pose=pose_msg_from_matrix(self.get_frame_transform(frame_id)),
-            **kwargs,
+            frame_id=self.planning_frame,
         )
 
     def get_link_pose_stamped(
@@ -468,7 +466,7 @@ class MoveItInterface(BaseInterface):
         with self.planning_scene_ro() as scene:
             eef_pose = scene.current_state.get_pose(link)
 
-        pose_stamped = self.create_pose_stamped(
+        pose_stamped = pose_stamped_msg(
             pose=eef_pose, frame_id=self.planning_frame
         )
 
@@ -917,6 +915,7 @@ class MoveItInterface(BaseInterface):
         type: str,
         dimensions: list[float],
         pose_stamped: PoseStamped | Mapping[str, Any],
+        subframes: Optional[Mapping[str, Pose | Mapping[str, Any]]] = None,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
         allowed_collision_ids: Optional[list[str]] = None,
     ):
@@ -936,11 +935,23 @@ class MoveItInterface(BaseInterface):
         if not isinstance(pose_stamped, PoseStamped):
             pose_stamped = self.create_pose_stamped(**pose_stamped)
 
+        # Create subframe names and poses from kwargs
+        subframe_names: list[str] = []
+        subframe_poses: list[Pose] = []
+        if subframes is not None:
+            for name, pose in subframes.items():
+                if not isinstance(pose, Pose):
+                    pose = pose_msg(**pose)
+                subframe_names.append(name)
+                subframe_poses.append(pose)
+
         collision_object = add_primitive_collision_object_msg(
             object_id=object_id,
             pose_stamped=pose_stamped,
             type=type,
             dimensions=dimensions,
+            subframe_names=subframe_names,
+            subframe_poses=subframe_poses,
         )
 
         self.process_add_collision_object(
@@ -967,8 +978,7 @@ class MoveItInterface(BaseInterface):
             ]
         ] = None,
         pose_stamped: PoseStamped | Mapping[str, Any],
-        additional_subframe_names: Optional[list[str]] = None,
-        additional_subframe_poses: Optional[list[Pose]] = None,
+        subframes: Optional[Mapping[str, Pose | Mapping[str, Any]]] = None,
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
         allowed_collision_ids: Optional[list[str]] = None,
     ):
@@ -986,7 +996,8 @@ class MoveItInterface(BaseInterface):
             color: The color of the collision object.
         """
         self.log(f"Adding mesh collision object: {object_id}")
-        # Create pose stamped
+
+        # Create pose stamped from kwargs
         if not isinstance(pose_stamped, PoseStamped):
             pose_stamped = self.create_pose_stamped(**pose_stamped)
 
@@ -1015,29 +1026,15 @@ class MoveItInterface(BaseInterface):
             tf = matrix_from_pose_msg(correction)
             geometry = transform_geometry(geometry, tf)
 
-        # Add subframes
-        subframe_names = ["default"]
-        subframe_poses = [Pose()]
-
-        if (
-            additional_subframe_names is not None
-            or additional_subframe_poses is not None
-        ):
-            if (
-                additional_subframe_names is None
-                or additional_subframe_poses is None
-            ):
-                raise ValueError(
-                    "Both additional subframe names and poses must be provided if one is provided"
-                )
-            if len(additional_subframe_names) != len(
-                additional_subframe_poses
-            ):
-                raise ValueError(
-                    "Number of additional subframe names and poses must match"
-                )
-            subframe_names.extend(additional_subframe_names)
-            subframe_poses.extend(additional_subframe_poses)
+        # Create subframe names and poses from kwargs
+        subframe_names: list[str] = []
+        subframe_poses: list[Pose] = []
+        if subframes is not None:
+            for name, pose in subframes.items():
+                if not isinstance(pose, Pose):
+                    pose = pose_msg(**pose)
+                subframe_names.append(name)
+                subframe_poses.append(pose)
 
         # Create collision object
         if simplification is not None and simplification.startswith(

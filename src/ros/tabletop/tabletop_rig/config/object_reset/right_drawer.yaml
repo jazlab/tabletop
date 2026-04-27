@@ -1,15 +1,18 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [ 1.65, 1.0, 0.7 ]
+  position: [ -0.0875, 0.0, 0.0 ]
   rpy: [ 0.0, 0.0, 0.0 ]
+  frame_id: right_drawer_station/pad
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [ 1.7, 1.0, 0.7 ]
+      position: [ -0.0375, 0.0, 0.0 ]
       rpy: [ 0.0, 0.0, 0.0 ]
+      frame_id: right_drawer_station/pad
     - !PoseStamped
-      position: [ 1.65, 1.0, 0.7 ]
+      position: [ -0.0875, 0.0, 0.0 ]
       rpy: [ 0.0, 0.0, 0.0 ]
+      frame_id: right_drawer_station/pad
   acceleration_scaling_factor: 0.5
 object_allowed_collision_ids:
   - right_drawer_station

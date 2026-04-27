@@ -723,15 +723,18 @@ def all_close_robot_states(
         positions1 = get_joint_group_positions(state1, group_name)
         positions2 = get_joint_group_positions(state2, group_name)
 
-    diffs: dict[str, float] = {}
-    for joint in positions1.keys():
-        diffs[joint] = (positions1[joint] - positions2[joint] + np.pi) % (
-            2 * np.pi
-        ) - np.pi
+    # diffs: dict[str, float] = {}
+    # for joint in positions1.keys():
+    #     diffs[joint] = (positions1[joint] - positions2[joint] + np.pi) % (
+    #         2 * np.pi
+    #     ) - np.pi
+    #
+    # if not all_close_dicts(
+    #     diffs, {k: 0 for k in diffs.keys()}, position_tolerance
+    # ):
+    #     return False
 
-    if not all_close_dicts(
-        diffs, {k: 0 for k in diffs.keys()}, position_tolerance
-    ):
+    if not all_close_dicts(positions1, positions2, position_tolerance):
         return False
 
     if velocity_tolerance is not None:
@@ -913,12 +916,17 @@ def add_collision_object_msg(
     collision_object.pose = pose_stamped.pose
     collision_object.operation = CollisionObject.ADD
 
-    if subframe_names is not None and subframe_poses is not None:
-        for subframe_name, subframe_pose in zip(
-            subframe_names, subframe_poses
-        ):
-            collision_object.subframe_names.append(subframe_name)  # type: ignore
-            collision_object.subframe_poses.append(subframe_pose)  # type: ignore
+    if subframe_names is not None or subframe_poses is not None:
+        if subframe_names is None or subframe_poses is None:
+            raise ValueError(
+                "Both 'subframe_names' and 'subframe_poses' must be provided if one is provided"
+            )
+        if len(subframe_names) != len(subframe_poses):
+            raise ValueError(
+                "Number of 'subframe_names' and 'subframe_poses' must match"
+            )
+        collision_object.subframe_names = subframe_names
+        collision_object.subframe_poses = subframe_poses
 
     return collision_object
 

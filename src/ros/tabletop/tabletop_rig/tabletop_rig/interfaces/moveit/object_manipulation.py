@@ -321,12 +321,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
                 self._reset_configs[filename] = config
 
-            # if object_id not in self.reachable_object_ids:
-            #     raise ValueError(
-            #         f"Error in reset config ({filename}) for object {object_id}: "
-            #         f"{object_id} is unreachable by {self.group_name}"
-            #     )
-
     def _init_attached_object(self) -> str | None:
         """Initialize the attached object."""
         object_id = None

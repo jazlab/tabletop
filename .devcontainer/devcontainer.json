@@ -28,7 +28,8 @@
         "christian-kohler.npm-intellisense",
         "docker.docker",
         "Ranch-Hand-Robotics.rde-pack",
-        "DavidAnson.vscode-markdownlint"
+        "DavidAnson.vscode-markdownlint",
+        "Anthropic.claude-code"
       ]
     }
   }
