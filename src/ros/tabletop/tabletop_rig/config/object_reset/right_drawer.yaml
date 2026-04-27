@@ -12,6 +12,6 @@ reset_request: !ConcatPlanRequest
       rpy: [ 0.0, 0.0, 0.0 ]
   acceleration_scaling_factor: 0.5
 object_allowed_collision_ids:
-  - drawer_station
+  - right_drawer_station
 additional_allowed_collisions:
-  - [ right_eef_sphere, drawer_station ]
+  - [ right_eef_sphere, right_drawer_station ]

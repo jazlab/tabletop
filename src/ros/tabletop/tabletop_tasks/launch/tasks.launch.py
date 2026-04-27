@@ -52,7 +52,7 @@ def declare_arguments():
     return [
         DeclareLaunchArgument(
             "task",
-            default_value="foraging_ordered_alt",
+            default_value="foraging_random",
             description="Task configuration file",
         )
     ]
@@ -121,33 +121,5 @@ def generate_launch_description():
         scoped=False,
         forwarding=True,
     )
-
-    # # Commander
-    # commander = GroupAction(
-    #     [
-    #         IncludeLaunchDescription(
-    #             PythonLaunchDescriptionSource(
-    #                 [
-    #                     PathJoinSubstitution(
-    #                         [
-    #                             FindPackageShare("tabletop_rig"),
-    #                             "launch",
-    #                             "commander.launch.py",
-    #                         ]
-    #                     )
-    #                 ]
-    #             ),
-    #             launch_arguments={
-    #                 "robot_name": LaunchConfiguration("robot_name"),
-    #                 "robot_mode": LaunchConfiguration("robot_mode"),
-    #                 "coro_module": coro_module,
-    #                 "coro_name": coro_name,
-    #                 "coro_config": coro_config,
-    #             }.items(),
-    #         ),
-    #     ],
-    #     scoped=True,
-    #     forwarding=True,
-    # )
 
     return LaunchDescription([set_ros_log_dir, *declare_arguments(), rig])

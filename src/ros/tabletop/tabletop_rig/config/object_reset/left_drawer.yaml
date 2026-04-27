@@ -1,0 +1,17 @@
+!ObjectResetConfig
+start_goal: !PoseStamped
+  position: [ 0.25, 1.0, 0.7 ]
+  rpy: [ 0.0, 0.0, 0.0 ]
+reset_request: !ConcatPlanRequest
+  goals:
+    - !PoseStamped
+      position: [ 0.2, 1.0, 0.7 ]
+      rpy: [ 0.0, 0.0, 0.0 ]
+    - !PoseStamped
+      position: [ 0.25, 1.0, 0.7 ]
+      rpy: [ 0.0, 0.0, 0.0 ]
+  acceleration_scaling_factor: 0.5
+object_allowed_collision_ids:
+  - left_drawer_station
+additional_allowed_collisions:
+  - [ left_eef_sphere, left_drawer_station ]
