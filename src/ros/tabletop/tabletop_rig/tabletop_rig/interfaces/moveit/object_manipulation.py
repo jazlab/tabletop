@@ -52,6 +52,7 @@ from tabletop_rig.exceptions import (
     ExecutionRejectedError,
     ObjectManipulationError,
     ObjectMismatchError,
+    PlanningError,
     StateTransitionError,
 )
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
@@ -229,7 +230,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             safe_to_execute_condition=safe_to_execute_condition,
             parameter_fallback_prefix=parameter_fallback_prefix,
         )
-        # print(yaml_dump_string(self.param("")))
 
         self._init_reachable_indices()
 
@@ -1527,7 +1527,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 State.NEEDS_RESET,
                 State.PRE_RESET,
             ):
-                await self._reset_object_impl(object_id)
+                try:
+                    await self._reset_object_impl(object_id)
+                except PlanningError:
+                    goal = self._get_state_goal(State.IDLE, object_id=None)
+                    await self.plan_and_execute(
+                        goal=goal, cache_trajectories=False
+                    )
+                    await self._reset_object_impl(object_id)
 
             # Return object
             await self._return_object_impl(object_id)

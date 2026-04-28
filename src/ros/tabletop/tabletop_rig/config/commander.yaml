@@ -102,7 +102,6 @@
           orientation_tolerance: 0.01 # radians
           robot_state_tolerance: 0.02 # radians
           max_trajectories: 5
-          new_cache: false
       execution:
         allowed_duration_scaling: 1.5
         allowed_duration_margin: 0.5
@@ -173,7 +172,7 @@
         default_pose_link: left_eef
       trajectory_cache:
         kwargs:
-          path: $TABLETOP_CACHE_DIR/left_trajectory_cache
+          path: $TABLETOP_CACHE_DIR/trajectory_cache/left_lmdb
       execution:
         joint_trajectory_controller: left_scaled_joint_trajectory_controller
       test_object_attached:
@@ -238,7 +237,7 @@
         default_pose_link: right_eef
       trajectory_cache:
         kwargs:
-          path: $TABLETOP_CACHE_DIR/right_trajectory_cache
+          path: $TABLETOP_CACHE_DIR/trajectory_cache/right_lmdb
       execution:
         joint_trajectory_controller: right_scaled_joint_trajectory_controller
       test_object_attached:
@@ -431,181 +430,181 @@
               color: [ 1.0, 0.0, 0.0, 0.5 ] # red
               pose_stamped:
                 position: [ 0.2781, 0.7663, 1.1801 ]
-                rpy: [ -0.0023, 0.0207, -1.6067 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             0,1:
               object_id: small_object_1
               color: [ 0.0, 1.0, 0.0, 0.5 ] # green
               pose_stamped:
                 position: [ 0.2822, 1.2054, 1.1766 ]
-                rpy: [ -0.0028, 0.012, -1.5918 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             0,2:
               object_id: small_object_2
               color: [ 0.0, 0.0, 1.0, 0.5 ] # blue
               pose_stamped:
-                position: [ 0.2817, 1.4099, 0.979 ]
-                rpy: [ -1.8004, 1.5549, -0.2344 ]
+                position: [ 0.2817, 1.405, 0.979 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             1,0:
               object_id: small_object_3
               color: [ 1.0, 1.0, 0.0, 0.5 ] # yellow
               pose_stamped:
                 position: [ 0.427, 0.7655, 1.1805 ]
-                rpy: [ 0.0078, -0.0023, -1.579 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             1,1:
               object_id: small_object_4
               color: [ 1.0, 0.0, 1.0, 0.5 ] # purple
               pose_stamped:
                 position: [ 0.4329, 1.2038, 1.1772 ]
-                rpy: [ 0.0045, -0.004, -1.6294 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             1,2:
               object_id: small_object_5
               color: [ 0.0, 1.0, 1.0, 0.5 ] # cyan
               pose_stamped:
-                position: [ 0.4289, 1.4083, 0.9779 ]
-                rpy: [ 2.153, 1.5237, -2.5937 ]
+                position: [ 0.4289, 1.405, 0.9779 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             2,0:
               object_id: small_object_6
               color: [ 1.0, 0.5, 0.0, 0.5 ] # orange
               pose_stamped:
                 position: [ 0.5762, 0.7646, 1.1826 ]
-                rpy: [ 0.0023, 0.0002, -1.5162 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             2,1:
               object_id: small_object_7
               color: [ 0.5, 0.0, 0.5, 0.5 ] # magenta
               pose_stamped:
                 position: [ 0.5838, 1.201, 1.1785 ]
-                rpy: [ 0.0076, 0.0079, -1.5467 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             2,2:
               object_id: small_object_8
               color: [ 0.5, 0.5, 0.0, 0.5 ] # olive
               pose_stamped:
-                position: [ 0.5778, 1.4065, 0.9779 ]
-                rpy: [ -2.7543, 1.5268, -1.2274 ]
+                position: [ 0.5778, 1.405, 0.9779 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             3,0:
               object_id: small_object_9
               color: [ 0.0, 0.5, 0.5, 0.5 ] # teal
               pose_stamped:
                 position: [ 0.7253, 0.7646, 1.1826 ]
-                rpy: [ 0.0023, 0.0002, -1.5162 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             3,1:
               object_id: small_object_10
               color: [ 0.5, 0.0, 0.0, 0.5 ] # maroon
               pose_stamped:
                 position: [ 0.7289, 1.1997, 1.1789 ]
-                rpy: [ -0.0067, -0.0095, -1.5939 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             3,2:
               object_id: small_object_11
               color: [ 0.0, 0.5, 0.0, 0.5 ] # lime
               pose_stamped:
-                position: [ 0.7309, 1.4048, 0.9784 ]
-                rpy: [ -2.295, 1.4991, -0.724 ]
+                position: [ 0.7309, 1.405, 0.9784 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             4,0:
               object_id: small_object_12
               color: [ 0.0, 0.0, 0.5, 0.5 ] # navy
               pose_stamped:
                 position: [ 0.8731, 0.7643, 1.1837 ]
-                rpy: [ -0.0039, -0.0006, -1.6096 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             4,1:
               object_id: small_object_13
               color: [ 0.5, 0.5, 0.5, 0.5 ] # gray
               pose_stamped:
                 position: [ 0.8793, 1.1989, 1.1796 ]
-                rpy: [ -0.0087, 0.0074, -1.5941 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             4,2:
               object_id: small_object_14
               color: [ 0.75, 0.75, 0.75, 0.5 ] # light gray
               pose_stamped:
                 position: [ 0.8804, 1.4024, 0.9804 ]
-                rpy: [ -2.0054, 1.5322, -0.4773 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             5,0:
               object_id: small_object_15
               color: [ 0.5, 0.25, 0.0, 0.5 ] # brown
               pose_stamped:
                 position: [ 1.0231, 0.7647, 1.1841 ]
-                rpy: [ 0.0054, -0.0106, -1.5564 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             5,1:
               object_id: small_object_16
               color: [ 0.25, 0.5, 0.0, 0.5 ] # dark green
               pose_stamped:
                 position: [ 1.0269, 1.2006, 1.1809 ]
-                rpy: [ 0.0115, -0.0073, -1.5927 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             5,2:
               object_id: small_object_17
               color: [ 0.0, 0.25, 0.5, 0.5 ] # dark blue
               pose_stamped:
                 position: [ 1.0312, 1.4016, 0.9805 ]
-                rpy: [ 1.4025, 1.4965, 2.9657 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             6,0:
               object_id: smooth_pursuit_object
               color: [ 0.5, 0.0, 0.25, 0.5 ] # dark red
               pose_stamped:
                 position: [ 1.1712, 0.7638, 1.1845 ]
-                rpy: [ 0.0119, -0.0126, -1.6111 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             6,1:
               object_id: small_object_19
               color: [ 0.25, 0.0, 0.5, 0.5 ] # dark purple
               pose_stamped:
                 position: [ 1.1736, 1.1993, 1.1813 ]
-                rpy: [ 0.0078, 0.0039, -1.6037 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             6,2:
               object_id: small_object_20
               color: [ 0.0, 0.5, 0.25, 0.5 ] # dark cyan
               pose_stamped:
                 position: [ 1.181, 1.4003, 0.9819 ]
-                rpy: [ 1.6456, 1.5088, -3.0933 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             7,0:
               object_id: small_object_21
               color: [ 0.75, 0.25, 0.0, 0.5 ] # dark orange
               pose_stamped:
                 position: [ 1.3215, 0.7638, 1.1845 ]
-                rpy: [ 0.0119, -0.0126, -1.6111 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             7,1:
               object_id: small_object_22
               color: [ 0.25, 0.75, 0.0, 0.5 ] # light green
               pose_stamped:
                 position: [ 1.3223, 1.197, 1.182 ]
-                rpy: [ 0.0135, -0.0205, -1.5661 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             7,2:
               object_id: small_object_23
               color: [ 0.0, 0.25, 0.75, 0.5 ] # light blue
               pose_stamped:
                 position: [ 1.3351, 1.3987, 0.9845 ]
-                rpy: [ -2.0042, 1.5231, -0.4133 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             8,0:
               object_id: small_object_24
               color: [ 0.75, 0.0, 0.25, 0.5 ] # light red
               pose_stamped:
                 position: [ 1.4717, 0.7633, 1.1855 ]
-                rpy: [ 0.0231, 0.0189, -1.5286 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             8,1:
               object_id: small_object_25
               color: [ 0.25, 0.0, 0.75, 0.5 ] # light purple
               pose_stamped:
                 position: [ 1.4722, 1.1948, 1.183 ]
-                rpy: [ 0.0023, -0.0029, -1.5699 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             8,2:
               object_id: small_object_26
               color: [ 0.0, 0.75, 0.25, 0.5 ] # light cyan
               pose_stamped:
                 position: [ 1.4818, 1.3971, 0.9864 ]
-                rpy: [ -2.6428, 1.5553, -1.0743 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
             9,0:
               object_id: small_object_27
               color: [ 0.75, 0.5, 0.25, 0.5 ] # peach
               pose_stamped:
                 position: [ 1.6202, 0.7627, 1.1863 ]
-                rpy: [ -0.0009, -0.0028, -1.5707 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             9,1:
               object_id: small_object_28
               color: [ 0.25, 0.75, 0.5, 0.5 ] # mint
               pose_stamped:
                 position: [ 1.6219, 1.1934, 1.1836 ]
-                rpy: [ 0.0166, -0.0243, -1.5364 ]
+                rpy: [ 0.0, 0.0, -1.5707 ]
             9,2:
               object_id: small_object_29
               color: [ 0.5, 0.25, 0.75, 0.5 ] # lavender
               pose_stamped:
                 position: [ 1.6315, 1.3958, 0.9865 ]
-                rpy: [ 1.5329, 1.5159, 3.0952 ]
+                rpy: [ -1.5707, 1.5707, 0.0 ]
           # translation from ceneter back of tool pocket plate to center of tool pocket hodler = [0.0, 0.1395, 0.00825]
           # radius of robot_base ~= 0.075
           # center of

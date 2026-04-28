@@ -11,6 +11,7 @@ dependencies = [
   "colcon-mixin>=0.2.3",
   "debugpy>=1.8.16",
   "lark>=1.2.2",
+  "lmdb>=1.5.1",
   "matplotlib>=3.10.5",
   "numpy>=2.3.2",
   "opencv-python>=4.11.0.86",

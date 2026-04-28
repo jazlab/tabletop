@@ -8,6 +8,9 @@
   "workspaceFolder": "/tabletop",
   "containerUser": "mules",
   "remoteUser": "mules",
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -28,8 +31,7 @@
         "christian-kohler.npm-intellisense",
         "docker.docker",
         "Ranch-Hand-Robotics.rde-pack",
-        "DavidAnson.vscode-markdownlint",
-        "Anthropic.claude-code"
+        "DavidAnson.vscode-markdownlint"
       ]
     }
   }

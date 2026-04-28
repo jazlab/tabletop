@@ -111,10 +111,6 @@ class RandomChoiceAlternating(BaseTrialGenerator):
         self._last_feedback_group: str | None = None
         self._next_group_idx: int = 0
 
-    @property
-    def group_names(self) -> list[str]:
-        return self._group_names
-
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
 

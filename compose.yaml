@@ -327,14 +327,5 @@ services:
     privileged: true
     command: sleep infinity
 
-  claude:
-    container_name: tabletop-claude
-    extends: dev
-    profiles: !override
-      - claude
-    restart: unless-stopped
-    privileged: false
-    command: claude remote-control
-
 volumes:
   python-venv:

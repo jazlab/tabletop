@@ -123,10 +123,6 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         """
         return self._commander
 
-    @property
-    @abstractmethod
-    def group_names(self) -> list[str]: ...
-
     @abstractmethod
     def __next__(self) -> TrialSpec:
         """Generate the next trial specification.

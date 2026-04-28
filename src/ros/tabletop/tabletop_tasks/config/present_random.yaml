@@ -15,7 +15,7 @@ tasks:
               # - small_object_6
               - small_object_7
               - small_object_8
-              - small_object_9
+              # - small_object_9
               - small_object_10
               - small_object_11
               - small_object_12
@@ -40,14 +40,10 @@ tasks:
           poses:
             - position: [ 0.9525, 0.4, 0.6 ]
               rpy: [ 0.0, 0.0, -1.5707 ]
-            # - position: [1.0, 0.4, 0.6]
-            #   rpy: [0.0, 0.2, -1.5707]
-            # - position: [0.9, 0.4, 0.6]
-            #   rpy: [0.0, -0.3, -1.5707]
           arms:
             - left
             - right
             - both
           occlude_prob: 1.0
           num_trials: 100000
-          skip_failed: True
+          skip_failed: false

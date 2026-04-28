@@ -35,12 +35,12 @@
     STATES -->
     <!-- Left arm group states -->
     <group_state name="idle" group="left_manipulator">
-      <joint name="left_shoulder_pan_joint" value="0" />
-      <joint name="left_shoulder_lift_joint" value="${-pi/6}" />
-      <joint name="left_elbow_joint" value="${-2*pi/3}" />
-      <joint name="left_wrist_1_joint" value="${-2*pi/3}" />
-      <joint name="left_wrist_2_joint" value="${-pi/2}" />
-      <joint name="left_wrist_3_joint" value="${pi}" />
+      <joint name="left_shoulder_pan_joint" value="0.0" />
+      <joint name="left_shoulder_lift_joint" value="${-pi/2}" />
+      <joint name="left_elbow_joint" value="${pi/2}" />
+      <joint name="left_wrist_1_joint" value="${-pi/2}" />
+      <joint name="left_wrist_2_joint" value="${pi/2}" />
+      <joint name="left_wrist_3_joint" value="0.0" />
     </group_state>
     <group_state name="fetched" group="left_manipulator">
       <joint name="left_shoulder_pan_joint" value="0" />
@@ -69,12 +69,12 @@
 
     <!-- Right arm group states -->
     <group_state name="idle" group="right_manipulator">
-      <joint name="right_shoulder_pan_joint" value="0" />
-      <joint name="right_shoulder_lift_joint" value="${-5*pi/6}" />
-      <joint name="right_elbow_joint" value="${2*pi/3}" />
-      <joint name="right_wrist_1_joint" value="${-pi/3}" />
-      <joint name="right_wrist_2_joint" value="${pi/2}" />
-      <joint name="right_wrist_3_joint" value="${pi}" />
+      <joint name="right_shoulder_pan_joint" value="0.0" />
+      <joint name="right_shoulder_lift_joint" value="${-pi/2}" />
+      <joint name="right_elbow_joint" value="${-pi/2}" />
+      <joint name="right_wrist_1_joint" value="${-pi/2}" />
+      <joint name="right_wrist_2_joint" value="${-pi/2}" />
+      <joint name="right_wrist_3_joint" value="0.0" />
     </group_state>
     <group_state name="fetched" group="right_manipulator">
       <joint name="right_shoulder_pan_joint" value="0" />
@@ -100,6 +100,29 @@
       <joint name="right_wrist_2_joint" value="0" />
       <joint name="right_wrist_3_joint" value="${pi}" />
     </group_state>
+
+    <!--JOINT
+    PROPERTIES - Per-joint weights applied to the path-length distance metric used by
+    JointModelGroup::distance(), and therefore by OMPL's PathLengthOptimizationObjective.
+    Higher value = joint contributes more to path cost = planner prefers to move it less.
+    Bias here penalizes proximal motion to keep the base/shoulder steadier and let the
+    wrist do more of the work. -->
+    <joint_property joint_name="left_shoulder_pan_joint" property_name="distance_factor"
+      value="4.0" />
+    <joint_property joint_name="left_shoulder_lift_joint" property_name="distance_factor"
+      value="3.0" />
+    <joint_property joint_name="left_elbow_joint" property_name="distance_factor" value="2.0" />
+    <joint_property joint_name="left_wrist_1_joint" property_name="distance_factor" value="1.0" />
+    <joint_property joint_name="left_wrist_2_joint" property_name="distance_factor" value="1.0" />
+    <joint_property joint_name="left_wrist_3_joint" property_name="distance_factor" value="1.0" />
+    <joint_property joint_name="right_shoulder_pan_joint" property_name="distance_factor"
+      value="4.0" />
+    <joint_property joint_name="right_shoulder_lift_joint" property_name="distance_factor"
+      value="3.0" />
+    <joint_property joint_name="right_elbow_joint" property_name="distance_factor" value="2.0" />
+    <joint_property joint_name="right_wrist_1_joint" property_name="distance_factor" value="1.0" />
+    <joint_property joint_name="right_wrist_2_joint" property_name="distance_factor" value="1.0" />
+    <joint_property joint_name="right_wrist_3_joint" property_name="distance_factor" value="1.0" />
 
     <!--VIRTUAL
     JOINTS -->

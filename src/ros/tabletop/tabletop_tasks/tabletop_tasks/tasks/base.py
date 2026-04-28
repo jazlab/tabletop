@@ -38,7 +38,6 @@ from tabletop_rig.exceptions import (
 from tabletop_rig.nodes import Commander
 from tabletop_rig.nodes.commander import ManipulationContextManager
 from tabletop_rig.utils.logging import LoggerMixin
-from tabletop_rig.utils.ros import get_joint_group_positions
 
 from tabletop_tasks.trial_generators.base import (
     BaseTrialGenerator,
@@ -235,15 +234,15 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                 presented = True
 
                 await manipulator.present_object(trial_spec.object_id)
-                self.log("-" * 100)
-                joint_positions = get_joint_group_positions(
-                    self.commander._moveit.get_current_state(),
-                    trial_spec.group_name,
-                )
-                self.log(
-                    f"Robot {trial_spec.group_name} present state: {joint_positions}"
-                )
-                self.log("-" * 100)
+                # self.log("-" * 100)
+                # joint_positions = get_joint_group_positions(
+                #     self.commander._moveit.get_current_state(),
+                #     trial_spec.group_name,
+                # )
+                # self.log(
+                #     f"Robot {trial_spec.group_name} present state: {joint_positions}"
+                # )
+                # self.log("-" * 100)
                 await manipulator.plan_and_move(
                     goal=trial_spec.object_pose,
                     planning_pipeline="linear",
@@ -269,10 +268,10 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
         await self._occlude_and_lock()
 
         active_trials: dict[str, asyncio.Task[TrialFeedback] | None] = {
-            x: None for x in self._trial_generator.group_names
+            x: None for x in self.commander.robot_names
         }
         active_specs: dict[str, TrialSpec | None] = {
-            x: None for x in self._trial_generator.group_names
+            x: None for x in self.commander.robot_names
         }
 
         for next_spec in self._trial_generator:

@@ -16,9 +16,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     nodejs \
     npm
 
-# Install claude code
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
 ARG TARGETARCH
 
 # Install Neovim

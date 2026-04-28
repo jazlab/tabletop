@@ -72,7 +72,7 @@ from tabletop_rig.interfaces.moveit.requests import (
     PlanResponseT,
     TrajectoryCacheKwargs,
 )
-from tabletop_rig.interfaces.moveit.trajectory_cache import (
+from tabletop_rig.interfaces.moveit.trajectory_cache_lmdb import (
     FuzzyTrajectoryCache,
 )
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode

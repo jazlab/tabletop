@@ -20,23 +20,24 @@ tasks:
               - small_object_3
               - small_object_4
               - small_object_5
-              - small_object_6
+              # - small_object_6
               - small_object_7
               - small_object_8
               - small_object_9
               - small_object_10
               - small_object_11
-              # - small_object_12
-              # - small_object_13
-              # - small_object_14
+              - small_object_12
+              - small_object_13
+              - small_object_14
             right_manipulator:
-              # - small_object_15
-              # - small_object_16
-              # - small_object_17
-              # - small_object_19
+              - small_object_15
+              - small_object_16
+              - small_object_17
+              # - small_object_18
+              - small_object_19
               - small_object_20
-              - small_object_21
-              # - small_object_22
+              # - small_object_21
+              - small_object_22
               - small_object_23
               - small_object_24
               - small_object_25
@@ -58,3 +59,4 @@ tasks:
           occlude:
             - true
           num_trials: 100000
+          skip_failed: false
