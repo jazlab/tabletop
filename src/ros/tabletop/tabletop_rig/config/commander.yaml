@@ -4,6 +4,8 @@
 
     simulate: true
 
+    shutdown_timeout: 3.0
+
     smooth_pursuit:
       reward_duration: 0.1
       reward_interval: 1.0
@@ -80,6 +82,7 @@
       max_reset_attempts: 5
       num_reset_attempts_before_safety_restart: null
       safety_restart_timeout: 10
+      check_remote_control_delay: 5.0
       check_safety_mode_delay: 1.0
       post_reset_delay: 1.0
 
@@ -101,11 +104,13 @@
           position_tolerance: 0.03 # meters
           orientation_tolerance: 0.01 # radians
           robot_state_tolerance: 0.02 # radians
+          sort_by: path_duration
           max_trajectories: 5
       execution:
         allowed_duration_scaling: 1.5
         allowed_duration_margin: 0.5
-        robot_state_move_tolerance: 0.02 # radians
+        allowed_start_tolerance: 0.02 # radians
+        moved_tolerance: 0.02 # radians
       test_object_attached:
         enable: false
         topic: /joint_states
@@ -113,8 +118,9 @@
         num_samples: 2500
         effort_threshold: -1.615
         greater_than: false
-      detach_velocity_scaling_factor: 1.0
+      detach_velocity_scaling_factor: 0.3
       skip_idle_on_return: true
+      skip_fetched_on_fetch: true
       mount_collision_ids:
         - rig
       manipulation_state_goals:
@@ -147,7 +153,7 @@
           #   position: [ 0.9525, 0.4, 0.6 ]
           #   rpy: [ 0.0, 0.0, -1.5707 ]
         object_overrides:
-          # be careful about doing this, make sure
+          # be careful about doing this
           smooth_pursuit_object:
             post_attach:
               type: offset
@@ -159,8 +165,6 @@
       manually_attach:
         mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
         collision_object_kwargs:
-          # allowed_collision_ids:
-          #   - eef_sphere
           simplification: bounding_primitive
           color: [ 1.0, 1.0, 1.0, 0.5 ]
       reset_config_map:
@@ -200,36 +204,66 @@
         - 4,1
         - 4,2
       reset_config_map:
-        small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        # small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        small_object_0: null
+        small_object_1: null
+        small_object_2: null
+        small_object_3: null
+        small_object_4: null
+        small_object_5: null
+        small_object_6: null
+        small_object_7: null
+        small_object_8: null
+        small_object_9: null
+        small_object_10: null
+        small_object_11: null
+        small_object_12: null
+        small_object_13: null
+        small_object_14: null
+        small_object_15: null
+        small_object_16: null
+        small_object_17: null
+        small_object_18: null
+        small_object_19: null
+        small_object_20: null
+        small_object_21: null
+        small_object_22: null
+        small_object_23: null
+        small_object_24: null
+        small_object_25: null
+        small_object_26: null
+        small_object_27: null
+        small_object_28: null
+        small_object_29: null
 
     right_manipulation_interface:
       group_name: right_manipulator
@@ -265,39 +299,69 @@
         - 9,1
         - 9,2
       reset_config_map:
-        small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_0:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_1:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_2:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_3:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_4:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_5:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_6:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_7:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_8:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_9:  $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        # small_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        small_object_0: null
+        small_object_1: null
+        small_object_2: null
+        small_object_3: null
+        small_object_4: null
+        small_object_5: null
+        small_object_6: null
+        small_object_7: null
+        small_object_8: null
+        small_object_9: null
+        small_object_10: null
+        small_object_11: null
+        small_object_12: null
+        small_object_13: null
+        small_object_14: null
+        small_object_15: null
+        small_object_16: null
+        small_object_17: null
+        small_object_18: null
+        small_object_19: null
+        small_object_20: null
+        small_object_21: null
+        small_object_22: null
+        small_object_23: null
+        small_object_24: null
+        small_object_25: null
+        small_object_26: null
+        small_object_27: null
+        small_object_28: null
+        small_object_29: null
 
     common_manipulation_context_interface:
-      safe_execution:
+      interruptions:
         max_attempts: 3
       reset:
         max_attempts: 5
@@ -348,15 +412,15 @@
             color: [ 1.0, 0.0, 0.0, 0.3 ]
           projector_safety_box:
             type: BOX
-            dimensions: [ 0.5, 0.3, 1.25 ]
+            dimensions: [ 0.5, 0.35, 1.25 ]
             pose_stamped:
-              position: [ 1.655, 0.15, 0.625 ]
+              position: [ 1.655, 0.175, 0.625 ]
             color: [ 1.0, 0.0, 0.0, 0.1 ]
           optitrack_safety_box:
             type: BOX
-            dimensions: [ 1.8288, 0.5, 0.2 ]
+            dimensions: [ 1.8288, 0.52, 0.2 ]
             pose_stamped:
-              position: [ 0.9525, 0.25, 1.2845 ]
+              position: [ 0.9525, 0.26, 1.25 ]
             color: [ 1.0, 0.0, 0.0, 0.1 ]
           floor:
             type: BOX
@@ -429,7 +493,7 @@
               object_id: small_object_0
               color: [ 1.0, 0.0, 0.0, 0.5 ] # red
               pose_stamped:
-                position: [ 0.2781, 0.7663, 1.1801 ]
+                position: [ 0.2744, 0.7652, 1.1798 ]
                 rpy: [ 0.0, 0.0, -1.5707 ]
             0,1:
               object_id: small_object_1
@@ -441,7 +505,7 @@
               object_id: small_object_2
               color: [ 0.0, 0.0, 1.0, 0.5 ] # blue
               pose_stamped:
-                position: [ 0.2817, 1.405, 0.979 ]
+                position: [ 0.2803, 1.4096, 0.98 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             1,0:
               object_id: small_object_3
@@ -459,7 +523,7 @@
               object_id: small_object_5
               color: [ 0.0, 1.0, 1.0, 0.5 ] # cyan
               pose_stamped:
-                position: [ 0.4289, 1.405, 0.9779 ]
+                position: [ 0.4289, 1.4077, 0.9807 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             2,0:
               object_id: small_object_6
@@ -477,7 +541,7 @@
               object_id: small_object_8
               color: [ 0.5, 0.5, 0.0, 0.5 ] # olive
               pose_stamped:
-                position: [ 0.5778, 1.405, 0.9779 ]
+                position: [ 0.5778, 1.4059, 0.981 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             3,0:
               object_id: small_object_9
@@ -495,7 +559,7 @@
               object_id: small_object_11
               color: [ 0.0, 0.5, 0.0, 0.5 ] # lime
               pose_stamped:
-                position: [ 0.7309, 1.405, 0.9784 ]
+                position: [ 0.7281, 1.4045, 0.9784 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             4,0:
               object_id: small_object_12
@@ -513,7 +577,7 @@
               object_id: small_object_14
               color: [ 0.75, 0.75, 0.75, 0.5 ] # light gray
               pose_stamped:
-                position: [ 0.8804, 1.4024, 0.9804 ]
+                position: [ 0.8802, 1.4022, 0.9819 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             5,0:
               object_id: small_object_15
@@ -567,7 +631,7 @@
               object_id: small_object_23
               color: [ 0.0, 0.25, 0.75, 0.5 ] # light blue
               pose_stamped:
-                position: [ 1.3351, 1.3987, 0.9845 ]
+                position: [ 1.3326, 1.3979, 0.9823 ]
                 rpy: [ -1.5707, 1.5707, 0.0 ]
             8,0:
               object_id: small_object_24

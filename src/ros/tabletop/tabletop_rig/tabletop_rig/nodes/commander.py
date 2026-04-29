@@ -48,6 +48,7 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
     RobotTrajectory,
 )
 from rclpy.executors import (
+    Executor,
     MultiThreadedExecutor,
     SingleThreadedExecutor,
 )
@@ -57,7 +58,10 @@ from tabletop_interfaces.msg import TeensySensor
 
 from tabletop_rig.exceptions import (
     ActionClientError,
+    ExecutionError,
     ExecutionInterruptedError,
+    ExecutionRejectedError,
+    ExecutionStoppedError,
     ManipulationContextExitedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
@@ -81,13 +85,15 @@ def ensure_context(fn):
 
         @functools.wraps(fn)
         async def async_wrapper(
-            self: "ManipulationContextManager", *args, **kwargs
+            self: "ManipulationContextManager | Commander", *args, **kwargs
         ):
             if not self._entered_context:
                 raise RuntimeError(
-                    "ManipulationContextManager not entered, use as follows: "
-                    "'async with commander.manipulation_context(robot_name) as manipulator: ...' "
-                    "before calling any of the context manager's methods"
+                    f"{type(self).__name__} context manager not yet entered."
+                )
+            if self._exited_context:
+                raise RuntimeError(
+                    f"{type(self).__name__} context manager already exited."
                 )
             return await fn(self, *args, **kwargs)
 
@@ -95,10 +101,16 @@ def ensure_context(fn):
     else:
 
         @functools.wraps(fn)
-        def wrapper(self: "ManipulationContextManager", *args, **kwargs):
+        def wrapper(
+            self: "ManipulationContextManager | Commander", *args, **kwargs
+        ):
             if not self._entered_context:
                 raise RuntimeError(
-                    "Commander context manager not entered, use 'async with commander:' before calling any Commander methods"
+                    f"{type(self).__name__} context manager not yet entered."
+                )
+            if self._exited_context:
+                raise RuntimeError(
+                    f"{type(self).__name__} context manager already exited."
                 )
             return fn(self, *args, **kwargs)
 
@@ -122,17 +134,19 @@ def handle_interruptions(coro_fn):
 
     @functools.wraps(coro_fn)
     async def wrapper(self: "ManipulationContextManager", *args, **kwargs):
-        max_attempts = self.param("safe_execution.max_attempts")
+        max_attempts = self.param("interruptions.max_attempts")
         if max_attempts < 1:
             raise ValueError(
                 "'safe_execution.max_attempts' parameter must be at least 1"
             )
 
+        remaining = max_attempts
+
         excs: list[Exception] = []
-        for i in range(max_attempts):
+        while remaining > 0:
             try:
                 return await coro_fn(self, *args, **kwargs)
-            except (NotSafeToExecuteError, ExecutionInterruptedError) as e:
+            except ExecutionError as e:
                 excs.append(e)
                 self.log(
                     f"Caught exception while running '{coro_fn.__name__}' | "
@@ -144,26 +158,46 @@ def handle_interruptions(coro_fn):
                     severity="DEBUG",
                 )
 
-                remaining = max_attempts - i - 1
+                remaining -= 1
 
-                if remaining > 0:
-                    if isinstance(e, NotSafeToExecuteError):
+                if remaining <= 0:
+                    break
+
+                if isinstance(
+                    e,
+                    (
+                        NotSafeToExecuteError,
+                        ExecutionInterruptedError,
+                        ExecutionStoppedError,
+                    ),
+                ):
+                    if not self._safe_to_execution_condition():
                         self.log(
-                            "Locking arms and waiting for safety",
+                            "Not safe to execute. Locking arms and waiting for safety",
                             severity="WARN",
                         )
                         await self._teensy.lock_arms_and_wait()
 
-                    self.log(
-                        "Resetting UR interface for before retrying",
-                        severity="WARN",
-                    )
-                    await self._ur.reset()
+                if isinstance(
+                    e,
+                    (
+                        ExecutionRejectedError,
+                        ExecutionInterruptedError,
+                        ExecutionStoppedError,
+                    ),
+                ):
+                    ready = await self._ur.is_ready()
+                    if not ready:
+                        self.log(
+                            "Dashboard not ready. Resetting UR interface for before retrying",
+                            severity="WARN",
+                        )
+                        await self._ur.reset()
 
-                    self.log(
-                        f"Reset successful, retrying '{coro_fn.__name__}' {remaining} more times",
-                        severity="WARN",
-                    )
+                self.log(
+                    f"Reset successful, retrying '{coro_fn.__name__}' {remaining} more times",
+                    severity="WARN",
+                )
 
         if len(excs) == 1:
             raise excs[0]
@@ -185,6 +219,7 @@ class ManipulationContextManager(BaseInterface):
         teensy_interface: TeensyInterface,
         ur_interface: URInterface,
         manipulation_interface: ObjectManipulationInterface,
+        safe_to_execute_condition: Callable[[], bool],
         parameter_fallback_prefix: Optional[str] = None,
     ):
         super().__init__(
@@ -195,11 +230,17 @@ class ManipulationContextManager(BaseInterface):
         self._ur = ur_interface
         self._manipulator = manipulation_interface
 
+        self._safe_to_execution_condition = safe_to_execute_condition
+
         self._initial_reset = False
         self._entered_context = False
 
-    @ensure_context
+        # For compatibility with ensure_context, unused because this context
+        # manager is reentrant
+        self._exited_context = False
+
     @property
+    @ensure_context
     def current_manipulation_id(self) -> str | None:
         return self._manipulator.current_manipulation_id
 
@@ -370,8 +411,10 @@ class ManipulationContextManager(BaseInterface):
                 "'reset.max_attempts' parameter must be at least 1"
             )
 
+        remaining = max_attempts
+
         excs: list[Exception] = []
-        for i in range(max_attempts):
+        while remaining > 0:
             try:
                 await self._teensy.set_smartglass(reveal=False)
 
@@ -409,7 +452,8 @@ class ManipulationContextManager(BaseInterface):
                     severity="DEBUG",
                 )
 
-                remaining = max_attempts - i - 1
+                remaining -= 1
+
                 if remaining > 0:
                     self.log(f"Retrying {remaining} more times")
 
@@ -417,7 +461,7 @@ class ManipulationContextManager(BaseInterface):
             raise excs[0]
         elif len(excs) > 1:
             raise ExceptionGroup(
-                f"Failed to reset manipulation after {max_attempts} attempts",
+                f"Failed to reset manipulation after {remaining} attempts",
                 excs,
             )
 
@@ -649,6 +693,7 @@ class Commander(BaseNode):
                 teensy_interface=self._teensy,
                 ur_interface=ur_interface,
                 manipulation_interface=manipulation_interface,
+                safe_to_execute_condition=self._safe_to_execute_condition,
                 parameter_fallback_prefix="common_manipulation_context_interface",
             )
             self._urs[robot_name] = ur_interface
@@ -657,6 +702,7 @@ class Commander(BaseNode):
 
         self._initial_reset = False
         self._entered_context = False
+        self._exited_context = False
 
         self.log("Commander initialized")
 
@@ -672,11 +718,12 @@ class Commander(BaseNode):
         if not self._teensy.safe_to_execute:
             for robot_name, manipulator in self._manipulators.items():
                 if manipulator.executing:
+                    self._urs[robot_name].stop_program()
+                    # manipulator.stop_execution()
                     self.log(
                         f"Not safe to execute for {robot_name}, stopping execution",
                         severity="WARN",
                     )
-                    manipulator.stop_execution()
 
     def _safe_to_execute_condition(self) -> bool:
         return self._teensy.safe_to_execute
@@ -685,6 +732,7 @@ class Commander(BaseNode):
     ########## User Interface #################################################
     ###########################################################################
 
+    @ensure_context
     async def play_sound(
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
@@ -698,6 +746,7 @@ class Commander(BaseNode):
         """
         await self._sound.play(note, duration)
 
+    @ensure_context
     async def release_arm(self, arm: Literal["left", "right", "both"]) -> None:
         """Release the specified arm lock(s).
 
@@ -706,6 +755,7 @@ class Commander(BaseNode):
         """
         await self._teensy.set_arm_lock(arm, lock=False)
 
+    @ensure_context
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
@@ -723,18 +773,22 @@ class Commander(BaseNode):
         """
         return await self._teensy.lock_arms_and_wait(timeout)
 
+    @ensure_context
     async def reveal_smartglass(self) -> None:
         """Make the smartglass transparent (subject can see through)."""
         await self._teensy.set_smartglass(reveal=True)
 
+    @ensure_context
     async def occlude_smartglass(self) -> None:
         """Make the smartglass opaque (subject's view is blocked)."""
         await self._teensy.set_smartglass(reveal=False)
 
+    @ensure_context
     async def stop_reward(self) -> None:
         """Stop any active reward delivery immediately."""
         await self._teensy.set_reward(activate=False)
 
+    @ensure_context
     async def start_reward_and_wait(self, duration: float) -> None:
         """Deliver reward for the specified duration.
 
@@ -743,6 +797,7 @@ class Commander(BaseNode):
         """
         await self._teensy.start_reward_and_wait(duration)
 
+    @ensure_context
     async def flic_response_time(
         self, object_id: str, *, timeout: Optional[float] = None
     ) -> float | None:
@@ -763,6 +818,7 @@ class Commander(BaseNode):
 
         return await self._flic.response_time(bd_addr, timeout)
 
+    @ensure_context
     async def smooth_pursuit_and_reward(self) -> None:
         """Monitor smooth pursuit and provide contingent reward.
 
@@ -825,9 +881,11 @@ class Commander(BaseNode):
                 self.log(f"Error stopping reward: {e}", severity="ERROR")
 
     @property
+    @ensure_context
     def robot_names(self) -> list[str]:
         return list(self._manipulation_contexts.keys())
 
+    @ensure_context
     def reachable_object_ids(self, robot_name: str) -> set[str]:
         """Get the reachable objects for this robot"""
         if robot_name not in self.robot_names:
@@ -837,6 +895,7 @@ class Commander(BaseNode):
             )
         return self._manipulators[robot_name].reachable_object_ids
 
+    @ensure_context
     def manipulation_context(
         self, robot_name: str
     ) -> ManipulationContextManager:
@@ -847,7 +906,7 @@ class Commander(BaseNode):
             )
         return self._manipulation_contexts[robot_name]
 
-    def __enter__(self) -> Self:
+    async def __aenter__(self) -> Self:
         """Enter the async context manager.
 
         Initializes MoveIt and resets the commander to the idle state.
@@ -855,12 +914,19 @@ class Commander(BaseNode):
         Returns:
             The Commander instance.
         """
-        self.log("Entering commander context manager", severity="DEBUG")
-        self._teensy.set_sync_pulse_solenoid_blocking(activate=True)
+        self.log("Entering commander context manager")
+
+        if self._entered_context:
+            raise RuntimeError("Commander context manager already entered")
+
+        if self._exited_context:
+            raise RuntimeError("Commander context manager already exited")
+
+        await self._teensy.set_sync_pulse_solenoid(activate=True)
         self._entered_context = True
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
@@ -879,11 +945,17 @@ class Commander(BaseNode):
         Returns:
             True if a recoverable error was handled, False otherwise.
         """
+        self.log("Exiting commander context manager")
         try:
-            self._teensy.set_sync_pulse_solenoid_blocking(activate=False)
+            async with asyncio.timeout(self.param("shutdown_timeout")):
+                await self._teensy.set_sync_pulse_solenoid(activate=False)
             self.destroy_node()
+        except TimeoutError:
+            self.log("")
+            pass
         finally:
             self._entered_context = False
+            self._exited_context = True
 
 
 async def debug_commander(
@@ -916,11 +988,11 @@ async def debug_commander(
 
 
 async def asyncio_runner(
-    coro_fn: Callable[[Commander, Optional[str]], Coroutine],
     commander: Commander,
+    coro_fn: Callable[[Commander, Optional[str]], Coroutine],
     config: str | None,
-    spin_future: concurrent.futures.Future,
-    max_workers: int,
+    cancel_future: concurrent.futures.Future,
+    max_workers: int | None,
 ) -> None:
     """Run an experiment coroutine with proper executor setup.
 
@@ -939,16 +1011,37 @@ async def asyncio_runner(
     loop = asyncio.get_event_loop()
     loop.set_default_executor(tpe)
 
-    task = asyncio.create_task(coro_fn(commander, config))
-    spin_future.add_done_callback(
-        lambda _: (
-            loop.call_soon_threadsafe(task.cancel)
-            if loop.is_running()
-            else None
+    async with commander:
+        task = asyncio.create_task(coro_fn(commander, config))
+        cancel_future.add_done_callback(
+            lambda _: (
+                loop.call_soon_threadsafe(task.cancel)
+                if loop.is_running()
+                else None
+            )
         )
-    )
+        await task
 
-    await task
+
+def spin_notify(executor: Executor, cancel_future: concurrent.futures.Future):
+    first_exc = None
+    while executor.context.ok() and not executor._is_shutdown:
+        try:
+            executor.spin()
+            assert not executor.context.ok() or executor._is_shutdown
+        except Exception as e:
+            print(f"Caught exception in executor | {type(e).__name__}: {e}")
+            if first_exc is None:
+                first_exc = e
+        finally:
+            if not cancel_future.done():
+                cancel_future.set_result(None)
+
+    if not cancel_future.done():
+        cancel_future.set_result(None)
+
+    if first_exc is not None:
+        raise first_exc
 
 
 EXECUTOR_TYPE = "single-threaded"
@@ -971,84 +1064,82 @@ def main_sync(args=None) -> None:
         --debug: Enable debugpy for remote debugging.
     """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+
+    # Parse non-ROS arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--coro-module", type=str, default=None)
+    parser.add_argument("--coro-name", type=str, default=None)
+    parser.add_argument("--coro-config", type=str, default=None)
+    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--debug", action="store_true", default=False)
+
+    non_ros_args = rclpy.utilities.remove_ros_args(args)
+    args, _ = parser.parse_known_args(non_ros_args)
+
+    if args.coro_module is not None and args.coro_name is not None:
+        print(
+            f"Loading coroutine {args.coro_name} from module {args.coro_module} "
+        )
+        coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
+            importlib.import_module(args.coro_module),
+            args.coro_name,
+        )
+    elif args.coro_name is not None or args.coro_module is not None:
+        raise ValueError(
+            "Both coro_module and coro_name must be provided when one is provided"
+        )
+    else:
+        print("No coroutine module or name provided, running in debug mode")
+        coro_fn = debug_commander
+        args.coro_config = None
+        args.debug = True
+
+    if args.coro_config is not None:
+        print(f"Config file: {args.coro_config}")
+
+    if args.debug:
+        import debugpy
+
+        print("Debug mode enabled")
+        debugpy.listen(1300)
+        print("Waiting for debugger to attach")
+        debugpy.wait_for_client()
+        print("Debugger attached")
+
+    match EXECUTOR_TYPE:
+        case "events":
+            executor = EventsExecutor()
+        case "single-threaded":
+            executor = SingleThreadedExecutor()
+        case "multi-threaded":
+            executor = MultiThreadedExecutor()
+        case _:
+            raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
+
+    tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    cancel_future = concurrent.futures.Future()
+    spin_future = tpe.submit(spin_notify, executor, cancel_future)
+
     try:
-        # Parse non-ROS arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--coro-module", type=str, default=None)
-        parser.add_argument("--coro-name", type=str, default=None)
-        parser.add_argument("--coro-config", type=str, default=None)
-        parser.add_argument("--max-workers", type=int, default=4)
-        parser.add_argument("--debug", action="store_true", default=False)
-
-        non_ros_args = rclpy.utilities.remove_ros_args(args)
-        args, _ = parser.parse_known_args(non_ros_args)
-
-        if args.coro_module is not None and args.coro_name is not None:
-            print(
-                f"Loading coroutine {args.coro_name} from module {args.coro_module} "
-            )
-            coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-                importlib.import_module(args.coro_module),
-                args.coro_name,
-            )
-        elif args.coro_name is not None or args.coro_module is not None:
-            raise ValueError(
-                "Both coro_module and coro_name must be provided when one is provided"
-            )
-        else:
-            print(
-                "No coroutine module or name provided, running in debug mode"
-            )
-            coro_fn = debug_commander
-            args.coro_config = None
-            args.debug = True
-
-        if args.coro_config is not None:
-            print(f"Config file: {args.coro_config}")
-
-        if args.debug:
-            import debugpy
-
-            print("Debug mode enabled")
-            debugpy.listen(1300)
-            print("Waiting for debugger to attach")
-            debugpy.wait_for_client()
-            print("Debugger attached")
-
-        match EXECUTOR_TYPE:
-            case "events":
-                executor = EventsExecutor()
-            case "single-threaded":
-                executor = SingleThreadedExecutor()
-            case "multi-threaded":
-                executor = MultiThreadedExecutor()
-            case _:
-                raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
-
         commander = Commander()
         executor.add_node(commander)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as tpe:
-            spin_future = tpe.submit(executor.spin)
-            try:
-                with commander:
-                    asyncio.run(
-                        asyncio_runner(
-                            coro_fn,
-                            commander,
-                            args.coro_config,
-                            spin_future,
-                            args.max_workers,
-                        )
-                    )
-            finally:
-                print("Shutting down executor")
-                executor.shutdown()
-                print("Raising executor spin errors")
-                spin_future.result()
+        asyncio.run(
+            asyncio_runner(
+                commander,
+                coro_fn,
+                args.coro_config,
+                cancel_future,
+                args.max_workers,
+            )
+        )
     except KeyboardInterrupt:
         pass
     finally:
+        print("Shutting down executor")
+        executor.shutdown()
+        print("Raising executor spin errors")
+        spin_future.result()
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
 

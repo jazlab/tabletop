@@ -6,29 +6,68 @@ bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
-cd $COLCON_WS
+print_usage() {
+    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [-c|--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
+}
+
+if [[ "$#" < 1 ]]; then
+    print_error "At least one option must be provided."
+    print_usage
+    exit 1
+fi
 
 # Parse arguments
-while [[ $# -gt 0 ]]; do
+tabletop_colcon=false
+tabletop_cache=false
+logs=false
+all_colcon=false
+ccache=false
+all=false
+while [[ "$#" -gt 0 ]]; do
     case $1 in
-        -a|--all)
+        -t|--tabletop-colcon)
+            tabletop_colcon=true
+            ;;
+        -c|--tabletop-cache)
+            tabletop_cache=true
+            ;;
+        -l|--logs)
+            logs=true
+            ;;
+        --ccache)
+            ccache=true
+            ;;
+        --all-colcon)
+            all_colcon=true
+            ;;
+        --everything)
             all=true
-            shift
             ;;
         *)
             print_error "Unknown argument: $1"
-            print_error "Usage: $0 [-a|--all]"
+            print_usage
             exit 1
             ;;
     esac
+    shift
 done
 
-to_clean=("$COLCON_LOG_DIR")
+if [[ "$all" == true || "$all_colcon" == true ]]; then
+    to_clean+=("$COLCON_WS/build" "$COLCON_WS/install")
+elif [[ "$tabletop_colcon" == true ]]; then
+    to_clean+=("$COLCON_WS/build/tabletop*" "$COLCON_WS/install/tabletop*")
+fi
 
-if [[ $all = true ]]; then
-    to_clean+=("build" "install")
-else
-    to_clean+=("build/tabletop*" "install/tabletop*")
+if [[ "$all" == true || "$all_colcon" == true || "$logs" == true ]]; then
+    to_clean=("$COLCON_LOG_DIR" "$ROS_LOG_DIR")
+fi
+
+if [[ "$all" == true || "$tabletop_cache" == true ]]; then
+    to_clean+=("$TABLETOP_CACHE_DIR")
+fi
+
+if [[ "$all" == true || "$all_colcon" == true || "$ccache" == true ]]; then
+    to_clean+=("$CCACHE_DIR")
 fi
 
 print_status "Removing ${to_clean[@]}"

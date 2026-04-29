@@ -23,7 +23,7 @@ tasks:
               # - small_object_6
               - small_object_7
               - small_object_8
-              - small_object_9
+              # - small_object_9
               - small_object_10
               - small_object_11
               - small_object_12

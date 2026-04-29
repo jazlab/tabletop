@@ -131,7 +131,7 @@ packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
 if [[ $clean_all = true ]]; then
-    tt-clean-ws --all
+    tt-clean-ws --all-colcon
 elif [[ $clean = true ]]; then
     tt-clean-ws
 fi

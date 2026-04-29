@@ -736,9 +736,8 @@ bool init_client()
   RCCHECK(rclc_node_init_default(&node, NODE_NAME, NODE_NS, &support));
 
   // Publishers
-  RCCHECK(rclc_publisher_init(&sensor_publisher, &node,
-                              ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, msg, TeensySensor), SENSOR_TOPIC,
-                              &rmw_qos_profile_sensor_data));
+  RCCHECK(rclc_publisher_init_best_effort(
+      &sensor_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, msg, TeensySensor), SENSOR_TOPIC));
   RCCHECK(rclc_publisher_init_default(&log_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
                                       LOG_TOPIC));
   LOG("Publishers initialized");

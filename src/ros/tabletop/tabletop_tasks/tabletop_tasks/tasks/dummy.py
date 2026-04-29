@@ -16,6 +16,7 @@ from typing import cast
 import numpy as np
 from rclpy.time import Time
 from tabletop_interfaces.srv import Ping
+from tabletop_rig.exceptions import ManipulationContextExitedError
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
@@ -45,28 +46,6 @@ class DummyTask(BaseTask):
             commander: Commander instance for robot interaction.
         """
         super().__init__("dummy_task", commander)
-
-    async def test_link_position(self) -> None:
-        """Test method for debugging object grid positioning.
-
-        Continuously logs the end-effector position relative to the
-        grid origin. Useful for calibrating object placement.
-        """
-        link_names = ["left_eef", "right_eef"]
-        while True:
-            for link_name in link_names:
-                pose_stamped = self.commander._moveit.get_link_pose_stamped(
-                    link_name
-                )
-                position, euler = arrays_from_pose_msg(
-                    pose_stamped.pose, euler=True
-                )
-                self.commander.log(
-                    f"Pose of {link_name} in {pose_stamped.header.frame_id} frame:\n"
-                    f"position: {position.round(4).tolist()}\n"
-                    f"rpy: {euler.round(4).tolist()}"
-                )
-            await asyncio.sleep(5.0)
 
     async def test_teensy_latency(self):
         client = self.commander.create_client(
@@ -284,15 +263,59 @@ class DummyTask(BaseTask):
             await self.commander.play_sound()
             await asyncio.sleep(1)
 
+    async def test_link_position(self) -> None:
+        """Test method for debugging object grid positioning.
+
+        Continuously logs the end-effector position relative to the
+        grid origin. Useful for calibrating object placement.
+        """
+        link_names = ["left_eef", "right_eef"]
+        while True:
+            for link_name in link_names:
+                pose_stamped = self.commander._moveit.get_link_pose_stamped(
+                    link_name
+                )
+                position, euler = arrays_from_pose_msg(
+                    pose_stamped.pose, euler=True
+                )
+                self.commander.log(
+                    f"Pose of {link_name} in {pose_stamped.header.frame_id} frame:\n"
+                    f"position: {position.round(4).tolist()}\n"
+                    f"rpy: {euler.round(4).tolist()}"
+                )
+            await asyncio.sleep(5.0)
+
+    async def test_object_fetch_return(self):
+        robot_name = "left_manipulator"
+        i = 0
+        while i < 15:
+            if i in (6, 9):
+                continue
+            x, y = i // 3, i % 3
+            object_id = self.commander._moveit.grid_objects_by_idx[
+                (x, y)
+            ].object_id
+            try:
+                async with self.commander.manipulation_context(
+                    robot_name
+                ) as manipulator:
+                    await manipulator.fetch_object(object_id)
+                    await manipulator.return_object(object_id)
+                    i += 1
+            except ManipulationContextExitedError:
+                self.log(
+                    f"Failed to fetch and return object {object_id}",
+                    severity="WARN",
+                )
+
     async def run(self) -> None:
         """Run one or more of the tests"""
         # await self.test_teensy_latency()
-        await self.test_link_position()
         # await self.test_flic_latency_pre_pressed()
         # await self.test_flic_latency_human()
         # await self.test_flic_latency_button()
         # await self.test_optitrack_latency_solenoid()
-        # await self.test_robot_position()
         # await self.test_sound()
         # await self.test_smooth_pursuit()
-        # await self.test_dual()
+        # await self.test_link_position()
+        await self.test_object_fetch_return()

@@ -25,10 +25,11 @@ Configuration:
 """
 
 import asyncio
+import functools
+import inspect
 import os
 import traceback
 from collections.abc import Callable
-from contextlib import asynccontextmanager
 from enum import IntEnum
 from glob import glob
 from typing import Any, Optional
@@ -48,8 +49,6 @@ from sensor_msgs.msg import JointState
 
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
-    ExecutionInterruptedError,
-    ExecutionRejectedError,
     ObjectManipulationError,
     ObjectMismatchError,
     PlanningError,
@@ -118,7 +117,7 @@ class State(IntEnum):
     UNINITIALIZED = 99
 
 
-FETCH_OR_RETURN_STATES = set(
+_FETCH_OR_RETURN_STATES = set(
     (
         State.IDLE,
         State.PRE_FETCH,
@@ -135,7 +134,7 @@ FETCH_OR_RETURN_STATES = set(
     )
 )
 
-OBJECT_DETACHED_STATES = set(
+_OBJECT_DETACHED_STATES = set(
     (
         State.IDLE,
         State.PRE_FETCH,
@@ -146,7 +145,7 @@ OBJECT_DETACHED_STATES = set(
         State.UNINITIALIZED,
     )
 )
-GRID_OBJECT_ATTACHED_STATES = set(
+_GRID_OBJECT_ATTACHED_STATES = set(
     (
         State.ATTACH,
         State.POST_ATTACH,
@@ -161,21 +160,21 @@ GRID_OBJECT_ATTACHED_STATES = set(
     )
 )
 
-ALLOWED_MOUNT_COLLISION_STATES = set(
-    (
-        State.PRE_ATTACH,
-        State.ATTACH,
-        State.POST_ATTACH,
-        State.POST_FETCH,
-        State.PRE_DETACH,
-        State.DETACH,
-        State.POST_DETACH,
-        State.POST_RETURN,
-    )
-)
+# MOUNT_COLLISIONS_ALLOWED_STATES = set(
+#     (
+#         State.PRE_ATTACH,
+#         State.ATTACH,
+#         State.POST_ATTACH,
+#         # State.POST_FETCH,
+#         # State.PRE_DETACH,
+#         State.DETACH,
+#         State.POST_DETACH,
+#         State.POST_RETURN,
+#     )
+# )
 
 # Mapping of manipulation states to their corresponding pose offsets
-MANIPULATION_STATE_GOAL_NAME = {
+_STATE_GOAL_NAME_MAP = {
     State.IDLE: "idle",
     State.PRE_FETCH: "pre_fetch",
     State.PRE_ATTACH: "pre_attach",
@@ -191,6 +190,30 @@ MANIPULATION_STATE_GOAL_NAME = {
     State.POST_DETACH: "pre_attach",
     State.POST_RETURN: "pre_fetch",
 }
+
+
+def validate_and_lock(coro_fn):
+    if inspect.iscoroutinefunction(coro_fn):
+
+        @functools.wraps(coro_fn)
+        async def async_wrapper(
+            self: "ObjectManipulationInterface", *args, **kwargs
+        ):
+            if self._manipulation_lock.locked():
+                raise ObjectManipulationError(
+                    "Robot cannot cannot acquire manipulation "
+                    "lock while while another operation is in progress",
+                    group_name=self.group_name,
+                )
+
+            async with self._manipulation_lock:
+                self._validate_manipulation_state()
+                try:
+                    await coro_fn(self, *args, **kwargs)
+                finally:
+                    self._validate_manipulation_state()
+
+        return async_wrapper
 
 
 class ResetLoader(KwargYamlLoader):
@@ -479,9 +502,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         attached_object_id = self._get_attached_object_id()
         if attached_object_id is None:
-            assert self._manipulation_state in OBJECT_DETACHED_STATES, (
+            assert self._manipulation_state in _OBJECT_DETACHED_STATES, (
                 f"If object is not attached, we can only be in "
-                f"{(x.name for x in OBJECT_DETACHED_STATES)} states, "
+                f"{(x.name for x in _OBJECT_DETACHED_STATES)} states, "
                 f"got: {self._manipulation_state.name}"
             )
         else:
@@ -489,10 +512,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
             if attached_object_id in self._moveit.grid_objects_by_id:
                 assert (
-                    self._manipulation_state in GRID_OBJECT_ATTACHED_STATES
+                    self._manipulation_state in _GRID_OBJECT_ATTACHED_STATES
                 ), (
                     f"If grid object is attached, we can only be in "
-                    f"{(x.name for x in GRID_OBJECT_ATTACHED_STATES)} states, "
+                    f"{(x.name for x in _GRID_OBJECT_ATTACHED_STATES)} states, "
                     f"got: {self._manipulation_state.name}"
                 )
             else:
@@ -528,21 +551,21 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 group_name=self.group_name,
             )
 
-    @asynccontextmanager
-    async def manipulation_context(self, *, wait: bool):
-        if not wait and self._manipulation_lock.locked():
-            raise ObjectManipulationError(
-                "Robot cannot cannot acquire manipulation "
-                "lock while while another operation is in progress",
-                group_name=self.group_name,
-            )
-
-        async with self._manipulation_lock:
-            self._validate_manipulation_state()
-            try:
-                yield
-            finally:
-                self._validate_manipulation_state()
+    # @asynccontextmanager
+    # async def _validate_and_lock(self, *, wait: bool):
+    #     if not wait and self._manipulation_lock.locked():
+    #         raise ObjectManipulationError(
+    #             "Robot cannot cannot acquire manipulation "
+    #             "lock while while another operation is in progress",
+    #             group_name=self.group_name,
+    #         )
+    #
+    #     async with self._manipulation_lock:
+    #         self._validate_manipulation_state()
+    #         try:
+    #             yield
+    #         finally:
+    #             self._validate_manipulation_state()
 
     ###########################################################################
     ########## Object Manipulation State Transition Logic #####################
@@ -566,7 +589,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if state == State.PRE_RETURN and object_id in self._post_fetch_states:
             return self._post_fetch_states[object_id]
 
-        goal_name = MANIPULATION_STATE_GOAL_NAME[state]
+        goal_name = _STATE_GOAL_NAME_MAP[state]
         param_name = f"manipulation_state_goals.object_overrides.{object_id}.{goal_name}"
         goal_config: dict[str, Any]
         if object_id is not None:
@@ -636,39 +659,49 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         assert (
             self._manipulation_state == State.RESETTED
-            or self._manipulation_state in FETCH_OR_RETURN_STATES
+            or self._manipulation_state in _FETCH_OR_RETURN_STATES
         )
-        assert next_state in FETCH_OR_RETURN_STATES
+        assert next_state in _FETCH_OR_RETURN_STATES
 
         if next_state == State.IDLE and self.param("skip_idle_on_return"):
+            return None
+        if next_state == State.FETCHED and self.param("skip_fetched_on_fetch"):
             return None
 
         goal = self._get_state_goal(next_state, object_id)
         request = PlanRequest(goal=goal)
 
-        match next_state:
-            case (
-                State.PRE_ATTACH
-                | State.ATTACH
-                | State.POST_ATTACH
-                | State.POST_FETCH
-                | State.PRE_DETACH
-                | State.DETACH
-                | State.POST_DETACH
-                | State.POST_RETURN
-            ):
-                request.planning_pipeline = "linear"
-                request.use_cache = False
+        if next_state in (
+            State.PRE_ATTACH,
+            State.ATTACH,
+            State.POST_ATTACH,
+            State.POST_FETCH,
+            State.PRE_DETACH,
+            State.DETACH,
+            State.POST_DETACH,
+            State.POST_RETURN,
+        ):
+            request.planning_pipeline = "linear"
+            request.use_cache = False
 
-        if next_state == State.DETACH:
-            PlanRequest.velocity_scaling_factor = self.param(
+        if next_state in (State.DETACH, State.POST_DETACH):
+            request.velocity_scaling_factor = self.param(
                 "detach_velocity_scaling_factor"
             )
 
         collisions_to_allow: list[tuple[str, str]] = []
         modified_collisions: list[tuple[str, str]] = []
 
-        if next_state in ALLOWED_MOUNT_COLLISION_STATES:
+        if next_state in (
+            State.PRE_ATTACH,
+            State.ATTACH,
+            State.POST_ATTACH,
+            # State.POST_FETCH,
+            # State.PRE_DETACH,
+            State.DETACH,
+            State.POST_DETACH,
+            State.POST_RETURN,
+        ):
             collisions_to_allow.extend(self.allowed_mount_collisions)
 
         match next_state:
@@ -720,7 +753,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     self._moveit.grid_objects_by_id[object_id].pose_stamped,
                 )
 
-        return cache_kwargs
+        if request.planning_pipeline == "linear":
+            return None
+        else:
+            return cache_kwargs
 
     async def _fetch_object_impl(
         self,
@@ -1148,134 +1184,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._current_manipulation_id = None
         self._manipulation_state = State.IDLE
 
-    ###########################################################################
-    ########## Object Manipulation User Interface #############################
-    ###########################################################################
-
-    @property
-    def current_manipulation_id(self) -> str | None:
-        return self._current_manipulation_id
-
-    async def fetch_object(
-        self,
-        object_id: str,
-        *,
-        cache_trajectories: bool = True,
-    ) -> None:
-        """Fetch an object from its mount.
-
-        The robot moves to the object's mount, attaches the object, and moves
-        to the object's post-fetch pose. It uses cached trajectories if
-        available and only caches the planned trajectories if the full fetch
-        process is successful. This addresses the issue of the robot getting
-        "stuck" in a state that it cannot complete the full fetch process and
-        caching trajectories that are unusable.
-
-        Args:
-            object_id: The ID of the object to fetch
-            cache_trajectories: Whether to cache the trajectories after fetching
-                the object
-
-        Raises:
-            ValueError: If the object ID is not a valid collision object
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        async with self.manipulation_context(wait=False):
-            await self._fetch_object_impl(
-                object_id, cache_trajectories=cache_trajectories
-            )
-
-    async def present_object(self, object_id: str, *, cache_trajectories=True):
-        """Present the object to the present pose
-
-        Args:
-            goal: The goal to present the object at
-        """
-        async with self.manipulation_context(wait=False):
-            await self._present_object_impl(
-                object_id, cache_trajectories=cache_trajectories
-            )
-
-    async def unpresent_object(
-        self, object_id: str, *, cache_trajectories=True
-    ):
-        """Unpresent the currently attached object
-
-        Args:
-            goal: The goal to present the object at
-        """
-        async with self.manipulation_context(wait=False):
-            await self._unpresent_object_impl(
-                object_id, cache_trajectories=cache_trajectories
-            )
-
-    async def reset_object(
-        self,
-        object_id: str,
-        *,
-        cache_trajectories: bool = True,
-    ):
-        """Perform the reset procedure for an object"""
-        async with self.manipulation_context(wait=False):
-            await self._reset_object_impl(
-                object_id, cache_trajectories=cache_trajectories
-            )
-
-    async def return_object(
-        self,
-        object_id: str,
-        *,
-        cache_trajectories: bool = True,
-    ) -> None:
-        """Return an object to its original position.
-
-        Args:
-            cache_trajectories: Whether to cache the trajectories after
-                returning the object
-
-        Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
-        """
-        async with self.manipulation_context(wait=False):
-            await self._return_object_impl(
-                object_id, cache_trajectories=cache_trajectories
-            )
-
-    async def manually_attach_object(self, object_id: str):
-        """Manually attach collision object to the robot end effector."""
-        async with self.manipulation_context(wait=False):
-            await self._manually_attach_object_impl(object_id)
-
-    async def manually_detach_object(self, object_id: str):
-        """Manually detach collision object from the robot end effector."""
-        async with self.manipulation_context(wait=False):
-            await self._manually_detach_object_impl(object_id)
-
-    async def plan_and_move(
-        self,
-        request: PlanRequest | ConcatPlanRequest | None = None,
-        *,
-        cache_trajectories: bool = True,
-        **kwargs: Any,
-    ) -> None:
-        """TODO"""
-        async with self.manipulation_context(wait=False):
-            await self._plan_and_move_impl(
-                request, cache_trajectories=cache_trajectories, **kwargs
-            )
-
-    async def move(self, trajectory: RobotTrajectory | list[RobotTrajectory]):
-        """TODO"""
-        async with self.manipulation_context(wait=False):
-            await self._move_impl(trajectory)
-
-    ###########################################################################
-    ########## Reset ##########################################################
-    ###########################################################################
-
     async def _test_object_attached(self):
         self.log("Testing if an object is attached")
 
@@ -1497,29 +1405,38 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             assert object_id is not None
 
             # Handle case where robot may be stuck in detach state
-            if self._manipulation_state == State.DETACH:
-                try:
-                    await self._fetch_or_return_transition(
-                        object_id, State.ATTACH
-                    )
-                    self._manipulation_state = State.ATTACH
-                    await self._fetch_or_return_transition(
-                        object_id, State.POST_ATTACH
-                    )
-                    self._manipulation_state = State.POST_ATTACH
-                except (
-                    ExecutionRejectedError,
-                    ExecutionInterruptedError,
-                ) as e:
-                    if self._simulate:
-                        raise
-                    else:
-                        raise RuntimeError(
-                            "Object seems stuck, aborting"
-                        ) from e
+            # if self._manipulation_state == State.DETACH:
+            #     await self._fetch_or_return_transition(object_id, State.ATTACH)
+            #     self._manipulation_state = State.ATTACH
+            #     await self._fetch_or_return_transition(
+            #         object_id, State.POST_ATTACH
+            #     )
+            #     self._manipulation_state = State.POST_ATTACH
+            #     # except (
+            #     #     ExecutionRejectedError,
+            #     #     ExecutionInterruptedError,
+            #     # ) as e:
+            #     #     if self._simulate:
+            #     #         raise
+            #     #     else:
+            #     #         raise RuntimeError(
+            #     #             "Object seems stuck, aborting"
+            #     #         ) from e
+
+            # "Unreturn" object and move to idle to try and get a better plan
+            if self._manipulation_state in (
+                State.PRE_RETURN,
+                State.PRE_DETACH,
+                State.DETACH,
+            ):
+                await self._fetch_object_impl(object_id)
+                goal = self._get_state_goal(State.IDLE, object_id=None)
+                await self.plan_and_execute(
+                    goal=goal, cache_trajectories=False
+                )
 
             # Unpresent object if needed
-            if self._manipulation_state == State.PRESENTED:
+            elif self._manipulation_state == State.PRESENTED:
                 await self._unpresent_object_impl(object_id)
 
             # Reset object if needed
@@ -1543,6 +1460,144 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             goal = self._get_state_goal(State.IDLE, object_id=None)
             await self._plan_and_move_impl(goal=goal, cache_trajectories=False)
 
+    ###########################################################################
+    ########## Object Manipulation User Interface #############################
+    ###########################################################################
+
+    @property
+    def current_manipulation_id(self) -> str | None:
+        return self._current_manipulation_id
+
+    @validate_and_lock
+    async def fetch_object(
+        self,
+        object_id: str,
+        *,
+        cache_trajectories: bool = True,
+    ) -> None:
+        """Fetch an object from its mount.
+
+        The robot moves to the object's mount, attaches the object, and moves
+        to the object's post-fetch pose. It uses cached trajectories if
+        available and only caches the planned trajectories if the full fetch
+        process is successful. This addresses the issue of the robot getting
+        "stuck" in a state that it cannot complete the full fetch process and
+        caching trajectories that are unusable.
+
+        Args:
+            object_id: The ID of the object to fetch
+            cache_trajectories: Whether to cache the trajectories after fetching
+                the object
+
+        Raises:
+            ValueError: If the object ID is not a valid collision object
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        # async with self._validate_and_lock(wait=False):
+        await self._fetch_object_impl(
+            object_id, cache_trajectories=cache_trajectories
+        )
+
+    @validate_and_lock
+    async def present_object(self, object_id: str, *, cache_trajectories=True):
+        """Present the object to the present pose
+
+        Args:
+            goal: The goal to present the object at
+        """
+        # async with self._validate_and_lock(wait=False):
+        await self._present_object_impl(
+            object_id, cache_trajectories=cache_trajectories
+        )
+
+    @validate_and_lock
+    async def unpresent_object(
+        self, object_id: str, *, cache_trajectories=True
+    ):
+        """Unpresent the currently attached object
+
+        Args:
+            goal: The goal to present the object at
+        """
+        # async with self._validate_and_lock(wait=False):
+        await self._unpresent_object_impl(
+            object_id, cache_trajectories=cache_trajectories
+        )
+
+    @validate_and_lock
+    async def reset_object(
+        self,
+        object_id: str,
+        *,
+        cache_trajectories: bool = True,
+    ):
+        """Perform the reset procedure for an object"""
+        # async with self._validate_and_lock(wait=False):
+        await self._reset_object_impl(
+            object_id, cache_trajectories=cache_trajectories
+        )
+
+    @validate_and_lock
+    async def return_object(
+        self,
+        object_id: str,
+        *,
+        cache_trajectories: bool = True,
+    ) -> None:
+        """Return an object to its original position.
+
+        Args:
+            cache_trajectories: Whether to cache the trajectories after
+                returning the object
+
+        Raises:
+            RuntimeError: If exactly one object is not attached
+            PlanningError: If the planning fails
+            ExecutionError: If the execution fails
+        """
+        # async with self._validate_and_lock(wait=False):
+        await self._return_object_impl(
+            object_id, cache_trajectories=cache_trajectories
+        )
+
+    @validate_and_lock
+    async def manually_attach_object(self, object_id: str):
+        """Manually attach collision object to the robot end effector."""
+        # async with self._validate_and_lock(wait=False):
+        await self._manually_attach_object_impl(object_id)
+
+    @validate_and_lock
+    async def manually_detach_object(self, object_id: str):
+        """Manually detach collision object from the robot end effector."""
+        # async with self._validate_and_lock(wait=False):
+        await self._manually_detach_object_impl(object_id)
+
+    @validate_and_lock
+    async def plan_and_move(
+        self,
+        request: PlanRequest | ConcatPlanRequest | None = None,
+        *,
+        cache_trajectories: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        """TODO"""
+        # async with self._validate_and_lock(wait=False):
+        await self._plan_and_move_impl(
+            request, cache_trajectories=cache_trajectories, **kwargs
+        )
+
+    @validate_and_lock
+    async def move(self, trajectory: RobotTrajectory | list[RobotTrajectory]):
+        """TODO"""
+        # async with self._validate_and_lock(wait=False):
+        await self._move_impl(trajectory)
+
+    ###########################################################################
+    ########## Reset ##########################################################
+    ###########################################################################
+
+    @validate_and_lock
     async def reset_manipulation(self, *, reset_to_idle: bool = False) -> None:
         """Reset robot manipulation state.
 
@@ -1552,5 +1607,4 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Then, move to idle position.
         """
         # TODO: Maybe change wait to True here
-        async with self.manipulation_context(wait=False):
-            await self._reset_manipulation_impl(reset_to_idle=reset_to_idle)
+        await self._reset_manipulation_impl(reset_to_idle=reset_to_idle)

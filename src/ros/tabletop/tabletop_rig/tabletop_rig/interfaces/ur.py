@@ -14,6 +14,8 @@ from typing import Optional, cast
 
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.client import Client
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
 from ur_dashboard_msgs.msg import ProgramState, RobotMode, SafetyMode
@@ -44,8 +46,9 @@ class URInterface(BaseInterface):
     - Triggering dashboard commands (brake release, play, etc.)
     - Automated recovery sequences after safety events
 
-    The interface creates service clients on-demand rather than at init
-    time to allow flexible service discovery.
+    Service clients for every dashboard and state-helper endpoint are
+    created at init time so that each call reuses the same long-lived
+    client (enabling stable service introspection).
     """
 
     def __init__(
@@ -82,7 +85,93 @@ class URInterface(BaseInterface):
             raise RuntimeError(f"{self._state_helper_ns} node not available")
 
         self._set_mode_client = AIOActionClient(
-            node, SetMode, f"{self._state_helper_ns}/set_mode"
+            node,
+            SetMode,
+            f"{self._state_helper_ns}/set_mode",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
+        # Parameter query service clients (one per node namespace)
+        self._dashboard_get_parameters_client = self.node.create_client(
+            GetParameters,
+            f"{self._dashboard_ns}/get_parameters",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._state_helper_get_parameters_client = self.node.create_client(
+            GetParameters,
+            f"{self._state_helper_ns}/get_parameters",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
+        # Dashboard query service clients
+        self._is_in_remote_control_client = self.node.create_client(
+            IsInRemoteControl,
+            f"{self._dashboard_ns}/is_in_remote_control",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._get_robot_mode_client = self.node.create_client(
+            GetRobotMode,
+            f"{self._dashboard_ns}/get_robot_mode",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._get_safety_mode_client = self.node.create_client(
+            GetSafetyMode,
+            f"{self._dashboard_ns}/get_safety_mode",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._get_program_state_client = self.node.create_client(
+            GetProgramState,
+            f"{self._dashboard_ns}/program_state",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
+        # Dashboard load service client
+        self._load_program_client = self.node.create_client(
+            Load,
+            f"{self._dashboard_ns}/load_program",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+
+        # Dashboard trigger service clients
+        self._quit_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/quit",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._connect_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/connect",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._close_popup_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/close_popup",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._close_safety_popup_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/close_safety_popup",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._unlock_protective_stop_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/unlock_protective_stop",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._stop_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/stop",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._play_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/play",
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self._restart_safety_client = self.node.create_client(
+            Trigger,
+            f"{self._dashboard_ns}/restart_safety",
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
         self._connected = False
@@ -90,7 +179,10 @@ class URInterface(BaseInterface):
         self.log("UR interface initialized")
 
     async def _ensure_mock(
-        self, node_ns: str, timeout: Optional[float] = None
+        self,
+        srv_client: Client,
+        node_ns: str,
+        timeout: Optional[float] = None,
     ):
         self.log(
             f"Ensuring {node_ns} is running in {'mock' if self._simulate else 'real'} hardware mode"
@@ -100,8 +192,7 @@ class URInterface(BaseInterface):
             GetParameters.Response,
             await self.node.service_call_async(
                 srv_request=GetParameters.Request(names=["is_mock"]),
-                srv_type=GetParameters,
-                srv_name=f"{node_ns}/get_parameters",
+                srv_client=srv_client,
                 timeout=timeout,
             ),
         )
@@ -123,7 +214,7 @@ class URInterface(BaseInterface):
             )
 
     async def _trigger(
-        self, srv_name: str, timeout: Optional[float] = None
+        self, srv_client: Client, timeout: Optional[float] = None
     ) -> Trigger.Response:
         """Call a dashboard Trigger service.
 
@@ -131,45 +222,43 @@ class URInterface(BaseInterface):
         use the std_srvs/Trigger interface.
 
         Args:
-            srv_name: Service name (e.g., "dashboard_client/play").
+            srv_client: The pre-built Trigger service client to call.
 
         Returns:
             The Trigger response with success status and message.
         """
         self.log(
-            f"Triggering {srv_name} in UR Dashboard",
+            f"Triggering {srv_client.service_name} in UR Dashboard",
             severity="DEBUG",
         )
         response = await self.node.service_call_async(
             srv_request=Trigger.Request(),
-            srv_type=Trigger,
-            srv_name=f"{self._dashboard_ns}/{srv_name}",
+            srv_client=srv_client,
             timeout=timeout,
         )
         return cast(Trigger.Response, response)
 
     async def _load_file(
         self,
-        srv_name: str,
+        srv_client: Client,
         filename: str,
     ) -> Load.Response:
         """Load a program or installation file on the robot.
 
         Args:
-            srv_name: The load service name (e.g., "dashboard_client/load_program").
+            srv_client: The pre-built Load service client.
             filename: Path to the program file on the robot controller.
 
         Returns:
             The Load response with success status.
         """
         self.log(
-            f"Loading {srv_name}: {filename} in UR Dashboard",
+            f"Loading {srv_client.service_name}: {filename} in UR Dashboard",
             severity="DEBUG",
         )
         response = await self.node.service_call_async(
             srv_request=Load.Request(filename=filename),
-            srv_type=Load,
-            srv_name=f"{self._dashboard_ns}/{srv_name}",
+            srv_client=srv_client,
         )
         return cast(Load.Response, response)
 
@@ -187,11 +276,25 @@ class URInterface(BaseInterface):
             IsInRemoteControl.Response,
             await self.node.service_call_async(
                 srv_request=IsInRemoteControl.Request(),
-                srv_type=IsInRemoteControl,
-                srv_name=f"{self._dashboard_ns}/is_in_remote_control",
+                srv_client=self._is_in_remote_control_client,
             ),
         )
         return response.remote_control
+
+    async def _wait_for_remote_control(
+        self, timeout: Optional[float] = None
+    ) -> None:
+        async with asyncio.timeout(timeout):
+            delay = self.param("check_remote_control_delay")
+            remote_control = await self._is_in_remote_control()
+            while not remote_control:
+                self.log(
+                    f"Dashboard is not in Remote Control mode, waiting {delay} "
+                    f"seconds before retrying",
+                    severity="WARN",
+                )
+                await asyncio.sleep(delay)
+                remote_control = await self._is_in_remote_control()
 
     async def _set_robot_mode_running(
         self, stop_program: bool = True, play_program: bool = False
@@ -231,23 +334,6 @@ class URInterface(BaseInterface):
                 f"Robot mode should be RUNNING, actual mode: {robot_mode}"
             )
 
-    async def get_safety_mode(self) -> SafetyMode:
-        """Query the current robot safety mode.
-
-        Returns:
-            SafetyMode message indicating current state (NORMAL, REDUCED,
-            PROTECTIVE_STOP, RECOVERY, etc.).
-        """
-        response = cast(
-            GetSafetyMode.Response,
-            await self.node.service_call_async(
-                srv_request=GetSafetyMode.Request(),
-                srv_type=GetSafetyMode,
-                srv_name=f"{self._dashboard_ns}/get_safety_mode",
-            ),
-        )
-        return response.safety_mode
-
     async def get_robot_mode(self) -> RobotMode:
         """Query the current robot operating mode.
 
@@ -259,11 +345,26 @@ class URInterface(BaseInterface):
             GetRobotMode.Response,
             await self.node.service_call_async(
                 srv_request=GetRobotMode.Request(),
-                srv_type=GetRobotMode,
-                srv_name=f"{self._dashboard_ns}/get_robot_mode",
+                srv_client=self._get_robot_mode_client,
             ),
         )
         return response.robot_mode
+
+    async def get_safety_mode(self) -> SafetyMode:
+        """Query the current robot safety mode.
+
+        Returns:
+            SafetyMode message indicating current state (NORMAL, REDUCED,
+            PROTECTIVE_STOP, RECOVERY, etc.).
+        """
+        response = cast(
+            GetSafetyMode.Response,
+            await self.node.service_call_async(
+                srv_request=GetSafetyMode.Request(),
+                srv_client=self._get_safety_mode_client,
+            ),
+        )
+        return response.safety_mode
 
     async def get_program_state(self) -> ProgramState:
         """Query the current program execution state.
@@ -276,11 +377,33 @@ class URInterface(BaseInterface):
             GetProgramState.Response,
             await self.node.service_call_async(
                 srv_request=GetProgramState.Request(),
-                srv_type=GetProgramState,
-                srv_name=f"{self._dashboard_ns}/program_state",
+                srv_client=self._get_program_state_client,
             ),
         )
         return response.state
+
+    async def is_ready(self) -> bool:
+        # TODO: add logging and documentation
+        if not self._connected:
+            return False
+
+        remote_control = await self._is_in_remote_control()
+        if not remote_control:
+            return False
+
+        robot_mode = await self.get_robot_mode()
+        if not robot_mode != RobotMode.RUNNING:
+            return False
+
+        program_state = await self.get_program_state()
+        if not program_state != ProgramState.PLAYING:
+            return False
+
+        safety_mode = await self.get_safety_mode()
+        if not safety_mode != SafetyMode.NORMAL:
+            return False
+
+        return True
 
     async def _reset_impl(self) -> None:
         """Execute full dashboard recovery sequence.
@@ -309,48 +432,54 @@ class URInterface(BaseInterface):
         self.log("Resetting dashboard")
 
         if not self._connected:
-            await self._ensure_mock(self._dashboard_ns)
-            await self._ensure_mock(self._state_helper_ns)
+            await self._ensure_mock(
+                self._dashboard_get_parameters_client, self._dashboard_ns
+            )
+            await self._ensure_mock(
+                self._state_helper_get_parameters_client,
+                self._state_helper_ns,
+            )
 
             try:
-                await self._trigger("quit")
+                await self._trigger(self._quit_client)
             except ServiceCallUnsuccessfulError:
                 pass
 
             try:
-                await self._trigger("connect")
+                await self._trigger(self._connect_client)
             except ServiceCallUnsuccessfulError as e:
                 raise RuntimeError(
                     "Could not connect to dashboard client"
                 ) from e
 
-            await self._load_file("load_program", self.param("program"))
+            await asyncio.sleep(1.0)
+
+            await self._wait_for_remote_control()
+
+            await self._load_file(
+                self._load_program_client, self.param("program")
+            )
 
             await self._set_robot_mode_running(
                 stop_program=False, play_program=False
             )
 
             self._connected = True
-
-        remote_control = await self._is_in_remote_control()
-
-        if not remote_control:
-            raise RuntimeError(
-                "Dashboard is not in Remote Control mode, please fix that immediately"
-            )
+        else:
+            await self._wait_for_remote_control()
 
         # Close any popups and unlock protective stop
-        await self._trigger("close_popup")
-        await self._trigger("close_safety_popup")
-        await self._trigger("unlock_protective_stop")
+        await self._trigger(self._close_popup_client)
+        await self._trigger(self._close_safety_popup_client)
+        await self._trigger(self._unlock_protective_stop_client)
 
-        await self._trigger("stop")
+        await self._trigger(self._stop_client)
 
         await self._set_robot_mode_running(
             stop_program=False, play_program=False
         )
         await asyncio.sleep(0.5)
-        await self._trigger("play")
+        await self._trigger(self._play_client)
 
         safety_mode = await self.get_safety_mode()
         delay = self.param("check_safety_mode_delay")
@@ -421,7 +550,7 @@ class URInterface(BaseInterface):
                         and i == num_attempts_before_safety_restart - 1
                     ):
                         await self._trigger(
-                            "restart_safety",
+                            self._restart_safety_client,
                             timeout=self.param("safety_restart_timeout"),
                         )
 
@@ -429,6 +558,9 @@ class URInterface(BaseInterface):
                         raise
 
                     self.log("Retrying dashboard reset")
+
+    def stop_program(self) -> None:
+        self._stop_client.call_async(Trigger.Request())
 
     def destroy_interface(self):
         """Clean up SetMode action client"""

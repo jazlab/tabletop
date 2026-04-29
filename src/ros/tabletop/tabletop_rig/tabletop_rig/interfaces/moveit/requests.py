@@ -14,7 +14,7 @@ Type Definitions:
     PlanResponseT: Response type for multi-trajectory planning
 """
 
-from typing import Any, NotRequired, Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 from geometry_msgs.msg import PoseStamped
 from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
@@ -203,7 +203,6 @@ class TrajectoryCacheKwargs(TypedDict):
 
     trajectory: RobotTrajectory
     request: PlanRequest
-    true_end_state: NotRequired[RobotState]
 
 
 SinglePlanResponseT = tuple[RobotTrajectory, TrajectoryCacheKwargs | None]

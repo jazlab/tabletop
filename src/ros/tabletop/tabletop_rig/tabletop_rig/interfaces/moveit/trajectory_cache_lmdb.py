@@ -29,7 +29,7 @@ import threading
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import InitVar, dataclass
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import lmdb
 import rclpy.logging
@@ -269,9 +269,13 @@ class FuzzyTrajectoryCacheKey:
 class FuzzyTrajectoryCacheValue:
     trajectory_msg: RobotTrajectoryMsg
     group_name: str
-    path_length: float
+    path_cost: float
 
-    def __init__(self, trajectory: RobotTrajectory):
+    def __init__(
+        self,
+        trajectory: RobotTrajectory,
+        sort_by: Literal["path_length", "path_duration"],
+    ):
         if not isinstance(trajectory, RobotTrajectory):
             raise ValueError(
                 f"Trajectory is not a RobotTrajectory: {trajectory}"
@@ -282,7 +286,20 @@ class FuzzyTrajectoryCacheValue:
         object.__setattr__(
             self, "group_name", trajectory.joint_model_group_name
         )
-        object.__setattr__(self, "path_length", trajectory.path_length)
+        if sort_by == "path_length":
+            object.__setattr__(self, "path_cost", trajectory.path_length)
+        elif sort_by == "path_duration":
+            if len(trajectory) > 1 and trajectory.duration <= 0:
+                raise ValueError(
+                    "If 'sort_by' is set to 'path_duration', the trajectory "
+                    "must have a duration (can be set by performing TOTG on "
+                    "the trajectory before caching)"
+                )
+            object.__setattr__(self, "path_cost", trajectory.duration)
+        else:
+            raise ValueError(
+                "'sort_by' must be one of 'path_length' or 'path_duration'"
+            )
 
     def get_trajectory(self, state: RobotState) -> RobotTrajectory:
         return robot_trajectory_from_msg(
@@ -290,7 +307,7 @@ class FuzzyTrajectoryCacheValue:
         )
 
     def __lt__(self, other: "FuzzyTrajectoryCacheValue") -> bool:
-        return self.path_length < other.path_length
+        return self.path_cost < other.path_cost
 
 
 # Metadata keys stored alongside trajectory data. Trajectory fuzzy keys are
@@ -302,6 +319,7 @@ _META_POSITION_TOL = b"position_tolerance"
 _META_ORIENTATION_TOL = b"orientation_tolerance"
 _META_MAX_TRAJECTORIES = b"max_trajectories"
 _META_PLANNING_FRAME = b"planning_frame"
+_META_SORT_BY = b"sort_by"
 
 
 class FuzzyTrajectoryCache(LoggerMixin):
@@ -326,6 +344,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
         orientation_tolerance: OrientationToleranceT,
+        sort_by: Literal["path_length", "path_duration"] = "path_duration",
         max_trajectories: int = 1,
         map_size: int = _DEFAULT_MAP_SIZE,
         parent_logger: Optional[RcutilsLogger] = None,
@@ -368,6 +387,29 @@ class FuzzyTrajectoryCache(LoggerMixin):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self._db_path = path
 
+        # Validate and save the database configuration variables
+        if max_trajectories < 1:
+            raise ValueError("'max_trajectories' must be at least 1")
+        self._max_trajectories = max_trajectories
+
+        if sort_by not in ("path_length", "path_duration"):
+            raise ValueError(
+                "'sort_by' must be one of 'path_length' or 'path_duration'"
+            )
+        self._sort_by: Literal["path_length", "path_duration"] = sort_by
+
+        self._planning_frame = planning_frame
+
+        (
+            self._robot_state_tolerance,
+            self._position_tolerance,
+            self._orientation_tolerance,
+        ) = self._init_tolerances(
+            robot_state_tolerance,
+            position_tolerance,
+            orientation_tolerance,
+        )
+
         # Initialize the lock and the closed flag
         self._lock = threading.Lock()
         self._closed = True
@@ -376,23 +418,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
         # Initialize the database
         self.open()
         try:
-            # Initialize the instance variables
-            self._max_trajectories = max_trajectories
-
-            # Save the planning_frame
-            self._planning_frame = planning_frame
-
-            # Initialize the tolerances and save them locally for faster access
-            (
-                self._robot_state_tolerance,
-                self._position_tolerance,
-                self._orientation_tolerance,
-            ) = self._init_tolerances(
-                robot_state_tolerance,
-                position_tolerance,
-                orientation_tolerance,
-            )
-
             # Validate the database; recreate the file if metadata mismatches
             self._validate_db(scene_hash)
 
@@ -499,6 +524,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
             _META_ROBOT_STATE_TOL: deepcopy(self._robot_state_tolerance),
             _META_POSITION_TOL: self._position_tolerance,
             _META_ORIENTATION_TOL: self._orientation_tolerance,
+            _META_SORT_BY: self._sort_by,
             _META_MAX_TRAJECTORIES: self._max_trajectories,
         }
 
@@ -561,6 +587,16 @@ class FuzzyTrajectoryCache(LoggerMixin):
         """The path to the database env."""
         return self._db_path
 
+    @property
+    def planning_frame(self) -> str:
+        """The planning frame (stored in memory for faster access)"""
+        return self._planning_frame
+
+    @property
+    def sort_by(self) -> Literal["path_length", "path_duration"]:
+        """The planning frame (stored in memory for faster access)"""
+        return self._sort_by
+
     def _get_fuzzy_key(self, key: FuzzyTrajectoryCacheKey) -> bytes:
         """Get the fuzzy key bytes for a given key and tolerances."""
         return key.get_fuzzy_string(
@@ -582,7 +618,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
         self,
         trajectory: RobotTrajectory,
         key: FuzzyTrajectoryCacheKey,
-        true_end_state: Optional[RobotState] = None,
     ):
         """Validate that the trajectory is valid for the given ground truth states and pose."""
         group_name = trajectory.joint_model_group_name
@@ -602,21 +637,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 f"Key start state joint positions: {get_joint_group_positions(key.start_state, group_name)}, "
                 f"Trajectory start state joint positions: {get_joint_group_positions(trajectory_start_state, group_name)}"
             )
-
-        # Check that the trajectory end state and pose
-        # are close to the true end state and pose
-        if true_end_state is not None:
-            if not all_close_robot_states(
-                trajectory_end_state,
-                true_end_state,
-                group_name=group_name,
-                position_tolerance=self.robot_state_tolerance,
-            ):
-                raise ValueError(
-                    "True end state is not close to the trajectory end state. "
-                    f"True end state joint positions: {get_joint_group_positions(true_end_state, group_name)}, "
-                    f"Trajectory end state joint positions: {get_joint_group_positions(trajectory_end_state, group_name)}"
-                )
 
         trajectory_end_pose = None
         if key.pose_link is not None:
@@ -644,23 +664,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
                     f"Key start pose: {request_start_pose}, "
                     f"Trajectory start pose: {trajectory_start_pose}"
                 )
-
-            if true_end_state is not None:
-                true_end_pose = pose_stamped_msg(
-                    pose=true_end_state.get_pose(key.pose_link),
-                    frame_id=true_end_state.robot_model.model_frame,
-                )
-                if not all_close_poses_stamped(
-                    trajectory_end_pose,
-                    true_end_pose,
-                    position_tolerance=self.position_tolerance,
-                    orientation_tolerance=self.orientation_tolerance,
-                ):
-                    raise ValueError(
-                        "True end state pose is not close to the trajectory end pose. "
-                        f"True end state pose: {true_end_pose}, "
-                        f"Trajectory end pose: {trajectory_end_pose}"
-                    )
 
         # Check that the trajectory end state and pose
         # are close to the true goal
@@ -738,7 +741,6 @@ class FuzzyTrajectoryCache(LoggerMixin):
         trajectory: RobotTrajectory,
         *,
         request: PlanRequest,
-        true_end_state: Optional[RobotState] = None,
         validate: bool = True,
         _reverse: bool = True,
     ):
@@ -754,9 +756,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
                 request, planning_frame=self._planning_frame
             )
             try:
-                self._validate_trajectory_quality(
-                    trajectory, validation_key, true_end_state
-                )
+                self._validate_trajectory_quality(trajectory, validation_key)
             except ValueError as e:
                 self.log(
                     f"Trajectory is not valid: {e}. Skipping cache.",
@@ -794,7 +794,7 @@ class FuzzyTrajectoryCache(LoggerMixin):
         )
 
         # Cache the trajectory
-        value = FuzzyTrajectoryCacheValue(trajectory)
+        value = FuzzyTrajectoryCacheValue(trajectory, self._sort_by)
         self[pose_key] = value
         self[state_key] = value
 

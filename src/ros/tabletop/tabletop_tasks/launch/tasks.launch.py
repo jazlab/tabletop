@@ -118,7 +118,7 @@ def generate_launch_description():
                 }.items(),
             ),
         ],
-        scoped=False,
+        scoped=True,
         forwarding=True,
     )
 

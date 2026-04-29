@@ -148,6 +148,7 @@
   "yaml.customTags": [
     "!merge sequence",
     "!override sequence",
+    "!reset sequence",
     "!PoseStamped mapping",
     "!ConcatPlanRequest mapping",
     "!ObjectResetConfig mapping"

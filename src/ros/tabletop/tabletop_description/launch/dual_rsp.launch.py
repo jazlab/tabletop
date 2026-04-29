@@ -96,7 +96,7 @@ def declare_arguments():
                     "dual_tabletop.urdf.xacro",
                 ]
             ),
-            description="URDF/XACRO description file with the dual robot.",
+            description="URDF/XACRO robot description file.",
         ),
         DeclareLaunchArgument(
             "robot_name",

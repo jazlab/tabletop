@@ -282,6 +282,19 @@ class ExecutionError(MoveitRecoverableError):
     """
 
 
+class NotSafeToExecuteError(ExecutionError):
+    """Raised when execution is prevented due to safety checks.
+
+    This exception is raised when pre-execution safety validation fails,
+    such as when the robot's current state doesn't match the trajectory
+    start state or when collision checks fail.
+    """
+
+
+class ExecutionPreventedError(ExecutionError):
+    """TODO"""
+
+
 class ExecutionRejectedError(ExecutionError):
     """Raised when the robot controller rejects trajectory execution.
 
@@ -300,13 +313,8 @@ class ExecutionInterruptedError(ExecutionError):
     """
 
 
-class NotSafeToExecuteError(ExecutionError):
-    """Raised when execution is prevented due to safety checks.
-
-    This exception is raised when pre-execution safety validation fails,
-    such as when the robot's current state doesn't match the trajectory
-    start state or when collision checks fail.
-    """
+class ExecutionStoppedError(ExecutionError):
+    """TODO"""
 
 
 class ObjectManipulationError(MoveitRecoverableError):

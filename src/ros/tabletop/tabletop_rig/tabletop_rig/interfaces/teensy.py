@@ -16,8 +16,7 @@ from typing import Literal, Optional
 
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
-from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles
-from rclpy.time import Time
+from rclpy.qos import QoSPresetProfiles
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     SetArmLock,
@@ -28,6 +27,7 @@ from tabletop_interfaces.srv import (
 
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import seconds_from_ros_time
 
 
 def noop(msg: TeensySensor) -> None:
@@ -88,8 +88,6 @@ class TeensyInterface(BaseInterface):
 
         # Subscribers
         qos = copy(QoSPresetProfiles.SENSOR_DATA.value)
-        qos.durability = QoSDurabilityPolicy.VOLATILE
-        qos.depth = 1
         self._teensy_sub = self.node.create_subscription(
             TeensySensor,
             "teensy/sensor",
@@ -207,7 +205,7 @@ class TeensyInterface(BaseInterface):
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
-            teensy_time = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
+            teensy_time = seconds_from_ros_time(msg.header.stamp)
             delay = current_time - teensy_time
             if delay > warn_threshold:
                 self.log(

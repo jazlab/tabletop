@@ -30,6 +30,11 @@ def declare_arguments():
             description="Image transport to record for image topics",
         ),
         DeclareLaunchArgument(
+            "rosbag_sigterm_timeout",
+            default_value="60",
+            description="Sigterm timeout for rosbag recorder (set to high so we don't lose data)",
+        ),
+        DeclareLaunchArgument(
             "log_level",
             default_value="INFO",
             description="Log level",
@@ -45,7 +50,7 @@ def declare_arguments():
 
 
 def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
-    set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+    set_ros_log_dir = SetROSLogDir(LaunchLogDir().perform(context))
 
     # Create a new bag directory for the session and symlink to it
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -102,11 +107,15 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     elif len(services) > 0:
         args.extend(["--services", *services])
 
+    sigterm_timeout = LaunchConfiguration("rosbag_sigterm_timeout").perform(
+        context
+    )
+
     bag_recorder = ExecuteProcess(
         name="rosbag_recorder",
         cmd=["ros2", "bag", "record", "-o", bag_dir, *args],
         output="both",
-        sigterm_timeout="40",
+        sigterm_timeout=sigterm_timeout,
         on_exit=[Shutdown()],
     )
     # bag_converter = ExecuteProcess(

@@ -64,6 +64,8 @@ from tabletop_rig.utils.ros import SrvType, SrvTypeRequest, SrvTypeResponse
 if TYPE_CHECKING:
     from tabletop_rig.interfaces.base import BaseInterface
 
+_CANCEL_WRAPPED_FUTURES = False
+
 
 def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
     if not isinstance(d, dict):
@@ -79,41 +81,6 @@ def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
     return result
 
 
-# TODO: Maybe add cancellation forwarding here ala asyncio.wrap_future
-async def wrap_rclpy_future_orig(source: rclpy.task.Future) -> Any:
-    loop = asyncio.get_running_loop()
-    destination = loop.create_future()
-
-    def callback(future: rclpy.task.Future):
-        cur_loop = None
-        try:
-            cur_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-
-        if cur_loop is loop:
-            try:
-                destination.set_result(future.result())
-            except Exception as e:
-                destination.set_exception(e)
-        else:
-            try:
-                loop.call_soon_threadsafe(
-                    destination.set_result, future.result()
-                )
-            except Exception as e:
-                loop.call_soon_threadsafe(destination.set_exception, e)
-
-    source.add_done_callback(callback)
-
-    try:
-        return await destination
-    except asyncio.CancelledError:
-        if not source.remove_done_callback(callback):
-            raise AssertionError("This shouldn't happen")
-        raise
-
-
 def _get_loop(fut: asyncio.Future):
     # Tries to call Future.get_loop() if it's available.
     # Otherwise fallbacks to using the old '_loop' property.
@@ -127,10 +94,6 @@ def _get_loop(fut: asyncio.Future):
 
 
 def _copy_future_state(source: rclpy.task.Future, destination: asyncio.Future):
-    """Internal helper to copy state from another Future.
-
-    The other Future may be a concurrent.futures.Future.
-    """
     assert source.done() or source.cancelled()
     if destination.cancelled():
         return
@@ -161,11 +124,7 @@ def _chain_future(source: rclpy.task.Future, destination: asyncio.Future):
     dest_loop = _get_loop(destination)
     assert dest_loop is not None
 
-    def _check_cancel(destination):
-        if destination.cancelled():
-            source.cancel()
-
-    def _set_state(source):
+    def _set_state(src):
         if destination.cancelled() and dest_loop.is_closed():
             return
 
@@ -176,15 +135,27 @@ def _chain_future(source: rclpy.task.Future, destination: asyncio.Future):
             pass
 
         if dest_loop is source_loop:
-            _copy_future_state(source, destination)
+            _copy_future_state(src, destination)
         else:
             if dest_loop.is_closed():
                 return
             dest_loop.call_soon_threadsafe(
-                _copy_future_state, source, destination
+                _copy_future_state, src, destination
             )
 
-    destination.add_done_callback(_check_cancel)
+    def _check_cancel(dest):
+        if dest.cancelled():
+            source.cancel()
+
+    def _check_remove_callback(dest):
+        if dest.cancelled():
+            source.remove_done_callback(_set_state)
+
+    if _CANCEL_WRAPPED_FUTURES:
+        destination.add_done_callback(_check_cancel)
+    else:
+        destination.add_done_callback(_check_remove_callback)
+
     source.add_done_callback(_set_state)
 
 
@@ -240,6 +211,7 @@ class AIOActionClient(ActionClient):
             response = await wrap_rclpy_future(goal_handle.get_result_async())
         finally:
             if goal_handle.status not in (
+                GoalStatus.STATUS_CANCELING,
                 GoalStatus.STATUS_SUCCEEDED,
                 GoalStatus.STATUS_CANCELED,
                 GoalStatus.STATUS_ABORTED,
