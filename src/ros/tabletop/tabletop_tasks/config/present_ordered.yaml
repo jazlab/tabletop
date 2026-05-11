@@ -38,8 +38,8 @@ tasks:
               - small_object_28
               - small_object_29
           poses:
-            - position: [ 0.9525, 0.4, 0.6 ]
-              rpy: [ 0.0, 0.0, -1.5707 ]
+            - position: [0.9525, 0.4, 0.6]
+              rpy: [0.0, 0.0, -1.5707]
           arms:
             - both
           occlude:

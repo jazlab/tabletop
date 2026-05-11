@@ -1166,7 +1166,7 @@ class MoveItInterface(BaseInterface):
         touch_links: Optional[list[str]] = None,
     ):
         """Attach an object to the robot."""
-        self.log(f"Attaching collision object {object_id}")
+        self.log(f"Attaching collision object {object_id}", severity="DEBUG")
         attached_collision_object = attached_collision_object_msg(
             object_id=object_id,
             link_name=link_name,
@@ -1179,7 +1179,7 @@ class MoveItInterface(BaseInterface):
 
     def detach_collision_object(self, object_id: str, link_name: str = ""):
         """Detach an object from the robot."""
-        self.log(f"Detaching collision object {object_id}")
+        self.log(f"Detaching collision object {object_id}", severity="DEBUG")
         attached_collision_object = attached_collision_object_msg(
             object_id=object_id,
             operation="REMOVE",
@@ -1206,7 +1206,7 @@ class MoveItInterface(BaseInterface):
 
     def remove_all_collision_objects(self):
         """Remove all collision objects from the planning scene."""
-        self.log("Removing all collision objects")
+        self.log("Removing all collision objects", severity="DEBUG")
 
         self.detach_all_collision_objects()
 
@@ -1221,7 +1221,7 @@ class MoveItInterface(BaseInterface):
 
     def move_collision_object(self, object_id: str, pose_stamped: PoseStamped):
         """Move a collision object."""
-        self.log(f"Moving collision object: {object_id}")
+        self.log(f"Moving collision object: {object_id}", severity="DEBUG")
         if object_id in self.attached_collision_object_ids:
             self.detach_collision_object(object_id)
 

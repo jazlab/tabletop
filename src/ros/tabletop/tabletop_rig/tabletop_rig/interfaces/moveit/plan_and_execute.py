@@ -402,12 +402,9 @@ class PlanAndExecuteInterface(BaseInterface):
         try:
             trajectories = self._trajectory_cache.get_trajectories(request)
         except KeyError:
-            self.log("No cached trajectory found, planning normally")
+            self.log("No cached trajectory found", severity="WARN")
             return None
 
-        self.log(
-            "Cached trajectories found, validating in order of path length"
-        )
         for trajectory in trajectories:
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Plan cancelled")
@@ -422,7 +419,7 @@ class PlanAndExecuteInterface(BaseInterface):
                     severity="WARN",
                 )
 
-        self.log("All cached trajectories invalid, planning normally")
+        self.log("All cached trajectories invalid", severity="WARN")
         return None
 
     def _prepare_planning_component(
@@ -593,7 +590,10 @@ class PlanAndExecuteInterface(BaseInterface):
             if trajectory is not None:
                 return trajectory, None
         else:
-            self.log("Not using cached trajectories, planning normally")
+            self.log(
+                "Not using cached trajectories, planning normally",
+                severity="DEBUG",
+            )
 
         pipelines: list[str] = []
         attempts: list[int] = []

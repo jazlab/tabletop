@@ -49,6 +49,8 @@ from sensor_msgs.msg import JointState
 
 from tabletop_py.utils.common import KwargYamlLoader
 from tabletop_rig.exceptions import (
+    ExecutionInterruptedError,
+    ExecutionStoppedError,
     ObjectManipulationError,
     ObjectMismatchError,
     PlanningError,
@@ -811,9 +813,30 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         # Iterate through the fetch states
         while self._manipulation_state != State.FETCHED:
-            kwargs = await self._fetch_or_return_transition(
-                object_id, next_state
-            )
+            try:
+                kwargs = await self._fetch_or_return_transition(
+                    object_id, next_state
+                )
+            except PlanningError:
+                if next_state != State.POST_FETCH:
+                    raise
+
+                # If post-fetch fails, try moving to fetched
+                self.log(
+                    "Failed to plan to POST_FETCH, skipping to FETCHED",
+                    severity="WARN",
+                )
+                next_state = State.FETCHED
+                try:
+                    kwargs = await self._fetch_or_return_transition(
+                        object_id, next_state
+                    )
+                except (ExecutionInterruptedError, ExecutionStoppedError):
+                    # If execution is interrupted here, we set the manipulation
+                    # state to POST_FETCH so that we don't get stuck trying to
+                    # return the object
+                    self._manipulation_state = State.POST_FETCH
+                    raise
 
             self._manipulation_state = next_state
             next_state = State(self._manipulation_state + 1)
