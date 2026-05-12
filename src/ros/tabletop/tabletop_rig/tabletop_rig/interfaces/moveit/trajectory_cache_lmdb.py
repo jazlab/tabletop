@@ -1,338 +1,44 @@
-"""Fuzzy trajectory caching for motion planning.
+"""LMDB-backed fuzzy trajectory cache.
 
-This module provides a persistent cache for robot trajectories that uses
-fuzzy matching to find similar cached trajectories. This enables faster
-motion planning by reusing previously computed trajectories when the
-start and goal states are within configurable tolerances.
+Concrete backend that persists the cache to a single LMDB file via
+memory-mapped reads. Each call into the backend runs its own
+transaction; the base class serializes the read-modify-write in
+`__setitem__` with `self._lock`, so concurrent threads inside a single
+Python process see consistent reads.
 
-Key Features:
-- Fuzzy matching with configurable joint angle, position, and orientation tolerances
-- LMDB-backed persistent storage (memory-mapped, single-txn read/write)
-- Automatic validation of cached trajectories against quality criteria
-- Support for both joint space and Cartesian space goals
-- Automatic caching of reverse trajectories
-
-Classes:
-    FuzzyTrajectoryCacheKey: Immutable key for cache lookups with fuzzy matching
-    FuzzyTrajectoryCacheValue: Cached trajectory with path length for ranking
-    FuzzyTrajectoryCache: Main cache class with persistent storage
-
-The cache stores multiple trajectories per fuzzy key, ranked by path length,
-allowing retrieval of the shortest (most efficient) trajectory.
+See `trajectory_cache.FuzzyTrajectoryCache` for the abstract base class
+and the geometric/fuzzy-matching pieces.
 """
 
-import bisect
-import json
 import os
 import pickle
-import threading
-from collections.abc import Iterable, Mapping
-from copy import deepcopy
-from dataclasses import InitVar, dataclass
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional
 
 import lmdb
-import rclpy.logging
-from geometry_msgs.msg import PoseStamped
-from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
-    RobotState,
-)
-from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
-    RobotTrajectory,
-)
-from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.impl.rcutils_logger import RcutilsLogger
 
-from tabletop_py.utils.common import is_iterable
-from tabletop_rig.interfaces.moveit.requests import PlanRequest
-from tabletop_rig.utils.logging import LoggerMixin
-from tabletop_rig.utils.ros import (
-    all_close_poses_stamped,
-    all_close_robot_states,
-    arrays_from_pose_msg,
-    get_joint_group_positions,
-    pose_stamped_msg,
-    robot_trajectory_from_msg,
+from tabletop_rig.interfaces.moveit.trajectory_cache import (
+    OrientationToleranceT,
+    PositionToleranceT,
+    RobotStateToleranceT,
 )
-
-RobotStateToleranceT = float | dict[str, float]
-PositionToleranceT = float | tuple[float, float, float]
-OrientationToleranceT = (
-    float | tuple[float, float, float] | tuple[float, float, float, float]
+from tabletop_rig.interfaces.moveit.trajectory_cache_fuzzy import (
+    FuzzyTrajectoryCache,
 )
 
 _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 _DEFAULT_MAP_SIZE: int = 2 * 1024**3  # 2 GiB of virtual address space
 
 
-@dataclass(slots=True, frozen=True, kw_only=True)
-class FuzzyTrajectoryCacheKey:
-    start_state: RobotState
-    goal: RobotState | PoseStamped
-    pose_link: str | None
-    group_name: str
-    planning_frame: InitVar[str]
+class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
+    """Persistent fuzzy trajectory cache backed by a single LMDB file.
 
-    def __post_init__(self, planning_frame: str):
-        # Type check
-        if not isinstance(self.start_state, RobotState):
-            raise TypeError(
-                f"Start state must be a RobotState: {self.start_state}"
-            )
-        if not isinstance(self.goal, (RobotState, PoseStamped)):
-            raise TypeError(
-                f"Goal must be a RobotState or PoseStamped: {self.goal}"
-            )
-        if self.pose_link is not None and not isinstance(self.pose_link, str):
-            raise TypeError(f"Pose link must be a string: {self.pose_link}")
-        if not isinstance(self.group_name, str):
-            raise TypeError(f"Group name must be a string: {self.group_name}")
+    Values are pickled and stored under their fuzzy-key bytes. Each
+    backend primitive opens its own LMDB transaction; the base class's
+    `_lock` guards the read-modify-write in `__setitem__`.
 
-        # Check that the start state is in the world frame
-        if self.start_state.robot_model.model_frame != planning_frame:
-            raise ValueError(
-                f"Start state robot model frame must be '{planning_frame}': {self.start_state.robot_model.model_frame}"
-            )
-
-        # Check that the start state has the joint model group
-        if not self.start_state.robot_model.has_joint_model_group(
-            self.group_name
-        ):
-            raise ValueError(
-                f"Start state robot model must have joint model group: {self.group_name}"
-            )
-
-        if isinstance(self.goal, RobotState):
-            # Check that the goal state is in the world frame
-            if self.goal.robot_model.model_frame != planning_frame:
-                raise ValueError(
-                    f"Goal robot model frame must be '{planning_frame}': {self.goal.robot_model.model_frame}"
-                )
-
-            # Check that the pose link is not provided if the goal is a RobotState
-            if self.pose_link is not None:
-                raise ValueError(
-                    f"Pose link must not be provided for a RobotState goal: {self.pose_link}"
-                )
-
-            # Check that the goal state has the joint model group
-            if not self.goal.robot_model.has_joint_model_group(
-                self.group_name
-            ):
-                raise ValueError(
-                    f"Goal robot model must have joint model group: {self.group_name}"
-                )
-        else:
-            # Check that the goal pose is in the world frame
-            if self.goal.header.frame_id != planning_frame:
-                raise ValueError(
-                    f"Goal pose frame id must be '{planning_frame}': {self.goal.header.frame_id}"
-                )
-
-            # Check that the pose link is provided if the goal is a PoseStamped
-            if self.pose_link is None:
-                raise ValueError(
-                    "Pose link must be provided for a PoseStamped goal"
-                )
-
-    @classmethod
-    def from_plan_request(
-        cls, request: PlanRequest, *, planning_frame: str
-    ) -> "FuzzyTrajectoryCacheKey":
-        if isinstance(request.goal, RobotState):
-            pose_link = None
-        else:
-            pose_link = request.pose_link
-
-        try:
-            return cls(
-                start_state=request.start_state,  # type: ignore[ArgumentType]
-                goal=request.goal,  # type: ignore[ArgumentType]
-                pose_link=pose_link,
-                group_name=request.group_name,  # type: ignore[ArgumentType]
-                planning_frame=planning_frame,
-            )
-        except (TypeError, ValueError) as e:
-            raise type(e)(
-                "Invalid PlanRequest for creating FuzzyTrajectoryCacheKey"
-            ) from e
-
-    def _fuzz_float(self, value: float, tolerance: float) -> int:
-        return int(value / tolerance)
-
-    def _fuzz_iterable(
-        self, value: Iterable[float], tolerance: float | Iterable[float]
-    ) -> tuple[int, ...]:
-        if isinstance(tolerance, (float, int)):
-            return tuple(self._fuzz_float(v, tolerance) for v in value)
-        else:
-            return tuple(
-                self._fuzz_float(v, t) for v, t in zip(value, tolerance)
-            )
-
-    def _fuzz_dict(
-        self,
-        value: dict[str, float],
-        tolerance: float | dict[str, float],
-    ) -> dict[str, Any]:
-        if isinstance(tolerance, (float, int)):
-            return {
-                k: self._fuzz_float(v, tolerance) for k, v in value.items()
-            }
-        else:
-            return {k: self._fuzz_float(value[k], tolerance[k]) for k in value}
-
-    def get_fuzzy_dict(
-        self,
-        robot_state_tolerance: RobotStateToleranceT,
-        position_tolerance: PositionToleranceT,
-        orientation_tolerance: OrientationToleranceT,
-    ) -> dict[str, Any]:
-        """Get the fuzzy key for a given key as a dictionary.
-
-        Applies the fuzzy key algorithm to the key, then returns a dictionary
-        with the fuzzy values.
-
-        Args:
-            key: The key to get the fuzzy key for.
-
-        Returns:
-            The fuzzy key as a dictionary.
-        """
-        fuzzy_key_dict = {}
-
-        # Fuzz the start state
-        positions = get_joint_group_positions(
-            self.start_state, self.group_name
-        )
-        fuzzy_key_dict["start_state"] = self._fuzz_dict(
-            positions, robot_state_tolerance
-        )
-
-        # Fuzz the goal if it is a PoseStamped or a RobotState
-        # If it is a string, it is a named goal and an exact match is required
-
-        if isinstance(self.goal, RobotState):
-            positions = get_joint_group_positions(self.goal, self.group_name)
-            fuzzy_key_dict["goal"] = self._fuzz_dict(
-                positions, robot_state_tolerance
-            )
-        else:
-            if not isinstance(self.goal.header.frame_id, str):
-                raise ValueError(
-                    f"Goal pose frame id is not a string: {self.goal.header.frame_id}"
-                )
-            fuzzy_key_dict["goal"] = {}
-
-            # Add the frame id
-            fuzzy_key_dict["goal"]["frame_id"] = self.goal.header.frame_id
-
-            # Fuzz the goal position
-            goal_position, goal_orientation = arrays_from_pose_msg(
-                self.goal.pose, euler=False
-            )
-            fuzzy_key_dict["goal"]["position"] = self._fuzz_iterable(
-                goal_position, position_tolerance
-            )
-
-            # Fuzz the orientation
-            fuzzy_key_dict["goal"]["orientation"] = self._fuzz_iterable(
-                goal_orientation, orientation_tolerance
-            )
-
-        # Add the pose link
-        fuzzy_key_dict["pose_link"] = self.pose_link
-
-        # Add the group name
-        fuzzy_key_dict["group_name"] = self.group_name
-
-        # Return the fuzzy key
-        return fuzzy_key_dict
-
-    def get_fuzzy_string(self, *args: Any, **kwargs: Any) -> str:
-        """Get the fuzzy key for a given key.
-
-        Applies the fuzzy key algorithm to the key, then converts the result to a
-        string.
-
-        Args:
-            *args: Arguments to pass to get_fuzzy_dict.
-            **kwargs: Keyword arguments to pass to get_fuzzy_dict.
-
-        Returns:
-            The fuzzy key as a string.
-        """
-        return json.dumps(self.get_fuzzy_dict(*args, **kwargs), sort_keys=True)
-
-
-@dataclass(slots=True, frozen=True, eq=False)
-class FuzzyTrajectoryCacheValue:
-    trajectory_msg: RobotTrajectoryMsg
-    group_name: str
-    path_cost: float
-
-    def __init__(
-        self,
-        trajectory: RobotTrajectory,
-        sort_by: Literal["path_length", "path_duration"],
-    ):
-        if not isinstance(trajectory, RobotTrajectory):
-            raise ValueError(
-                f"Trajectory is not a RobotTrajectory: {trajectory}"
-            )
-        object.__setattr__(
-            self, "trajectory_msg", trajectory.get_robot_trajectory_msg()
-        )
-        object.__setattr__(
-            self, "group_name", trajectory.joint_model_group_name
-        )
-        if sort_by == "path_length":
-            object.__setattr__(self, "path_cost", trajectory.path_length)
-        elif sort_by == "path_duration":
-            if len(trajectory) > 1 and trajectory.duration <= 0:
-                raise ValueError(
-                    "If 'sort_by' is set to 'path_duration', the trajectory "
-                    "must have a duration (can be set by performing TOTG on "
-                    "the trajectory before caching)"
-                )
-            object.__setattr__(self, "path_cost", trajectory.duration)
-        else:
-            raise ValueError(
-                "'sort_by' must be one of 'path_length' or 'path_duration'"
-            )
-
-    def get_trajectory(self, state: RobotState) -> RobotTrajectory:
-        return robot_trajectory_from_msg(
-            self.trajectory_msg, state, self.group_name
-        )
-
-    def __lt__(self, other: "FuzzyTrajectoryCacheValue") -> bool:
-        return self.path_cost < other.path_cost
-
-
-# Metadata keys stored alongside trajectory data. Trajectory fuzzy keys are
-# JSON-serialized dicts (always start with '{'), so these plain-word keys
-# cannot collide with them.
-_META_SCENE_HASH = b"scene_hash"
-_META_ROBOT_STATE_TOL = b"robot_state_tolerance"
-_META_POSITION_TOL = b"position_tolerance"
-_META_ORIENTATION_TOL = b"orientation_tolerance"
-_META_MAX_TRAJECTORIES = b"max_trajectories"
-_META_PLANNING_FRAME = b"planning_frame"
-_META_SORT_BY = b"sort_by"
-
-
-class FuzzyTrajectoryCache(LoggerMixin):
-    """A persistent cache for fuzzy-matching trajectories.
-
-    Backed by LMDB. Reads and writes each execute in a single transaction,
-    using the memory-mapped database for zero-copy reads where possible.
-    LMDB serializes writers internally, so the hot path takes no Python
-    lock; a lock is retained only to guard the open/close lifecycle.
-
-    The cache is initialized with a rig hash, a joint angle tolerance, a
-    position tolerance, and an orientation tolerance. If any of these
-    change, the database file is deleted and recreated in place.
+    On metadata mismatch (e.g. scene_hash or tolerances changed across
+    runs), the LMDB file is removed from disk and recreated in place.
     """
 
     def __init__(
@@ -341,6 +47,8 @@ class FuzzyTrajectoryCache(LoggerMixin):
         path: str,
         scene_hash: str,
         planning_frame: str,
+        group_name: str,
+        pose_link: Optional[str] = None,
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
         orientation_tolerance: OrientationToleranceT,
@@ -351,136 +59,41 @@ class FuzzyTrajectoryCache(LoggerMixin):
     ):
         """
         Args:
-            path: Absolute path to the cache file. The parent directory is
-                created if it does not exist.
-            scene_hash: The hash of the rig.
-            planning_frame: The planning frame used by the PlanningScene
-                (to verify all cache keys are with respect to the planning_frame)
-            robot_state_tolerance: The joint angle tolerance for the cache. If
-                a single float is provided, it is used for all 6 joints.
-            position_tolerance: The position tolerance for the cache. If a
-                single float is provided, it is used for all 3 dimensions.
-            orientation_tolerance: The orientation tolerance for the cache. If
-                a single float is provided, it is used for all 4 dimensions.
-            max_trajectories: The maximum number of trajectories to store for
-                each key. If the number of trajectories for a key exceeds this
-                value, the longest trajectory is removed.
-            map_size: Maximum virtual address space, in bytes, reserved for
-                the LMDB environment. Cheap on Linux (it's only virtual); pick
-                a value larger than the cache will ever grow.
+            path: Absolute path to the cache file. The parent directory
+                is created if it does not exist.
+            map_size: Maximum virtual address space, in bytes, reserved
+                for the LMDB environment. Cheap on Linux (it's only
+                virtual); pick a value larger than the cache will ever
+                grow.
+            (Other args: see `FuzzyTrajectoryCache`.)
         """
-        if parent_logger is None:
-            self._logger = rclpy.logging.get_logger("trajectory_cache")
-        else:
-            self._logger = parent_logger.get_child("trajectory_cache")
+        super().__init__(
+            scene_hash=scene_hash,
+            planning_frame=planning_frame,
+            group_name=group_name,
+            pose_link=pose_link,
+            robot_state_tolerance=robot_state_tolerance,
+            position_tolerance=position_tolerance,
+            orientation_tolerance=orientation_tolerance,
+            sort_by=sort_by,
+            max_trajectories=max_trajectories,
+            parent_logger=parent_logger,
+        )
 
         self._map_size = int(map_size)
 
-        # Normalize and validate the path; ensure parent directory exists.
-        path = os.path.expandvars(os.path.expanduser(path))
-        if not os.path.isabs(path):
-            raise ValueError(f"Trajectory cache path must be absolute: {path}")
-        if os.path.exists(path) and not os.path.isfile(path):
-            raise ValueError(
-                f"Trajectory cache path must be a regular file: {path}"
-            )
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        self._db_path = path
+        normalized = self._normalize_path(path)
+        assert normalized is not None, "LMDB path is required"
+        self._db_path = normalized
 
-        # Validate and save the database configuration variables
-        if max_trajectories < 1:
-            raise ValueError("'max_trajectories' must be at least 1")
-        self._max_trajectories = max_trajectories
-
-        if sort_by not in ("path_length", "path_duration"):
-            raise ValueError(
-                "'sort_by' must be one of 'path_length' or 'path_duration'"
-            )
-        self._sort_by: Literal["path_length", "path_duration"] = sort_by
-
-        self._planning_frame = planning_frame
-
-        (
-            self._robot_state_tolerance,
-            self._position_tolerance,
-            self._orientation_tolerance,
-        ) = self._init_tolerances(
-            robot_state_tolerance,
-            position_tolerance,
-            orientation_tolerance,
-        )
-
-        # Initialize the lock and the closed flag
-        self._lock = threading.Lock()
-        self._closed = True
         self._env: lmdb.Environment | None = None
 
-        # Initialize the database
-        self.open()
-        try:
-            # Validate the database; recreate the file if metadata mismatches
-            self._validate_db(scene_hash)
+        self._open_and_validate()
 
-            self.log(
-                f"Initialized trajectory cache with goal orientation tolerance "
-                f"{self._orientation_tolerance}, goal position tolerance "
-                f"{self._position_tolerance}, robot state tolerance "
-                f"{self._robot_state_tolerance}, and max trajectories "
-                f"{max_trajectories}."
-            )
-        finally:
-            self.close()
-
-    def get_logger(self) -> RcutilsLogger:
-        """Get the logger instance"""
-        return self._logger
-
-    def _init_tolerances(
-        self,
-        robot_state_tolerance: Any,
-        position_tolerance: Any,
-        orientation_tolerance: Any,
-    ) -> tuple[
-        RobotStateToleranceT, PositionToleranceT, OrientationToleranceT
-    ]:
-        """Validate and initialize the tolerances."""
-        if isinstance(robot_state_tolerance, Mapping):
-            robot_state_tolerance = {
-                k: float(v) for k, v in robot_state_tolerance.items()
-            }
-            if len(robot_state_tolerance) != 6:
-                raise ValueError("robot_state_tolerance must be a 6-tuple")
-            if any(x <= 0 for x in robot_state_tolerance.values()):
-                raise ValueError("robot_state_tolerance must be positive")
-        elif robot_state_tolerance <= 0:
-            raise ValueError("robot_state_tolerance must be positive")
-
-        if is_iterable(position_tolerance):
-            position_tolerance = tuple(map(float, position_tolerance))
-            if len(position_tolerance) != 3:
-                raise ValueError("position_tolerance must be a 3-tuple")
-            if any(x <= 0 for x in position_tolerance):
-                raise ValueError("position_tolerance must be positive")
-        elif position_tolerance <= 0:
-            raise ValueError("position_tolerance must be positive")
-
-        if is_iterable(orientation_tolerance):
-            orientation_tolerance = tuple(map(float, orientation_tolerance))
-            if len(orientation_tolerance) != 4:
-                raise ValueError(
-                    f"orientation_tolerance must be a 4-tuple"
-                    f"but got a {len(orientation_tolerance)}-tuple"
-                )
-            if any(x <= 0 for x in orientation_tolerance):
-                raise ValueError("orientation_tolerance must be positive")
-        elif orientation_tolerance <= 0:
-            raise ValueError("orientation_tolerance must be positive")
-
-        return (
-            robot_state_tolerance,
-            position_tolerance,
-            orientation_tolerance,
-        )
+    @property
+    def db_path(self) -> str:
+        """The path to the database env."""
+        return self._db_path
 
     def _require_env(self) -> lmdb.Environment:
         env = self._env
@@ -488,8 +101,11 @@ class FuzzyTrajectoryCache(LoggerMixin):
             raise RuntimeError("Trajectory cache database is not open")
         return env
 
+    # ---------------------------------------------------------------
+    # Backend primitives
+    # ---------------------------------------------------------------
+
     def _get_raw(self, key: bytes) -> Any:
-        """Single-txn read. Returns the unpickled value."""
         env = self._require_env()
         with env.begin(buffers=True) as txn:
             raw = txn.get(key)
@@ -498,11 +114,27 @@ class FuzzyTrajectoryCache(LoggerMixin):
             return pickle.loads(raw)
 
     def _put_raw(self, key: bytes, value: Any) -> None:
-        """Single-txn write."""
         env = self._require_env()
         data = pickle.dumps(value, protocol=_PICKLE_PROTOCOL)
         with env.begin(write=True) as txn:
             txn.put(key, data)
+
+    def _delete_raw(self, key: bytes) -> None:
+        env = self._require_env()
+        with env.begin(write=True) as txn:
+            if not txn.delete(key):
+                raise KeyError(key)
+
+    def _contains_raw(self, key: bytes) -> bool:
+        env = self._require_env()
+        with env.begin(buffers=True) as txn:
+            return txn.get(key) is not None
+
+    def _clear_storage(self) -> None:
+        """Wipe the LMDB file by closing, deleting on disk, and reopening."""
+        self.close()
+        self._delete_db_files()
+        self.open()
 
     def _delete_db_files(self) -> None:
         """Remove the LMDB data file and its sibling lock file."""
@@ -510,430 +142,8 @@ class FuzzyTrajectoryCache(LoggerMixin):
             if os.path.exists(filepath):
                 os.remove(filepath)
 
-    def _validate_db(self, scene_hash: str):
-        """Validate the database against the new values.
-
-        If any metadata key is missing or mismatched, the LMDB file is
-        deleted and recreated in place with fresh metadata.
-        """
-        # Build metadata dict (deepcopy the tolerance mapping so later mutation
-        # of self._robot_state_tolerance doesn't leak into the stored value).
-        metadata: dict[bytes, Any] = {
-            _META_SCENE_HASH: scene_hash,
-            _META_PLANNING_FRAME: self._planning_frame,
-            _META_ROBOT_STATE_TOL: deepcopy(self._robot_state_tolerance),
-            _META_POSITION_TOL: self._position_tolerance,
-            _META_ORIENTATION_TOL: self._orientation_tolerance,
-            _META_SORT_BY: self._sort_by,
-            _META_MAX_TRAJECTORIES: self._max_trajectories,
-        }
-
-        if len(self) > 0:
-            mismatch = False
-            for key, value in metadata.items():
-                try:
-                    old_value = self._get_raw(key)
-                except KeyError:
-                    mismatch = True
-                    self.log(
-                        f"Cache is not empty, but key {key!r} is missing.",
-                        severity="WARN",
-                    )
-                    continue
-                if old_value != value:
-                    mismatch = True
-                    self.log(
-                        f"Old {key!r} value in db is different from new value: "
-                        f"{old_value} != {value}.",
-                        severity="WARN",
-                    )
-
-            if not mismatch:
-                return
-
-            self.log(
-                "Deleting existing cache file and recreating...",
-                severity="WARN",
-            )
-            self.close()
-            self._delete_db_files()
-            self.open()
-
-        for key, value in metadata.items():
-            self._put_raw(key, value)
-
-    @property
-    def scene_hash(self) -> str:
-        """Rig hash stored in the underlying database."""
-        return self._get_raw(_META_SCENE_HASH)
-
-    @property
-    def robot_state_tolerance(self) -> RobotStateToleranceT:
-        """Robot state tolerance (stored in memory for faster access)"""
-        return self._robot_state_tolerance
-
-    @property
-    def position_tolerance(self) -> PositionToleranceT:
-        """Position tolerance (stored in memory for faster access)"""
-        return self._position_tolerance
-
-    @property
-    def orientation_tolerance(self) -> OrientationToleranceT:
-        """Orientation tolerance (stored in memory for faster access)"""
-        return self._orientation_tolerance
-
-    @property
-    def db_path(self) -> str:
-        """The path to the database env."""
-        return self._db_path
-
-    @property
-    def planning_frame(self) -> str:
-        """The planning frame (stored in memory for faster access)"""
-        return self._planning_frame
-
-    @property
-    def sort_by(self) -> Literal["path_length", "path_duration"]:
-        """The planning frame (stored in memory for faster access)"""
-        return self._sort_by
-
-    def _get_fuzzy_key(self, key: FuzzyTrajectoryCacheKey) -> bytes:
-        """Get the fuzzy key bytes for a given key and tolerances."""
-        return key.get_fuzzy_string(
-            self.robot_state_tolerance,
-            self.position_tolerance,
-            self.orientation_tolerance,
-        ).encode("utf-8")
-
-    def _validate_db_values(self, values: list[FuzzyTrajectoryCacheValue]):
-        """Validate that the values stored in the database are valid."""
-        if not __debug__:
-            return
-
-        assert isinstance(values, list)
-        assert all(isinstance(v, FuzzyTrajectoryCacheValue) for v in values)
-        assert 1 <= len(values) <= self._max_trajectories
-
-    def _validate_trajectory_quality(
-        self,
-        trajectory: RobotTrajectory,
-        key: FuzzyTrajectoryCacheKey,
-    ):
-        """Validate that the trajectory is valid for the given ground truth states and pose."""
-        group_name = trajectory.joint_model_group_name
-        trajectory_start_state: RobotState = trajectory[0]
-        trajectory_end_state: RobotState = trajectory[len(trajectory) - 1]
-
-        # Check that the trajectory start state and pose
-        # are close to the true start state and pose
-        if not all_close_robot_states(
-            trajectory_start_state,
-            key.start_state,
-            group_name=group_name,
-            position_tolerance=self.robot_state_tolerance,
-        ):
-            raise ValueError(
-                "Key start state is not close to the trajectory start state. "
-                f"Key start state joint positions: {get_joint_group_positions(key.start_state, group_name)}, "
-                f"Trajectory start state joint positions: {get_joint_group_positions(trajectory_start_state, group_name)}"
-            )
-
-        trajectory_end_pose = None
-        if key.pose_link is not None:
-            trajectory_start_pose = pose_stamped_msg(
-                pose=trajectory_start_state.get_pose(key.pose_link),
-                frame_id=trajectory_start_state.robot_model.model_frame,
-            )
-            trajectory_end_pose = pose_stamped_msg(
-                pose=trajectory_end_state.get_pose(key.pose_link),
-                frame_id=trajectory_end_state.robot_model.model_frame,
-            )
-
-            request_start_pose = pose_stamped_msg(
-                pose=key.start_state.get_pose(key.pose_link),
-                frame_id=key.start_state.robot_model.model_frame,
-            )
-            if not all_close_poses_stamped(
-                trajectory_start_pose,
-                request_start_pose,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
-            ):
-                raise ValueError(
-                    f"Key start pose is not close to the trajectory start pose. "
-                    f"Key start pose: {request_start_pose}, "
-                    f"Trajectory start pose: {trajectory_start_pose}"
-                )
-
-        # Check that the trajectory end state and pose
-        # are close to the true goal
-        if isinstance(key.goal, RobotState):
-            if not all_close_robot_states(
-                trajectory_end_state,
-                key.goal,
-                group_name=group_name,
-                position_tolerance=self.robot_state_tolerance,
-            ):
-                raise ValueError(
-                    f"Key goal state is not close to the trajectory end state. "
-                    f"Key goal state joint positions: {get_joint_group_positions(key.goal, group_name)}, "
-                    f"Trajectory end state joint positions: {get_joint_group_positions(trajectory_end_state, group_name)}"
-                )
-        else:
-            assert trajectory_end_pose is not None
-            if not all_close_poses_stamped(
-                trajectory_end_pose,
-                key.goal,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
-            ):
-                raise ValueError(
-                    f"Key goal pose is not close to the trajectory end pose. "
-                    f"Key goal pose: {key.goal}, "
-                    f"Trajectory end pose: {trajectory_end_pose}"
-                )
-
     def __len__(self) -> int:
         return self._require_env().stat()["entries"]
-
-    def __setitem__(
-        self, key: FuzzyTrajectoryCacheKey, value: FuzzyTrajectoryCacheValue
-    ):
-        """Set an item in the database.
-
-        If the key is not in the database, a new list is created.
-        If the key is in the database, the value is inserted in the list.
-        If the list has more than `max_trajectories` elements, the trajectory
-        with the longest path length is removed.
-
-        The read-modify-write happens inside a single LMDB write transaction,
-        so the update is atomic with respect to concurrent writers.
-
-        Args:
-            key: The key to set.
-            value: The value to set.
-        """
-        fuzzy_key = self._get_fuzzy_key(key)
-        self.log(f"Setting item for key: {fuzzy_key!r}", severity="DEBUG")
-
-        env = self._require_env()
-        with env.begin(write=True) as txn:
-            raw = txn.get(fuzzy_key)
-            if raw is None:
-                values = cast(list[FuzzyTrajectoryCacheValue], [])
-            else:
-                values = cast(
-                    list[FuzzyTrajectoryCacheValue], pickle.loads(raw)
-                )
-                self._validate_db_values(values)
-
-            bisect.insort_left(values, value)
-            if len(values) > self._max_trajectories:
-                values.pop(-1)
-
-            txn.put(
-                fuzzy_key,
-                pickle.dumps(values, protocol=_PICKLE_PROTOCOL),
-            )
-
-    def cache_trajectory(
-        self,
-        trajectory: RobotTrajectory,
-        *,
-        request: PlanRequest,
-        validate: bool = True,
-        _reverse: bool = True,
-    ):
-        """Cache a trajectory.
-
-        Args:
-            trajectory: The trajectory to cache.
-
-        """
-        # Check that the trajectory is valid only
-        if validate and _reverse:
-            validation_key = FuzzyTrajectoryCacheKey.from_plan_request(
-                request, planning_frame=self._planning_frame
-            )
-            try:
-                self._validate_trajectory_quality(trajectory, validation_key)
-            except ValueError as e:
-                self.log(
-                    f"Trajectory is not valid: {e}. Skipping cache.",
-                    severity="WARN",
-                )
-                raise e
-                # TODO: remove
-                # return
-
-        # Extract the start and end states, the end pose, and the group name
-        # from the trajectory
-        start_state: RobotState = trajectory[0]
-        end_state: RobotState = trajectory[len(trajectory) - 1]
-        end_pose = pose_stamped_msg(
-            pose=end_state.get_pose(request.pose_link),
-            frame_id=end_state.robot_model.model_frame,
-        )
-        group_name = trajectory.joint_model_group_name
-
-        # Start state to end state key
-        state_key = FuzzyTrajectoryCacheKey(
-            start_state=start_state,
-            goal=end_state,
-            pose_link=None,
-            group_name=group_name,
-            planning_frame=self._planning_frame,
-        )
-        # Start state to end pose key
-        pose_key = FuzzyTrajectoryCacheKey(
-            start_state=start_state,
-            goal=end_pose,
-            pose_link=request.pose_link,
-            group_name=group_name,
-            planning_frame=self._planning_frame,
-        )
-
-        # Cache the trajectory
-        value = FuzzyTrajectoryCacheValue(trajectory, self._sort_by)
-        self[pose_key] = value
-        self[state_key] = value
-
-        if _reverse:
-            self.cache_trajectory(
-                trajectory.reverse(),
-                request=request,
-                validate=validate,
-                _reverse=False,
-            )
-
-    def __getitem__(
-        self, key: FuzzyTrajectoryCacheKey
-    ) -> list[FuzzyTrajectoryCacheValue]:
-        """Get the values for a given key.
-
-        Args:
-            key: The key to get the values for.
-
-        Returns:
-            The sorted list of values for the given key.
-        """
-        fuzzy_key = self._get_fuzzy_key(key)
-        self.log(f"Getting values for key: {fuzzy_key!r}", severity="DEBUG")
-
-        env = self._require_env()
-        with env.begin(buffers=True) as txn:
-            raw = txn.get(fuzzy_key)
-            if raw is None:
-                raise KeyError(fuzzy_key)
-            values = cast(list[FuzzyTrajectoryCacheValue], pickle.loads(raw))
-            print(
-                f"Num trajectories: {len(values)}, size cache value: {len(raw)}"
-            )
-
-        self._validate_db_values(values)
-        return values
-
-    def get_best_trajectory(
-        self, request: PlanRequest, validate: bool = True
-    ) -> RobotTrajectory:
-        """Get the best trajectory for a given key.
-
-        Args:
-            request: The request to get the best trajectory for.
-
-        Returns:
-            The best trajectory for the given key.
-        """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(
-            request, planning_frame=self._planning_frame
-        )
-        trajectory = self[key][0].get_trajectory(key.start_state)
-        if validate:
-            self._validate_trajectory_quality(trajectory, key)
-        return trajectory
-
-    def get_trajectories(
-        self, request: PlanRequest, validate: bool = True
-    ) -> list[RobotTrajectory]:
-        """Get all trajectories for a given key.
-
-        Args:
-            start_state: The start state of the trajectory.
-            goal: The goal of the trajectory.
-            pose_link: The link to use for the pose if the goal is a PoseStamped.
-                If the goal is a RobotState, the pose link is not used to
-                retrieve the trajectory, but it is used to validate the
-                trajectory quality.
-            group_name: The group name of the trajectory.
-
-        Returns:
-            The sorted list of trajectories for the given key.
-        """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(
-            request, planning_frame=self._planning_frame
-        )
-        trajectories = [v.get_trajectory(key.start_state) for v in self[key]]
-        if validate:
-            for trajectory in trajectories:
-                self._validate_trajectory_quality(trajectory, key)
-        return trajectories
-
-    def __contains__(self, key: FuzzyTrajectoryCacheKey) -> bool:
-        """Check if a key is in the database.
-
-        Args:
-            key: The key to check.
-
-        Returns:
-            True if the key is in the database, False otherwise.
-        """
-        fuzzy_key = self._get_fuzzy_key(key)
-        env = self._require_env()
-        with env.begin(buffers=True) as txn:
-            return txn.get(fuzzy_key) is not None
-
-    def has_trajectory(self, request: PlanRequest) -> bool:
-        """Check if a trajectory exists for a given key.
-
-        Args:
-            start_state: The start state of the trajectory.
-            goal: The goal of the trajectory.
-            pose_link: The link to use for the pose.
-            group_name: The group name of the trajectory.
-
-        Returns:
-            True if a trajectory exists for the given key, False otherwise.
-        """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(
-            request, planning_frame=self._planning_frame
-        )
-        return key in self
-
-    def __delitem__(self, key: FuzzyTrajectoryCacheKey):
-        """Delete a key from the database.
-
-        Args:
-            key: The key to delete.
-        """
-        fuzzy_key = self._get_fuzzy_key(key)
-        env = self._require_env()
-        with env.begin(write=True) as txn:
-            if not txn.delete(fuzzy_key):
-                raise KeyError(fuzzy_key)
-
-    def delete_trajectory(self, request: PlanRequest):
-        """Delete all trajectories for a given key.
-
-        Args:
-            start_state: The start state of the trajectory.
-            goal: The goal of the trajectory.
-            pose_link: The link to use for the pose.
-            group_name: The group name of the trajectory.
-        """
-        key = FuzzyTrajectoryCacheKey.from_plan_request(
-            request, planning_frame=self._planning_frame
-        )
-        del self[key]
 
     def open(self):
         """Open the database, creating the file if it does not exist."""
@@ -969,10 +179,3 @@ class FuzzyTrajectoryCache(LoggerMixin):
             finally:
                 self._env = None
                 self._closed = True
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()

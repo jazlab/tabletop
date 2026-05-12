@@ -77,8 +77,18 @@ from tabletop_rig.interfaces.moveit.requests import (
     PlanResponseT,
     TrajectoryCacheKwargs,
 )
+from tabletop_rig.interfaces.moveit.trajectory_cache import TrajectoryCache
+from tabletop_rig.interfaces.moveit.trajectory_cache_dict import (
+    DictFuzzyTrajectoryCache,
+)
+from tabletop_rig.interfaces.moveit.trajectory_cache_kdtree import (
+    KDTreeTrajectoryCache,
+)
+from tabletop_rig.interfaces.moveit.trajectory_cache_linear import (
+    LinearTrajectoryCache,
+)
 from tabletop_rig.interfaces.moveit.trajectory_cache_lmdb import (
-    FuzzyTrajectoryCache,
+    LMDBFuzzyTrajectoryCache,
 )
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode
 from tabletop_rig.utils.ros import (
@@ -141,13 +151,38 @@ class PlanAndExecuteInterface(BaseInterface):
         self._safe_to_execute_condition = safe_to_execute_condition
 
         # Trajectory cache to store previously executed trajectories
-        cache_kwargs = self.param("trajectory_cache.kwargs")
-        self._trajectory_cache = FuzzyTrajectoryCache(
-            scene_hash=self._moveit.scene_hash(include_robot=True),
-            planning_frame=self._moveit.planning_frame,
-            parent_logger=self.get_logger(),
+        backend: str = self.param("trajectory_cache.backend")
+        cache_kwargs: dict[str, Any] = self.param("trajectory_cache.kwargs")
+        common_kwargs = {
+            "scene_hash": self._moveit.scene_hash(include_robot=True),
+            "planning_frame": self._moveit.planning_frame,
+            "group_name": self.group_name,
+            "pose_link": self.default_pose_link,
+            "parent_logger": self.get_logger(),
             **cache_kwargs,
-        )
+        }
+        self._trajectory_cache: TrajectoryCache
+        match backend:
+            case "lmdb":
+                self._trajectory_cache = LMDBFuzzyTrajectoryCache(
+                    **common_kwargs
+                )
+            case "dict":
+                self._trajectory_cache = DictFuzzyTrajectoryCache(
+                    **common_kwargs
+                )
+            case "linear":
+                self._trajectory_cache = LinearTrajectoryCache(**common_kwargs)
+            case "kdtree":
+                self._trajectory_cache = KDTreeTrajectoryCache(
+                    sample_state=self._moveit.get_current_state(),
+                    **common_kwargs,
+                )
+            case _:
+                raise ValueError(
+                    f"Unknown trajectory_cache.backend: {backend!r}. "
+                    f"Expected one of: 'lmdb', 'dict', 'linear', 'kdtree'."
+                )
         self._trajectory_cache.open()
 
         # Execution lock to ensure only one execution command is run at a time
