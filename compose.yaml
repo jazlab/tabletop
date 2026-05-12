@@ -168,7 +168,6 @@ services:
     ulimits:
       rtprio: 99
       memlock: -1
-
     restart: unless-stopped
     command: tt-launch dual_ur robot_mode:=mock
 

@@ -2,8 +2,35 @@ ARG BASE_IMAGE=ros:jazzy
 ARG USER_NAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
-ARG USER_GROUPS
 ARG UV_EXTRA
+
+# Install python dependencies using uv
+FROM $BASE_IMAGE AS builder-uv
+
+COPY --from=ghcr.io/astral-sh/uv@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a \
+    /uv /uvx /bin/
+
+ARG UV_EXTRA
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_EXTRA=$UV_EXTRA \
+    UV_CACHE_DIR=/uv-cache
+
+WORKDIR /tabletop
+
+RUN --mount=type=cache,target=/uv-cache \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project $UV_EXTRA
+
+RUN --mount=type=cache,target=/uv-cache \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=src/tabletop_py,target=src/tabletop_py \
+    uv sync --locked $UV_EXTRA
+
 
 FROM $BASE_IMAGE
 
@@ -13,20 +40,19 @@ SHELL ["/bin/bash", "-c"]
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-# Upgrade existing packages
-# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-#     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-#     apt-get update && apt-get upgrade -y
-
 # Install apt packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    software-properties-common \
     sudo \
     curl \
     wget \
     git \
     git-lfs \
+    nodejs \
+    npm \
     python3-pip \
     python3-venv \
     python-is-python3 \
@@ -34,9 +60,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     mold \
     ccache \
     ffmpeg \
-    fluidsynth \
-    ca-certificates \
-    software-properties-common
+    fluidsynth
 
 ARG TARGETARCH
 
@@ -57,7 +81,6 @@ EOT
 ARG USER_NAME
 ARG USER_UID
 ARG USER_GID
-ARG USER_GROUPS
 
 RUN <<EOT
 set -ex
@@ -82,99 +105,75 @@ if ! getent group $USER_GID >/dev/null 2>&1 ; then
     groupadd -g $USER_GID $USER_NAME
 fi
 useradd -u $USER_UID -g $USER_GID -s /bin/bash -m $USER_NAME
-if [[ $USER_GROUPS ]]; then
-    usermod -aG $USER_GROUPS $USER_NAME
-fi
 echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME
 chmod 0440 /etc/sudoers.d/$USER_NAME
 EOT
 
 USER $USER_NAME
 
-# Install ROS dependencies from src/ros directory
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=src/ros,target=/tmp/src <<EOT
-set -ex
-cd /tmp/src
-sudo apt-get update
-source /opt/ros/$ROS_DISTRO/setup.bash
-rosdep update
-echo $DEPENDENCY_TYPES
-DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t exec"
-rosdep install -r --from-paths . --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
-EOT
+ENV PATH="/home/$USER_NAME/bin:/home/$USER_NAME/.local/bin:$PATH"
 
 # Set working directory to /tabletop
 WORKDIR /tabletop
 
-# Install python dependencies using uv
-COPY --from=ghcr.io/astral-sh/uv@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a \
-    /uv /uvx /bin/
-
-ARG UV_EXTRA
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0 \
-    UV_CACHE_DIR=/tmp/uv-cache \
-    UV_EXTRA=$UV_EXTRA
-
-RUN --mount=type=cache,target=/tmp/uv-cache,uid=$USER_UID,gid=$USER_GID \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project $UV_EXTRA
-
-# RUN --mount=type=cache,target=/tmp/uv.cache,uid=$USER_UID,gid=$USER_GID \
-#     --mount=type=bind,source=uv.lock,target=uv.lock \
-#     --mount=type=bind,source=pyproject.toml,target=pyproject.toml <<EOT
-# set -ex
-# export UV_CACHE_DIR=/tmp/uv.cache
-# uv sync --locked --no-install-project $UV_EXTRA
-# mkdir -p ~/.cache
-# cp -r $UV_CACHE_DIR ~/.cache/uv
-# EOT
-
-# Install colcon mixins
-RUN <<EOT
+# Install ROS dependencies from src/ros directory
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=bind,source=src/ros,target=src/ros <<EOT
 set -ex
-source /tabletop/.venv/bin/activate
-colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
-colcon mixin update default
+source /opt/ros/$ROS_DISTRO/setup.bash
+sudo apt-get update
+rosdep update --rosdistro $ROS_DISTRO
+DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t exec"
+rosdep install -r --from-paths src/ros --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
-ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
-
 # Install platformio
-RUN --mount=type=bind,source=src/ros/tabletop/tabletop_teensy/platformio.ini,target=/tmp/platformio.ini <<EOT
+RUN --mount=type=bind,source=src/ros/tabletop/tabletop_teensy/platformio.ini,target=platformio.ini <<EOT
 set -ex
-curl -fsSL -o /tmp/get-platformio.py \
+curl -fsSL -o get-platformio.py \
 https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
-python3 /tmp/get-platformio.py
+python3 get-platformio.py
 mkdir -p ~/.local/bin
 ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
-rm /tmp/get-platformio.py
-pio pkg install --global --project-dir /tmp
+rm get-platformio.py
+pio pkg install --global
 EOT
 
 # Copy entrypoint script
 COPY docker/ros/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-# Update .bashrc and create ~/.config directory for pulse bind mount
-RUN <<EOT
-set -ex
-cat <<EOF >> ~/.bashrc
-if [[ -f /tabletop/setup.bash ]]; then
+# Update .bashrc
+RUN cat <<EOF >> ~/.bashrc
+if [ -s /tabletop/setup.bash ]; then
     source /tabletop/setup.bash
 else
     source "/opt/ros/$ROS_DISTRO/setup.bash" --
 fi
 EOF
-mkdir -p ~/.config
+
+# Create ~/.config directory for pulse bind mount
+RUN mkdir -p ~/.config
+
+COPY --from=builder-uv /bin/uv /bin/uvx /bin/
+COPY --from=builder-uv --chown=${USER_UID}:${USER_GID} /tabletop/.venv /tabletop/.venv
+
+ARG UV_EXTRA
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_EXTRA=$UV_EXTRA \
+    PATH="/tabletop/.venv/bin:$PATH"
+
+# Install colcon mixins
+RUN <<EOT
+set -ex
+colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
+colcon mixin update default
 EOT
 
 # Convenience variable to indicate we're in a container

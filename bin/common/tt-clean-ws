@@ -59,7 +59,7 @@ elif [[ "$tabletop_colcon" == true ]]; then
 fi
 
 if [[ "$all" == true || "$all_colcon" == true || "$logs" == true ]]; then
-    to_clean=("$COLCON_LOG_DIR" "$ROS_LOG_DIR")
+    to_clean+=("$COLCON_LOG_DIR" "$ROS_LOG_DIR")
 fi
 
 if [[ "$all" == true || "$tabletop_cache" == true ]]; then

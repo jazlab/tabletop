@@ -35,7 +35,7 @@ export REVERSE_IP="${REVERSE_IP:-192.168.13.10}"
 export SIM_REVERSE_IP="${SIM_REVERSE_IP:-192.168.12.10}"
 
 # Source Python virtual environment
-if [ -f "$TABLETOP_DIR/.venv/bin/activate" ]; then
+if [ "$TABLETOP_CONTAINER" != "true" ] && [ -f "$TABLETOP_DIR/.venv/bin/activate" ]; then
     source "$TABLETOP_DIR/.venv/bin/activate"
 fi
 

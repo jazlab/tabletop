@@ -15,6 +15,7 @@ builtin cd $COLCON_WS
 # Parse arguments
 build_debug=false
 clean=false
+clean_cmake=
 clean_all=false
 workers=
 packages=()
@@ -29,6 +30,9 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --clean)
             clean=true
+            ;;
+        --clean-cmake)
+            clean_cmake="--cmake-clean-cache"
             ;;
         --clean-all)
             clean_all=true
@@ -112,14 +116,14 @@ elif [[ $only_modules = true ]]; then
         exit 1
     fi
     base_paths="src/ros/modules"
-    from_paths="--from-paths $base_paths"
+    # from_paths="--from-paths $base_paths"
 elif [[ ${#packages[@]} -gt 0 ]]; then
     # Build only the specified packages and their recursive dependencies
     package_selection="--packages-up-to ${packages[@]}"
 else
     # Build only the tabletop packages in src/ros/tabletop
     base_paths="src/ros/tabletop"
-    skip_moveit_apt_removal="--skip-moveit-apt-removal"
+    # skip_moveit_apt_removal="--skip-moveit-apt-removal"
 fi
 
 # Skip x86_64-dependent packages
@@ -137,13 +141,13 @@ elif [[ $clean = true ]]; then
 fi
 
 # Install ROS 2 build dependencies
-tt-dep-install --type build $skip_uv $skip_apt $skip_moveit_apt_removal $apt_upgrade $from_paths
+# tt-dep-install --type build $skip_uv $skip_apt $skip_moveit_apt_removal $apt_upgrade $from_paths
 
 # Install tabletop_py python project
-print_status "Building/installing tabletop_py"
+print_status "Building tabletop_py"
 uv sync --only-install-project --inexact
 
-# Build colon workspace
+# Build colcon workspace
 
 # Set CMake arguments
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
@@ -184,6 +188,7 @@ $packages_skip \
 $packages_skip_regex \
 $package_selection \
 --cmake-args "${cmake_args[@]}" \
+$clean_cmake \
 --mixin "${mixins[@]}" \
 $parallel_workers \
 --symlink-install \
@@ -197,7 +202,7 @@ print_status "Successfully built ROS 2 packages!"
 source install/setup.bash
 
 # Install ROS 2 runtime dependencies
-tt-dep-install --type exec $from_paths --skip-uv $skip_apt
+# tt-dep-install --type exec $from_paths --skip-uv $skip_apt
 
 # Write to build/last_built.txt to indicate to docker containers a rebuild has occured
 date > "build/last_built.txt"

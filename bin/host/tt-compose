@@ -12,7 +12,6 @@ tt-env-gen 1>/dev/null
 
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
-# export COMPOSE_PROFILES="*"
 
 ps_format="table {{.Name}}\
 \t{{truncate .Image 15}}\
@@ -21,24 +20,14 @@ ps_format="table {{.Name}}\
 \t{{.Status}}"
 
 ARGS=()
-build=false
 up=false
 bluetooth=false
 while [[ $# -gt 0 ]]; do
     ARGS+=("$1")
     case $1 in
-        build)
-            build=true
-            # ARGS+=("$@")
-            # break
-            # ARGS+=("--builder" "tabletop_builder")
-            # export BUILDKIT_PROGRESS=plain
-            ;;
         ps)
             ARGS+=("--format" "$ps_format")
             ARGS+=("--all")
-            # ARGS+=("$@")
-            # break
             ;;
         up)
             up=true
@@ -48,10 +37,6 @@ while [[ $# -gt 0 ]]; do
         *flic|*flicd|*real)
             bluetooth=true
             ;;
-        # down)
-        #     ARGS+=("$1")
-        #     # ARGS+=("--volumes")
-        #     ;;
     esac
     shift
 done
@@ -61,15 +46,8 @@ set -- "${ARGS[@]}"
 print_status "docker compose $@"
 echo
 
-if [[ "$build" == "true" ]]; then
-    export COMPOSE_PROFILES="*"
-    docker compose down --volumes
-    docker compose "$@"
-    exec docker compose run --rm ros-base tt-build --all
-else
-    if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
-        sudo modprobe -r btusb
-        sudo modprobe btusb
-    fi
-    exec docker compose "$@"
+if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
+    sudo modprobe -r btusb
+    sudo modprobe btusb
 fi
+exec docker compose "$@"

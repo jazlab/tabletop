@@ -12,9 +12,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     iproute2 \
     usbutils \
     ripgrep \
-    xarclock \
-    nodejs \
-    npm
+    xarclock
 
 ARG TARGETARCH
 
@@ -74,8 +72,7 @@ WORKDIR /tabletop
 
 # Install pre-commit hook environments
 RUN --mount=type=bind,source=.pre-commit-config.yaml,target=.pre-commit-config.yaml <<EOT
-set -ex
-source /tabletop/.venv/bin/activate
+set -e
 git init .
 pre-commit install-hooks
 rm -rf .git
