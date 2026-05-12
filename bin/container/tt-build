@@ -137,7 +137,7 @@ packages_skip="--packages-skip ${packages_to_skip[@]}"
 if [[ $clean_all = true ]]; then
     tt-clean-ws --all-colcon
 elif [[ $clean = true ]]; then
-    tt-clean-ws
+    tt-clean-ws --tabletop-colcon
 fi
 
 # Install ROS 2 build dependencies

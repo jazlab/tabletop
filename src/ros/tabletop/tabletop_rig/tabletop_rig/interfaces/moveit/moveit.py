@@ -680,13 +680,18 @@ class MoveItInterface(BaseInterface):
     #         scene.check_collision(request, result)
     #         return result
     #
-    def is_state_colliding(self, group_name: str) -> bool:
-        """Check if the current state of the planning scene is colliding."""
+
+    def is_state_valid(
+        self, robot_state: RobotState, group_name: str, verbose: bool = True
+    ) -> bool:
+        """Check if the current state of the planning scene is ."""
 
         with self.planning_scene_ro() as scene:
-            return scene.is_state_colliding(group_name)
+            return scene.is_state_valid(
+                robot_state, joint_model_group_name=group_name, verbose=verbose
+            )
 
-    def is_path_valid(self, trajectory: RobotTrajectory):
+    def is_path_valid(self, trajectory: RobotTrajectory, verbose: bool = True):
         """Validate the given robot trajectory.
 
         Args:
@@ -701,7 +706,7 @@ class MoveItInterface(BaseInterface):
             return scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
-                verbose=True,
+                verbose=verbose,
                 invalid_index=[],  # DON'T USE THIS, for GIL reasons
             )
 

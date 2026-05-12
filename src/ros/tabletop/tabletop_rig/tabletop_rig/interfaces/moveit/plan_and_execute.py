@@ -608,8 +608,10 @@ class PlanAndExecuteInterface(BaseInterface):
         if request.start_state is None:
             request.start_state = self._moveit.get_current_state()
 
-        # Set pose link to default if not provided
-        if request.pose_link is None:
+        # Set pose link to default if not provided, but only for Cartesian
+        # goals — RobotState goals must have pose_link=None per the cache's
+        # request-validation contract.
+        if request.pose_link is None and isinstance(request.goal, PoseStamped):
             request.pose_link = self.default_pose_link
 
         # Set to default group name

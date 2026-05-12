@@ -19,6 +19,7 @@ Example:
 """
 
 from .base import BaseObjectInteractionTask, BaseTask
+from .cache_benchmark import CacheBenchmarkTask
 from .dummy import DummyTask
 from .foraging import ForagingTask
 from .present import PresentTask
@@ -27,6 +28,7 @@ from .smooth_pursuit import SmoothPursuitTask
 __all__ = [
     "BaseObjectInteractionTask",
     "BaseTask",
+    "CacheBenchmarkTask",
     "DummyTask",
     "ForagingTask",
     "PresentTask",
