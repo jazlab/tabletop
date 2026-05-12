@@ -123,6 +123,12 @@ def declare_arguments():
             ),
             description="Path where the warehouse database should be stored",
         ),
+        # Commander sigterm timeout
+        DeclareLaunchArgument(
+            "commander_sigterm_timeout",
+            default_value="30",
+            description="Sigterm timeout for commander (set high so we have a chance to cleanup)",
+        ),
         # Log levels
         DeclareLaunchArgument(
             "commander_log_level",
@@ -311,11 +317,16 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
             if arg_value != "null":
                 cli_args.extend([arg_name, arg_value])
 
+    sigterm_timeout = LaunchConfiguration("commander_sigterm_timeout").perform(
+        context
+    )
+
     # Commander Node
     commander = Node(
         package="tabletop_rig",
         executable="commander",
         output="both",
+        sigterm_timeout=sigterm_timeout,
         parameters=[
             moveit_config.to_dict(),
             warehouse_ros_config,

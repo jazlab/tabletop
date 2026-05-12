@@ -31,7 +31,7 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "rosbag_sigterm_timeout",
-            default_value="60",
+            default_value="30",
             description="Sigterm timeout for rosbag recorder (set to high so we don't lose data)",
         ),
         DeclareLaunchArgument(

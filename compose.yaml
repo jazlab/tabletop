@@ -140,8 +140,6 @@ services:
     depends_on:
       novnc:
         condition: service_healthy
-      # discovery-server:
-      #   condition: service_started
     restart: unless-stopped
     command: tt-launch rviz
 
@@ -209,7 +207,6 @@ services:
       - real
     devices:
       - $TEENSY_DEV
-
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
@@ -231,8 +228,6 @@ services:
         condition: service_healthy
         # condition: service_started
         restart: true
-      # discovery-server:
-      #   condition: service_started
     restart: unless-stopped
     command: tt-launch flic simulate:=false
 
@@ -257,7 +252,6 @@ services:
       - $ROS_BAG_DIR_MNT
     environment:
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
-
     restart: unless-stopped
     command: tt-launch eyelink simulate:=false
 
@@ -284,6 +278,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
+    stop_grace_period: 40s
     command: tt-launch commander
 
   dev:
@@ -322,7 +317,7 @@ services:
       - HISTFILE=/tabletop/.cache/devcontainer.bash_history
       - PROMPT_COMMAND="history -a"
     init: true
-    privileged: true
+    # privileged: true
     command: sleep infinity
 
 volumes:
