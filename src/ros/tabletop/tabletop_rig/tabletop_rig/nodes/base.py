@@ -328,7 +328,6 @@ class BaseNode(Node, LoggerMixin):
         self,
         prefix: str = "",
         severity: str | LoggingSeverity = "INFO",
-        **kwargs: Any,
     ) -> bool:
         """Log all parameters matching a prefix in YAML format.
 
@@ -351,7 +350,7 @@ class BaseNode(Node, LoggerMixin):
             string = yaml_dump_string(params, width=self.param("yaml_width"))
             if prefix:
                 string = f"Parameters with prefix {prefix}:\n{string}"
-            success = self.log(string, severity=severity, **kwargs)
+            success = self.log(string, severity=severity)
             assert success
             return True
         else:

@@ -84,16 +84,16 @@ class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
 
         normalized = self._normalize_path(path)
         assert normalized is not None, "LMDB path is required"
-        self._db_path = normalized
+        self._path = normalized
 
         self._env: lmdb.Environment | None = None
 
         self._open_and_validate()
 
     @property
-    def db_path(self) -> str:
+    def path(self) -> str:
         """The path to the database env."""
-        return self._db_path
+        return self._path
 
     def _require_env(self) -> lmdb.Environment:
         env = self._env
@@ -138,7 +138,7 @@ class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
 
     def _delete_db_files(self) -> None:
         """Remove the LMDB data file and its sibling lock file."""
-        for filepath in (self._db_path, self._db_path + "-lock"):
+        for filepath in (self._path, self._path + "-lock"):
             if os.path.exists(filepath):
                 os.remove(filepath)
 
@@ -153,7 +153,7 @@ class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
                 return
 
             self._env = lmdb.open(
-                self._db_path,
+                self._path,
                 map_size=self._map_size,
                 subdir=False,
                 readahead=False,

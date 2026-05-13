@@ -20,6 +20,7 @@ Example:
 
 from .base import BaseObjectInteractionTask, BaseTask
 from .cache_benchmark import CacheBenchmarkTask
+from .cache_benchmark_direct import CacheBenchmarkDirectTask
 from .dummy import DummyTask
 from .foraging import ForagingTask
 from .present import PresentTask
@@ -29,6 +30,7 @@ __all__ = [
     "BaseObjectInteractionTask",
     "BaseTask",
     "CacheBenchmarkTask",
+    "CacheBenchmarkDirectTask",
     "DummyTask",
     "ForagingTask",
     "PresentTask",

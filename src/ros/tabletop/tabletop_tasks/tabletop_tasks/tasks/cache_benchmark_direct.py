@@ -1,4 +1,8 @@
-"""Trajectory cache backend benchmark task.
+"""Direct-access trajectory-cache benchmark task.
+
+A stripped-down sibling of `CacheBenchmarkTask` that exercises the
+cache backends *without* invoking MoveIt's planning or trajectory
+execution at all.
 
 For each configured backend (`lmdb`, `dict`, `linear`, `kdtree`) this
 task:
@@ -6,25 +10,28 @@ task:
 1. Swaps the manipulator's `_trajectory_cache` for a fresh instance of
    that backend (optionally wiping any on-disk file first so the
    backend starts cold).
-2. Generates random joint-space goals around the `idle` state and
-   plans+executes the round-trip `idle -> goal -> idle` for each.
-   Goals where either leg fails to plan/execute are dropped from the
-   "successful" list.
-3. Once `n_unique_goals` successful round-trips have been collected,
-   replays the same successful goal sequence for `n_cycles` more
-   cycles. Subsequent cycles should hit the cache for every leg if
-   the backend works correctly.
+2. Generates random joint-space goals around the `idle` state.
+3. For every leg (`idle -> goal` and `goal -> idle`):
+   - Builds the matching `PlanRequest`.
+   - Times a cache query — `cache.get_trajectories(request)`.
+   - On miss, builds a two-waypoint *dummy* trajectory whose start /
+     end states exactly match `request.start_state` and `request.goal`
+     (so it passes `_validate_trajectory_quality`), then times
+     `cache.cache_trajectory(...)`.
 
-Per-leg, the task records: planning/cache-query time, execution time,
-whether the result was retrieved from the cache (`cache_kwargs is None`
-on return from `interface.plan(...)`), and success/error status.
+Because no plan/execute round-trip is involved, the cache saturates
+orders of magnitude faster than `CacheBenchmarkTask`. This lets us
+push `n_unique_goals` into the tens of thousands and measure how
+*query time* and *update time* scale with cache size for each backend.
 
-All rows are appended to a CSV at `output_csv`.
+Per leg we record query/update times, hit-vs-miss, and the cache size
+both before and after any insert. Rows are appended to a CSV at
+`output_csv` distinct from the planning benchmark's output.
 
-This is a private-state benchmark: it directly reads
-`commander._manipulators[robot_name]` and reassigns its
-`_trajectory_cache`. Don't run it on the same path as the production
-cache — pass a separate `cache_path_template` per backend.
+This task does not lock arms or enter `manipulation_context` because
+nothing is executed; it only mutates `interface._trajectory_cache` in
+place. Don't run it on the same path as the production cache — pass a
+separate `cache_path_template` per backend.
 """
 
 import asyncio
@@ -35,6 +42,7 @@ import traceback
 from typing import Any, Optional
 
 import numpy as np
+from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
     RobotModel,
@@ -42,12 +50,10 @@ from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
     RobotState,
 )
-from tabletop_rig.exceptions import (
-    ExecutionError,
-    MoveitRecoverableError,
-    PlanningError,
-    TrajectoryError,
+from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
+    RobotTrajectory,
 )
+from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from tabletop_rig.interfaces.moveit.requests import PlanRequest
 from tabletop_rig.interfaces.moveit.trajectory_cache import TrajectoryCache
 from tabletop_rig.interfaces.moveit.trajectory_cache_dict import (
@@ -64,18 +70,9 @@ from tabletop_rig.interfaces.moveit.trajectory_cache_lmdb import (
 )
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import pose_stamped_msg
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from tabletop_tasks.tasks.base import BaseTask
-
-# Exception classes that count as "this goal failed; skip it".
-# Anything else propagates and stops the benchmark.
-_GOAL_FAILURE = (
-    PlanningError,
-    ExecutionError,
-    MoveitRecoverableError,
-    TrajectoryError,
-    asyncio.TimeoutError,
-)
 
 _VALID_BACKENDS = ("lmdb", "dict", "linear", "kdtree")
 
@@ -86,36 +83,44 @@ _CSV_FIELDS = (
     "goal_idx",
     "goal_type",
     "direction",
-    "from_cache",
-    "cache_size",
-    "plan_time_s",
-    "exec_time_s",
+    "hit",
+    "cache_size_before",
+    "cache_size_after",
+    "query_time_s",
+    "update_time_s",
     "success",
     "error",
 )
 
 _MAX_GOAL_GEN_ATTEMPTS = 100
 
+# Dummy trajectory duration. Must be > 0 so `sort_by="path_duration"`
+# can accept it (see `TrajectoryCacheValue.__init__`).
+_DUMMY_TRAJ_DURATION_S = 1.0
 
-class CacheBenchmarkTask(BaseTask):
-    """Benchmark four trajectory-cache backends head-to-head.
+
+class CacheBenchmarkDirectTask(BaseTask):
+    """Benchmark trajectory-cache backends via direct query/update.
+
+    Bypasses MoveIt planning and trajectory execution entirely. Every
+    miss is satisfied with a synthetic two-waypoint trajectory built
+    to exactly match the request's start/goal endpoints, so the cache
+    receives well-formed entries without paying for a planner call.
 
     Args:
         commander: The shared Commander.
         robot_name: Which arm to benchmark, e.g. "left_manipulator".
         backends: Subset of {"lmdb", "dict", "linear", "kdtree"} to
             run, in the given order.
-        n_unique_goals: Number of distinct goals to successfully
-            execute round-trip (`idle -> goal -> idle`) per backend
-            before replaying.
-        n_cycles: Number of additional replay cycles over the
-            successful-goal sequence.
-        max_failed_goals: Cap on random goals tried while building
-            the successful-goal sequence. Prevents infinite loops if
-            the joint range is too wide and most goals are
-            unreachable.
-        seed: PRNG seed for goal generation. Same seed gives the same
-            goal sequence across backends so they're comparable.
+        n_unique_goals: Number of distinct random goals to generate
+            per backend. Each goal contributes one round-trip
+            (`idle -> goal -> idle`).
+        n_cycles: Number of additional replay cycles over the goal
+            sequence (parity with `CacheBenchmarkTask`; with the
+            cache pre-populated these become pure-hit measurements).
+        seed: PRNG seed for goal generation. Same seed produces the
+            same goal sequence across backends so timings are
+            directly comparable.
         joint_offset_range_radians: Each joint is sampled uniformly
             from `idle ± this`.
         output_csv: Where to write the per-leg results. `~` and
@@ -126,12 +131,9 @@ class CacheBenchmarkTask(BaseTask):
         wipe_cache_before_run: If True (default), delete any existing
             cache file for the backend before constructing the cache
             so every backend benchmark starts cold.
-        planning_pipeline / planning_time / max_attempts: Pass-through
-            to `PlanRequest`. `None` keeps the interface's defaults.
         cache_kwargs_overrides: Per-test overrides applied on top of
             the manipulator's existing `trajectory_cache.kwargs`
-            (tolerances, sort_by, max_trajectories). Useful for
-            isolating the benchmark from production cache config.
+            (tolerances, sort_by, max_trajectories).
     """
 
     def __init__(
@@ -140,23 +142,19 @@ class CacheBenchmarkTask(BaseTask):
         *,
         robot_name: str = "left_manipulator",
         backends: Optional[list[str]] = None,
-        n_unique_goals: int = 20,
-        n_cycles: int = 3,
-        max_goal_gen_attempts: int = 200,
-        max_failed_goals: int = 200,
+        n_unique_goals: int = 10000,
+        n_cycles: int = 1,
         seed: int = 42,
         joint_offset_range_radians: float = 1.0,
-        output_csv: str = "$TABLETOP_CACHE_DIR/cache_benchmark.csv",
+        output_csv: str = "$TABLETOP_CACHE_DIR/cache_benchmark_direct.csv",
         cache_path_template: str = (
-            "$TABLETOP_CACHE_DIR/trajectory_cache/benchmark_{robot}_{backend}"
+            "$TABLETOP_CACHE_DIR/trajectory_cache/"
+            "benchmark_direct_{robot}_{backend}"
         ),
         wipe_cache_before_run: bool = True,
-        planning_pipeline: Optional[str] = None,
-        planning_time: Optional[float] = None,
-        max_attempts: Optional[int] = None,
         cache_kwargs_overrides: Optional[dict[str, Any]] = None,
     ) -> None:
-        super().__init__("cache_benchmark", commander)
+        super().__init__("cache_benchmark_direct", commander)
 
         if robot_name not in commander._manipulators:
             raise ValueError(
@@ -182,14 +180,6 @@ class CacheBenchmarkTask(BaseTask):
             raise ValueError("'n_cycles' must be non-negative")
         self._n_cycles = n_cycles
 
-        if max_goal_gen_attempts < 1:
-            raise ValueError("'max_goal_gen_attempts' must be at least 0")
-        self._max_goal_gen_attempts = max_goal_gen_attempts
-
-        if max_failed_goals < 0:
-            raise ValueError("'max_failed_goals' must be at least 0")
-        self._max_failed_goals = max_failed_goals
-
         self._seed = seed
         self._joint_offset_range = float(joint_offset_range_radians)
         if self._joint_offset_range <= 0:
@@ -201,13 +191,8 @@ class CacheBenchmarkTask(BaseTask):
         self._cache_path_template = cache_path_template
         self._wipe_cache_before_run = wipe_cache_before_run
 
-        self._planning_pipeline = planning_pipeline
-        self._planning_time = planning_time
-        self._max_attempts = max_attempts
-
         self._cache_kwargs_overrides = dict(cache_kwargs_overrides or {})
 
-        # All rows accumulated across backends, flushed at the end.
         self._rows: list[dict[str, Any]] = []
 
     @property
@@ -216,7 +201,7 @@ class CacheBenchmarkTask(BaseTask):
         return self.commander._manipulators[self._robot_name]
 
     # ---------------------------------------------------------------
-    # Cache construction
+    # Cache construction (mirrors CacheBenchmarkTask)
     # ---------------------------------------------------------------
 
     def _resolve_cache_path(self, backend: str) -> str:
@@ -228,7 +213,6 @@ class CacheBenchmarkTask(BaseTask):
         return path
 
     def _wipe_path(self, path: str) -> None:
-        # LMDB also leaves a `.lock` sibling that we have to remove.
         for filepath in (path, path + "-lock"):
             if os.path.exists(filepath):
                 os.remove(filepath)
@@ -238,10 +222,6 @@ class CacheBenchmarkTask(BaseTask):
         interface = self._interface
         moveit = self.commander._moveit
 
-        # Start from the manipulator's configured cache kwargs (per-arm
-        # path override + common tolerances), then layer the
-        # benchmark-specific overrides on top. Replace `path` with our
-        # per-backend file.
         cache_kwargs: dict[str, Any] = dict(
             interface.param("trajectory_cache.kwargs")
         )
@@ -308,8 +288,15 @@ class CacheBenchmarkTask(BaseTask):
 
     def _random_goal(
         self, rng: np.random.Generator
-    ) -> RobotState | PoseStamped:
-        """Build a RobotState by perturbing every joint of idle uniformly."""
+    ) -> tuple[RobotState | PoseStamped, RobotState]:
+        """Sample one valid goal.
+
+        Returns the goal (either a `RobotState` or a `PoseStamped`)
+        and the underlying `RobotState` that produced it. For pose
+        goals we keep this state around because the dummy trajectory's
+        end-waypoint joints must round-trip to the same FK pose; only
+        the state that *generated* the pose is guaranteed to.
+        """
         for _ in range(_MAX_GOAL_GEN_ATTEMPTS):
             state = self._idle_state()
             positions = dict(state.joint_positions)
@@ -338,83 +325,134 @@ class CacheBenchmarkTask(BaseTask):
                 model: RobotModel = state.robot_model
                 frame_id = model.model_frame
                 assert frame_id == self.commander._moveit.planning_frame
-                return pose_stamped_msg(pose=pose, frame_id=frame_id)
+                return pose_stamped_msg(pose=pose, frame_id=frame_id), state
             else:
-                return state
+                return state, state
 
         raise RuntimeError(
-            f"Could not generate valid goal state in {_MAX_GOAL_GEN_ATTEMPTS} attempts"
+            f"Could not generate valid goal state in "
+            f"{_MAX_GOAL_GEN_ATTEMPTS} attempts"
         )
 
-    def _gen_goals(self) -> list[RobotState | PoseStamped]:
-        rng = np.random.default_rng(self._seed)
-
-        goals: list[RobotState | PoseStamped] = []
-        for _ in range(self._n_unique_goals):
-            goals.append(self._random_goal(rng))
-
-        return goals
-
-    # ---------------------------------------------------------------
-    # Plan + execute a single leg
-    # ---------------------------------------------------------------
-
-    def _make_request(self, goal: RobotState | PoseStamped) -> PlanRequest:
-        kwargs: dict[str, Any] = {"goal": goal}
-        if self._planning_pipeline is not None:
-            kwargs["planning_pipeline"] = self._planning_pipeline
-        if self._planning_time is not None:
-            kwargs["planning_time"] = self._planning_time
-        if self._max_attempts is not None:
-            kwargs["max_attempts"] = self._max_attempts
-        return PlanRequest(**kwargs)
-
-    async def _plan_and_execute_leg(
+    def _gen_goals(
         self,
+    ) -> list[tuple[RobotState | PoseStamped, RobotState]]:
+        rng = np.random.default_rng(self._seed)
+        return [self._random_goal(rng) for _ in range(self._n_unique_goals)]
+
+    # ---------------------------------------------------------------
+    # Dummy trajectory construction
+    # ---------------------------------------------------------------
+
+    def _make_dummy_trajectory(
+        self, start_state: RobotState, end_state: RobotState
+    ) -> RobotTrajectory:
+        """Build a 2-waypoint trajectory that exactly bridges start/end.
+
+        The trajectory's joint_names are taken from the configured
+        group's `active_joint_model_names` and positions are reordered
+        to match — `_validate_trajectory_quality` resolves endpoint
+        joints by name via `get_joint_group_positions`, so any name/
+        position ordering mismatch silently corrupts the endpoints.
+
+        Duration of 1s ensures `sort_by="path_duration"` accepts it.
+        """
+        group_name = self._interface.group_name
+        joint_names: list[str] = self.commander._moveit.get_joint_names(
+            group_name
+        )
+
+        msg = RobotTrajectoryMsg()
+        jt = JointTrajectory()
+        jt.joint_names = list(joint_names)
+
+        start_positions = start_state.joint_positions
+        end_positions = end_state.joint_positions
+
+        p0 = JointTrajectoryPoint()
+        p0.positions = [float(start_positions[j]) for j in joint_names]
+        p0.time_from_start = Duration(sec=0, nanosec=0)
+
+        p1 = JointTrajectoryPoint()
+        p1.positions = [float(end_positions[j]) for j in joint_names]
+        dur_ns = int(_DUMMY_TRAJ_DURATION_S * 1e9)
+        p1.time_from_start = Duration(
+            sec=int(_DUMMY_TRAJ_DURATION_S),
+            nanosec=dur_ns - int(_DUMMY_TRAJ_DURATION_S) * int(1e9),
+        )
+
+        jt.points = [p0, p1]
+        msg.joint_trajectory = jt
+
+        # `set_robot_trajectory_msg` needs a clean reference state to
+        # populate non-group joints; it also drops `joint_model_group_name`,
+        # so re-assign after.
+        reference_state = self._idle_state()
+        if reference_state.dirty:
+            reference_state.update()
+        trajectory = RobotTrajectory(reference_state.robot_model)
+        trajectory.set_robot_trajectory_msg(reference_state, msg)
+        trajectory.joint_model_group_name = group_name
+        return trajectory
+
+    # ---------------------------------------------------------------
+    # Single leg: query, then update on miss
+    # ---------------------------------------------------------------
+
+    def _process_leg(
+        self,
+        *,
+        start_state: RobotState,
         goal: RobotState | PoseStamped,
+        end_state: RobotState,
         backend: str,
         phase: str,
         cycle: int,
         goal_idx: int,
         direction: str,
     ) -> bool:
-        """Plan and execute one leg; record a row; return True on success."""
+        """Query the cache; on miss insert a dummy trajectory. Record a row."""
         interface = self._interface
-        request = self._make_request(goal)
+        cache = interface._trajectory_cache
+
+        request_kwargs: dict[str, Any] = {
+            "start_state": start_state,
+            "goal": goal,
+            "group_name": interface.group_name,
+        }
+        if isinstance(goal, PoseStamped):
+            request_kwargs["pose_link"] = interface.default_pose_link
+        request = PlanRequest(**request_kwargs)
 
         goal_type = "robot_state" if isinstance(goal, RobotState) else "pose"
-        plan_time = float("nan")
-        exec_time = float("nan")
-        from_cache: Optional[bool] = None
-        cache_size: int = -1
+        hit: Optional[bool] = None
+        query_time = float("nan")
+        update_time = float("nan")
+        cache_size_after: Optional[int] = None
         success = False
         error = ""
 
         try:
-            cache_size = len(interface._trajectory_cache)
-            t0 = time.perf_counter()
-            trajectory, cache_kwargs = await interface.plan(request=request)
-            plan_time = time.perf_counter() - t0
-            from_cache = cache_kwargs is None
+            cache_size_before = len(cache)
 
             t0 = time.perf_counter()
-            await interface.execute(trajectory)
-            exec_time = time.perf_counter() - t0
+            try:
+                cache.get_trajectories(request)
+                hit = True
+            except KeyError:
+                hit = False
+            query_time = time.perf_counter() - t0
 
-            # Save the freshly-planned trajectory under the same path
-            # the production code uses (`cache_trajectories` no-ops
-            # when the trajectory came from cache).
-            if cache_kwargs is not None:
-                interface.cache_trajectories(cache_kwargs)
+            if not hit:
+                trajectory = self._make_dummy_trajectory(
+                    start_state, end_state
+                )
+                t0 = time.perf_counter()
+                cache.cache_trajectory(trajectory, request=request)
+                update_time = time.perf_counter() - t0
 
+            cache_size_after = len(cache)
             success = True
-        except _GOAL_FAILURE as e:
-            error = f"{type(e).__name__}: {e}"
-            self.log(
-                f"[{backend}] {phase} cycle={cycle} goal={goal_idx} "
-                f"{direction} failed: {error}",
-                severity="WARN",
-            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -425,6 +463,8 @@ class CacheBenchmarkTask(BaseTask):
                 f"{''.join(traceback.format_exc())}",
                 severity="ERROR",
             )
+            cache_size_before = -1
+            cache_size_after = -1
 
         self._rows.append(
             {
@@ -434,13 +474,16 @@ class CacheBenchmarkTask(BaseTask):
                 "goal_idx": goal_idx,
                 "goal_type": goal_type,
                 "direction": direction,
-                "from_cache": from_cache,
-                "cache_size": cache_size,
-                "plan_time_s": (
-                    "" if np.isnan(plan_time) else f"{plan_time:.6f}"
+                "hit": hit,
+                "cache_size_before": cache_size_before,
+                "cache_size_after": (
+                    "" if cache_size_after is None else cache_size_after
                 ),
-                "exec_time_s": (
-                    "" if np.isnan(exec_time) else f"{exec_time:.6f}"
+                "query_time_s": (
+                    "" if np.isnan(query_time) else f"{query_time:.9f}"
+                ),
+                "update_time_s": (
+                    "" if np.isnan(update_time) else f"{update_time:.9f}"
                 ),
                 "success": success,
                 "error": error,
@@ -448,126 +491,101 @@ class CacheBenchmarkTask(BaseTask):
         )
         return success
 
-    async def _do_round_trip(
+    def _do_round_trip(
         self,
+        *,
         goal: RobotState | PoseStamped,
+        end_state: RobotState,
         backend: str,
         phase: str,
         cycle: int,
         goal_idx: int,
-    ) -> bool:
-        """idle -> goal -> idle. Returns True only if both legs succeeded."""
+    ) -> None:
+        """idle -> goal -> idle (cache-only; no execution)."""
         idle = self._idle_state()
-        ok_out = await self._plan_and_execute_leg(
+        # Forward leg: start=idle, goal=goal (RobotState or pose).
+        # End-waypoint joints come from `end_state` so a pose goal's
+        # FK round-trips.
+        self._process_leg(
+            start_state=idle,
             goal=goal,
+            end_state=end_state,
             backend=backend,
             phase=phase,
             cycle=cycle,
             goal_idx=goal_idx,
             direction="to_goal",
         )
-        if not ok_out:
-            # Try to get back to a known state for the next attempt.
-            await self._best_effort_return_to_idle(
-                idle, backend, phase, cycle, goal_idx
-            )
-            return False
-        ok_back = await self._plan_and_execute_leg(
+        # Return leg: start=end_state, goal=idle (always RobotState).
+        self._process_leg(
+            start_state=end_state,
             goal=idle,
+            end_state=idle,
             backend=backend,
             phase=phase,
             cycle=cycle,
             goal_idx=goal_idx,
             direction="to_idle",
         )
-        return ok_back
-
-    async def _best_effort_return_to_idle(
-        self,
-        idle: RobotState,
-        backend: str,
-        phase: str,
-        cycle: int,
-        goal_idx: int,
-    ) -> None:
-        """After a failed leg, try to plan back to idle so we don't leave
-        the robot stranded mid-trajectory. Failures here are logged but
-        not propagated."""
-        try:
-            await self._plan_and_execute_leg(
-                goal=idle,
-                backend=backend,
-                phase=phase,
-                cycle=cycle,
-                goal_idx=goal_idx,
-                direction="recover_to_idle",
-            )
-        except Exception as e:
-            self.log(
-                f"[{backend}] best-effort return-to-idle failed: "
-                f"{type(e).__name__}: {e}",
-                severity="WARN",
-            )
 
     # ---------------------------------------------------------------
     # Per-backend runner
     # ---------------------------------------------------------------
 
     async def _run_backend(
-        self, backend: str, goals: list[RobotState | PoseStamped]
+        self,
+        backend: str,
+        goals: list[tuple[RobotState | PoseStamped, RobotState]],
     ) -> None:
-        self.log(f"=== Benchmark backend: {backend} ===")
+        self.log(f"=== Direct cache benchmark backend: {backend} ===")
         self._swap_cache(backend)
 
-        # `manipulation_context` locks arms, occludes smartglass, and
-        # resets the manipulator's state machine to IDLE. We then
-        # bypass the state machine by calling `interface.plan` and
-        # `interface.execute` directly — safe because they still
-        # check `safe_to_execute` and trajectory start tolerance.
-        async with self.commander.manipulation_context(self._robot_name):
-            successful_goals: list[tuple[int, RobotState | PoseStamped]] = []
-            for i, goal in enumerate(goals):
-                ok = await self._do_round_trip(
+        # No `manipulation_context`: nothing executes, so no need to
+        # lock arms / occlude smartglass / move the state machine.
+
+        # Collect phase — first-pass through every goal. Cache grows
+        # roughly monotonically here so this gives clean
+        # time-vs-cache-size data.
+        for i, (goal, end_state) in enumerate(goals):
+            self._do_round_trip(
+                goal=goal,
+                end_state=end_state,
+                backend=backend,
+                phase="collect",
+                cycle=0,
+                goal_idx=i,
+            )
+            # Yield to the event loop occasionally so the node stays
+            # responsive on very long runs.
+            if i % 100 == 0:
+                self.log(f"[{backend}] collect progress: {i}/{len(goals)}")
+                await asyncio.sleep(0)
+
+        self.log(
+            f"[{backend}] collect done, cache_size="
+            f"{len(self._interface._trajectory_cache)}"
+        )
+
+        # Cycle phase — replays. With the dummy-trajectory inserts in
+        # the collect phase, every leg here should be a hit (modulo
+        # fuzzy-bin aliasing for the lmdb/dict backends).
+        for cycle in range(self._n_cycles):
+            self.log(
+                f"[{backend}] cycle {cycle + 1}/{self._n_cycles} "
+                f"({len(goals)} goals)"
+            )
+            for i, (goal, end_state) in enumerate(goals):
+                self._do_round_trip(
                     goal=goal,
+                    end_state=end_state,
                     backend=backend,
-                    phase="collect",
-                    cycle=0,
+                    phase="cycle",
+                    cycle=cycle,
                     goal_idx=i,
                 )
-                if ok:
-                    successful_goals.append((i, goal))
                 if i % 100 == 0:
-                    self.log(f"[{backend}] collect progress: {i}/{len(goals)}")
-
-            self.log(
-                f"[{backend}] collected {len(successful_goals)} "
-                f"successful goals out of {len(goals)} attempts"
-            )
-
-            if len(successful_goals) == 0:
-                self.log(
-                    f"[{backend}] no successful goals — skipping cycle phase",
-                    severity="WARN",
-                )
-                return
-
-            for cycle in range(self._n_cycles):
-                self.log(
-                    f"[{backend}] cycle {cycle + 1}/{self._n_cycles} "
-                    f"({len(successful_goals)} goals)"
-                )
-                for i, goal in successful_goals:
-                    await self._do_round_trip(
-                        goal=goal,
-                        backend=backend,
-                        phase="cycle",
-                        cycle=cycle,
-                        goal_idx=i,
-                    )
-                    if i % 100 == 0:
-                        self.log(
-                            f"[{backend}] cycle progress: {i}/{len(successful_goals)}"
-                        )
+                    self.log(f"[{backend}] cycle progress: {i}/{len(goals)}")
+                    await asyncio.sleep(0)
 
     # ---------------------------------------------------------------
     # CSV output
@@ -600,5 +618,4 @@ class CacheBenchmarkTask(BaseTask):
                         severity="ERROR",
                     )
         finally:
-            # Always flush whatever rows we collected, even on abort.
             self._write_csv()

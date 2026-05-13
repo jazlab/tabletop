@@ -24,6 +24,15 @@ linear:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
+ptp:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: pilz_industrial_motion_planner
+    planner_id: PTP
+    planning_time: 0.1
+    max_velocity_scaling_factor: 1.0
+    max_acceleration_scaling_factor: 1.0
+
 prm_star:
   plan_request_params:
     planning_attempts: 1

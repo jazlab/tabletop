@@ -209,7 +209,9 @@ class TeensyInterface(BaseInterface):
             delay = current_time - teensy_time
             if delay > warn_threshold:
                 self.log(
-                    f"Teensy sensor callback delay {delay:.4f}s > {warn_threshold}s"
+                    f"Teensy sensor callback delay {delay:.4f}s > {warn_threshold}s",
+                    severity="WARN",
+                    throttle_duration_sec=2,
                 )
 
             self._last_teensy_sensor = msg

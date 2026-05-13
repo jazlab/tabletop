@@ -437,7 +437,7 @@ class PlanAndExecuteInterface(BaseInterface):
         try:
             trajectories = self._trajectory_cache.get_trajectories(request)
         except KeyError:
-            self.log("No cached trajectory found", severity="WARN")
+            self.log("No cached trajectory found", severity="DEBUG")
             return None
 
         for trajectory in trajectories:
@@ -1050,9 +1050,12 @@ class PlanAndExecuteInterface(BaseInterface):
         if not self.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:
                 self._trajectory_cache.cache_trajectory(**kwargs)
-            self.log(f"Cached {len(cache_kwargs)} trajectories successfully")
+            self.log(
+                f"Cached {len(cache_kwargs)} trajectories successfully",
+                severity="DEBUG",
+            )
         else:
-            self.log("Cache is frozen, skipping cache")
+            self.log("Cache is frozen, skipping cache", severity="DEBUG")
 
     async def plan_and_execute(
         self,

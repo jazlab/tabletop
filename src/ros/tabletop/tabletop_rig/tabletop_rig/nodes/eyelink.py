@@ -891,10 +891,16 @@ class Eyelink(BaseNode):
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
                 except RuntimeError as e:
-                    # Need to explicitly get the logger to do throttled logging
+                    # TODO: Verify this fix. MAY need to explicitly get
+                    # the logger to do throttled logging
                     # so that rclpy knows the "caller id" to throttle
-                    self.get_logger().warning(
+                    # self.get_logger().warning(
+                    #     f"No data from tracker with error: {e}",
+                    #     throttle_duration_sec=1,
+                    # )
+                    self.log(
                         f"No data from tracker with error: {e}",
+                        severity="WARN",
                         throttle_duration_sec=1,
                     )
                     continue

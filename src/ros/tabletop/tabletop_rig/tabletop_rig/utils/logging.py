@@ -12,15 +12,21 @@ Typical usage:
             self.log_ros_msg(some_ros_msg, title="Received message")
 """
 
+import os
 from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
-import rclpy
-from rclpy.impl.logging_severity import LoggingSeverity
-from rclpy.impl.rcutils_logger import RcutilsLogger
+import rclpy.impl.rcutils_logger
+from rclpy.logging import LoggingSeverity, RcutilsLogger
 
 from tabletop_py.utils.common import is_iterable, yaml_dump_string
+
+# Add this file to the internal callers so that the logger
+# does not mistake this file as the function caller.
+this_file = os.path.realpath(__file__)
+if this_file not in (rclpy.impl.rcutils_logger._internal_callers):
+    rclpy.impl.rcutils_logger._internal_callers.append(this_file)
 
 # ROS message utilities
 
