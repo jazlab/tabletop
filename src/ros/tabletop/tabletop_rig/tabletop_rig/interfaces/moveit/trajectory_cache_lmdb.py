@@ -6,8 +6,9 @@ transaction; the base class serializes the read-modify-write in
 `__setitem__` with `self._lock`, so concurrent threads inside a single
 Python process see consistent reads.
 
-See `trajectory_cache.FuzzyTrajectoryCache` for the abstract base class
-and the geometric/fuzzy-matching pieces.
+See `trajectory_cache.TrajectoryCache` for the abstract base class
+that owns lifecycle (open/close), request validation, metadata-drift
+detection, and the high-level `cache_trajectory` API.
 """
 
 import bisect
@@ -15,7 +16,6 @@ import json
 import os
 import pickle
 from collections.abc import Iterable
-from copy import deepcopy
 from typing import Any, Literal, Optional
 
 import lmdb
@@ -44,18 +44,9 @@ from tabletop_rig.utils.ros import (
 _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 _DEFAULT_MAP_SIZE: int = 2 * 1024**3  # 2 GiB of virtual address space
 
-# Metadata keys stored alongside trajectory data. Fuzzy trajectory keys
-# are JSON-serialized dicts (always start with '{'), so these plain-word
-# keys cannot collide with them.
-_META_SCENE_HASH = b"scene_hash"
-_META_ROBOT_STATE_TOL = b"robot_state_tolerance"
-_META_POSITION_TOL = b"position_tolerance"
-_META_ORIENTATION_TOL = b"orientation_tolerance"
-_META_MAX_TRAJECTORIES = b"max_trajectories"
-_META_PLANNING_FRAME = b"planning_frame"
-_META_SORT_BY = b"sort_by"
-_META_GROUP_NAME = b"group_name"
-_META_POSE_LINK = b"pose_link"
+# Fuzzy trajectory keys are JSON-serialized dicts (always start with
+# '{'), so a plain-word metadata key cannot collide with them.
+_META_KEY = b"_metadata"
 
 
 class LMDBTrajectoryCache(TrajectoryCache):
@@ -65,8 +56,9 @@ class LMDBTrajectoryCache(TrajectoryCache):
     backend primitive opens its own LMDB transaction; the base class's
     `_lock` guards the read-modify-write in `__setitem__`.
 
-    On metadata mismatch (e.g. scene_hash or tolerances changed across
-    runs), the LMDB file is removed from disk and recreated in place.
+    On metadata mismatch (e.g. `scene_hash` or tolerances changed
+    across runs), the LMDB file is removed from disk and recreated in
+    place by the base class's `_open_and_validate` flow.
     """
 
     def __init__(
@@ -93,7 +85,7 @@ class LMDBTrajectoryCache(TrajectoryCache):
                 for the LMDB environment. Cheap on Linux (it's only
                 virtual); pick a value larger than the cache will ever
                 grow.
-            (Other args: see `FuzzyTrajectoryCache`.)
+            (Other args: see `TrajectoryCache`.)
         """
         super().__init__(
             path=path,
@@ -110,20 +102,20 @@ class LMDBTrajectoryCache(TrajectoryCache):
         )
 
         self._map_size = int(map_size)
-
         self._env: lmdb.Environment | None = None
 
         self._open_and_validate()
 
+    # ---------------------------------------------------------------
+    # Backend primitives
+    # ---------------------------------------------------------------
+
     def _require_env(self) -> lmdb.Environment:
+        self._require_open()
         env = self._env
         if env is None:
             raise RuntimeError("Trajectory cache database is not open")
         return env
-
-    # ---------------------------------------------------------------
-    # Backend primitives
-    # ---------------------------------------------------------------
 
     def _get_raw(self, key: bytes) -> Any:
         env = self._require_env()
@@ -150,131 +142,50 @@ class LMDBTrajectoryCache(TrajectoryCache):
         with env.begin(buffers=True) as txn:
             return txn.get(key) is not None
 
-    def _clear_storage(self) -> None:
-        """Wipe the LMDB file by closing, deleting on disk, and reopening."""
-        self.close()
-        self._delete_db_files()
-        self.open()
-
-    def _delete_db_files(self) -> None:
-        """Remove the LMDB data file and its sibling lock file."""
-        for filepath in (self._path, self._path + "-lock"):
-            if os.path.exists(filepath):
-                os.remove(filepath)
-
     def __len__(self) -> int:
         return self._require_env().stat()["entries"]
 
-    def open(self):
-        """Open the database, creating the file if it does not exist."""
-        with self._lock:
-            if not self._closed:
-                self.log("Database is already open", severity="WARN")
-                return
-
-            self._env = lmdb.open(
-                self._path,
-                map_size=self._map_size,
-                subdir=False,
-                readahead=False,
-                writemap=True,
-                metasync=True,
-                sync=True,
-                max_readers=126,
-                max_dbs=0,
-                create=True,
-            )
-            self._closed = False
-
-    def close(self):
-        """Close the database."""
-        with self._lock:
-            if self._closed:
-                self.log("Database is already closed", severity="WARN")
-                return
-
-            try:
-                if self._env is not None:
-                    self._env.close()
-            finally:
-                self._env = None
-                self._closed = True
-
     # ---------------------------------------------------------------
-    # Open-and-validate (called by subclasses at end of __init__)
+    # Backend storage hooks (called by the base class)
     # ---------------------------------------------------------------
 
-    def _open_and_validate(self) -> None:
-        """Open the backend, validate metadata, then close.
+    def _open_impl(self) -> None:
+        self._env = lmdb.open(
+            self._path,
+            map_size=self._map_size,
+            subdir=False,
+            readahead=False,
+            writemap=True,
+            metasync=True,
+            sync=True,
+            max_readers=126,
+            max_dbs=0,
+            create=True,
+        )
 
-        Subclasses should call this at the end of `__init__` once
-        their backend-specific state is set up. The cache is left
-        closed; the caller is expected to `open()` (or use the context
-        manager) before using it.
-        """
-        self.open()
+    def _close_impl(self) -> None:
         try:
-            self._validate_db()
-            self.log(
-                f"Initialized fuzzy trajectory cache with goal orientation "
-                f"tolerance {self._orientation_tolerance}, goal position "
-                f"tolerance {self._position_tolerance}, robot state "
-                f"tolerance {self._robot_state_tolerance}, and max "
-                f"trajectories {self._max_trajectories}."
-            )
+            if self._env is not None:
+                self._env.close()
         finally:
-            self.close()
+            self._env = None
 
-    def _validate_db(self) -> None:
-        """Validate stored metadata against the current configuration.
+    def _clear_storage(self) -> None:
+        """Close the env, remove the files on disk, and reopen empty."""
+        self.close()
+        for filepath in (self._path, self._path + "-lock"):
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        self.open()
 
-        If any metadata key is missing or has the wrong value, the
-        backend is wiped via `_clear_storage` and rewritten with
-        fresh metadata.
-        """
-        metadata: dict[bytes, Any] = {
-            _META_SCENE_HASH: self._scene_hash,
-            _META_PLANNING_FRAME: self._planning_frame,
-            _META_GROUP_NAME: self._group_name,
-            _META_POSE_LINK: self._pose_link,
-            _META_ROBOT_STATE_TOL: deepcopy(self._robot_state_tolerance),
-            _META_POSITION_TOL: self._position_tolerance,
-            _META_ORIENTATION_TOL: self._orientation_tolerance,
-            _META_SORT_BY: self._sort_by,
-            _META_MAX_TRAJECTORIES: self._max_trajectories,
-        }
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
+        try:
+            return self._get_raw(_META_KEY)
+        except KeyError:
+            return None
 
-        if len(self) > 0:
-            mismatch = False
-            for key, value in metadata.items():
-                try:
-                    old_value = self._get_raw(key)
-                except KeyError:
-                    mismatch = True
-                    self.log(
-                        f"Cache is not empty, but key {key!r} is missing.",
-                        severity="WARN",
-                    )
-                    continue
-                if old_value != value:
-                    mismatch = True
-                    self.log(
-                        f"Old {key!r} value in db is different from new "
-                        f"value: {old_value} != {value}.",
-                        severity="WARN",
-                    )
-
-            if not mismatch:
-                return
-
-            self.log(
-                "Wiping existing cache contents and recreating...",
-                severity="WARN",
-            )
-            self._clear_storage()
-
-        for key, value in metadata.items():
-            self._put_raw(key, value)
+    def _write_metadata(self, metadata: dict[str, Any]) -> None:
+        self._put_raw(_META_KEY, metadata)
 
     # ---------------------------------------------------------------
     # Mapping API (concrete; uses fuzzy keys + storage primitives)

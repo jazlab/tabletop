@@ -98,7 +98,7 @@ class PlanAndExecuteInterface(BaseInterface):
     Extends PlanningSceneInterface with:
     - Motion planning via MoveIt's PlanningComponent
     - Trajectory execution via TrajectoryExecutionManager
-    - Trajectory caching via FuzzyTrajectoryCache
+    - Trajectory caching via TrajectoryCache
     - Post-processing (TOTG, smoothing)
     - Safety-checked execution
 
@@ -109,7 +109,7 @@ class PlanAndExecuteInterface(BaseInterface):
         _planning_component: MoveIt planning component for motion planning.
         _trajectory_execution_manager: Manager for executing trajectories.
         _safe_to_execute_callback: External safety check function.
-        _trajectory_cache: Fuzzy cache for trajectory reuse.
+        _trajectory_cache: Trajectory cache for plan reuse.
         _trajectory_precache: Pending cache entries awaiting confirmation.
     """
 
@@ -172,7 +172,7 @@ class PlanAndExecuteInterface(BaseInterface):
             case _:
                 raise ValueError(
                     f"Unknown trajectory_cache.backend: {backend!r}. "
-                    f"Expected one of: 'lmdb', 'dict', 'linear', 'kdtree'."
+                    f"Expected one of: 'lmdb', 'kdtree'."
                 )
         self._trajectory_cache.open()
 
@@ -1036,7 +1036,7 @@ class PlanAndExecuteInterface(BaseInterface):
 
         Args:
             trajectory: The trajectory to cache.
-            **kwargs: Keyword arguments to pass to `FuzzyTrajectoryCache.cache_trajectory()`.
+            **kwargs: Keyword arguments to pass to `TrajectoryCache.cache_trajectory()`.
         """
         if not self.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:

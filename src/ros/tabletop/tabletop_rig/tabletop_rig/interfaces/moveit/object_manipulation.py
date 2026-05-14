@@ -874,11 +874,40 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        goal = self._get_state_goal(next_state, object_id)
-        await self.plan_and_execute(
-            goal=goal,
-            cache_trajectories=cache_trajectories,
+        # Acquire exclusive access to the presentation region before moving
+        # in. Raises RuntimeError immediately if the other arm holds it.
+        region_id = self.param("presentation_region.region_id")
+        collision_ids = self.param("presentation_region.collision_ids")
+        self._moveit.acquire_exclusive_region(
+            region_id,
+            group_name=self.group_name,
+            collision_ids=collision_ids,
         )
+
+        try:
+            goal = self._get_state_goal(next_state, object_id)
+            await self.plan_and_execute(
+                goal=goal,
+                cache_trajectories=cache_trajectories,
+            )
+        except BaseException:
+            # State stays at FETCHED/RESETTED on failure, so the reset
+            # path won't take the PRESENTED -> unpresent branch and won't
+            # release the region for us. Release here to avoid stranding
+            # the lock; recovery of the robot's pose is the reset path's
+            # responsibility.
+            try:
+                self._moveit.release_exclusive_region(
+                    region_id, group_name=self.group_name
+                )
+            except Exception as e:
+                self.log(
+                    f"Failed to release exclusive region '{region_id}' "
+                    f"after present failure: {e}",
+                    severity="ERROR",
+                )
+            raise
+
         self._manipulation_state = next_state
 
     async def _unpresent_object_impl(
@@ -906,6 +935,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             goal=goal,
             cache_trajectories=cache_trajectories,
         )
+
+        # Release only after the move succeeds. If the move failed, state
+        # stays at PRESENTED and reset_manipulation will re-call this
+        # method, which will eventually release on success.
+        region_id = self.param("presentation_region.region_id")
+        self._moveit.release_exclusive_region(
+            region_id, group_name=self.group_name
+        )
+
         self._manipulation_state = next_state
 
     async def _reset_object_impl(

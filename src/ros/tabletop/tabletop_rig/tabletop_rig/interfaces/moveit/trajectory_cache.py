@@ -5,23 +5,29 @@ This module defines the storage-agnostic abstract base class
 `PlanRequest` and valued on `RobotTrajectory`. The base class does not
 know how requests are indexed — that's the job of concrete backends.
 
-Concrete backends should subclass `TrajectoryCache` and implement the
-Mapping primitives (`__setitem__`, `__getitem__`, `__contains__`,
-`__delitem__`) plus the lifecycle hooks (`open`, `close`, `__len__`).
+Concrete backends subclass `TrajectoryCache` and implement:
 
-A fuzzy-binning intermediate class (`FuzzyTrajectoryCache`) lives in
-`trajectory_cache_fuzzy`; LSH or k-d tree backends would subclass
-`TrajectoryCache` directly.
+- the Mapping primitives (`__setitem__`, `__getitem__`,
+  `__contains__`, `__delitem__`, `__len__`)
+- the storage hooks (`_open_impl`, `_close_impl`, `_clear_storage`,
+  `_read_metadata`, `_write_metadata`)
+
+Everything else — the public open/close lifecycle (lock + closed
+flag), the "wipe-on-metadata-drift" policy, request and
+trajectory-quality validation, the `cache_trajectory` two-way
+bookkeeping — lives in the base class.
 
 Classes:
     TrajectoryCache: Abstract base class for trajectory caches keyed on
         PlanRequest.
+    TrajectoryCacheValue: Trajectory wrapped with its sortable cost.
 """
 
 import abc
 import os
 import threading
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
@@ -384,13 +390,148 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
     def __len__(self) -> int:
         """Total number of entries (definition is implementation-specific)."""
 
-    @abc.abstractmethod
-    def open(self) -> None:
-        """Open the backend so reads and writes can proceed."""
+    # ---------------------------------------------------------------
+    # Backend storage hooks (implemented by subclasses)
+    # ---------------------------------------------------------------
 
     @abc.abstractmethod
+    def _open_impl(self) -> None:
+        """Open the underlying storage. Called under `_lock`."""
+
+    @abc.abstractmethod
+    def _close_impl(self) -> None:
+        """Close the underlying storage. Called under `_lock`."""
+
+    @abc.abstractmethod
+    def _clear_storage(self) -> None:
+        """Wipe every byte of persistent state and any in-memory mirror.
+
+        Called from `_open_and_validate` outside of `_lock`, while the
+        cache is open, when saved metadata disagrees with the current
+        cache configuration. Implementations must leave the cache in a
+        consistent, *open*, empty state — `_open_and_validate` will
+        rewrite metadata immediately afterward.
+        """
+
+    @abc.abstractmethod
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
+        """Return the metadata persisted in storage, or None if none.
+
+        A return value of `None` means there is no stored metadata at
+        all (fresh storage). A returned dict need not be complete; the
+        base class's `_metadata_mismatch` decides whether each
+        currently-configured key is satisfied.
+        """
+
+    @abc.abstractmethod
+    def _write_metadata(self, metadata: dict[str, Any]) -> None:
+        """Persist `metadata` to storage, overwriting any previous value."""
+
+    # ---------------------------------------------------------------
+    # Lifecycle (concrete; thread-safe via `_lock`)
+    # ---------------------------------------------------------------
+
+    def open(self) -> None:
+        """Open the backend so reads and writes can proceed."""
+        with self._lock:
+            if not self._closed:
+                self.log("Cache is already open", severity="WARN")
+                return
+            self._open_impl()
+            self._closed = False
+
     def close(self) -> None:
         """Release backend resources."""
+        with self._lock:
+            if self._closed:
+                self.log("Cache is already closed", severity="WARN")
+                return
+            try:
+                self._close_impl()
+            finally:
+                self._closed = True
+
+    def _require_open(self) -> None:
+        """Raise `RuntimeError` if the cache is not currently open."""
+        if self._closed:
+            raise RuntimeError("Trajectory cache is not open")
+
+    # ---------------------------------------------------------------
+    # Metadata round-trip + drift detection
+    # ---------------------------------------------------------------
+
+    @property
+    def _metadata(self) -> dict[str, Any]:
+        """Canonical metadata snapshot for this cache's configuration.
+
+        Subclasses may override and `super()`-merge to add their own
+        invariants (e.g. joint ordering) into the drift check.
+        """
+        return {
+            "scene_hash": self._scene_hash,
+            "planning_frame": self._planning_frame,
+            "group_name": self._group_name,
+            "pose_link": self._pose_link,
+            "robot_state_tolerance": deepcopy(self._robot_state_tolerance),
+            "position_tolerance": self._position_tolerance,
+            "orientation_tolerance": self._orientation_tolerance,
+            "sort_by": self._sort_by,
+            "max_trajectories": self._max_trajectories,
+        }
+
+    def _metadata_mismatch(self, saved: Mapping[str, Any]) -> Optional[str]:
+        """Compare `saved` to current config; return a description or None."""
+        expected = self._metadata
+        diffs: list[str] = []
+        for key, value in expected.items():
+            if key not in saved:
+                diffs.append(f"missing {key!r}")
+            elif saved[key] != value:
+                diffs.append(f"{key}: {saved[key]!r} != {value!r}")
+        return "; ".join(diffs) if diffs else None
+
+    def _open_and_validate(self) -> None:
+        """Open the backend, validate metadata, wipe on drift, then close.
+
+        Subclasses should call this at the end of `__init__` after
+        their backend-specific state is fully set up. The cache is
+        left closed; the caller is expected to `open()` (or use the
+        context manager) before use.
+        """
+        self.open()
+        try:
+            saved = self._read_metadata()
+            if saved is None:
+                if len(self) > 0:
+                    self.log(
+                        "Cache contains data but has no saved metadata. "
+                        "Wiping existing cache contents and recreating...",
+                        severity="WARN",
+                    )
+                    self._clear_storage()
+                self._write_metadata(self._metadata)
+            else:
+                mismatch = self._metadata_mismatch(saved)
+                if mismatch is not None:
+                    self.log(
+                        f"Cache metadata mismatch ({mismatch}). "
+                        f"Wiping existing cache contents and recreating...",
+                        severity="WARN",
+                    )
+                    self._clear_storage()
+                    self._write_metadata(self._metadata)
+            self.log(
+                f"Initialized trajectory cache at {self._path} with "
+                f"group_name={self._group_name!r}, "
+                f"pose_link={self._pose_link!r}, "
+                f"robot_state_tolerance={self._robot_state_tolerance}, "
+                f"position_tolerance={self._position_tolerance}, "
+                f"orientation_tolerance={self._orientation_tolerance}, "
+                f"sort_by={self._sort_by!r}, "
+                f"max_trajectories={self._max_trajectories}."
+            )
+        finally:
+            self.close()
 
     # ---------------------------------------------------------------
     # Request / trajectory validation

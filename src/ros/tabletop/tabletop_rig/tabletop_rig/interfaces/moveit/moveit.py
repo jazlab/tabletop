@@ -28,8 +28,15 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
+from dataclasses import dataclass
 from glob import glob
-from typing import Any, ContextManager, Literal, NamedTuple, Optional
+from typing import (
+    Any,
+    ContextManager,
+    Literal,
+    NamedTuple,
+    Optional,
+)
 
 import numpy as np
 import pandas as pd
@@ -42,6 +49,7 @@ from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSour
     PlanningScene,
 )
 from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
+    JointModelGroup,
     RobotModel,
 )
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
@@ -63,6 +71,7 @@ from moveit_msgs.msg import (
     ObjectColor,
 )
 from moveit_msgs.msg import PlanningScene as PlanningSceneMsg
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.impl.logging_severity import LoggingSeverity
 from transformations import identity_matrix
 
@@ -97,6 +106,15 @@ class GridObject(NamedTuple):
     pose_stamped: PoseStamped
 
 
+@dataclass
+class ExclusiveRegion:
+    region_id: str
+    collision_ids: list[str]
+    acquired: bool
+    group_name: str | None
+    modified_collisions: list[tuple[str, str]] | None
+
+
 class MoveItInterface(BaseInterface):
     """Interface for managing MoveIt planning scene components.
 
@@ -122,6 +140,7 @@ class MoveItInterface(BaseInterface):
     moveit_py: MoveItPy
     grid_objects_by_id: dict[str, GridObject]
     grid_objects_by_idx: dict[tuple[int, int], GridObject]
+    _exclusive_regions: dict[str, ExclusiveRegion]
 
     def __init__(
         self,
@@ -151,7 +170,11 @@ class MoveItInterface(BaseInterface):
         self.grid_objects_by_id = {}
         self.grid_objects_by_idx = {}
 
+        self._exclusive_regions = {}
+
         self._init_planning_scene()
+
+        self._init_exclusive_regions()
 
         self._init_link_padding()
 
@@ -1237,6 +1260,170 @@ class MoveItInterface(BaseInterface):
         collision_object.operation = CollisionObject.MOVE
 
         self.planning_scene_monitor.process_collision_object(collision_object)
+
+    ###########################################################################
+    ########## Exclusive Regions ##############################################
+    ###########################################################################
+
+    def _init_exclusive_regions(self):
+        """Populate exclusive-region tracking and (optionally) add wall objects.
+
+        An exclusive region is a set of collision walls that gate access to a
+        restricted area. Only one robot may hold the region at a time; the
+        holder uses `acquire_exclusive_region` to allow its own collision
+        objects to pass through the walls while every other robot remains
+        blocked.
+
+        The walls themselves live in the planning scene like any other
+        primitive, so they participate in normal collision checking and are
+        included in the saved scene cache. When `add_to_scene` is False (we
+        loaded a cached scene), we only repopulate the tracking dict — the
+        walls are already present in the loaded scene.
+
+        Args:
+            config: The `planning_scene` parameter dict.
+            add_to_scene: Whether to also add the wall primitives to the
+                planning scene. False when loading from a cached scene.
+        """
+        try:
+            regions: dict[str, Any] = self.param("exclusive_regions")
+        except ParameterNotDeclaredException:
+            return
+
+        for region_id, config in regions.items():
+            print(config)
+            collision_ids: list[str] = config["collision_ids"]
+            self._exclusive_regions[region_id] = ExclusiveRegion(
+                region_id=region_id,
+                collision_ids=collision_ids,
+                acquired=False,
+                group_name=None,
+                modified_collisions=None,
+            )
+
+    def acquire_exclusive_region(
+        self,
+        region_id: str,
+        *,
+        group_name: str,
+        collision_ids: list[str],
+    ) -> None:
+        """Acquire exclusive access to a region for the given holder.
+
+        Allows each of the provided collision objects to collide with every
+        wall in the region, so the holder can move through the walls while
+        other robots remain blocked.
+
+        This is non-blocking: if the region is already held (by anyone,
+        including this caller), `RuntimeError` is raised immediately rather
+        than waiting for release.
+
+        Args:
+            region_id: The id of the region to acquire (must match a key
+                under `planning_scene.exclusive_regions` in config).
+            holder: An identifier for the caller (typically the joint model
+                group name). Used to validate matching releases.
+            collision_ids: Collision object ids that should be allowed to
+                pass through the region's walls while it is held.
+
+        Raises:
+            ValueError: if `region_id` is not a known exclusive region.
+            RuntimeError: if the region is already held.
+        """
+        self.log(
+            f"Acquiring exclusive region '{region_id}' for '{group_name}'"
+        )
+
+        if region_id not in self._exclusive_regions:
+            raise ValueError(
+                f"Unknown exclusive region: '{region_id}'. "
+                f"Known regions: {list(self._exclusive_regions)}"
+            )
+
+        region = self._exclusive_regions[region_id]
+
+        if region.acquired:
+            raise RuntimeError(
+                f"Exclusive region '{region_id}' has already been acquire"
+            )
+
+        if len(collision_ids) == 0:
+            raise ValueError("'collision_ids' must be non-empty")
+
+        unknown = set(collision_ids) - set(region.collision_ids)
+        if len(unknown) > 0:
+            raise ValueError(
+                f"Unknown collision ids for exclusive region '{region_id}': "
+                f"{unknown}. Available: '{region.collision_ids}'"
+            )
+
+        model_group: JointModelGroup = self.robot_model.get_joint_model_group(
+            group_name
+        )
+        links: list[str] = model_group.link_model_names
+
+        if len(links) == 0:
+            raise RuntimeError(
+                f"No links associated with group_name '{group_name}'"
+            )
+
+        pairs = [
+            (link, collision_id)
+            for link in links
+            for collision_id in collision_ids
+        ]
+
+        modified = self.allow_collision(*zip(*pairs))
+        region.modified_collisions = modified
+        region.group_name = group_name
+        region.acquired = True
+
+    def release_exclusive_region(
+        self,
+        region_id: str,
+        *,
+        group_name: str,
+    ) -> None:
+        """Release exclusive access to a region.
+
+        Reverts the collision-matrix changes made by the corresponding
+        `acquire_exclusive_region` call.
+
+        Args:
+            region_id: The id of the region to release.
+            holder: The identifier passed to `acquire_exclusive_region`.
+                Required to match; releasing on behalf of a different
+                holder raises `RuntimeError`.
+
+        Raises:
+            ValueError: if `region_id` is not a known exclusive region.
+            RuntimeError: if the region is not currently held, or is held
+                by a different holder.
+        """
+        if region_id not in self._exclusive_regions:
+            raise ValueError(
+                f"Unknown exclusive region: '{region_id}'. "
+                f"Known regions: {list(self._exclusive_regions)}"
+            )
+
+        region = self._exclusive_regions[region_id]
+
+        if not region.acquired:
+            raise RuntimeError(
+                f"Exclusive region '{region_id}' has not been acquired, can't release"
+            )
+
+        if group_name != region.group_name:
+            raise ValueError(
+                f"Exclusive region '{region_id}' held by another group_name, can't release"
+            )
+
+        assert region.modified_collisions is not None
+        self.disallow_collision(*zip(*region.modified_collisions))
+
+        region.modified_collisions = None
+        region.group_name = None
+        region.acquired = False
 
     ###########################################################################
     ########## Logging ########################################################

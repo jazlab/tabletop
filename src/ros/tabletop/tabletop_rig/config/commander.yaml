@@ -130,6 +130,8 @@
       skip_fetched_on_fetch: false
       mount_collision_ids:
         - rig
+      presentation_region:
+        region_id: presentation_region
       manipulation_state_goals:
         idle:
           type: named_target_state
@@ -191,6 +193,8 @@
         - left_eef_sphere
       allowed_mount_collisions:
         left_eef_sphere: rig
+      presentation_region:
+        collision_ids: [left_presentation_wall]
       reachable_grid_indices:
         - 0,0
         - 0,1
@@ -283,6 +287,8 @@
         - right_eef_sphere
       allowed_mount_collisions:
         right_eef_sphere: rig
+      presentation_region:
+        collision_ids: [right_presentation_wall]
       reachable_grid_indices:
         - 5,0
         - 5,1
@@ -383,6 +389,11 @@
         right_wrist_1_link: 0.03
         right_wrist_2_link: 0.01
         right_wrist_3_link: 0.01
+      exclusive_regions:
+        presentation_region:
+          collision_ids:
+            - left_presentation_wall
+            - right_presentation_wall
       planning_scene:
         cache_dir: $TABLETOP_CACHE_DIR/planning_scene
         use_saved_scene: true
@@ -398,9 +409,9 @@
             color: [1.0, 1.0, 1.0, 0.5]
           robot_divider:
             type: BOX
-            dimensions: [0.001, 0.714, 1.0]
+            dimensions: [0.001, 0.814, 1.0]
             pose_stamped:
-              position: [0.9525, 1.1845, 0.8085]
+              position: [0.9525, 1.1345, 0.8085]
             allowed_collision_ids:
               - left_eef_sphere
               - right_eef_sphere
@@ -473,6 +484,22 @@
               pad:
                 position: [-0.05, 0.0, -0.25]
                 rpy: [0.0, 0.0, 0.0] # x facing into object
+          left_presentation_wall:
+            type: BOX
+            dimensions: [0.001, 0.6725, 1.0]
+            pose_stamped:
+              position: [0.7263, 0.4913, 0.8085]
+              rpy: [0.0, 0.0, -0.7854]
+            allowed_collision_ids:
+              - left_eef_sphere
+          right_presentation_wall:
+            type: BOX
+            dimensions: [0.001, 0.6725, 1.0]
+            pose_stamped:
+              position: [1.3038, 0.4913, 0.8085]
+              rpy: [0.0, 0.0, 0.7854]
+            allowed_collision_ids:
+              - right_eef_sphere
         rig_meshes:
           rig:
             pose_stamped:
@@ -483,22 +510,6 @@
               - left_base_link_inertia
               - right_base_link_inertia
             color: [1.0, 1.0, 1.0, 0.5]
-        exclusive_regions:
-          presentation_region:
-            left_presentation_wall:
-              type: BOX
-              dimensions: [0.001, 0.714, 1.0]
-              pose_stamped:
-                position: [0.9525, 1.1845, 0.8085]
-              allowed_collision_ids:
-                - left_eef_sphere
-            right_presentation_wall:
-              type: BOX
-              dimensions: [0.001, 0.714, 1.0]
-              pose_stamped:
-                position: [0.9525, 1.1845, 0.8085]
-              allowed_collision_ids:
-                - left_eef_sphere
         object_meshes:
           path: $(find-pkg-share tabletop_rig)/meshes/objects
           common_kwargs:

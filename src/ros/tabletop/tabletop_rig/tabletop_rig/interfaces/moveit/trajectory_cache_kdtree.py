@@ -17,8 +17,8 @@ init time. Feature vectors are divided by that scale before insertion
 into the tree; queries scale the query point the same way and use
 `KDTree.query_ball_point(..., r=1.0, p=np.inf)`, which finds every
 stored point inside the L∞ hypercube of half-side 1.0 around the
-query — exactly the per-coordinate tolerance equivalence the fuzzy
-and linear backends use.
+query — exactly the per-coordinate tolerance equivalence the LMDB
+fuzzy backend uses.
 
 `group_name`, `pose_link`, and Cartesian `frame_id` are dropped from
 the feature vector entirely (they live in the base class as cache-
@@ -27,7 +27,7 @@ level metadata and are validated on every request).
 
 import os
 import pickle
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 from geometry_msgs.msg import PoseStamped
@@ -70,16 +70,28 @@ class KDTreeTrajectoryCache(TrajectoryCache):
     is the natural cadence for a static k-d tree backend used as a
     benchmark target.
 
+    On-disk format is a single pickled dict::
+
+        {
+            "metadata": {...base config keys + "joint_names"...},
+            "joint_names": [...],
+            "state_tree": {"features": [...], "values": [...]},
+            "pose_tree":  {"features": [...], "values": [...]},
+        }
+
+    The trees themselves are not persisted; they're rebuilt lazily
+    against the loaded features on the next query.
+
     Args:
-        path: Absolute path to a pickle file. If provided, the four
-            feature/value lists are loaded from this file on `open()`
-            and saved on `close()`. If `None`, the cache is purely
-            process-local.
+        path: Absolute path to a pickle file. Loaded on `open()` and
+            saved on `close()`.
         sample_state: Any `RobotState` from the same MoveIt setup the
             cache will be queried against. Used once at construction
             to snapshot the canonical joint ordering (from the joint
             model group's `active_joint_model_names`) so that feature
-            vectors built later are consistent.
+            vectors built later are consistent. The joint ordering is
+            persisted as metadata, and a mismatch on reload triggers a
+            full wipe via the base class's drift-detection flow.
         (See `TrajectoryCache`. `max_trajectories` caps the number of
         results returned per query — there is no per-point insert
         cap; each insert is its own tree point.)
@@ -137,9 +149,22 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         self._pose_tree: Optional[KDTree] = None
         self._pose_tree_size: int = 0
 
-    def _require_open(self) -> None:
-        if self._closed:
-            raise RuntimeError("Trajectory cache is not open")
+        # Mirror of the metadata that was on disk at the last load
+        # (None until `_open_impl` has run, or after `_clear_storage`).
+        self._loaded_metadata: Optional[dict[str, Any]] = None
+
+        self._open_and_validate()
+
+    # ---------------------------------------------------------------
+    # Metadata (extends the base with joint ordering)
+    # ---------------------------------------------------------------
+
+    @property
+    def _metadata(self) -> dict[str, Any]:
+        return {
+            **super()._metadata,
+            "joint_names": list(self._joint_names),
+        }
 
     # ---------------------------------------------------------------
     # Scale vectors (built once in __init__)
@@ -226,6 +251,101 @@ class KDTreeTrajectoryCache(TrajectoryCache):
             scaled = np.stack(self._pose_features) / self._pose_scale
             self._pose_tree = KDTree(scaled)
             self._pose_tree_size = len(self._pose_features)
+
+    # ---------------------------------------------------------------
+    # Backend storage hooks (called by the base class)
+    # ---------------------------------------------------------------
+
+    def _open_impl(self) -> None:
+        """Load the pickle dict, if any, into the in-memory stores."""
+        self._reset_in_memory_state()
+        if not os.path.exists(self._path):
+            return
+        try:
+            with open(self._path, "rb") as f:
+                payload = pickle.load(f)
+        except Exception as e:
+            self.log(
+                f"Failed to load cache from {self._path}: {e}. "
+                f"Starting fresh.",
+                severity="WARN",
+            )
+            return
+
+        if not isinstance(payload, dict):
+            self.log(
+                f"Cache file {self._path} is not in the expected dict "
+                f"format; starting fresh.",
+                severity="WARN",
+            )
+            return
+
+        state_tree = payload.get("state_tree", {}) or {}
+        pose_tree = payload.get("pose_tree", {}) or {}
+        self._state_features = list(state_tree.get("features", []))
+        self._state_values = list(state_tree.get("values", []))
+        self._pose_features = list(pose_tree.get("features", []))
+        self._pose_values = list(pose_tree.get("values", []))
+        self._loaded_metadata = payload.get("metadata")
+        self.log(
+            f"Loaded {len(self._state_features)} state + "
+            f"{len(self._pose_features)} pose entries from {self._path}",
+            severity="INFO",
+        )
+
+    def _close_impl(self) -> None:
+        """Persist the current in-memory stores back to disk."""
+        payload = {
+            "metadata": self._metadata,
+            "joint_names": list(self._joint_names),
+            "state_tree": {
+                "features": self._state_features,
+                "values": self._state_values,
+            },
+            "pose_tree": {
+                "features": self._pose_features,
+                "values": self._pose_values,
+            },
+        }
+        try:
+            with open(self._path, "wb") as f:
+                pickle.dump(payload, f, protocol=_PICKLE_PROTOCOL)
+            self.log(
+                f"Saved {len(self._state_features)} state + "
+                f"{len(self._pose_features)} pose entries to {self._path}",
+                severity="INFO",
+            )
+        except Exception as e:
+            self.log(
+                f"Failed to save cache to {self._path}: {e}",
+                severity="ERROR",
+            )
+
+    def _clear_storage(self) -> None:
+        """Wipe both the in-memory state and the pickle on disk."""
+        self._reset_in_memory_state()
+        if os.path.exists(self._path):
+            os.remove(self._path)
+
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
+        return self._loaded_metadata
+
+    def _write_metadata(self, metadata: dict[str, Any]) -> None:
+        # Persistence happens in `_close_impl`; recording the snapshot
+        # here keeps `_read_metadata` in sync if it's queried again
+        # before the next save.
+        self._loaded_metadata = metadata
+
+    def _reset_in_memory_state(self) -> None:
+        self._state_features = []
+        self._state_values = []
+        self._pose_features = []
+        self._pose_values = []
+        self._state_tree = None
+        self._state_tree_size = 0
+        self._pose_tree = None
+        self._pose_tree_size = 0
+        self._loaded_metadata = None
 
     # ---------------------------------------------------------------
     # Mapping API
@@ -363,89 +483,3 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         """Total number of stored points across both trees."""
         self._require_open()
         return len(self._state_features) + len(self._pose_features)
-
-    def open(self) -> None:
-        """Mark the cache as open and, if `path` is set, load from disk.
-
-        The persisted payload is `(joint_names, state_features,
-        state_values, pose_features, pose_values)`. If the persisted
-        `joint_names` does not match the current ordering (snapshotted
-        from `sample_state`), the loaded features would be scrambled
-        against the cache's scale vectors — so we discard the file and
-        start fresh in that case.
-
-        Trees are not persisted; they're rebuilt lazily on the next
-        query.
-        """
-        with self._lock:
-            if not self._closed:
-                self.log("Cache is already open", severity="WARN")
-                return
-            if os.path.exists(self._path):
-                try:
-                    with open(self._path, "rb") as f:
-                        payload = pickle.load(f)
-                    (
-                        saved_joint_names,
-                        state_features,
-                        state_values,
-                        pose_features,
-                        pose_values,
-                    ) = payload
-                    if list(saved_joint_names) != self._joint_names:
-                        self.log(
-                            f"Joint ordering in {self._path} does not match "
-                            f"current sample_state; starting fresh.",
-                            severity="WARN",
-                        )
-                    else:
-                        self._state_features = list(state_features)
-                        self._state_values = list(state_values)
-                        self._pose_features = list(pose_features)
-                        self._pose_values = list(pose_values)
-                        self._state_tree = None
-                        self._state_tree_size = 0
-                        self._pose_tree = None
-                        self._pose_tree_size = 0
-                        self.log(
-                            f"Loaded {len(self._state_features)} state + "
-                            f"{len(self._pose_features)} pose entries from "
-                            f"{self._path}",
-                            severity="INFO",
-                        )
-                except Exception as e:
-                    self.log(
-                        f"Failed to load cache from {self._path}: {e}. "
-                        f"Starting fresh.",
-                        severity="WARN",
-                    )
-            self._closed = False
-
-    def close(self) -> None:
-        """Mark the cache as closed and, if `path` is set, save to disk."""
-        with self._lock:
-            if self._closed:
-                self.log("Cache is already closed", severity="WARN")
-                return
-            try:
-                payload = (
-                    list(self._joint_names),
-                    self._state_features,
-                    self._state_values,
-                    self._pose_features,
-                    self._pose_values,
-                )
-                with open(self._path, "wb") as f:
-                    pickle.dump(payload, f, protocol=_PICKLE_PROTOCOL)
-                self.log(
-                    f"Saved {len(self._state_features)} state + "
-                    f"{len(self._pose_features)} pose entries to "
-                    f"{self._path}",
-                    severity="INFO",
-                )
-            except Exception as e:
-                self.log(
-                    f"Failed to save cache to {self._path}: {e}",
-                    severity="ERROR",
-                )
-            self._closed = True
