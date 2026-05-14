@@ -34,17 +34,24 @@ export RIGHT_SIM_ROBOT_IP="${RIGHT_SIM_ROBOT_IP:-192.168.12.20}"
 export REVERSE_IP="${REVERSE_IP:-192.168.13.10}"
 export SIM_REVERSE_IP="${SIM_REVERSE_IP:-192.168.12.10}"
 
-# Source Python virtual environment
-if [ "$TABLETOP_CONTAINER" != "true" ] && [ -f "$TABLETOP_DIR/.venv/bin/activate" ]; then
-    source "$TABLETOP_DIR/.venv/bin/activate"
+# Set uv path for Python virtual environment and activate
+if [ "$TABLETOP_CONTAINER" = "true" ]; then
+    export UV_CACHE_DIR="$TABLETOP_CACHE_DIR/uv-cache"
+    export UV_PROJECT_ENVIRONMENT=".venv.container"
+else
+    export UV_PROJECT_ENVIRONMENT=".venv"
+fi
+
+if [ -f "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
+    source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 fi
 
 # Source colcon cd and argcomplete if it exists
-if [ -f "$TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh" ]; then
-    source "$TABLETOP_DIR/.venv/share/colcon_cd/function/colcon_cd.sh"
+if [ -f "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh" ]; then
+    source "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh"
 fi
-if [ -f "$TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash" ]; then
-    source "$TABLETOP_DIR/.venv/share/colcon_argcomplete/hook/colcon-argcomplete.bash"
+if [ -f "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash" ]; then
+    source "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash"
 fi
 
 # Add Spinnaker bin directory to PATH

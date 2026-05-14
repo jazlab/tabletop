@@ -1,38 +1,8 @@
-ARG BASE_IMAGE=ros:jazzy
 ARG USER_NAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
-ARG UV_EXTRA
 
-# Install python dependencies using uv
-FROM $BASE_IMAGE AS builder-uv
-
-COPY --from=ghcr.io/astral-sh/uv@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a \
-    /uv /uvx /bin/
-
-ARG UV_EXTRA
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0 \
-    UV_EXTRA=$UV_EXTRA \
-    UV_CACHE_DIR=/uv-cache
-
-WORKDIR /tabletop
-
-RUN --mount=type=cache,target=/uv-cache \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project $UV_EXTRA
-
-RUN --mount=type=cache,target=/uv-cache \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=src/tabletop_py,target=src/tabletop_py \
-    uv sync --locked $UV_EXTRA
-
-
-FROM $BASE_IMAGE
+FROM ros:jazzy@sha256:eac11a5285beeb1e1884e71f7091c610e08452e823bfb3f43afaa334375325f6
 
 SHELL ["/bin/bash", "-c"]
 
@@ -48,15 +18,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     software-properties-common \
     sudo \
     curl \
-    wget \
     git \
-    git-lfs \
+    bash-completion \
+    usbutils \
     nodejs \
     npm \
     python3-pip \
     python3-venv \
     python-is-python3 \
-    cmake \
     mold \
     ccache \
     ffmpeg \
@@ -69,12 +38,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOT
 set -ex
 if [[ $TARGETARCH = amd64 ]] ; then
-    apt-get update
     apt-key adv --fetch-keys https://apt.sr-research.com/SRResearch_key
     add-apt-repository 'deb [arch=amd64] https://apt.sr-research.com SRResearch main'
     apt-get update
     apt-get install -y --no-install-recommends eyelink-display-software
 fi
+EOT
+
+# Install ROS dependencies from src/ros directory
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=bind,source=src/ros,target=src/ros <<EOT
+set -ex
+source /opt/ros/$ROS_DISTRO/setup.bash
+apt-get update
+rosdep update --rosdistro $ROS_DISTRO
+DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t exec"
+rosdep install -r --from-paths src/ros --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
 EOT
 
 # Create user
@@ -109,72 +89,44 @@ echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME
 chmod 0440 /etc/sudoers.d/$USER_NAME
 EOT
 
-USER $USER_NAME
+# Copy colcon mixins from /root to the user home directory
+RUN cp -r /root/.colcon /home/$USER_NAME/ && \
+    chown -R $USER_UID:$USER_GID /home/$USER_NAME/.colcon
 
-ENV PATH="/home/$USER_NAME/bin:/home/$USER_NAME/.local/bin:$PATH"
+USER $USER_NAME
 
 # Set working directory to /tabletop
 WORKDIR /tabletop
 
-# Install ROS dependencies from src/ros directory
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=bind,source=src/ros,target=src/ros <<EOT
-set -ex
-source /opt/ros/$ROS_DISTRO/setup.bash
-sudo apt-get update
-rosdep update --rosdistro $ROS_DISTRO
-DEPENDENCY_TYPES="-t buildtool_export -t build -t build_export -t buildtool -t exec"
-rosdep install -r --from-paths src/ros --ignore-src --rosdistro $ROS_DISTRO $DEPENDENCY_TYPES -y
-EOT
-
 # Install platformio
-RUN --mount=type=bind,source=src/ros/tabletop/tabletop_teensy/platformio.ini,target=platformio.ini <<EOT
+RUN <<EOT
 set -ex
-curl -fsSL -o get-platformio.py \
+curl -fsSL -o /tmp/get-platformio.py \
 https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
-python3 get-platformio.py
+python3 /tmp/get-platformio.py
 mkdir -p ~/.local/bin
 ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
-rm get-platformio.py
-pio pkg install --global
+rm /tmp/get-platformio.py
 EOT
+
+ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
+
+# Add uv binaries
+COPY --link --from=ghcr.io/astral-sh/uv@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a \
+    /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
 
 # Copy entrypoint script
 COPY docker/ros/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-# Update .bashrc
-RUN cat <<EOF >> ~/.bashrc
-if [ -s /tabletop/setup.bash ]; then
-    source /tabletop/setup.bash
-else
-    source "/opt/ros/$ROS_DISTRO/setup.bash" --
-fi
-EOF
-
 # Create ~/.config directory for pulse bind mount
-RUN mkdir -p ~/.config
+RUN mkdir -p /home/$USER_NAME/.config
 
-COPY --from=builder-uv /bin/uv /bin/uvx /bin/
-COPY --from=builder-uv --chown=${USER_UID}:${USER_GID} /tabletop/.venv /tabletop/.venv
-
-ARG UV_EXTRA
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0 \
-    UV_EXTRA=$UV_EXTRA \
-    PATH="/tabletop/.venv/bin:$PATH"
-
-# Install colcon mixins
-RUN <<EOT
-set -ex
-colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
-colcon mixin update default
-EOT
-
-# Convenience variable to indicate we're in a container
+# Variable to indicate we are in the tabletop container
 ENV TABLETOP_CONTAINER=true

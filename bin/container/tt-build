@@ -14,39 +14,28 @@ builtin cd $COLCON_WS
 
 # Parse arguments
 build_debug=false
-clean=false
+clean_tabletop=false
 clean_cmake=
 clean_all=false
-workers=
-packages=()
-linker=mold
 all=false
-clang=false
+packages_up_to=()
 only_modules=false
+workers=
+linker=mold
+clang=false
 verbose=false
-skip_uv=
-skip_apt=--skip-apt
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --clean)
-            clean=true
-            ;;
-        --clean-cmake)
-            clean_cmake="--cmake-clean-cache"
-            ;;
-        --clean-all)
-            clean_all=true
-            ;;
         -a|--all)
             all=true
             ;;
-        -p|--packages)
+        -p|--packages-up-to)
             while [[ $# -gt 1 && $2 != -* ]]; do
-                packages+=($2)
+                packages_up_to+=($2)
                 shift
             done
-            if [[ ${#packages[@]} -eq 0 ]]; then
-                print_error "No packages provided with -p|--packages"
+            if [[ ${#packages_up_to[@]} -eq 0 ]]; then
+                print_error "No packages provided with -p|--packages-up-to"
                 print_usage
                 exit 1
             fi
@@ -54,14 +43,14 @@ while [[ $# -gt 0 ]]; do
         -m|--only-modules)
             only_modules=true
             ;;
-        --skip-uv)
-            skip_uv=--skip-uv
+        -c|--clean-tabletop)
+            clean_tabletop=true
             ;;
-        --update-apt)
-            skip_apt=
+        --clean-cmake)
+            clean_cmake="--cmake-clean-cache"
             ;;
-        --apt-upgrade)
-            apt_upgrade=--apt-upgrade
+        --clean-all)
+            clean_all=true
             ;;
         --build-debug)
             build_debug=true
@@ -101,25 +90,26 @@ done
 
 # Package selection
 base_paths="src/ros"
+package_selection=
 if [[ $all = true ]]; then
     # Build all packages in src/ros
-    if [[ ${#packages[@]} -gt 0  || $only_modules = true ]]; then
+    if [[ ${#packages_up_to[@]} -gt 0  || $only_modules = true ]]; then
         print_error "Cannot use --all with -p|--packages or -d|--only-modules"
         print_usage
         exit 1
     fi
 elif [[ $only_modules = true ]]; then
     # Build only dependency packages in src/ros/modules
-    if [[ ${#packages[@]} -gt 0 ]]; then
+    if [[ ${#packages_up_to[@]} -gt 0 ]]; then
         print_error "Cannot use -p|--packages with -d|--only-modules"
         print_usage
         exit 1
     fi
     base_paths="src/ros/modules"
     # from_paths="--from-paths $base_paths"
-elif [[ ${#packages[@]} -gt 0 ]]; then
+elif [[ ${#packages_up_to[@]} -gt 0 ]]; then
     # Build only the specified packages and their recursive dependencies
-    package_selection="--packages-up-to ${packages[@]}"
+    package_selection="--packages-up-to ${packages_up_to[@]}"
 else
     # Build only the tabletop packages in src/ros/tabletop
     base_paths="src/ros/tabletop"
@@ -134,18 +124,16 @@ packages_to_skip=("moveit_ros_tests")
 packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
-if [[ $clean_all = true ]]; then
+if [[ "$clean_all" == true ]]; then
     tt-clean-ws --all-colcon
-elif [[ $clean = true ]]; then
+elif [[ "$clean_tabletop" == true ]]; then
     tt-clean-ws --tabletop-colcon
 fi
 
-# Install ROS 2 build dependencies
-# tt-dep-install --type build $skip_uv $skip_apt $skip_moveit_apt_removal $apt_upgrade $from_paths
-
-# Install tabletop_py python project
-print_status "Building tabletop_py"
-uv sync --only-install-project --inexact
+# Install python dependencies with uv
+print_status "Installing python dependencies with uv"
+uv sync $UV_EXTRA
+source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 
 # Build colcon workspace
 

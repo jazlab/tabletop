@@ -1,8 +1,0 @@
-*
-!src/
-!bin/container/tt-build
-!bin/container/tt-dep-install
-!bin/utils.sh
-!uv.lock
-!pyproject.toml
-!setup.bash

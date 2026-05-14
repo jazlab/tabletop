@@ -30,18 +30,16 @@ services:
     image: tabletop/novnc
     build:
       context: ./docker/novnc
-      pull: true
-    labels:
-      autoheal-tabletop: true
     environment:
       - PORT=8080
       - DISPLAY=$NOVNC_DISPLAY
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080
       - WINDOW_MANAGER=dwm
+    labels:
+      autoheal-tabletop: true
     depends_on:
       - autoheal
-    # privileged: true
     restart: unless-stopped
 
   ursim:
@@ -99,26 +97,20 @@ services:
     profiles: [ builder ]
     build:
       context: .
-      dockerfile: ./docker/ros/base.Dockerfile
-      pull: true
+      dockerfile: ./docker/ros/Dockerfile
       args:
-        - BASE_IMAGE=$ROS_BASE_IMAGE
         - USER_NAME=$USER_NAME
         - USER_UID=$USER_UID
         - USER_GID=$USER_GID
-        - UV_EXTRA=$UV_EXTRA
     volumes:
       - type: bind
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
-      - python-venv:/tabletop/.venv
+    environment:
+      - UV_EXTRA=$UV_EXTRA
     stop_signal: SIGINT
-    # init: true
-    develop:
-      watch:
-        - path: ./build/last_built.txt
-          action: restart
+    command: tt-build --all
 
   foxglove:
     extends: ros-base
@@ -126,6 +118,7 @@ services:
     profiles: !override
       - real
       - sim
+    build: !reset null
     restart: unless-stopped
     command: tt-launch foxglove
 
@@ -135,6 +128,7 @@ services:
     profiles: !override
       - real
       - sim
+    build: !reset null
     environment:
       - DISPLAY=$NOVNC_DISPLAY
     depends_on:
@@ -148,6 +142,7 @@ services:
     container_name: tabletop-ur
     profiles: !override
       - real
+    build: !reset null
     cap_add:
       - SYS_NICE
     ulimits:
@@ -161,6 +156,7 @@ services:
     container_name: tabletop-ur-mock
     profiles: !override
       - sim
+    build: !reset null
     cap_add:
       - SYS_NICE
     ulimits:
@@ -174,6 +170,7 @@ services:
     container_name: tabletop-optitrack
     profiles: !override
       - real
+    build: !reset null
     restart: unless-stopped
     command: tt-launch optitrack
 
@@ -182,6 +179,7 @@ services:
     container_name: tabletop-flir
     profiles: !override
       - flir
+    build: !reset null
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -200,11 +198,21 @@ services:
     restart: unless-stopped
     command: tt-launch flir
 
+  teensy-builder:
+    extends: ros-base
+    container_name: tabletop-teensy-builder
+    build: !reset null
+    volumes:
+      - /dev:/dev
+    privileged: true
+    command: tt-teensy-build
+
   teensy:
     extends: ros-base
     container_name: tabletop-teensy
     profiles: !override
       - real
+    build: !reset null
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
@@ -215,6 +223,7 @@ services:
     container_name: tabletop-teensy-sim
     profiles: !override
       - sim
+    build: !reset null
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
@@ -223,6 +232,7 @@ services:
     extends: ros-base
     profiles: !override
       - real
+    build: !reset null
     depends_on:
       flicd:
         condition: service_healthy
@@ -236,6 +246,7 @@ services:
     extends: ros-base
     profiles: !override
       - sim
+    build: !reset null
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
@@ -244,6 +255,7 @@ services:
     container_name: tabletop-eyelink
     profiles: !override
       - real
+    build: !reset null
     cap_add:
       - SYS_NICE # TODO: see if needed
     ulimits:
@@ -256,24 +268,27 @@ services:
     command: tt-launch eyelink simulate:=false
 
   eyelink-sim:
-    container_name: tabletop-eyelink-sim
     extends: ros-base
+    container_name: tabletop-eyelink-sim
     profiles: !override
       - sim
+    build: !reset null
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
   commander:
-    container_name: tabletop-commander
     extends: ros-base
+    container_name: tabletop-commander
     profiles: !override
       - commander
+    build: !reset null
     runtime: $COMMANDER_RUNTIME
     volumes:
       - $ROS_BAG_DIR_MNT
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
     environment:
+      - DISPLAY=$NOVNC_DISPLAY
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
@@ -282,43 +297,21 @@ services:
     command: tt-launch commander
 
   dev:
-    <<: *common
+    extends: ros-base
     container_name: tabletop-dev
-    profiles:
-      - builder
+    profiles: !override
       - dev
-    image: tabletop/dev
-    build:
-      context: .
-      dockerfile: ./docker/ros/dev.Dockerfile
-      pull: true
-      additional_contexts:
-        tabletop/ros-base: service:ros-base
+    build: !reset null
     runtime: $COMMANDER_RUNTIME
     volumes:
-      - /dev:/dev
-      - type: bind
-        source: .
-        target: /tabletop
-        consistency: $BIND_CONSISTENCY
       - $ROS_BAG_DIR_MNT
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
-      - $KITTY_LISTEN_ON_MNT
-      - python-venv:/tabletop/.venv
     environment:
-      - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
       - DISPLAY=$NOVNC_DISPLAY
+      - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
-      - KITTY_LISTEN_ON=$KITTY_LISTEN_ON_CONTAINER
-      - CLAUDE_CONFIG_DIR=/tabletop/.cache/claude
-      - HISTFILE=/tabletop/.cache/devcontainer.bash_history
-      - PROMPT_COMMAND="history -a"
     init: true
-    # privileged: true
     command: sleep infinity
-
-volumes:
-  python-venv:

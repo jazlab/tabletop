@@ -8,8 +8,17 @@
   "workspaceFolder": "/tabletop",
   "containerUser": "mules",
   "remoteUser": "mules",
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/home/mules/.claude,type=volume"
+  ],
+  "postCreateCommand": "(command -v pre-commit && pre-commit install-hooks); sudo chown -R mules:mules /home/mules/.claude",
   "features": {
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "instalZsh": false
+    },
+    "ghcr.io/devcontainers/features/git-lfs:1": {},
+    "ghcr.io/schlich/devcontainer-features/starship:0": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   "customizations": {
     "vscode": {

@@ -1,6 +1,4 @@
 {
-  "cursorpyright.analysis.typeCheckingMode": "basic",
-  "cursorpyright.analysis.useLibraryCodeForTypes": true,
   "explorer.autoReveal": false,
   "git.detectSubmodules": true,
   "cmake.ignoreCMakeListsMissing": true,
@@ -148,7 +146,7 @@
   "yaml.customTags": [
     "!merge sequence",
     "!override sequence",
-    "!reset sequence",
+    "!reset",
     "!PoseStamped mapping",
     "!ConcatPlanRequest mapping",
     "!ObjectResetConfig mapping"

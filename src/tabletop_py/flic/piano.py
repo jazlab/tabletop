@@ -30,8 +30,6 @@ Dependencies:
 import argparse
 import asyncio
 import logging
-import os
-import time
 
 import mingus.core.scales as scales
 import mingus.midi.fluidsynth as fluidsynth
@@ -210,27 +208,6 @@ def main():
     args = parser.parse_args()
 
     asyncio.run(run(**vars(args)))
-
-
-def test_note():
-    """Test function to verify FluidSynth audio setup.
-
-    Initializes FluidSynth with a default soundfont from the TABLETOP_DIR
-    environment variable and plays a single C4 note for one second.
-
-    Raises:
-        FileNotFoundError: If the soundfont file doesn't exist.
-    """
-    soundfont_path = os.path.join(
-        os.environ["TABLETOP_DIR"], "soundfonts", "moog.sf2"
-    )
-    if not os.path.exists(soundfont_path):
-        raise FileNotFoundError(f"Soundfont {soundfont_path} not found")
-    fluidsynth.init(soundfont_path, driver="pulseaudio")
-    fluidsynth.set_instrument(0, 62)
-    note = Note("C", 4, velocity=127, channel=0)
-    fluidsynth.play_Note(note)
-    time.sleep(1)
 
 
 if __name__ == "__main__":
