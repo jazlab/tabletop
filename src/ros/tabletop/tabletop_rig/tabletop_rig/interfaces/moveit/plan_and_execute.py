@@ -79,17 +79,11 @@ from tabletop_rig.interfaces.moveit.requests import (
     TrajectoryCacheKwargs,
 )
 from tabletop_rig.interfaces.moveit.trajectory_cache import TrajectoryCache
-from tabletop_rig.interfaces.moveit.trajectory_cache_dict import (
-    DictFuzzyTrajectoryCache,
-)
 from tabletop_rig.interfaces.moveit.trajectory_cache_kdtree import (
     KDTreeTrajectoryCache,
 )
-from tabletop_rig.interfaces.moveit.trajectory_cache_linear import (
-    LinearTrajectoryCache,
-)
 from tabletop_rig.interfaces.moveit.trajectory_cache_lmdb import (
-    LMDBFuzzyTrajectoryCache,
+    LMDBTrajectoryCache,
 )
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode
 from tabletop_rig.utils.ros import (
@@ -169,15 +163,7 @@ class PlanAndExecuteInterface(BaseInterface):
         self._trajectory_cache: TrajectoryCache
         match backend:
             case "lmdb":
-                self._trajectory_cache = LMDBFuzzyTrajectoryCache(
-                    **common_kwargs
-                )
-            case "dict":
-                self._trajectory_cache = DictFuzzyTrajectoryCache(
-                    **common_kwargs
-                )
-            case "linear":
-                self._trajectory_cache = LinearTrajectoryCache(**common_kwargs)
+                self._trajectory_cache = LMDBTrajectoryCache(**common_kwargs)
             case "kdtree":
                 self._trajectory_cache = KDTreeTrajectoryCache(
                     sample_state=self._moveit.get_current_state(),

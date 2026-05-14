@@ -28,7 +28,7 @@ while [[ "$#" -gt 0 ]]; do
         -t|--tabletop-colcon)
             tabletop_colcon=true
             ;;
-        -c|--tabletop-cache)
+        --tabletop-cache)
             tabletop_cache=true
             ;;
         -l|--logs)
