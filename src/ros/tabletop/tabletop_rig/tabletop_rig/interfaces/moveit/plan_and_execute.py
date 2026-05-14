@@ -28,6 +28,7 @@ Safety:
 """
 
 import asyncio
+import os
 import threading
 from collections.abc import Callable
 from copy import deepcopy
@@ -151,9 +152,13 @@ class PlanAndExecuteInterface(BaseInterface):
         self._safe_to_execute_condition = safe_to_execute_condition
 
         # Trajectory cache to store previously executed trajectories
+        base_dir: str = self.param("trajectory_cache.base_dir")
         backend: str = self.param("trajectory_cache.backend")
         cache_kwargs: dict[str, Any] = self.param("trajectory_cache.kwargs")
         common_kwargs = {
+            "path": os.path.join(
+                base_dir, self.group_name, f"cache_{backend}"
+            ),
             "scene_hash": self._moveit.scene_hash(include_robot=True),
             "planning_frame": self._moveit.planning_frame,
             "group_name": self.group_name,

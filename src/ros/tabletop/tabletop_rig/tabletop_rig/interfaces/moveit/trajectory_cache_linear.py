@@ -77,7 +77,7 @@ class LinearTrajectoryCache(TrajectoryCache):
     def __init__(
         self,
         *,
-        path: Optional[str] = None,
+        path: str,
         scene_hash: str,
         planning_frame: str,
         group_name: str,
@@ -90,6 +90,7 @@ class LinearTrajectoryCache(TrajectoryCache):
         parent_logger: Optional[RcutilsLogger] = None,
     ):
         super().__init__(
+            path=path,
             scene_hash=scene_hash,
             planning_frame=planning_frame,
             group_name=group_name,
@@ -102,8 +103,6 @@ class LinearTrajectoryCache(TrajectoryCache):
             parent_logger=parent_logger,
         )
 
-        self._path = self._normalize_path(path)
-
         # Entries keyed by an exact JSON serialization of the request
         # fingerprint (so byte-identical requests dedup). Each value
         # is the parsed fingerprint dict plus a cost-sorted list of
@@ -111,11 +110,6 @@ class LinearTrajectoryCache(TrajectoryCache):
         self._store: dict[
             bytes, tuple[dict[str, Any], list[TrajectoryCacheValue]]
         ] = {}
-
-    @property
-    def path(self) -> Optional[str]:
-        """The persistence file path, if any."""
-        return self._path
 
     def _require_open(self) -> None:
         if self._closed:
@@ -225,7 +219,7 @@ class LinearTrajectoryCache(TrajectoryCache):
             if not self._closed:
                 self.log("Cache is already open", severity="WARN")
                 return
-            if self._path is not None and os.path.exists(self._path):
+            if os.path.exists(self._path):
                 try:
                     with open(self._path, "rb") as f:
                         self._store = pickle.load(f)
@@ -248,19 +242,18 @@ class LinearTrajectoryCache(TrajectoryCache):
             if self._closed:
                 self.log("Cache is already closed", severity="WARN")
                 return
-            if self._path is not None:
-                try:
-                    with open(self._path, "wb") as f:
-                        pickle.dump(self._store, f, protocol=_PICKLE_PROTOCOL)
-                    self.log(
-                        f"Saved {len(self._store)} entries to {self._path}",
-                        severity="INFO",
-                    )
-                except Exception as e:
-                    self.log(
-                        f"Failed to save cache to {self._path}: {e}",
-                        severity="ERROR",
-                    )
+            try:
+                with open(self._path, "wb") as f:
+                    pickle.dump(self._store, f, protocol=_PICKLE_PROTOCOL)
+                self.log(
+                    f"Saved {len(self._store)} entries to {self._path}",
+                    severity="INFO",
+                )
+            except Exception as e:
+                self.log(
+                    f"Failed to save cache to {self._path}: {e}",
+                    severity="ERROR",
+                )
             self._closed = True
 
     # ---------------------------------------------------------------

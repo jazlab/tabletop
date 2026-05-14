@@ -68,6 +68,7 @@ class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
             (Other args: see `FuzzyTrajectoryCache`.)
         """
         super().__init__(
+            path=path,
             scene_hash=scene_hash,
             planning_frame=planning_frame,
             group_name=group_name,
@@ -82,18 +83,9 @@ class LMDBFuzzyTrajectoryCache(FuzzyTrajectoryCache):
 
         self._map_size = int(map_size)
 
-        normalized = self._normalize_path(path)
-        assert normalized is not None, "LMDB path is required"
-        self._path = normalized
-
         self._env: lmdb.Environment | None = None
 
         self._open_and_validate()
-
-    @property
-    def path(self) -> str:
-        """The path to the database env."""
-        return self._path
 
     def _require_env(self) -> lmdb.Environment:
         env = self._env

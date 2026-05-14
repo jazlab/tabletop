@@ -88,7 +88,7 @@ class KDTreeTrajectoryCache(TrajectoryCache):
     def __init__(
         self,
         *,
-        path: Optional[str] = None,
+        path: str,
         scene_hash: str,
         planning_frame: str,
         group_name: str,
@@ -102,6 +102,7 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         parent_logger: Optional[RcutilsLogger] = None,
     ):
         super().__init__(
+            path=path,
             scene_hash=scene_hash,
             planning_frame=planning_frame,
             group_name=group_name,
@@ -113,8 +114,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
             max_trajectories=max_trajectories,
             parent_logger=parent_logger,
         )
-
-        self._path = self._normalize_path(path)
 
         # Snapshot joint ordering and build per-coordinate scale
         # vectors once, up front. The joint list is taken from the
@@ -137,11 +136,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         self._pose_values: list[TrajectoryCacheValue] = []
         self._pose_tree: Optional[KDTree] = None
         self._pose_tree_size: int = 0
-
-    @property
-    def path(self) -> Optional[str]:
-        """The persistence file path, if any."""
-        return self._path
 
     def _require_open(self) -> None:
         if self._closed:
@@ -387,7 +381,7 @@ class KDTreeTrajectoryCache(TrajectoryCache):
             if not self._closed:
                 self.log("Cache is already open", severity="WARN")
                 return
-            if self._path is not None and os.path.exists(self._path):
+            if os.path.exists(self._path):
                 try:
                     with open(self._path, "rb") as f:
                         payload = pickle.load(f)
@@ -433,26 +427,25 @@ class KDTreeTrajectoryCache(TrajectoryCache):
             if self._closed:
                 self.log("Cache is already closed", severity="WARN")
                 return
-            if self._path is not None:
-                try:
-                    payload = (
-                        list(self._joint_names),
-                        self._state_features,
-                        self._state_values,
-                        self._pose_features,
-                        self._pose_values,
-                    )
-                    with open(self._path, "wb") as f:
-                        pickle.dump(payload, f, protocol=_PICKLE_PROTOCOL)
-                    self.log(
-                        f"Saved {len(self._state_features)} state + "
-                        f"{len(self._pose_features)} pose entries to "
-                        f"{self._path}",
-                        severity="INFO",
-                    )
-                except Exception as e:
-                    self.log(
-                        f"Failed to save cache to {self._path}: {e}",
-                        severity="ERROR",
-                    )
+            try:
+                payload = (
+                    list(self._joint_names),
+                    self._state_features,
+                    self._state_values,
+                    self._pose_features,
+                    self._pose_values,
+                )
+                with open(self._path, "wb") as f:
+                    pickle.dump(payload, f, protocol=_PICKLE_PROTOCOL)
+                self.log(
+                    f"Saved {len(self._state_features)} state + "
+                    f"{len(self._pose_features)} pose entries to "
+                    f"{self._path}",
+                    severity="INFO",
+                )
+            except Exception as e:
+                self.log(
+                    f"Failed to save cache to {self._path}: {e}",
+                    severity="ERROR",
+                )
             self._closed = True

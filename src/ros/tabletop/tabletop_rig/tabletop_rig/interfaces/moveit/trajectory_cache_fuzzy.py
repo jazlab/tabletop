@@ -89,6 +89,7 @@ class FuzzyTrajectoryCache(TrajectoryCache):
     def __init__(
         self,
         *,
+        path: str,
         scene_hash: str,
         planning_frame: str,
         group_name: str,
@@ -101,6 +102,7 @@ class FuzzyTrajectoryCache(TrajectoryCache):
         parent_logger: Optional[RcutilsLogger] = None,
     ):
         super().__init__(
+            path=path,
             scene_hash=scene_hash,
             planning_frame=planning_frame,
             group_name=group_name,

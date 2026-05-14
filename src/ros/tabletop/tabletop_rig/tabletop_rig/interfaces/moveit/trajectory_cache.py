@@ -155,6 +155,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
     def __init__(
         self,
         *,
+        path: str,
         scene_hash: str,
         planning_frame: str,
         group_name: str,
@@ -170,6 +171,8 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
             self._logger = rclpy.logging.get_logger("trajectory_cache")
         else:
             self._logger = parent_logger.get_child("trajectory_cache")
+
+        self._path = self._normalize_path(path)
 
         if sort_by not in ("path_length", "path_duration"):
             raise ValueError(
@@ -217,6 +220,11 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
     def get_logger(self) -> RcutilsLogger:
         """Get the logger instance."""
         return self._logger
+
+    @property
+    def path(self) -> str:
+        """The path to the database env."""
+        return self._path
 
     @staticmethod
     def _init_tolerances(
@@ -266,19 +274,16 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         )
 
     @staticmethod
-    def _normalize_path(path: Optional[str]) -> Optional[str]:
+    def _normalize_path(path: str) -> str:
         """Normalize and validate a persistence file path.
 
         Returns the absolute path with `~` and `$VAR`s expanded, after
-        ensuring the parent directory exists. `None` passes through —
-        backends interpret it as "ephemeral, in-memory only".
+        ensuring the parent directory exists.
 
         Raises:
             ValueError: If `path` is relative or names something that
                 already exists and is not a regular file.
         """
-        if path is None:
-            return None
         path = os.path.expandvars(os.path.expanduser(path))
         if not os.path.isabs(path):
             raise ValueError(f"Trajectory cache path must be absolute: {path}")
