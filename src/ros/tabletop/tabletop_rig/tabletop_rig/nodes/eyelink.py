@@ -292,7 +292,9 @@ class Eyelink(BaseNode):
         Raises:
             ValueError: If sample rate doesn't match model configuration.
         """
-        path = os.path.expandvars(self.param("gaze_estimation.config"))
+        path = os.path.expandvars(
+            os.path.expanduser(self.param("gaze_estimation.config"))
+        )
         with open(path, "r") as f:
             self.gaze_estimation_config = yaml.safe_load(f)
 
@@ -316,7 +318,9 @@ class Eyelink(BaseNode):
             )
 
         if self.param("gaze_estimation.enable"):
-            weights_path = self.gaze_estimation_config["weights_path"]
+            weights_path = os.path.expandvars(
+                os.path.expanduser(self.gaze_estimation_config["weights_path"])
+            )
             if not os.path.exists(weights_path):
                 self.log(
                     f"weights_path ({weights_path}) does not exist, "
@@ -1170,7 +1174,7 @@ class Eyelink(BaseNode):
             while (
                 goal_handle.is_active
                 and not goal_handle.is_cancel_requested
-                and rclpy.ok()
+                and rclpy.ok()  # type: ignore
             ):
                 start_time = self.ros_time()
                 smooth_pursuit = self.get_smooth_pursuit()

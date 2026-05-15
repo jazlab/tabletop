@@ -201,7 +201,6 @@ class LMDBTrajectoryCache(TrajectoryCache):
         read-modify-write is held under `self._lock` so concurrent
         Python threads cannot interleave.
         """
-        self._validate_request(request)
         fuzzy_key = self._fuzzy_key_bytes(request)
         value = TrajectoryCacheValue(trajectory, self._sort_by)
         self.log(f"Setting item for key: {fuzzy_key!r}", severity="DEBUG")
@@ -222,7 +221,6 @@ class LMDBTrajectoryCache(TrajectoryCache):
 
     def __getitem__(self, request: PlanRequest) -> list[RobotTrajectory]:
         """Return matching trajectories for `request`, ranked best-first."""
-        self._validate_request(request)
         fuzzy_key = self._fuzzy_key_bytes(request)
         self.log(f"Getting values for key: {fuzzy_key!r}", severity="DEBUG")
 
@@ -232,12 +230,10 @@ class LMDBTrajectoryCache(TrajectoryCache):
 
     def __contains__(self, request: PlanRequest) -> bool:
         """Check if `request`'s fuzzy bin has any cached trajectories."""
-        self._validate_request(request)
         return self._contains_raw(self._fuzzy_key_bytes(request))
 
     def __delitem__(self, request: PlanRequest) -> None:
         """Delete every trajectory in `request`'s fuzzy bin."""
-        self._validate_request(request)
         self._delete_raw(self._fuzzy_key_bytes(request))
 
     def _validate_db_values(self, values: list[TrajectoryCacheValue]) -> None:

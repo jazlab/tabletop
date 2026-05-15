@@ -426,7 +426,9 @@ class PlanAndExecuteInterface(BaseInterface):
             "Attempting to retrieve cached trajectories", severity="DEBUG"
         )
         try:
-            trajectories = self._trajectory_cache.get_trajectories(request)
+            trajectories = self._trajectory_cache.get_trajectories(
+                request, validate=False
+            )
         except KeyError:
             self.log("No cached trajectory found", severity="DEBUG")
             return None
@@ -447,6 +449,26 @@ class PlanAndExecuteInterface(BaseInterface):
 
         self.log("All cached trajectories invalid", severity="WARN")
         return None
+
+    def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
+        """Cache the given trajectory.
+
+        Args:
+            trajectory: The trajectory to cache.
+            **kwargs: Keyword arguments to pass to `TrajectoryCache.cache_trajectory()`.
+        """
+        if not self.param("trajectory_cache.freeze_cache"):
+            for kwargs in cache_kwargs:
+                # TODO: Make validation a parameter
+                self._trajectory_cache.cache_trajectory(
+                    **kwargs, validate=False
+                )
+            self.log(
+                f"Cached {len(cache_kwargs)} trajectories successfully",
+                severity="DEBUG",
+            )
+        else:
+            self.log("Cache is frozen, skipping cache", severity="DEBUG")
 
     def _prepare_planning_component(
         self, request: PlanRequest
@@ -626,11 +648,22 @@ class PlanAndExecuteInterface(BaseInterface):
         pipelines: list[str] = []
         attempts: list[int] = []
         if request.planning_pipeline is None:
-            if isinstance(request.goal, PoseStamped):
-                pipelines.append(self.param("planning.fast_pipeline"))
+            fast_pipeline: str = self.param("planning.fast_pipeline")
+            fallback_pipeline: str = self.param("planning.fallback_pipeline")
+
+            if fallback_pipeline == "linear":
+                raise ValueError(
+                    "'planning.fallback_pipeline' must not be 'linear'"
+                )
+
+            if (
+                isinstance(request.goal, PoseStamped)
+                or fast_pipeline != "linear"
+            ):
+                pipelines.append(fast_pipeline)
                 attempts.append(1)
 
-            pipelines.append(self.param("planning.fallback_pipeline"))
+            pipelines.append(fallback_pipeline)
             attempts.append(request.max_attempts)
         elif request.planning_pipeline == "linear" and not isinstance(
             request.goal, PoseStamped
@@ -1030,23 +1063,6 @@ class PlanAndExecuteInterface(BaseInterface):
                 loop.call_soon_threadsafe(
                     self._set_future, self._execution_stopped_future
                 )
-
-    def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
-        """Cache the given trajectory.
-
-        Args:
-            trajectory: The trajectory to cache.
-            **kwargs: Keyword arguments to pass to `TrajectoryCache.cache_trajectory()`.
-        """
-        if not self.param("trajectory_cache.freeze_cache"):
-            for kwargs in cache_kwargs:
-                self._trajectory_cache.cache_trajectory(**kwargs)
-            self.log(
-                f"Cached {len(cache_kwargs)} trajectories successfully",
-                severity="DEBUG",
-            )
-        else:
-            self.log("Cache is frozen, skipping cache", severity="DEBUG")
 
     async def plan_and_execute(
         self,

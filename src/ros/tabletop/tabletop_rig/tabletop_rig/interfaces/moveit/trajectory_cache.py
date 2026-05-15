@@ -797,6 +797,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         self, request: PlanRequest, validate: bool = True
     ) -> RobotTrajectory:
         """Get the best (cheapest) cached trajectory for `request`."""
+        self._validate_request(request)
         trajectory = self[request][0]
         if validate:
             self._validate_trajectory_quality(trajectory, request)
@@ -806,6 +807,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         self, request: PlanRequest, validate: bool = True
     ) -> list[RobotTrajectory]:
         """Get all cached trajectories for `request`, ranked best-first."""
+        self._validate_request(request)
         trajectories = self[request]
         if validate:
             for trajectory in trajectories:
@@ -814,10 +816,12 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
 
     def has_trajectory(self, request: PlanRequest) -> bool:
         """Check if a trajectory exists for `request`."""
+        self._validate_request(request)
         return request in self
 
     def delete_trajectory(self, request: PlanRequest) -> None:
         """Delete all trajectories for `request`."""
+        self._validate_request(request)
         del self[request]
 
     # ---------------------------------------------------------------

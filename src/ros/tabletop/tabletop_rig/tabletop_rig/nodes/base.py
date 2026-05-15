@@ -26,6 +26,7 @@ Example:
 
 import asyncio
 from collections.abc import Callable
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import rclpy.task
@@ -421,9 +422,9 @@ class BaseNode(Node, LoggerMixin):
         """
         try:
             value = self.get_parameter(name).value
-            return value if value != "null" else None
+            return deepcopy(value) if value != "null" else None
         except ParameterNotDeclaredException:
-            return self.get_nested_parameters(name)
+            return deepcopy(self.get_nested_parameters(name))
 
     def ros_time(self) -> float:
         """Get current time in seconds from the ROS2 clock.

@@ -52,7 +52,7 @@ from rclpy.executors import (
     MultiThreadedExecutor,
     SingleThreadedExecutor,
 )
-from rclpy.experimental import EventsExecutor
+from rclpy.experimental.events_executor import EventsExecutor
 from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
 
@@ -72,6 +72,7 @@ from tabletop_rig.interfaces.eyelink import EyelinkInterface
 from tabletop_rig.interfaces.flic import FlicInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
 from tabletop_rig.interfaces.moveit.object_manipulation import (
+    ManipulationState,
     ObjectManipulationInterface,
 )
 from tabletop_rig.interfaces.sound import SoundInterface
@@ -243,6 +244,11 @@ class ManipulationContextManager(BaseInterface):
     @ensure_context
     def current_manipulation_id(self) -> str | None:
         return self._manipulator.current_manipulation_id
+
+    @property
+    @ensure_context
+    def manipulation_state(self) -> ManipulationState:
+        return self._manipulator.manipulation_state
 
     @ensure_context
     async def manually_atatch_object(self, object_id: str) -> None:
@@ -684,7 +690,9 @@ class Commander(BaseNode):
                 interface_names["manipulation_interface_name"],
                 simulate=self.param("simulate"),
                 moveit_interface=self._moveit,
-                safe_to_execute_condition=self._safe_to_execute_condition,
+                safe_to_execute_condition=lambda: (
+                    self._safe_to_execute_condition(robot_name)
+                ),
                 parameter_fallback_prefix="common_manipulation_interface",
             )
             manipulation_context = ManipulationContextManager(
@@ -693,7 +701,9 @@ class Commander(BaseNode):
                 teensy_interface=self._teensy,
                 ur_interface=ur_interface,
                 manipulation_interface=manipulation_interface,
-                safe_to_execute_condition=self._safe_to_execute_condition,
+                safe_to_execute_condition=lambda: (
+                    self._safe_to_execute_condition(robot_name)
+                ),
                 parameter_fallback_prefix="common_manipulation_context_interface",
             )
             self._urs[robot_name] = ur_interface
@@ -717,7 +727,11 @@ class Commander(BaseNode):
         """
         if not self._teensy.safe_to_execute:
             for robot_name, manipulator in self._manipulators.items():
-                if manipulator.executing:
+                if (
+                    manipulator.executing
+                    and manipulator.manipulation_state
+                    == ManipulationState.PRESENTED
+                ):
                     self._urs[robot_name].stop_program()
                     # manipulator.stop_execution()
                     self.log(
@@ -725,8 +739,12 @@ class Commander(BaseNode):
                         severity="WARN",
                     )
 
-    def _safe_to_execute_condition(self) -> bool:
-        return self._teensy.safe_to_execute
+    def _safe_to_execute_condition(self, robot_name: str) -> bool:
+        return (
+            self._manipulators[robot_name].manipulation_state
+            != ManipulationState.PRESENTED
+            or self._teensy.safe_to_execute
+        )
 
     ###########################################################################
     ########## User Interface #################################################
@@ -923,6 +941,8 @@ class Commander(BaseNode):
             raise RuntimeError("Commander context manager already exited")
 
         await self._teensy.set_sync_pulse_solenoid(activate=True)
+        for ur in self._urs.values():
+            await ur.reset()
         self._entered_context = True
         return self
 

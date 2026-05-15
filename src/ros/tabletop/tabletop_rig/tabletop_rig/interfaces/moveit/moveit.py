@@ -49,7 +49,6 @@ from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSour
     PlanningScene,
 )
 from moveit.core.robot_model import (  # type: ignore[reportMissingModuleSource]
-    JointModelGroup,
     RobotModel,
 )
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
@@ -1291,8 +1290,14 @@ class MoveItInterface(BaseInterface):
             return
 
         for region_id, config in regions.items():
-            print(config)
             collision_ids: list[str] = config["collision_ids"]
+            unknown = set(collision_ids) - set(self.collision_object_ids)
+            if len(unknown) > 0:
+                raise ValueError(
+                    f"'exclusive_regions.{region_id}.collision_ids' parameter "
+                    f"contains unkown collision ojects: {unknown}. "
+                    f"Available: '{self.collision_object_ids}'"
+                )
             self._exclusive_regions[region_id] = ExclusiveRegion(
                 region_id=region_id,
                 collision_ids=collision_ids,
@@ -1306,7 +1311,8 @@ class MoveItInterface(BaseInterface):
         region_id: str,
         *,
         group_name: str,
-        collision_ids: list[str],
+        robot_collision_ids: list[str],
+        region_collision_ids: list[str],
     ) -> None:
         """Acquire exclusive access to a region for the given holder.
 
@@ -1337,43 +1343,44 @@ class MoveItInterface(BaseInterface):
         if region_id not in self._exclusive_regions:
             raise ValueError(
                 f"Unknown exclusive region: '{region_id}'. "
-                f"Known regions: {list(self._exclusive_regions)}"
+                f"Known regions: {list(self._exclusive_regions.keys())}"
             )
 
+        group_names = self.robot_model.joint_model_group_names
+        if group_name not in group_names:
+            raise ValueError(
+                f"Unknown group name: '{group_name}'. "
+                f"Known group names: {group_names}"
+            )
+
+        if len(robot_collision_ids) == 0:
+            raise ValueError("'robot_collision_ids' must be non-empty")
+
+        if len(region_collision_ids) == 0:
+            raise ValueError("'scene_collision_ids' must be non-empty")
+
         region = self._exclusive_regions[region_id]
+
+        unknown = set(region_collision_ids) - set(region.collision_ids)
+        if len(unknown) > 0:
+            raise ValueError(
+                f"Unknown 'region_collision_ids' for exclusive region "
+                f"'{region_id}': {unknown}. Available: '{region.collision_ids}'"
+            )
 
         if region.acquired:
             raise RuntimeError(
                 f"Exclusive region '{region_id}' has already been acquire"
             )
 
-        if len(collision_ids) == 0:
-            raise ValueError("'collision_ids' must be non-empty")
+        assert region.modified_collisions is None
+        assert region.group_name is None
 
-        unknown = set(collision_ids) - set(region.collision_ids)
-        if len(unknown) > 0:
-            raise ValueError(
-                f"Unknown collision ids for exclusive region '{region_id}': "
-                f"{unknown}. Available: '{region.collision_ids}'"
-            )
-
-        model_group: JointModelGroup = self.robot_model.get_joint_model_group(
-            group_name
-        )
-        links: list[str] = model_group.link_model_names
-
-        if len(links) == 0:
-            raise RuntimeError(
-                f"No links associated with group_name '{group_name}'"
-            )
-
-        pairs = [
-            (link, collision_id)
-            for link in links
-            for collision_id in collision_ids
+        to_allow = [
+            (x, y) for x in robot_collision_ids for y in region_collision_ids
         ]
+        modified = self.allow_collision(*zip(*to_allow))
 
-        modified = self.allow_collision(*zip(*pairs))
         region.modified_collisions = modified
         region.group_name = group_name
         region.acquired = True
@@ -1413,12 +1420,14 @@ class MoveItInterface(BaseInterface):
                 f"Exclusive region '{region_id}' has not been acquired, can't release"
             )
 
+        assert region.group_name is not None
+        assert region.modified_collisions is not None
+
         if group_name != region.group_name:
-            raise ValueError(
+            raise RuntimeError(
                 f"Exclusive region '{region_id}' held by another group_name, can't release"
             )
 
-        assert region.modified_collisions is not None
         self.disallow_collision(*zip(*region.modified_collisions))
 
         region.modified_collisions = None

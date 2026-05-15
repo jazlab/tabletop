@@ -86,33 +86,17 @@ Visualization Manager:
         Value: /rigid_bodies_viz
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Display Contacts
       Namespaces:
-        left_forearm_link=robot_divider: true
-        left_forearm_link=small_object_1: true
-        left_forearm_link=small_object_4: true
-        left_forearm_link=small_object_7: true
-        left_upper_arm_link=robot_divider: true
-        left_wrist_1_link=rig: true
-        left_wrist_1_link=small_object_1: true
-        left_wrist_1_link=small_object_10: true
-        left_wrist_1_link=small_object_4: true
-        left_wrist_1_link=small_object_7: true
-        rig=right_eef_sphere: true
-        right_forearm_link=small_object_25: true
-        right_forearm_link=small_object_28: true
-        right_wrist_1_link=rig: true
-        right_wrist_1_link=small_object_22: true
-        right_wrist_1_link=small_object_25: true
-        right_wrist_1_link=small_object_28: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /display_contacts
-      Value: true
+      Value: false
     - Class: moveit_rviz_plugin/PlanningScene
       Enabled: true
       Move Group Namespace: ""
@@ -484,10 +468,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4401569962501526
+      Pitch: 0.4751569926738739
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 4.228687763214111
+      Yaw: 3.8186886310577393
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051

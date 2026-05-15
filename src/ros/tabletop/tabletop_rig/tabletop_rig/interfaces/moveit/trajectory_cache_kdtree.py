@@ -359,7 +359,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         The tree is invalidated implicitly via the size-check in
         `_ensure_*_tree` — the next query rebuilds it.
         """
-        self._validate_request(request)
         self._require_open()
         assert isinstance(request.start_state, RobotState)
 
@@ -377,7 +376,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
 
     def __getitem__(self, request: PlanRequest) -> list[RobotTrajectory]:
         """Return cheapest-`max_trajectories` matches via L∞ ball query."""
-        self._validate_request(request)
         self._require_open()
         assert isinstance(request.start_state, RobotState)
 
@@ -409,7 +407,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
 
     def __contains__(self, request: PlanRequest) -> bool:
         """Return True iff at least one stored point is within tolerance."""
-        self._validate_request(request)
         self._require_open()
         assert isinstance(request.start_state, RobotState)
 
@@ -439,7 +436,6 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         Raises:
             KeyError: If no stored point matches.
         """
-        self._validate_request(request)
         self._require_open()
         assert isinstance(request.start_state, RobotState)
 
