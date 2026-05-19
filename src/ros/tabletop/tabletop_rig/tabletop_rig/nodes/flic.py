@@ -257,49 +257,53 @@ class Flic(BaseNode):
             self.log("Flic response time action started")
 
             # Button task to wait for the (potentially simulated) button to be pressed
-            if self.simulate:
-                min_delay = self.param("simulate_min_delay")
-                max_delay = self.param("simulate_max_delay")
-                button_task = asyncio.create_task(
-                    asyncio.sleep(random.uniform(min_delay, max_delay))
-                )
-            else:
-                # Connect to the button
-                cc = await self.flic_client.get_cc_existing(
-                    goal_handle.request.bd_addr
-                )
-                if cc is None:
-                    cc = ButtonConnectionChannel(
-                        goal_handle.request.bd_addr,
-                        latency_mode=LatencyMode[self.param("latency_mode")],
-                        auto_disconnect_time=self.param(
-                            "auto_disconnect_time"
-                        ),
-                        ignore_queued=self.param("ignore_queued"),
+            async with asyncio.TaskGroup() as tg:
+                if self.simulate:
+                    min_delay = self.param("simulate_min_delay")
+                    max_delay = self.param("simulate_max_delay")
+                    button_task = tg.create_task(
+                        asyncio.sleep(random.uniform(min_delay, max_delay))
+                    )
+                else:
+                    # Connect to the button
+                    cc = await self.flic_client.get_cc_existing(
+                        goal_handle.request.bd_addr
+                    )
+                    if cc is None:
+                        cc = ButtonConnectionChannel(
+                            goal_handle.request.bd_addr,
+                            latency_mode=LatencyMode[
+                                self.param("latency_mode")
+                            ],
+                            auto_disconnect_time=self.param(
+                                "auto_disconnect_time"
+                            ),
+                            ignore_queued=self.param("ignore_queued"),
+                        )
+
+                        connect_timeout = self.param("connect_timeout")
+                        async with asyncio.timeout(connect_timeout):
+                            await self.flic_client.connect(cc)
+
+                    button_task = tg.create_task(
+                        cc.wait_for_button_event(ClickType.ButtonDown)
                     )
 
-                    connect_timeout = self.param("connect_timeout")
-                    async with asyncio.timeout(connect_timeout):
-                        await self.flic_client.connect(cc)
+                # Cancel event task to terminate early
+                cancel_task = tg.create_task(self.cancel_event.wait())
 
-                button_task = asyncio.create_task(
-                    cc.wait_for_button_event(ClickType.ButtonDown)
-                )
-
-            # Cancel event task to terminate early
-            cancel_task = asyncio.create_task(self.cancel_event.wait())
-
-            # Wait for the button to be pressed or the cancel event to be set
-            try:
+                # Wait for the button to be pressed or the cancel event to be set
                 await asyncio.wait(
                     [button_task, cancel_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if cancel_task.done():
+                    button_task.cancel()
                     self.log("Flic response time action cancelled")
                     goal_handle.canceled()
                     return FlicResponseTime.Result()
                 else:
+                    cancel_task.cancel()
                     assert button_task.done()
                     if self.simulate:
                         response_time = self.get_clock().now()
@@ -318,10 +322,6 @@ class Flic(BaseNode):
                     self.log(f"Flic response time: {response_time}")
                     goal_handle.succeed()
                     return result
-            finally:
-                cancel_task.cancel()
-                button_task.cancel()
-                # self.flic_client.force_disconnect(goal_handle.request.bd_addr)
         finally:
             async with self.goal_lock:
                 del self.cancel_event

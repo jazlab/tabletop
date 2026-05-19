@@ -264,39 +264,33 @@ async def monkey_loop(
 
     while True:
         start_time = time.time()
-        left_arm_lock_task = None
-        right_arm_lock_task = None
 
         # Update the left arm locked state based on the left arm lock pin
-        if _read_output_pin_state(
-            LEFT_ARM_LOCK_CONTROL_PIN
-        ) and not digital_read(LEFT_ARM_LOCKED_STATE_PIN):
-            delay = random.uniform(
-                min_arm_locked_delay_sec, max_arm_locked_delay_sec
-            )
-            left_arm_lock_task = asyncio.create_task(
-                _sleep_and_change_input_pin_state(
-                    LEFT_ARM_LOCKED_STATE_PIN, HIGH, delay
+        async with asyncio.TaskGroup() as tg:
+            if _read_output_pin_state(
+                LEFT_ARM_LOCK_CONTROL_PIN
+            ) and not digital_read(LEFT_ARM_LOCKED_STATE_PIN):
+                delay = random.uniform(
+                    min_arm_locked_delay_sec, max_arm_locked_delay_sec
                 )
-            )
-
-        # Update the right arm locked state based on the right arm lock pin
-        if _read_output_pin_state(
-            RIGHT_ARM_LOCK_CONTROL_PIN
-        ) and not digital_read(RIGHT_ARM_LOCKED_STATE_PIN):
-            delay = random.uniform(
-                min_arm_locked_delay_sec, max_arm_locked_delay_sec
-            )
-            right_arm_lock_task = asyncio.create_task(
-                _sleep_and_change_input_pin_state(
-                    RIGHT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                tg.create_task(
+                    _sleep_and_change_input_pin_state(
+                        LEFT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                    )
                 )
-            )
 
-        if left_arm_lock_task is not None:
-            await left_arm_lock_task
-        if right_arm_lock_task is not None:
-            await right_arm_lock_task
+            # Update the right arm locked state based on the right arm lock pin
+            if _read_output_pin_state(
+                RIGHT_ARM_LOCK_CONTROL_PIN
+            ) and not digital_read(RIGHT_ARM_LOCKED_STATE_PIN):
+                delay = random.uniform(
+                    min_arm_locked_delay_sec, max_arm_locked_delay_sec
+                )
+                tg.create_task(
+                    _sleep_and_change_input_pin_state(
+                        RIGHT_ARM_LOCKED_STATE_PIN, HIGH, delay
+                    )
+                )
 
         # Update the safety laser broken state based on the arm lock states
         if digital_read(LEFT_ARM_LOCKED_STATE_PIN) and digital_read(

@@ -886,6 +886,8 @@ class Eyelink(BaseNode):
         # ):
         #     self.ros_sleep(period)
 
+        # TODO: Discard old samples before starting collection
+
         while not self.stop_sample_retrieval_event.is_set():
             # Receive data from the tracker and convert to ROS message if valid
             start_time = self.ros_time()

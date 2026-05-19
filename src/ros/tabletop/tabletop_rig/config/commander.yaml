@@ -4,7 +4,7 @@
 
     simulate: true
 
-    shutdown_timeout: 3.0
+    # shutdown_timeout: 3.0
 
     smooth_pursuit:
       reward_duration: 0.1
@@ -15,6 +15,12 @@
 
     flic:
       bd_addrs:
+        big_object_0: 90:88:a9:50:5f:b6
+        big_object_1: 90:88:a9:50:5f:b6
+        big_object_2: 90:88:a9:50:5f:b6
+        big_object_3: 90:88:a9:50:5f:b6
+        big_object_4: 90:88:a9:50:5f:b6
+        big_object_5: 90:88:a9:50:5f:b6
         small_object_0: 90:88:a9:50:5f:b6
         small_object_1: 90:88:a9:50:5f:db
         small_object_2: 90:88:a9:50:5d:f7
@@ -117,6 +123,7 @@
         allowed_duration_scaling: 1.5
         allowed_duration_margin: 0.5
         allowed_start_tolerance: 0.02 # radians
+        allowed_end_tolerance: 0.006 # radians
         moved_tolerance: 0.02 # radians
       test_object_attached:
         enable: false
@@ -163,6 +170,48 @@
           #   rpy: [ 0.0, 0.0, -1.5707 ]
         object_overrides:
           # be careful about doing this
+          big_object_0:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
+          big_object_1:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
+          big_object_2:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
+          big_object_3:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
+          big_object_4:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
+          big_object_5:
+            post_attach:
+              type: offset
+              value: [0.15, 0.0, 0.0]
+            post_fetch:
+              type: offset
+              value: [0.15, 0.0, -0.15]
           smooth_pursuit_object:
             post_attach:
               type: offset
@@ -170,7 +219,6 @@
             post_fetch:
               type: offset
               value: [0.12, 0.0, -0.15]
-
       manually_attach:
         mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
         collision_object_kwargs:
@@ -183,10 +231,13 @@
       group_name: left_manipulator
       planning:
         default_pose_link: left_eef
+      trajectory_cache:
+        base_link_name: left_base_link
       execution:
         joint_trajectory_controller: left_scaled_joint_trajectory_controller
       test_object_attached:
         joint_name: left_eblow_joint
+      persistent_state_path: $TABLETOP_CACHE_DIR/left_manipulation_state.pkl
       attach_link: left_eef
       touch_links:
         - left_eef_link
@@ -225,6 +276,36 @@
         - 4,1
         - 4,2
       reset_config_map:
+        big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
@@ -290,10 +371,13 @@
       group_name: right_manipulator
       planning:
         default_pose_link: right_eef
+      trajectory_cache:
+        base_link_name: right_base_link
       execution:
         joint_trajectory_controller: right_scaled_joint_trajectory_controller
       test_object_attached:
         joint_name: right_eblow_joint
+      persistent_state_path: $TABLETOP_CACHE_DIR/right_manipulation_state.pkl
       attach_link: right_eef
       touch_links:
         - right_eef_link
@@ -332,6 +416,36 @@
         - 9,1
         - 9,2
       reset_config_map:
+        big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_8: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_9: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_10: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_11: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_12: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_13: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_14: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_15: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_16: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_17: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_18: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_19: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_20: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_21: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_22: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_23: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_24: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_25: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_26: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_27: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_28: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_29: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         small_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         small_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         small_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
@@ -400,6 +514,7 @@
         max_attempts: 5
 
     moveit_interface:
+      current_state_wait_time: 0.5
       link_padding:
         left_base_link_inertia: 0.03
         left_shoulder_link: 0.03
@@ -445,7 +560,7 @@
             allowed_collision_ids:
               - left_eef_sphere
               - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.3]
+            color: [1.0, 0.0, 0.0, 0.2]
           robot_divider_front:
             type: BOX
             dimensions: [0.001, 0.4975, 0.5]
@@ -454,14 +569,20 @@
             allowed_collision_ids:
               - left_eef_sphere
               - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.3]
+            color: [1.0, 0.0, 0.0, 0.2]
           safety_laser_boundary:
             type: BOX
             dimensions: [1.8288, 0.001, 0.7]
             pose_stamped:
               position: [0.9525, 0.23, 0.35]
-            color: [1.0, 0.0, 0.0, 0.3]
-          projector_safety_box:
+            color: [1.0, 0.0, 0.0, 0.1]
+          left_projector_safety_box:
+            type: BOX
+            dimensions: [0.5, 0.35, 1.25]
+            pose_stamped:
+              position: [0.25, 0.175, 0.625]
+            color: [1.0, 0.0, 0.0, 0.1]
+          right_projector_safety_box:
             type: BOX
             dimensions: [0.5, 0.35, 1.25]
             pose_stamped:
@@ -505,23 +626,23 @@
             color: [1.0, 1.0, 1.0, 0.1]
           left_drawer_station:
             type: BOX
-            dimensions: [0.1, 0.2, 0.5]
+            dimensions: [0.1, 0.1, 1.18]
             pose_stamped:
-              position: [0.0881, 1.0, 0.925]
+              position: [0.0881, 1.0, 0.59]
             color: [0.0, 0.0, 1.0, 0.5]
             subframes:
               pad:
-                position: [0.05, 0.0, -0.25]
+                position: [0.05, 0.0, 0.0]
                 rpy: [0.0, 0.0, 3.1415] # x facing into object
           right_drawer_station:
             type: BOX
-            dimensions: [0.1, 0.2, 0.5]
+            dimensions: [0.1, 0.1, 1.18]
             pose_stamped:
-              position: [1.8169, 1.0, 0.925]
+              position: [1.8169, 1.0, 0.59]
             color: [0.0, 0.0, 1.0, 0.5]
             subframes:
               pad:
-                position: [-0.05, 0.0, -0.25]
+                position: [-0.05, 0.0, 0.0]
                 rpy: [0.0, 0.0, 0.0] # x facing into object
           left_presentation_wall:
             type: BOX
@@ -532,7 +653,7 @@
             allowed_collision_ids:
               - left_eef_sphere
               - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.3]
+            color: [1.0, 0.0, 0.0, 0.2]
           right_presentation_wall:
             type: BOX
             dimensions: [0.001, 0.7036, 0.8]
@@ -542,85 +663,19 @@
             allowed_collision_ids:
               - left_eef_sphere
               - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.3]
-          # left_back_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.1, 0.001, 1.0]
-          #   pose_stamped:
-          #     position: [0.9025, 0.6275, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # right_back_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.1, 0.001, 1.0]
-          #   pose_stamped:
-          #     position: [1.0025, 0.6275, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # left_side_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.001, 0.5621, 1.0]
-          #   pose_stamped:
-          #     position: [0.6538, 0.4288, 0.5]
-          #     rpy: [0.0, 0.0, -0.7854]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # right_side_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.001, 0.5621, 1.0]
-          #   pose_stamped:
-          #     position: [1.2513, 0.4288, 0.5]
-          #     rpy: [0.0, 0.0, 0.7854]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # left_side_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.001, 0.3975, 1.0]
-          #   pose_stamped:
-          #     position: [0.6525, 0.4288, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # left_back_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.3, 0.001, 1.0]
-          #   pose_stamped:
-          #     position: [0.8025, 0.6275, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # right_side_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.001, 0.3975, 1.0]
-          #   pose_stamped:
-          #     position: [1.2525, 0.4288, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
-          # right_back_presentation_wall:
-          #   type: BOX
-          #   dimensions: [0.3, 0.001, 1.0]
-          #   pose_stamped:
-          #     position: [1.1025, 0.6275, 0.5]
-          #   allowed_collision_ids:
-          #     - left_eef_sphere
-          #     - right_eef_sphere
+            color: [1.0, 0.0, 0.0, 0.2]
         rig_meshes:
           rig:
-            pose_stamped:
-              position: [0.0, 0.0, 0.0]
             path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
             simplification: bounding_primitive
+            pose_stamped:
+              position: [0.0, 0.0, 0.0]
             allowed_collision_ids:
               - left_base_link_inertia
               - right_base_link_inertia
             color: [1.0, 1.0, 1.0, 0.5]
         object_meshes:
-          path: $(find-pkg-share tabletop_rig)/meshes/objects
+          mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
           common_kwargs:
             # allowed_collision_ids:
             #   - eef_sphere
@@ -645,19 +700,19 @@
                 position: [0.2803, 1.4096, 0.98]
                 rpy: [-1.5707, 1.5707, 0.0]
             1,0:
-              object_id: small_object_3
+              object_id: big_object_0
               color: [1.0, 1.0, 0.0, 0.5] # yellow
               pose_stamped:
                 position: [0.427, 0.7655, 1.1805]
                 rpy: [0.0, 0.0, -1.5707]
             1,1:
-              object_id: small_object_4
+              object_id: big_object_1
               color: [1.0, 0.0, 1.0, 0.5] # purple
               pose_stamped:
                 position: [0.4329, 1.2038, 1.1772]
                 rpy: [0.0, 0.0, -1.5707]
             1,2:
-              object_id: small_object_5
+              object_id: big_object_2
               color: [0.0, 1.0, 1.0, 0.5] # cyan
               pose_stamped:
                 position: [0.4289, 1.4077, 0.9807]
@@ -735,13 +790,13 @@
                 position: [1.0312, 1.4016, 0.9805]
                 rpy: [-1.5707, 1.5707, 0.0]
             6,0:
-              object_id: smooth_pursuit_object
+              object_id: small_object_18
               color: [0.5, 0.0, 0.25, 0.5] # dark red
               pose_stamped:
                 position: [1.1712, 0.7638, 1.1845]
                 rpy: [0.0, 0.0, -1.5707]
             6,1:
-              object_id: small_object_19
+              object_id: big_object_3
               color: [0.25, 0.0, 0.5, 0.5] # dark purple
               pose_stamped:
                 position: [1.1736, 1.1993, 1.1813]
@@ -777,13 +832,13 @@
                 position: [1.4717, 0.7633, 1.1855]
                 rpy: [0.0, 0.0, -1.5707]
             8,1:
-              object_id: small_object_25
+              object_id: big_object_4
               color: [0.25, 0.0, 0.75, 0.5] # light purple
               pose_stamped:
                 position: [1.4722, 1.1948, 1.183]
                 rpy: [0.0, 0.0, -1.5707]
             8,2:
-              object_id: small_object_26
+              object_id: big_object_5
               color: [0.0, 0.75, 0.25, 0.5] # light cyan
               pose_stamped:
                 position: [1.4818, 1.3971, 0.9864]
@@ -801,7 +856,7 @@
                 position: [1.6219, 1.1934, 1.1836]
                 rpy: [0.0, 0.0, -1.5707]
             9,2:
-              object_id: small_object_29
+              object_id: smooth_pursuit_object
               color: [0.5, 0.25, 0.75, 0.5] # lavender
               pose_stamped:
                 position: [1.6315, 1.3958, 0.9865]

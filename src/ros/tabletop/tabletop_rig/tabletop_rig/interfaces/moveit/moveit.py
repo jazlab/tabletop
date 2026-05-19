@@ -23,16 +23,16 @@ Inheritance Hierarchy:
                 └── MoveItInterface
 """
 
+import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Generator, Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from glob import glob
 from typing import (
     Any,
-    ContextManager,
     Literal,
     NamedTuple,
     Optional,
@@ -203,7 +203,6 @@ class MoveItInterface(BaseInterface):
 
         scene_path = os.path.join(cache_dir, "scene.txt")
         collision_matrix_path = os.path.join(cache_dir, "collision_matrix.csv")
-        config_path = os.path.join(cache_dir, "config.yaml")
         scene_hash_path = os.path.join(cache_dir, "scene_hash.txt")
         grid_objects_path = os.path.join(cache_dir, "grid_objects.yaml")
 
@@ -213,20 +212,14 @@ class MoveItInterface(BaseInterface):
                 for path in [
                     scene_path,
                     collision_matrix_path,
-                    config_path,
                     scene_hash_path,
                     grid_objects_path,
                 ]
             ):
-                with open(config_path, "r") as f:
-                    saved_config = yaml.safe_load(f)
                 with open(scene_hash_path, "r") as f:
                     saved_scene_hash = f.read().strip()
-                if (
-                    saved_config == config
-                    and saved_scene_hash
-                    == self.scene_hash(include_robot=False)
-                ):
+
+                if saved_scene_hash == self.scene_config_hash():
                     self.load_planning_scene(scene_path)
                     self.load_collision_matrix(collision_matrix_path)
                     self.load_grid_objects(grid_objects_path)
@@ -243,8 +236,6 @@ class MoveItInterface(BaseInterface):
                 )
 
         self.log("Initializing planning scene from config")
-
-        orig_config = deepcopy(config)
 
         # Add primitive collision objects
         if "primitives" in config:
@@ -271,9 +262,7 @@ class MoveItInterface(BaseInterface):
         self.save_collision_matrix(collision_matrix_path)
         self.save_grid_objects(grid_objects_path)
         with open(scene_hash_path, "w") as f:
-            f.write(self.scene_hash(include_robot=False))
-        with open(config_path, "w") as f:
-            yaml.dump(orig_config, f)
+            f.write(self.scene_config_hash())
 
     def _init_link_padding(self):
         """Set the link padding for the planning scene."""
@@ -303,17 +292,21 @@ class MoveItInterface(BaseInterface):
         """Get the planning scene monitor."""
         return self.moveit_py.get_planning_scene_monitor()
 
+    @contextlib.contextmanager
     def planning_scene_rw(
         self,
-    ) -> ContextManager[PlanningScene]:
+    ) -> Generator[PlanningScene, None, None]:
         """Get the planning scene in read-write mode."""
-        return self.planning_scene_monitor.read_write()
+        with self.planning_scene_monitor.read_write() as scene:
+            yield scene
 
+    @contextlib.contextmanager
     def planning_scene_ro(
         self,
-    ) -> ContextManager[PlanningScene]:
+    ) -> Generator[PlanningScene, None, None]:
         """Get the planning scene in read-only mode."""
-        return self.planning_scene_monitor.read_only()
+        with self.planning_scene_monitor.read_only() as scene:
+            yield scene
 
     def get_planning_scene_copy(self) -> PlanningScene:
         """Get a copy of the planning scene."""
@@ -387,6 +380,14 @@ class MoveItInterface(BaseInterface):
 
     def get_current_state(self) -> RobotState:
         """Get the current state from the planning scene"""
+        now = self.node.get_clock().now()
+        wait_time = self.param("current_state_wait_time")
+
+        if not self.planning_scene_monitor.wait_for_current_robot_state(
+            now, wait_time
+        ):
+            raise RuntimeError("Could not get current robot state")
+
         with self.planning_scene_ro() as scene:
             return deepcopy(scene.current_state)
 
@@ -420,7 +421,9 @@ class MoveItInterface(BaseInterface):
         assert set(joint_positions.keys()) == set(
             self.get_joint_names(group_name)
         )
-        robot_state = self.get_current_state()
+        with self.planning_scene_ro() as scene:
+            robot_state = deepcopy(scene.current_state)
+
         robot_state.joint_positions = joint_positions
         robot_state.update()
         return robot_state
@@ -487,11 +490,10 @@ class MoveItInterface(BaseInterface):
         self, link: str, frame_id: Optional[str] = None
     ) -> PoseStamped:
         """Get the current end-effector pose."""
-        with self.planning_scene_ro() as scene:
-            eef_pose = scene.current_state.get_pose(link)
+        link_pose = self.get_current_state().get_pose(link)
 
         pose_stamped = pose_stamped_msg(
-            pose=eef_pose, frame_id=self.planning_frame
+            pose=link_pose, frame_id=self.planning_frame
         )
 
         # If a frame id is provided, change the reference frame
@@ -507,6 +509,56 @@ class MoveItInterface(BaseInterface):
     ########## Scene Saving and Loading #######################################
     ###########################################################################
 
+    def _grid_object_id_to_path(self, mesh_dir: str) -> dict[str, str]:
+        if not os.path.isdir(mesh_dir):
+            if not os.path.exists(mesh_dir):
+                raise FileNotFoundError(
+                    f"Object meshes path {mesh_dir} does not exist"
+                )
+            raise NotADirectoryError(
+                f"Object meshes path {mesh_dir} is not a directory"
+            )
+        paths = glob(os.path.join(mesh_dir, "*.stl")) + glob(
+            os.path.join(mesh_dir, "*.dae")
+        )
+
+        object_id_to_path: dict[str, str] = {}
+        for path in paths:
+            object_id = os.path.splitext(os.path.basename(path))[0]
+            object_id_to_path[object_id] = path
+
+        return object_id_to_path
+
+    def scene_config_hash(self) -> str:
+        config = self.param("planning_scene")
+
+        hash_algorithm = hashlib.md5()
+
+        hash_algorithm.update(
+            json.dumps(config, sort_keys=True).encode("utf-8")
+        )
+
+        mesh_paths: list[str] = []
+
+        # Rig meshes
+        for kwargs in config["rig_meshes"].values():
+            mesh_paths.append(kwargs["path"])
+
+        # Grid object meshes
+        mesh_dir = config["object_meshes"]["mesh_dir"]
+        object_id_to_path = self._grid_object_id_to_path(mesh_dir)
+
+        for kwargs in config["object_meshes"]["object_kwargs"].values():
+            object_id = kwargs["object_id"]
+            mesh_paths.append(object_id_to_path[object_id])
+
+        for path in sorted(mesh_paths):
+            with open(path, "rb") as f:
+                while chunk := f.read(8192):
+                    hash_algorithm.update(chunk)
+
+        return hash_algorithm.hexdigest()
+
     def scene_hash(self, include_robot: bool) -> str:
         """Get the hash of the rig, for consistency purposes.
 
@@ -519,7 +571,7 @@ class MoveItInterface(BaseInterface):
 
         # Rig mesh collision objects
         keys_to_hash = ["pose_stamped", "correction", "scale"]
-        for object_id, kwargs in config["rig_meshes"].items():
+        for object_id, kwargs in sorted(config["rig_meshes"].items()):
             hash_algorithm.update(object_id.encode("utf-8"))
             with open(kwargs["path"], "rb") as f:
                 while chunk := f.read(8192):
@@ -533,7 +585,7 @@ class MoveItInterface(BaseInterface):
         # Plane collision objects
         if "planes" in config:
             keys_to_hash = ["pose_stamped", "coef"]
-            for object_id, kwargs in config["planes"].items():
+            for object_id, kwargs in sorted(config["planes"].items()):
                 hash_algorithm.update(object_id.encode("utf-8"))
                 for key in keys_to_hash:
                     if key in kwargs:
@@ -546,7 +598,7 @@ class MoveItInterface(BaseInterface):
         # Primitive collision objects
         if "primitives" in config:
             keys_to_hash = ["pose_stamped", "type", "dimensions"]
-            for object_id, kwargs in config["primitives"].items():
+            for object_id, kwargs in sorted(config["primitives"].items()):
                 hash_algorithm.update(object_id.encode("utf-8"))
                 for key in keys_to_hash:
                     if key in kwargs:
@@ -557,8 +609,10 @@ class MoveItInterface(BaseInterface):
                         )
 
         # Dynamic collision objects
-        keys_to_hash = ["pose_stamped", "correction", "scale"]
-        for kwargs in config["object_meshes"]["object_kwargs"].values():
+        keys_to_hash = ["pose_stamped"]
+        for _, kwargs in sorted(
+            config["object_meshes"]["object_kwargs"].items()
+        ):
             for key in keys_to_hash:
                 if key in kwargs:
                     hash_algorithm.update(
@@ -729,7 +783,6 @@ class MoveItInterface(BaseInterface):
                 trajectory,
                 joint_model_group_name=group_name,
                 verbose=verbose,
-                invalid_index=[],  # DON'T USE THIS, for GIL reasons
             )
 
     def _parse_collision_matrix_entry(
@@ -1095,7 +1148,7 @@ class MoveItInterface(BaseInterface):
     def add_grid_mesh_collision_objects(
         self,
         *,
-        path: str,
+        mesh_dir: str,
         common_kwargs: dict[str, Any],
         object_kwargs: dict[str, dict[str, Any]],
     ):
@@ -1110,26 +1163,9 @@ class MoveItInterface(BaseInterface):
             object_kwargs: The object kwargs for the object meshes, keyed
                 by grid index (e.g., "0,0").
         """
-        # Get object meshes paths
-        if not os.path.isdir(path):
-            if not os.path.exists(path):
-                raise FileNotFoundError(
-                    f"Object meshes path {path} does not exist"
-                )
-            raise NotADirectoryError(
-                f"Object meshes path {path} is not a directory"
-            )
-        paths = glob(os.path.join(path, "*.stl")) + glob(
-            os.path.join(path, "*.dae")
-        )
-
-        object_id_to_path: dict[str, str] = {}
-        for mesh_path in paths:
-            object_id = os.path.splitext(os.path.basename(mesh_path))[0]
-            object_id_to_path[object_id] = mesh_path
+        object_id_to_path = self._grid_object_id_to_path(mesh_dir)
 
         existing = set(self.collision_object_ids)
-        assert len(existing) == len(self.collision_object_ids)
 
         for idx, overrides in object_kwargs.items():
             x, y = map(int, idx.split(","))
@@ -1166,15 +1202,15 @@ class MoveItInterface(BaseInterface):
                 pose_stamped = self.create_pose_stamped(**pose_stamped)
 
             try:
-                mesh_path = object_id_to_path[object_id]
+                path = object_id_to_path[object_id]
             except KeyError:
                 raise ValueError(
-                    f"Object mesh {object_id} not found in {path}"
+                    f"Object mesh {object_id} not found in {mesh_dir}"
                 )
 
             self.add_mesh_collision_object(
                 object_id=object_id,
-                path=mesh_path,
+                path=path,
                 pose_stamped=pose_stamped,
                 **kwargs,
             )

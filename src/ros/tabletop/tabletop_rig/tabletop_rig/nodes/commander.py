@@ -172,9 +172,14 @@ def handle_interruptions(coro_fn):
                         ExecutionStoppedError,
                     ),
                 ):
-                    if not self._safe_to_execution_condition():
+                    if not self._safe_to_execute_condition():
+                        assert (
+                            self._manipulator.manipulation_state
+                            == ManipulationState.PRESENTED
+                        )
                         self.log(
-                            "Not safe to execute. Locking arms and waiting for safety",
+                            "Not safe to execute during interruption handling. "
+                            "Locking arms and waiting for safety.",
                             severity="WARN",
                         )
                         await self._teensy.lock_arms_and_wait()
@@ -190,7 +195,8 @@ def handle_interruptions(coro_fn):
                     ready = await self._ur.is_ready()
                     if not ready:
                         self.log(
-                            "Dashboard not ready. Resetting UR interface for before retrying",
+                            "Dashboard not ready during interrupting handling. "
+                            "Resetting UR interface.",
                             severity="WARN",
                         )
                         await self._ur.reset()
@@ -217,21 +223,32 @@ class ManipulationContextManager(BaseInterface):
         node: BaseNode,
         name: str,
         *,
+        simulate: bool,
+        moveit_interface: MoveItInterface,
         teensy_interface: TeensyInterface,
-        ur_interface: URInterface,
-        manipulation_interface: ObjectManipulationInterface,
-        safe_to_execute_condition: Callable[[], bool],
+        ur_interface_name: str,
+        manipulation_interface_name: str,
         parameter_fallback_prefix: Optional[str] = None,
     ):
+        self._ur = URInterface(
+            node,
+            ur_interface_name,
+            simulate=simulate,
+            parameter_fallback_prefix="common_ur_interface",
+        )
+        self._manipulator = ObjectManipulationInterface(
+            node,
+            manipulation_interface_name,
+            simulate=simulate,
+            moveit_interface=moveit_interface,
+            safe_to_execute_condition=self._safe_to_execute_condition,
+            parameter_fallback_prefix="common_manipulation_interface",
+        )
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
         )
 
         self._teensy = teensy_interface
-        self._ur = ur_interface
-        self._manipulator = manipulation_interface
-
-        self._safe_to_execution_condition = safe_to_execute_condition
 
         self._initial_reset = False
         self._entered_context = False
@@ -239,6 +256,12 @@ class ManipulationContextManager(BaseInterface):
         # For compatibility with ensure_context, unused because this context
         # manager is reentrant
         self._exited_context = False
+
+    def _safe_to_execute_condition(self) -> bool:
+        return (
+            self._manipulator.manipulation_state != ManipulationState.PRESENTED
+            or self._teensy.safe_to_execute
+        )
 
     @property
     @ensure_context
@@ -422,18 +445,35 @@ class ManipulationContextManager(BaseInterface):
         excs: list[Exception] = []
         while remaining > 0:
             try:
-                await self._teensy.set_smartglass(reveal=False)
+                if (
+                    self._manipulator.manipulation_state
+                    == ManipulationState.PRESENTED
+                ):
+                    await self._teensy.set_smartglass(reveal=False)
 
-                if not self._teensy.safe_to_execute:
+                if not self._safe_to_execute_condition():
+                    assert (
+                        self._manipulator.manipulation_state
+                        == ManipulationState.PRESENTED
+                    )
                     self.log(
-                        "Cannot reset manipulation context until safe to execute",
+                        "Not safe to execute during manipulation context reset. "
+                        "Locking arms and waiting for safety.",
                         severity="WARN",
                     )
                     await self._teensy.lock_arms_and_wait()
 
-                await self._ur.reset()
+                ready = await self._ur.is_ready()
+                if not ready:
+                    self.log(
+                        "Dashboard not ready during manipulation context reset. "
+                        "Resetting UR interface for before retrying",
+                        severity="WARN",
+                    )
+                    await self._ur.reset()
+
                 await self._manipulator.reset_manipulation(
-                    reset_to_idle=reset_to_idle
+                    reset_to_idle=reset_to_idle, cache_trajectories=False
                 )
 
                 return
@@ -536,7 +576,8 @@ class ManipulationContextManager(BaseInterface):
                     exc_value, unrecoverable_excs = exc_value.split(
                         MoveitRecoverableError
                     )
-                    assert exc_value is not None
+                    if exc_value is None:
+                        return False
                 elif not isinstance(exc_value, MoveitRecoverableError):
                     return False
 
@@ -672,42 +713,27 @@ class Commander(BaseNode):
 
         self._moveit = MoveItInterface(self, "moveit_interface")
 
-        self._urs: dict[str, URInterface] = {}
-        self._manipulators: dict[str, ObjectManipulationInterface] = {}
+        # self._urs: dict[str, URInterface] = {}
+        # self._manipulators: dict[str, ObjectManipulationInterface] = {}
         self._manipulation_contexts: dict[str, ManipulationContextManager] = {}
 
         for robot_name, interface_names in self.param(
             "robot_interface_names"
         ).items():
-            ur_interface = URInterface(
-                self,
-                interface_names["ur_interface_name"],
-                simulate=self.param("simulate"),
-                parameter_fallback_prefix="common_ur_interface",
-            )
-            manipulation_interface = ObjectManipulationInterface(
-                self,
-                interface_names["manipulation_interface_name"],
-                simulate=self.param("simulate"),
-                moveit_interface=self._moveit,
-                safe_to_execute_condition=lambda: (
-                    self._safe_to_execute_condition(robot_name)
-                ),
-                parameter_fallback_prefix="common_manipulation_interface",
-            )
             manipulation_context = ManipulationContextManager(
                 self,
                 interface_names["manipulation_context_interface_name"],
+                simulate=self.param("simulate"),
+                moveit_interface=self._moveit,
                 teensy_interface=self._teensy,
-                ur_interface=ur_interface,
-                manipulation_interface=manipulation_interface,
-                safe_to_execute_condition=lambda: (
-                    self._safe_to_execute_condition(robot_name)
-                ),
+                ur_interface_name=interface_names["ur_interface_name"],
+                manipulation_interface_name=interface_names[
+                    "manipulation_interface_name"
+                ],
                 parameter_fallback_prefix="common_manipulation_context_interface",
             )
-            self._urs[robot_name] = ur_interface
-            self._manipulators[robot_name] = manipulation_interface
+            # self._urs[robot_name] = ur_interface
+            # self._manipulators[robot_name] = manipulation_interface
             self._manipulation_contexts[robot_name] = manipulation_context
 
         self._initial_reset = False
@@ -726,25 +752,25 @@ class Commander(BaseNode):
             msg: Current sensor state from the Teensy.
         """
         if not self._teensy.safe_to_execute:
-            for robot_name, manipulator in self._manipulators.items():
+            for robot_name, context in self._manipulation_contexts.items():
                 if (
-                    manipulator.executing
-                    and manipulator.manipulation_state
+                    context._manipulator.executing
+                    and context._manipulator.manipulation_state
                     == ManipulationState.PRESENTED
                 ):
-                    self._urs[robot_name].stop_program()
+                    context._ur.stop_program()
                     # manipulator.stop_execution()
                     self.log(
                         f"Not safe to execute for {robot_name}, stopping execution",
                         severity="WARN",
                     )
 
-    def _safe_to_execute_condition(self, robot_name: str) -> bool:
-        return (
-            self._manipulators[robot_name].manipulation_state
-            != ManipulationState.PRESENTED
-            or self._teensy.safe_to_execute
-        )
+    # def _safe_to_execute_condition(self, robot_name: str) -> bool:
+    #     return (
+    #         self._manipulators[robot_name].manipulation_state
+    #         != ManipulationState.PRESENTED
+    #         or self._teensy.safe_to_execute
+    #     )
 
     ###########################################################################
     ########## User Interface #################################################
@@ -911,7 +937,9 @@ class Commander(BaseNode):
                 f"Unsupported robot_name: {robot_name}. "
                 f"Available: {self.robot_names}"
             )
-        return self._manipulators[robot_name].reachable_object_ids
+        return self._manipulation_contexts[
+            robot_name
+        ]._manipulator.reachable_object_ids
 
     @ensure_context
     def manipulation_context(
@@ -940,9 +968,12 @@ class Commander(BaseNode):
         if self._exited_context:
             raise RuntimeError("Commander context manager already exited")
 
-        await self._teensy.set_sync_pulse_solenoid(activate=True)
-        for ur in self._urs.values():
-            await ur.reset()
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self._teensy.set_sync_pulse_solenoid(activate=True))
+
+            for context in self._manipulation_contexts.values():
+                tg.create_task(context._ur.reset())
+
         self._entered_context = True
         return self
 
@@ -967,12 +998,7 @@ class Commander(BaseNode):
         """
         self.log("Exiting commander context manager")
         try:
-            async with asyncio.timeout(self.param("shutdown_timeout")):
-                await self._teensy.set_sync_pulse_solenoid(activate=False)
-            self.destroy_node()
-        except TimeoutError:
-            self.log("")
-            pass
+            await self._teensy.set_sync_pulse_solenoid(activate=False)
         finally:
             self._entered_context = False
             self._exited_context = True
@@ -1031,16 +1057,23 @@ async def asyncio_runner(
     loop = asyncio.get_event_loop()
     loop.set_default_executor(tpe)
 
-    async with commander:
-        task = asyncio.create_task(coro_fn(commander, config))
-        cancel_future.add_done_callback(
-            lambda _: (
-                loop.call_soon_threadsafe(task.cancel)
-                if loop.is_running()
-                else None
+    try:
+        async with commander:
+            task = asyncio.create_task(coro_fn(commander, config))
+            cancel_future.add_done_callback(
+                lambda _: (
+                    loop.call_soon_threadsafe(task.cancel)
+                    if loop.is_running()
+                    else None
+                )
             )
+            await task
+    except BaseException as e:
+        print(
+            f"Caught exception in task: \n "
+            f"{' '.join(traceback.format_exception(e))}"
         )
-        await task
+        raise
 
 
 def spin_notify(executor: Executor, cancel_future: concurrent.futures.Future):
@@ -1050,7 +1083,10 @@ def spin_notify(executor: Executor, cancel_future: concurrent.futures.Future):
             executor.spin()
             assert not executor.context.ok() or executor._is_shutdown
         except Exception as e:
-            print(f"Caught exception in executor | {type(e).__name__}: {e}")
+            print(
+                f"Caught exception in executor: \n "
+                f"{' '.join(traceback.format_exception(e))}"
+            )
             if first_exc is None:
                 first_exc = e
         finally:
@@ -1085,62 +1121,67 @@ def main_sync(args=None) -> None:
     """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
 
-    # Parse non-ROS arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--coro-module", type=str, default=None)
-    parser.add_argument("--coro-name", type=str, default=None)
-    parser.add_argument("--coro-config", type=str, default=None)
-    parser.add_argument("--max-workers", type=int, default=None)
-    parser.add_argument("--debug", action="store_true", default=False)
-
-    non_ros_args = rclpy.utilities.remove_ros_args(args)
-    args, _ = parser.parse_known_args(non_ros_args)
-
-    if args.coro_module is not None and args.coro_name is not None:
-        print(
-            f"Loading coroutine {args.coro_name} from module {args.coro_module} "
-        )
-        coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
-            importlib.import_module(args.coro_module),
-            args.coro_name,
-        )
-    elif args.coro_name is not None or args.coro_module is not None:
-        raise ValueError(
-            "Both coro_module and coro_name must be provided when one is provided"
-        )
-    else:
-        print("No coroutine module or name provided, running in debug mode")
-        coro_fn = debug_commander
-        args.coro_config = None
-        args.debug = True
-
-    if args.coro_config is not None:
-        print(f"Config file: {args.coro_config}")
-
-    if args.debug:
-        import debugpy
-
-        print("Debug mode enabled")
-        debugpy.listen(1300)
-        print("Waiting for debugger to attach")
-        debugpy.wait_for_client()
-        print("Debugger attached")
-
-    match EXECUTOR_TYPE:
-        case "events":
-            executor = EventsExecutor()
-        case "single-threaded":
-            executor = SingleThreadedExecutor()
-        case "multi-threaded":
-            executor = MultiThreadedExecutor()
-        case _:
-            raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
-
-    tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    cancel_future = concurrent.futures.Future()
-    spin_future = tpe.submit(spin_notify, executor, cancel_future)
+    executor = None
+    spin_future = None
+    commander = None
 
     try:
+        # Parse non-ROS arguments
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--coro-module", type=str, default=None)
+        parser.add_argument("--coro-name", type=str, default=None)
+        parser.add_argument("--coro-config", type=str, default=None)
+        parser.add_argument("--max-workers", type=int, default=None)
+        parser.add_argument("--debug", action="store_true", default=False)
+
+        non_ros_args = rclpy.utilities.remove_ros_args(args)
+        args, _ = parser.parse_known_args(non_ros_args)
+
+        if args.coro_module is not None and args.coro_name is not None:
+            print(
+                f"Loading coroutine {args.coro_name} from module {args.coro_module} "
+            )
+            coro_fn: Callable[[Commander, Optional[str]], Coroutine] = getattr(
+                importlib.import_module(args.coro_module),
+                args.coro_name,
+            )
+        elif args.coro_name is not None or args.coro_module is not None:
+            raise ValueError(
+                "Both coro_module and coro_name must be provided when one is provided"
+            )
+        else:
+            print(
+                "No coroutine module or name provided, running in debug mode"
+            )
+            coro_fn = debug_commander
+            args.coro_config = None
+
+        if args.coro_config is not None:
+            print(f"Config file: {args.coro_config}")
+
+        if args.debug:
+            import debugpy
+
+            print("Debug mode enabled")
+            debugpy.listen(1300)
+            print("Waiting for debugger to attach")
+            debugpy.wait_for_client()
+            print("Debugger attached")
+
+        match EXECUTOR_TYPE:
+            case "events":
+                executor = EventsExecutor()
+            case "single-threaded":
+                executor = SingleThreadedExecutor()
+            case "multi-threaded":
+                executor = MultiThreadedExecutor()
+            case _:
+                raise ValueError(f"Unsupported EXECUTOR_TYPE: {EXECUTOR_TYPE}")
+
+        tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        cancel_future = concurrent.futures.Future()
+        spin_future = tpe.submit(spin_notify, executor, cancel_future)
+
         commander = Commander()
         executor.add_node(commander)
 
@@ -1156,10 +1197,15 @@ def main_sync(args=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        print("Shutting down executor")
-        executor.shutdown()
-        print("Raising executor spin errors")
-        spin_future.result()
+        if commander is not None:
+            print("Shutting down commander")
+            commander.destroy_node()
+        if executor is not None:
+            print("Shutting down executor")
+            executor.shutdown()
+        if spin_future is not None:
+            print("Raising executor spin errors")
+            spin_future.result()
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
 

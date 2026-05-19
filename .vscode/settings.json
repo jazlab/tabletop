@@ -28,5 +28,47 @@
     "install/**": true,
     "log/**": true
   },
-  "git.detectSubmodulesLimit": 15
+  "git.detectSubmodulesLimit": 15,
+  "python.autoComplete.extraPaths": [
+    "/tabletop/build/tabletop_tasks",
+    "/tabletop/install/tabletop_tasks/lib/python3.12/site-packages",
+    "/tabletop/build/tabletop_rig",
+    "/tabletop/install/tabletop_rig/lib/python3.12/site-packages",
+    "/tabletop/install/theora_image_transport/lib/python3.12/site-packages",
+    "/tabletop/install/tabletop_interfaces/lib/python3.12/site-packages",
+    "/tabletop/install/moveit_py/lib/python3.12/site-packages",
+    "/tabletop/install/moveit_msgs/lib/python3.12/site-packages",
+    "/tabletop/build/moveit_configs_utils",
+    "/tabletop/install/moveit_configs_utils/lib/python3.12/site-packages",
+    "/tabletop/build/mocap4r2cli",
+    "/tabletop/install/mocap4r2cli/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_robot_gt_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_marker_viz_srvs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_control_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/micro_ros_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/flir_camera_msgs/lib/python3.12/site-packages",
+    "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ],
+  "python.analysis.extraPaths": [
+    "/tabletop/build/tabletop_tasks",
+    "/tabletop/install/tabletop_tasks/lib/python3.12/site-packages",
+    "/tabletop/build/tabletop_rig",
+    "/tabletop/install/tabletop_rig/lib/python3.12/site-packages",
+    "/tabletop/install/theora_image_transport/lib/python3.12/site-packages",
+    "/tabletop/install/tabletop_interfaces/lib/python3.12/site-packages",
+    "/tabletop/install/moveit_py/lib/python3.12/site-packages",
+    "/tabletop/install/moveit_msgs/lib/python3.12/site-packages",
+    "/tabletop/build/moveit_configs_utils",
+    "/tabletop/install/moveit_configs_utils/lib/python3.12/site-packages",
+    "/tabletop/build/mocap4r2cli",
+    "/tabletop/install/mocap4r2cli/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_robot_gt_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_marker_viz_srvs/lib/python3.12/site-packages",
+    "/tabletop/install/mocap4r2_control_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/micro_ros_msgs/lib/python3.12/site-packages",
+    "/tabletop/install/flir_camera_msgs/lib/python3.12/site-packages",
+    "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ]
 }

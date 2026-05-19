@@ -210,7 +210,9 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             tg.create_task(self.commander.lock_arms_and_wait())
             tg.create_task(self.commander.occlude_smartglass())
 
-    async def _run_one_trial(self, trial_spec: TrialSpec) -> TrialFeedback:
+    async def _run_one_trial(
+        self, trial_spec: TrialSpec
+    ) -> TrialFeedback | None:
         presented: bool = False
         unpresented: bool = False
         try:
@@ -243,10 +245,7 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                 #     f"Robot {trial_spec.group_name} present state: {joint_positions}"
                 # )
                 # self.log("-" * 100)
-                await manipulator.plan_and_move(
-                    goal=trial_spec.object_pose,
-                    planning_pipeline="linear",
-                )
+                await manipulator.plan_and_move(goal=trial_spec.object_pose)
 
                 feedback = await self.run_trial(trial_spec, manipulator)
 
@@ -261,26 +260,28 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             if presented and not unpresented:
                 assert self._trial_lock.locked()
                 self._trial_lock.release()
-            raise
+            return None
 
     async def _run_trials_asynchronously(self):
         # Occlude smartglass and lock arms before starting
         await self._occlude_and_lock()
 
-        active_trials: dict[str, asyncio.Task[TrialFeedback] | None] = {
+        active_trials: dict[str, asyncio.Task[TrialFeedback | None] | None] = {
             x: None for x in self.commander.robot_names
         }
         active_specs: dict[str, TrialSpec | None] = {
             x: None for x in self.commander.robot_names
         }
 
-        for next_spec in self._trial_generator:
-            if active_trials[next_spec.group_name] is None:
-                active_specs[next_spec.group_name] = next_spec
-                active_trials[next_spec.group_name] = asyncio.create_task(
-                    self._run_one_trial(next_spec)
-                )
-            else:
+        async with asyncio.TaskGroup() as tg:
+            for next_spec in self._trial_generator:
+                if active_trials[next_spec.group_name] is None:
+                    active_specs[next_spec.group_name] = next_spec
+                    active_trials[next_spec.group_name] = tg.create_task(
+                        self._run_one_trial(next_spec)
+                    )
+                    continue
+
                 self.log(
                     f"The next trial spec requested the robot "
                     f"{next_spec.group_name}, but this robot is "
@@ -297,12 +298,8 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     if active_trial is not None and active_trial.done():
                         active_spec = active_specs[group_name]
                         assert active_spec is not None
-                        try:
-                            feedback = await active_trial
-                            self._trial_generator.send(active_spec, feedback)
-                        except ManipulationContextExitedError:
-                            self._trial_generator.send(active_spec, None)
-
+                        feedback = await active_trial
+                        self._trial_generator.send(active_spec, feedback)
                         active_trials[group_name] = None
                         active_specs[group_name] = None
                         break

@@ -392,15 +392,15 @@ class URInterface(BaseInterface):
             return False
 
         robot_mode = await self.get_robot_mode()
-        if not robot_mode != RobotMode.RUNNING:
+        if robot_mode != RobotMode.RUNNING:
             return False
 
         program_state = await self.get_program_state()
-        if not program_state != ProgramState.PLAYING:
+        if program_state != ProgramState.PLAYING:
             return False
 
         safety_mode = await self.get_safety_mode()
-        if not safety_mode != SafetyMode.NORMAL:
+        if safety_mode != SafetyMode.NORMAL:
             return False
 
         return True

@@ -877,6 +877,7 @@ class PlanAndExecuteInterface(BaseInterface):
         allowed_start_tolerance = self.param(
             "execution.allowed_start_tolerance"
         )
+        allowed_end_tolerance = self.param("execution.allowed_end_tolerance")
         allowed_duration_scaling = self.param(
             "execution.allowed_duration_scaling"
         )
@@ -900,9 +901,8 @@ class PlanAndExecuteInterface(BaseInterface):
             )
 
         # Check if trajectory start state is within the allowed start tolerance
-        initial_state = self._moveit.get_current_state()
         if not all_close_robot_states(
-            initial_state,
+            self._moveit.get_current_state(),
             trajectory[0],
             group_name=self.group_name,
             position_tolerance=allowed_start_tolerance,
@@ -927,11 +927,11 @@ class PlanAndExecuteInterface(BaseInterface):
                     trajectory=traj_msg,
                 )
             )
-        except ActionGoalNotAcceptedError as e:
+        except ActionGoalNotAcceptedError:
             raise ExecutionRejectedError(
                 "FollowJointTrajectory Action goal not accepted",
                 group_name=self.group_name,
-            ) from e
+            )
 
         with self._goal_handle_lock:
             assert self._execution_goal_handle is None
@@ -961,6 +961,20 @@ class PlanAndExecuteInterface(BaseInterface):
         if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
             raise ExecutionInterruptedError(
                 result.error_string, group_name=self.group_name
+            )
+
+        # Check if final robot state is within the allowed end tolerance of
+        # trajectory end state
+        if not all_close_robot_states(
+            self._moveit.get_current_state(),
+            trajectory[len(trajectory) - 1],
+            group_name=self.group_name,
+            position_tolerance=allowed_end_tolerance,
+        ):
+            raise ExecutionInterruptedError(
+                f"Current robot state deviates from trajectory end state "
+                f"by more than {allowed_end_tolerance}",
+                group_name=self.group_name,
             )
 
     async def execute(
@@ -1015,11 +1029,11 @@ class PlanAndExecuteInterface(BaseInterface):
                 finally:
                     # If send task is not done, cancel it and wait for it to
                     # complete cancellation
-                    if send_task.cancel():
-                        try:
-                            await send_task
-                        except asyncio.CancelledError:
-                            pass
+                    send_task.cancel()
+                    try:
+                        await send_task
+                    except asyncio.CancelledError:
+                        pass
 
                 with self._execution_status_lock:
                     if self._execution_stopped:

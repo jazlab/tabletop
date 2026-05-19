@@ -1,11 +1,11 @@
 tasks:
   - class: ForagingTask
     kwargs:
-      stimulus_duration: 0.25
-      delay_duration: 0.25
-      response_timeout: 1.0
+      stimulus_duration: 1.0
+      delay_duration: 1.0
+      response_timeout: 3.0
       reward_duration: 0.25
-      reveal_duration: 0.25
+      reveal_duration: 1.0
       reward_sound: true
       sound_kwargs:
         duration: 0.25
@@ -23,7 +23,7 @@ tasks:
               # - small_object_6
               - small_object_7
               - small_object_8
-              - small_object_9
+              # - small_object_9
               - small_object_10
               - small_object_11
               - small_object_12
@@ -33,21 +33,20 @@ tasks:
               - small_object_15
               - small_object_16
               - small_object_17
-              # - small_object_18
+              - small_object_18
               - small_object_19
               - small_object_20
               # - small_object_21
               - small_object_22
               - small_object_23
-              - small_object_24
+              # - small_object_24
               - small_object_25
               - small_object_26
               - small_object_27
               - small_object_28
-              - small_object_29
           poses:
-            - position: [ 0.9525, 0.4, 0.6 ]
-              rpy: [ 0.0, 0.0, -1.5707 ]
+            - position: [0.9525, 0.4, 0.6]
+              rpy: [0.0, 0.0, -1.5707]
             # - position: [1.0, 0.4, 0.6]
             #   rpy: [0.0, 0.2, -1.5707]
             # - position: [0.9, 0.4, 0.6]
@@ -58,4 +57,4 @@ tasks:
             - both
           occlude_prob: 1.0
           num_trials: 100000
-          skip_failed: false
+          skip_failed: true

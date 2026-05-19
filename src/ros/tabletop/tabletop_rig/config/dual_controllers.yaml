@@ -30,6 +30,9 @@ controller_manager:
     left_force_mode_controller:
       type: ur_controllers/ForceModeController
 
+    # left_friction_model_controller:
+    #   type: ur_controllers/FrictionModelController
+
     left_freedrive_mode_controller:
       type: ur_controllers/FreedriveModeController
 
@@ -71,6 +74,9 @@ controller_manager:
 
     right_force_mode_controller:
       type: ur_controllers/ForceModeController
+
+    # right_friction_model_controller:
+    #   type: ur_controllers/FrictionModelController
 
     right_freedrive_mode_controller:
       type: ur_controllers/FreedriveModeController
@@ -229,6 +235,10 @@ left_force_mode_controller:
   ros__parameters:
     tf_prefix: "$(var left_tf_prefix)"
 
+# left_friction_model_controller:
+#   ros__parameters:
+#     tf_prefix: "$(var left_tf_prefix)"
+
 left_freedrive_mode_controller:
   ros__parameters:
     tf_prefix: "$(var left_tf_prefix)"
@@ -377,6 +387,10 @@ right_forward_position_controller:
 right_force_mode_controller:
   ros__parameters:
     tf_prefix: "$(var right_tf_prefix)"
+
+# right_friction_model_controller:
+#   ros__parameters:
+#     tf_prefix: "$(var right_tf_prefix)"
 
 right_freedrive_mode_controller:
   ros__parameters:

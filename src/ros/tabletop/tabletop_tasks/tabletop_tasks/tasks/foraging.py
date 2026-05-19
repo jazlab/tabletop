@@ -151,10 +151,8 @@ class ForagingTask(BaseObjectInteractionTask):
             On timeout, reaction_time is None and timeout is True.
         """
         self.log("Response phase")
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.commander.reveal_smartglass())
-            # TODO: Remove!!!
-            # tg.create_task(self.commander.release_arm(arm))
+        # TODO: Remove!!!
+        await self.commander.release_arm(arm)
 
         start_time = self.commander.ros_time()
 
@@ -223,7 +221,7 @@ class ForagingTask(BaseObjectInteractionTask):
         feedback = await self.response(trial_spec.object_id, trial_spec.arm)
 
         # Only reveal on successful (non-timeout) trials
-        if not feedback.timeout:
+        if not feedback.timeout and self.reveal_duration > 0:
             await self.reveal()
 
         return feedback

@@ -409,23 +409,26 @@ class ButtonConnectionChannel:
             raise asyncio.InvalidStateError("Connection channel removed")
 
         self._button_events[click_type].clear()
-        button_task = asyncio.create_task(
-            self._button_events[click_type].wait()
-        )
-        removed_task = asyncio.create_task(self._removed_event.wait())
-
-        await asyncio.wait(
-            [button_task, removed_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        if button_task.done():
-            return self._last_time_button_event[click_type]
-        else:
-            assert removed_task.done()
-            raise RuntimeError(
-                "Connection channel removed while waiting for button event"
+        async with asyncio.TaskGroup() as tg:
+            button_task = tg.create_task(
+                self._button_events[click_type].wait()
             )
+            removed_task = tg.create_task(self._removed_event.wait())
+
+            await asyncio.wait(
+                [button_task, removed_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if button_task.done():
+                removed_task.cancel()
+                return self._last_time_button_event[click_type]
+            else:
+                button_task.cancel()
+                assert removed_task.done()
+                raise RuntimeError(
+                    "Connection channel removed while waiting for button event"
+                )
 
 
 class ButtonScanner:
@@ -1683,15 +1686,17 @@ async def main_async(
             raise ValueError(f"Invalid command: {command}")
 
     try:
-        coro_task = asyncio.create_task(coro_fn(**kwargs))
-        closed_task = asyncio.create_task(client.wait_for_closed())
+        async with asyncio.TaskGroup() as tg:
+            coro_task = tg.create_task(coro_fn(**kwargs))
+            closed_task = tg.create_task(client.wait_for_closed())
 
-        done, _ = await asyncio.wait(
-            [coro_task, closed_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in done:
-            task.result()
+            _, pending = await asyncio.wait(
+                [coro_task, closed_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+
     finally:
         client.close()
 

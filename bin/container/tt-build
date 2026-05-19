@@ -7,7 +7,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [--build-debug] [--clean] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
+    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
 }
 
 builtin cd $COLCON_WS

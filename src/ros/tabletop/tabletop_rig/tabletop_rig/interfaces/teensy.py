@@ -248,12 +248,12 @@ class TeensyInterface(BaseInterface):
         if arm not in ["left", "right", "both"]:
             raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
 
-        left = arm in ["left", "both"]
-        right = arm in ["right", "both"]
+        left_arm = arm in ["left", "both"]
+        right_arm = arm in ["right", "both"]
 
         await self.node.service_call_async(
             srv_request=SetArmLock.Request(
-                left_arm=left, right_arm=right, lock=lock
+                left_arm=left_arm, right_arm=right_arm, lock=lock
             ),
             srv_client=self._set_arm_lock_client,
         )

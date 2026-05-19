@@ -180,6 +180,7 @@ def declare_arguments():
             "script_sender_port": "50012",
             "trajectory_port": "50013",
             "tool_tcp_port": "54322",
+            "tool_device_name": "/tmp/ttyUR_left",
             # "base_origin_xyz": "0.7 1.0625 0.3085",
             # "base_origin_xyz": "0.6025 1.0625 0.3085",
             "base_origin_xyz": "0.5987 0.7227 0.3085",
@@ -192,6 +193,7 @@ def declare_arguments():
             "script_sender_port": "50002",
             "trajectory_port": "50003",
             "tool_tcp_port": "54321",
+            "tool_device_name": "/tmp/ttyUR_right",
             # "base_origin_xyz": "1.2554 1.0625 0.3085",
             # "base_origin_xyz": "1.3025 1.0625 0.3085",
             "base_origin_xyz": "1.3462 0.7227 0.3085",
@@ -344,7 +346,7 @@ def declare_arguments():
                 ),
                 DeclareLaunchArgument(
                     f"{side}_tool_device_name",
-                    default_value=f"/tmp/ttyUR_{side}",
+                    default_value=defaults["tool_device_name"],
                     description=f"Tool device name for the {side} robot.",
                 ),
                 DeclareLaunchArgument(

@@ -7,7 +7,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [-c|--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
+    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
 }
 
 if [[ "$#" < 1 ]]; then

@@ -28,11 +28,12 @@ import asyncio
 import functools
 import inspect
 import os
+import pickle
 import traceback
 from collections.abc import Callable
 from enum import IntEnum
 from glob import glob
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 import numpy as np
 import yaml
@@ -70,9 +71,12 @@ from tabletop_rig.interfaces.moveit.requests import (
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import (
     change_reference_frame_pose_stamped,
+    get_joint_group_positions,
     matrix_from_pose_msg,
     pose_stamped_msg,
 )
+
+_PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 
 class ManipulationState(IntEnum):
@@ -182,6 +186,23 @@ _STATE_GOAL_NAME_MAP = {
 }
 
 
+class PersistentState(NamedTuple):
+    manipulation_state: ManipulationState
+    manipulation_id: str | None
+    saved_return_state_positions: dict[
+        str, tuple[ManipulationState, dict[str, float]]
+    ]
+
+
+class ResetLoader(KwargYamlLoader):
+    def get_kwarg_constructors(self) -> dict[str, Callable]:
+        return {
+            "!PoseStamped": pose_stamped_msg,
+            "!ConcatPlanRequest": ConcatPlanRequest,
+            "!ObjectResetConfig": ObjectResetConfig,
+        }
+
+
 def validate_and_lock(coro_fn):
     if inspect.iscoroutinefunction(coro_fn):
 
@@ -206,15 +227,6 @@ def validate_and_lock(coro_fn):
         return async_wrapper
 
 
-class ResetLoader(KwargYamlLoader):
-    def get_kwarg_constructors(self) -> dict[str, Callable]:
-        return {
-            "!PoseStamped": pose_stamped_msg,
-            "!ConcatPlanRequest": ConcatPlanRequest,
-            "!ObjectResetConfig": ObjectResetConfig,
-        }
-
-
 class ObjectManipulationInterface(PlanAndExecuteInterface):
     """TODO"""
 
@@ -224,6 +236,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     _reachable_object_ids: set[str]
     _reset_configs: dict[str, ObjectResetConfig]
     _saved_return_states: dict[str, tuple[ManipulationState, RobotState]]
+    _persistent_state_path: str
 
     def __init__(
         self,
@@ -251,6 +264,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._manipulation_state = ManipulationState.UNINITIALIZED
         self._current_manipulation_id = None
         self._manipulation_lock = asyncio.Lock()
+
+        path: str = self.param("persistent_state_path")
+        path = os.path.expandvars(os.path.expanduser(path))
+        if not os.path.isabs(path):
+            raise ValueError(
+                f"'persistent_state_path' parameter must be absolute: {path}"
+            )
+        self._persistent_state_path = path
 
         self._simulate = simulate
 
@@ -396,8 +417,13 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @property
     def manipulation_state(self) -> ManipulationState:
-        """Get the reachable objects for this robot"""
+        """Get the manipulation state for this robot"""
         return self._manipulation_state
+
+    @property
+    def manipulation_id(self) -> str | None:
+        """Get the manipulation object id for this robot"""
+        return self._current_manipulation_id
 
     ###########################################################################
     ########## Parameter Convenience Properties and Methods ###################
@@ -884,6 +910,28 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if cache_trajectories and len(cache_kwargs) > 0:
             self.cache_trajectories(cache_kwargs)
 
+    def _acquire_presentation_region(self, object_id) -> None:
+        region_id: str = self.param("presentation_region.region_id")
+        robot_collision_ids: list[str] = self.param(
+            "presentation_region.robot_collision_ids"
+        )
+        robot_collision_ids.append(object_id)
+        region_collision_ids: list[str] = self.param(
+            "presentation_region.region_collision_ids"
+        )
+        self._moveit.acquire_exclusive_region(
+            region_id,
+            group_name=self.group_name,
+            robot_collision_ids=robot_collision_ids,
+            region_collision_ids=region_collision_ids,
+        )
+
+    def _release_presentation_region(self) -> None:
+        region_id: str = self.param("presentation_region.region_id")
+        self._moveit.release_exclusive_region(
+            region_id, group_name=self.group_name
+        )
+
     async def _present_object_impl(
         self, object_id: str, *, cache_trajectories=True
     ):
@@ -905,23 +953,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        # Acquire exclusive access to the presentation region before moving
-        # in. Raises RuntimeError immediately if the other arm holds it.
-        region_id: str = self.param("presentation_region.region_id")
-        robot_collision_ids: list[str] = self.param(
-            "presentation_region.robot_collision_ids"
-        )
-        robot_collision_ids.append(object_id)
-        region_collision_ids: list[str] = self.param(
-            "presentation_region.region_collision_ids"
-        )
-        self._moveit.acquire_exclusive_region(
-            region_id,
-            group_name=self.group_name,
-            robot_collision_ids=robot_collision_ids,
-            region_collision_ids=region_collision_ids,
-        )
-
+        self._acquire_presentation_region(object_id)
         try:
             goal = self._get_state_goal(next_state, object_id)
             await self.plan_and_execute(
@@ -935,12 +967,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             # the lock; recovery of the robot's pose is the reset path's
             # responsibility.
             try:
-                self._moveit.release_exclusive_region(
-                    region_id, group_name=self.group_name
-                )
+                self._release_presentation_region()
             except Exception as e:
                 self.log(
-                    f"Failed to release exclusive region '{region_id}' "
+                    f"Failed to release presentation region "
                     f"after present failure: {e}",
                     severity="ERROR",
                 )
@@ -977,10 +1007,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         # Release only after the move succeeds. If the move failed, state
         # stays at PRESENTED and reset_manipulation will re-call this
         # method, which will eventually release on success.
-        region_id = self.param("presentation_region.region_id")
-        self._moveit.release_exclusive_region(
-            region_id, group_name=self.group_name
-        )
+        self._release_presentation_region()
 
         self._manipulation_state = next_state
 
@@ -1491,11 +1518,90 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         finally:
             self._manipulation_state = ManipulationState.UNINITIALIZED
 
-    async def _reset_manipulation_impl(self, *, reset_to_idle: bool):
+    def _load_persistent_state(self) -> PersistentState | None:
+        path = self._persistent_state_path
+        if not os.path.exists(path):
+            return None
+
+        try:
+            with open(path, "rb") as f:
+                payload: PersistentState = pickle.load(f)
+            assert isinstance(payload, PersistentState)
+            assert isinstance(payload.manipulation_state, ManipulationState)
+            assert payload.manipulation_id is None or isinstance(
+                payload.manipulation_id, str
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to load persistent manipulation state from "
+                f"{path}: {e}. Please delete {path} and make sure the "
+                f"robot is in idle state with no objects attached before "
+                f"trying again"
+            )
+        os.remove(path)
+        return payload
+
+    def _save_persistent_state(self) -> None:
+        if self._manipulation_state == ManipulationState.UNINITIALIZED:
+            return
+
+        path = self._persistent_state_path
+        assert not os.path.exists(path)
+
+        saved_return_state_positions: dict[
+            str, tuple[ManipulationState, dict[str, float]]
+        ] = {}
+
+        for object_id, (
+            manipulation_state,
+            robot_state,
+        ) in self._saved_return_states.items():
+            positions = get_joint_group_positions(robot_state, self.group_name)
+            saved_return_state_positions[object_id] = (
+                manipulation_state,
+                positions,
+            )
+
+        payload = PersistentState(
+            self._manipulation_state,
+            self._current_manipulation_id,
+            saved_return_state_positions,
+        )
+
+        try:
+            with open(path, "wb") as f:
+                pickle.dump(payload, f, protocol=_PICKLE_PROTOCOL)
+            self.log(
+                f"Saved persistent state {payload} to {path}",
+                severity="INFO",
+            )
+        except Exception as e:
+            self.log(
+                f"Failed to save persistent state to {path}: {e}",
+                severity="ERROR",
+            )
+
+    async def _reset_manipulation_impl(
+        self, *, reset_to_idle: bool, cache_trajectories: bool = True
+    ):
         self.log("Resetting object manipulation")
 
         # Test if object is attached and
         if self._manipulation_state == ManipulationState.UNINITIALIZED:
+            # persistent_state = self._load_persistent_state()
+            # if persistent_state is None:
+            #     self._manipulation_state = ManipulationState.IDLE
+            #     self._current_manipulation_id = None
+            # else:
+            #     self._manipulation_state = persistent_state.manipulation_state
+            #     self._current_manipulation_id = (
+            #         persistent_state.manipulation_id
+            #     )
+            #     if self._manipulation_state == ManipulationState.PRESENTED:
+            #         self._acquire_presentation_region(
+            #             self._current_manipulation_id
+            #         )
+
             if self._simulate or not self.param("test_object_attached.enable"):
                 self._current_manipulation_id = self._init_attached_object()
             else:
@@ -1503,6 +1609,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     await self._test_object_attached()
                 )
 
+            # TODO: Check if robot is in presentation region
             if self._current_manipulation_id is None:
                 self._manipulation_state = ManipulationState.IDLE
             else:
@@ -1536,22 +1643,26 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             #     #         ) from e
 
             # "Unreturn" object and move to idle to try and get a better plan
-            if self._manipulation_state in (
-                ManipulationState.PRE_RETURN,
-                ManipulationState.PRE_DETACH,
-                ManipulationState.DETACH,
-            ):
-                await self._fetch_object_impl(object_id)
-                goal = self._get_state_goal(
-                    ManipulationState.IDLE, object_id=None
-                )
-                await self.plan_and_execute(
-                    goal=goal, cache_trajectories=False
-                )
+            # if self._manipulation_state in (
+            #     ManipulationState.PRE_RETURN,
+            #     ManipulationState.PRE_DETACH,
+            #     ManipulationState.DETACH,
+            # ):
+            #     await self._fetch_object_impl(
+            #         object_id, cache_trajectories=False
+            #     )
+            #     goal = self._get_state_goal(
+            #         ManipulationState.IDLE, object_id=None
+            #     )
+            #     await self.plan_and_execute(
+            #         goal=goal, cache_trajectories=False
+            #     )
 
             # Unpresent object if needed
-            elif self._manipulation_state == ManipulationState.PRESENTED:
-                await self._unpresent_object_impl(object_id)
+            if self._manipulation_state == ManipulationState.PRESENTED:
+                await self._unpresent_object_impl(
+                    object_id, cache_trajectories=cache_trajectories
+                )
 
             # Reset object if needed
             if self._manipulation_state in (
@@ -1567,14 +1678,20 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     await self.plan_and_execute(
                         goal=goal, cache_trajectories=False
                     )
-                    await self._reset_object_impl(object_id)
+                    await self._reset_object_impl(
+                        object_id, cache_trajectories=cache_trajectories
+                    )
 
             # Return object
-            await self._return_object_impl(object_id)
+            await self._return_object_impl(
+                object_id, cache_trajectories=cache_trajectories
+            )
 
         if reset_to_idle:
             goal = self._get_state_goal(ManipulationState.IDLE, object_id=None)
-            await self._plan_and_move_impl(goal=goal, cache_trajectories=False)
+            await self._plan_and_move_impl(
+                goal=goal, cache_trajectories=cache_trajectories
+            )
 
     ###########################################################################
     ########## Object Manipulation User Interface #############################
@@ -1714,7 +1831,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ###########################################################################
 
     @validate_and_lock
-    async def reset_manipulation(self, *, reset_to_idle: bool = False) -> None:
+    async def reset_manipulation(
+        self, *, reset_to_idle: bool = False, cache_trajectories: bool = True
+    ) -> None:
         """Reset robot manipulation state.
 
         If manipulating a grid object (aka not a manually attached object),
@@ -1723,4 +1842,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         Then, move to idle position.
         """
         # TODO: Maybe change wait to True here
-        await self._reset_manipulation_impl(reset_to_idle=reset_to_idle)
+        await self._reset_manipulation_impl(
+            reset_to_idle=reset_to_idle, cache_trajectories=cache_trajectories
+        )
+
+    # def destroy_interface(self):
+    #     self._save_persistent_state()
+    #     return super().destroy_interface()

@@ -75,12 +75,15 @@ UR_TYPE_CHOICES = [
 
 SHARED_CONTROLLERS_ACTIVE = ["joint_state_broadcaster"]
 SHARED_CONTROLLERS_INACTIVE = []
+SHARED_CONTROLLERS_CONSISTENT = ["joint_state_broadcaster"]
+
 PER_ARM_CONTROLLERS_ACTIVE = [
     "io_and_status_controller",
     "speed_scaling_state_broadcaster",
     "force_torque_sensor_broadcaster",
     "tcp_pose_broadcaster",
     "ur_configuration_controller",
+    # "friction_model_controller",
 ]
 PER_ARM_CONTROLLERS_INACTIVE = [
     "scaled_joint_trajectory_controller",
@@ -92,6 +95,13 @@ PER_ARM_CONTROLLERS_INACTIVE = [
     "passthrough_trajectory_controller",
     "freedrive_mode_controller",
     "tool_contact_controller",
+]
+PER_ARM_CONTROLLERS_CONSISTENT = [
+    "io_and_status_controller",
+    "speed_scaling_state_broadcaster",
+    "force_torque_sensor_broadcaster",
+    "tcp_pose_broadcaster",
+    "ur_configuration_controller",
 ]
 
 
@@ -163,6 +173,11 @@ def declare_arguments():
             "launch_dashboard_client",
             default_value="true",
             description="Launch Dashboard Client?",
+        ),
+        DeclareLaunchArgument(
+            "use_tool_communication",
+            default_value="false",
+            description="Enable tool communication.",
         ),
         DeclareLaunchArgument(
             name="update_rate_config_file",
@@ -260,11 +275,15 @@ def declare_arguments():
             "tf_prefix": "left_",
             "robot_ip": left_robot_ip,
             "kinematics_params_file": left_kinematics_params_file,
+            "tool_tcp_port": "54322",
+            "tool_device_name": "/tmp/ttyUR_left",
         },
         "right": {
             "tf_prefix": "right_",
             "robot_ip": right_robot_ip,
             "kinematics_params_file": right_kinematics_params_file,
+            "tool_tcp_port": "54322",
+            "tool_device_name": "/tmp/ttyUR_right",
         },
     }
 
@@ -289,9 +308,14 @@ def declare_arguments():
                     description=f"Calibration config for the {side} robot.",
                 ),
                 DeclareLaunchArgument(
-                    f"{side}_use_tool_communication",
-                    default_value="false",
-                    description=f"Enable tool communication for the {side} robot.",
+                    f"{side}_tool_tcp_port",
+                    default_value=defaults["tool_tcp_port"],
+                    description=f"Tool TCP port for the {side} robot.",
+                ),
+                DeclareLaunchArgument(
+                    f"{side}_tool_device_name",
+                    default_value=defaults["tool_device_name"],
+                    description=f"Tool device name for the {side} robot.",
                 ),
             ]
         )
@@ -300,6 +324,10 @@ def declare_arguments():
 
 
 def controller_spawner(controllers, active):
+    # use_mock_hardware = EqualsSubstitution(
+    #     LaunchConfiguration("robot_mode"), "mock"
+    # )
+
     inactive_flag = ["--inactive"] if not active else []
     return Node(
         package="controller_manager",
@@ -313,6 +341,15 @@ def controller_spawner(controllers, active):
         ]
         + inactive_flag
         + controllers,
+        # parameters=[
+        #     ParameterFile(
+        #         LaunchConfiguration("controllers_file"), allow_substs=True
+        #     ),
+        #     {
+        #         "verify_payload_on_set": NotSubstitution(use_mock_hardware),
+        #         "use_sim_time": LaunchConfiguration("use_sim_time"),
+        #     },
+        # ],
         parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
         ros_arguments=[
             "--log-level",
@@ -404,6 +441,24 @@ def generate_launch_description():
                     ),
                     "right_kinematics_params_file": LaunchConfiguration(
                         "right_kinematics_params_file"
+                    ),
+                    "left_use_tool_communication": LaunchConfiguration(
+                        "use_tool_communication"
+                    ),
+                    "right_use_tool_communication": LaunchConfiguration(
+                        "use_tool_communication"
+                    ),
+                    "left_tool_tcp_port": LaunchConfiguration(
+                        "left_tool_tcp_port"
+                    ),
+                    "right_tool_tcp_port": LaunchConfiguration(
+                        "right_tool_tcp_port"
+                    ),
+                    "left_tool_device_name": LaunchConfiguration(
+                        "left_tool_device_name"
+                    ),
+                    "right_tool_device_name": LaunchConfiguration(
+                        "right_tool_device_name"
                     ),
                 }.items(),
             )
@@ -533,6 +588,31 @@ def generate_launch_description():
             on_exit=[Shutdown()],
         )
 
+        # tool_comm_path = PathJoinSubstitution(
+        #     [
+        #         FindPackagePrefix("ur_client_library"),
+        #         "lib",
+        #         "ur_client_library",
+        #         "tool_communication.py",
+        #     ]
+        # )
+        #
+        # tool_communication_script = ExecuteProcess(
+        #     name="ur_tool_comm",
+        #     condition=IfCondition(
+        #         LaunchConfiguration("use_tool_communication")
+        #     ),
+        #     cmd=[
+        #         tool_comm_path,
+        #         LaunchConfiguration(f"{side}_robot_ip"),
+        #         "--tcp-port",
+        #         LaunchConfiguration(f"{side}_tool_tcp_port"),
+        #         "--device-name",
+        #         LaunchConfiguration(f"{side}_tool_tcp_port"),
+        #     ],
+        #     output="screen",
+        # )
+
         tool_communication = Node(
             package="ur_robot_driver",
             executable="tool_communication.py",
@@ -553,7 +633,7 @@ def generate_launch_description():
                 LaunchConfiguration("log_level"),
             ],
             condition=IfCondition(
-                LaunchConfiguration(f"{side}_use_tool_communication")
+                LaunchConfiguration("use_tool_communication")
             ),
             on_exit=[Shutdown()],
         )
@@ -576,8 +656,8 @@ def generate_launch_description():
 
         other_side = "right" if side == "left" else "left"
         consistent_controllers = [
-            *SHARED_CONTROLLERS_ACTIVE,
-            *[f"{side}_{x}" for x in PER_ARM_CONTROLLERS_ACTIVE],
+            *SHARED_CONTROLLERS_CONSISTENT,
+            *[f"{side}_{x}" for x in PER_ARM_CONTROLLERS_CONSISTENT],
             *[
                 f"{other_side}_{x}"
                 for x in (
