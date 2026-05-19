@@ -308,6 +308,82 @@ class DummyTask(BaseTask):
                     severity="WARN",
                 )
 
+    async def robot_move_to_reset(
+        self,
+        robot_name: str,
+        object_id: str,
+        allow_start_goal_collisions: bool,
+    ):
+        async with self.commander.manipulation_context(robot_name) as ctx:
+            manipulator = ctx._manipulator
+            moveit = manipulator._moveit
+
+            await ctx.manually_atatch_object(object_id)
+
+            config = manipulator._get_reset_config(object_id)
+            assert config is not None
+
+            if not allow_start_goal_collisions:
+                await ctx.plan_and_move(goal=config.start_goal)
+
+            goal = config.reset_request.goals[0]
+
+            collisions_to_allow: list[tuple[str, str]] = []
+            modified_collisions: list[tuple[str, str]] = []
+
+            if config.object_allowed_collision_ids is not None:
+                collisions_to_allow.extend(
+                    [
+                        (object_id, x)
+                        for x in config.object_allowed_collision_ids
+                    ]
+                )
+
+            if config.additional_allowed_collisions is not None:
+                collisions_to_allow.extend(
+                    config.additional_allowed_collisions
+                )
+
+            if len(collisions_to_allow) > 0:
+                modified_collisions = moveit.allow_collision(
+                    *zip(*collisions_to_allow)
+                )
+            try:
+                if allow_start_goal_collisions:
+                    await ctx.plan_and_move(
+                        goal=config.start_goal,
+                        planning_pipeline="linear",
+                        use_cache=False,
+                        cache_trajectories=False,
+                    )
+                await ctx.plan_and_move(
+                    goal=goal,
+                    planning_pipeline="linear",
+                    use_cache=False,
+                    cache_trajectories=False,
+                )
+            finally:
+                if len(modified_collisions) > 0:
+                    moveit.disallow_collision(*zip(*modified_collisions))
+
+    async def test_move_to_reset(self):
+        allow_start_goal_collisions = True
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(
+                self.robot_move_to_reset(
+                    "left_manipulator",
+                    "big_object_28",
+                    allow_start_goal_collisions,
+                )
+            )
+            tg.create_task(
+                self.robot_move_to_reset(
+                    "right_manipulator",
+                    "big_object_29",
+                    allow_start_goal_collisions,
+                )
+            )
+
     async def run(self) -> None:
         """Run one or more of the tests"""
         # await self.test_teensy_latency()
@@ -318,4 +394,5 @@ class DummyTask(BaseTask):
         # await self.test_sound()
         # await self.test_smooth_pursuit()
         # await self.test_link_position()
-        await self.test_object_fetch_return()
+        # await self.test_object_fetch_return()
+        await self.test_move_to_reset()

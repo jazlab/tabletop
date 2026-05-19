@@ -126,7 +126,7 @@ def declare_arguments():
         # Commander sigterm timeout
         DeclareLaunchArgument(
             "commander_sigterm_timeout",
-            default_value="30",
+            default_value="10",
             description="Sigterm timeout for commander (set high so we have a chance to cleanup)",
         ),
         # Log levels

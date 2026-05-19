@@ -123,7 +123,7 @@
         allowed_duration_scaling: 1.5
         allowed_duration_margin: 0.5
         allowed_start_tolerance: 0.02 # radians
-        allowed_end_tolerance: 0.006 # radians
+        allowed_end_tolerance: 0.01 # radians
         moved_tolerance: 0.02 # radians
       test_object_attached:
         enable: false
@@ -133,7 +133,7 @@
         effort_threshold: -1.615
         greater_than: false
       detach_velocity_scaling_factor: 0.3
-      skip_idle_on_return: true
+      skip_idle_on_return: false
       skip_fetched_on_fetch: false
       mount_collision_ids:
         - rig

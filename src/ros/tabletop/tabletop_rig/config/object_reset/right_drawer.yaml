@@ -6,14 +6,14 @@ start_goal: !PoseStamped
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [-0.0375, 0.0, 0.0]
+      position: [-0.022, 0.0, 0.0]
       rpy: [0.0, 0.0, 0.0]
       frame_id: right_drawer_station/pad
     - !PoseStamped
       position: [-0.1, 0.0, 0.0]
       rpy: [0.0, 0.0, 0.0]
       frame_id: right_drawer_station/pad
-  acceleration_scaling_factor: 0.5
+  acceleration_scaling_factor: 0.3
 object_allowed_collision_ids:
   - right_drawer_station
 additional_allowed_collisions:

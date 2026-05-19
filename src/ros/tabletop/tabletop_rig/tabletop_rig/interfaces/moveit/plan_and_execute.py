@@ -602,6 +602,8 @@ class PlanAndExecuteInterface(BaseInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Retrieve trajectory from cache or plan a trajectory"""
+        self.log("Planning single trajectory", severity="DEBUG")
+
         request = deepcopy(request)
 
         # Transform goal to world frame or valid robot state
@@ -711,6 +713,8 @@ class PlanAndExecuteInterface(BaseInterface):
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
+        self.log("Planning concat trajectory", severity="DEBUG")
+
         request = deepcopy(request)
 
         # Validate request
@@ -963,6 +967,8 @@ class PlanAndExecuteInterface(BaseInterface):
                 result.error_string, group_name=self.group_name
             )
 
+        await asyncio.sleep(0.1)
+
         # Check if final robot state is within the allowed end tolerance of
         # trajectory end state
         if not all_close_robot_states(
@@ -1103,9 +1109,7 @@ class PlanAndExecuteInterface(BaseInterface):
             PlanningError: If the planning fails.
             ExecutionError: If the execution fails.
         """
-        self.log(
-            "Planning and executing trajectory (with cache)", severity="DEBUG"
-        )
+        self.log("Planning and executing trajectory", severity="DEBUG")
 
         if (
             request is not None and request.start_state is not None

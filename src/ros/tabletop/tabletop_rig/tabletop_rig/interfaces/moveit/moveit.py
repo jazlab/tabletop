@@ -23,11 +23,10 @@ Inheritance Hierarchy:
                 └── MoveItInterface
 """
 
-import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Generator, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from glob import glob
@@ -171,6 +170,8 @@ class MoveItInterface(BaseInterface):
 
         self._exclusive_regions = {}
 
+        # self._init_collision_detector()
+
         self._init_planning_scene()
 
         self._init_exclusive_regions()
@@ -267,7 +268,7 @@ class MoveItInterface(BaseInterface):
     def _init_link_padding(self):
         """Set the link padding for the planning scene."""
         config: dict[str, Any] = self.param("link_padding")
-        with self.planning_scene_rw() as scene:
+        with self.psm.read_write() as scene:
             msg = PlanningSceneMsg(
                 is_diff=True,
                 link_padding=[
@@ -280,7 +281,7 @@ class MoveItInterface(BaseInterface):
 
     def _init_collision_detector(self):
         """Initialize the collision detector."""
-        with self.planning_scene_rw() as scene:
+        with self.psm.read_write() as scene:
             scene.allocate_collision_detector("bullet")
 
     ###########################################################################
@@ -288,35 +289,35 @@ class MoveItInterface(BaseInterface):
     ###########################################################################
 
     @property
-    def planning_scene_monitor(self) -> PlanningSceneMonitor:
+    def psm(self) -> PlanningSceneMonitor:
         """Get the planning scene monitor."""
         return self.moveit_py.get_planning_scene_monitor()
 
-    @contextlib.contextmanager
-    def planning_scene_rw(
-        self,
-    ) -> Generator[PlanningScene, None, None]:
-        """Get the planning scene in read-write mode."""
-        with self.planning_scene_monitor.read_write() as scene:
-            yield scene
-
-    @contextlib.contextmanager
-    def planning_scene_ro(
-        self,
-    ) -> Generator[PlanningScene, None, None]:
-        """Get the planning scene in read-only mode."""
-        with self.planning_scene_monitor.read_only() as scene:
-            yield scene
+    # @contextlib.contextmanager
+    # def planning_scene_rw(
+    #     self,
+    # ) -> Generator[PlanningScene, None, None]:
+    #     """Get the planning scene in read-write mode."""
+    #     with self.psm.read_write() as scene:
+    #         yield scene
+    #
+    # @contextlib.contextmanager
+    # def planning_scene_ro(
+    #     self,
+    # ) -> Generator[PlanningScene, None, None]:
+    #     """Get the planning scene in read-only mode."""
+    #     with self.psm.read_only() as scene:
+    #         yield scene
 
     def get_planning_scene_copy(self) -> PlanningScene:
         """Get a copy of the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             return deepcopy(scene)
 
     @property
     def planning_frame(self) -> str:
         """Get the planning frame from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             planning_frame = scene.planning_frame
             assert planning_frame == "world"
             return planning_frame
@@ -324,7 +325,7 @@ class MoveItInterface(BaseInterface):
     @property
     def collision_object_ids(self) -> list[str]:
         """Get the collision object ids from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
             )
@@ -333,7 +334,7 @@ class MoveItInterface(BaseInterface):
     @property
     def collision_objects(self) -> dict[str, CollisionObject]:
         """Get the collision objects from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
             )
@@ -342,7 +343,7 @@ class MoveItInterface(BaseInterface):
     @property
     def attached_collision_object_ids(self) -> list[str]:
         """Get the attached collision object ids from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             attached_collision_objects: list[AttachedCollisionObject] = (
                 scene.planning_scene_message.robot_state.attached_collision_objects
             )
@@ -351,7 +352,7 @@ class MoveItInterface(BaseInterface):
     @property
     def attached_collision_objects(self) -> dict[str, AttachedCollisionObject]:
         """Get the attached collision objects from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             attached_collision_objects: list[AttachedCollisionObject] = (
                 scene.planning_scene_message.robot_state.attached_collision_objects
             )
@@ -362,7 +363,7 @@ class MoveItInterface(BaseInterface):
     @property
     def collision_matrix_df(self) -> pd.DataFrame:
         """Get the collision matrix as a pandas DataFrame."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             msg: AllowedCollisionMatrixMsg = (
                 scene.planning_scene_message.allowed_collision_matrix
             )
@@ -380,15 +381,18 @@ class MoveItInterface(BaseInterface):
 
     def get_current_state(self) -> RobotState:
         """Get the current state from the planning scene"""
-        now = self.node.get_clock().now()
-        wait_time = self.param("current_state_wait_time")
+        self.log("Getting current state from planning scene", severity="DEBUG")
 
-        if not self.planning_scene_monitor.wait_for_current_robot_state(
-            now, wait_time
-        ):
-            raise RuntimeError("Could not get current robot state")
+        # TODO: Should probably use this
+        # now = self.node.get_clock().now()
+        # wait_time = self.param("current_state_wait_time")
+        #
+        # if not self.planning_scene_monitor.wait_for_current_robot_state(
+        #     now, wait_time
+        # ):
+        #     raise RuntimeError("Could not get current robot state")
 
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             return deepcopy(scene.current_state)
 
     def get_joint_names(self, group_name: str) -> list[str]:
@@ -421,7 +425,7 @@ class MoveItInterface(BaseInterface):
         assert set(joint_positions.keys()) == set(
             self.get_joint_names(group_name)
         )
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             robot_state = deepcopy(scene.current_state)
 
         robot_state.joint_positions = joint_positions
@@ -447,12 +451,12 @@ class MoveItInterface(BaseInterface):
         """
         Get the frame transform for a given frame id from the planning scene.
         """
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             if not scene.knows_frame_transform(frame_id):
                 raise ValueError(f"Frame transform to {frame_id} is undefined")
             tf = scene.get_frame_transform(frame_id)
             assert (
-                frame_id == self.planning_frame
+                frame_id == scene.planning_frame
                 or not (tf == identity_matrix()).all()
             )
             return tf
@@ -634,14 +638,14 @@ class MoveItInterface(BaseInterface):
     def save_planning_scene(self, path: str):
         """Save the planning scene to a file."""
         self.log(f"Saving planning scene to {path}")
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             if not scene.save_geometry_to_file(path):
                 raise RuntimeError("Could not save planning scene to file")
 
     def load_planning_scene(self, path: str):
         """Load the planning scene from a file."""
         self.log(f"Loading planning scene from {path}")
-        with self.planning_scene_rw() as scene:
+        with self.psm.read_write() as scene:
             if not scene.load_geometry_from_file(path):
                 raise RuntimeError("Could not load planning scene from file")
             scene.current_state.update()
@@ -730,7 +734,7 @@ class MoveItInterface(BaseInterface):
 
     def get_collision_object(self, object_id: str) -> CollisionObject:
         """Get a collision object from the planning scene."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
             )
@@ -751,7 +755,7 @@ class MoveItInterface(BaseInterface):
     #     request.cost = False
     #     request.verbose = True
     #
-    #     with self.planning_scene_ro() as scene:
+    #     with self.psm.read_only() as scene:
     #         result = CollisionResult()
     #         scene.check_collision(request, result)
     #         return result
@@ -762,7 +766,7 @@ class MoveItInterface(BaseInterface):
     ) -> bool:
         """Check if the current state of the planning scene is ."""
 
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             return scene.is_state_valid(
                 robot_state, joint_model_group_name=group_name, verbose=verbose
             )
@@ -778,23 +782,28 @@ class MoveItInterface(BaseInterface):
         """
         group_name = trajectory.joint_model_group_name
 
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             return scene.is_path_valid(
                 trajectory,
                 joint_model_group_name=group_name,
                 verbose=verbose,
+                invalid_index=[],
             )
 
     def _parse_collision_matrix_entry(
-        self, success: bool, allowed_collision_type: str
+        self, entry_found: bool, allowed_collision_type: str
     ) -> bool:
         """Parse the collision matrix entry for two collision objects."""
-        assert success or allowed_collision_type == "NEVER", (
-            "Inconsistent collision matrix entry"
-        )
-        if allowed_collision_type == "ALWAYS":
+        if not entry_found:
+            assert allowed_collision_type in ("UNKNOWN", "NEVER"), (
+                "Inconsistent collision matrix entry | "
+                f"entry_found: {entry_found}, "
+                f"allowed_collision_type: {allowed_collision_type}"
+            )
+            return False
+        elif allowed_collision_type == "ALWAYS":
             return True
-        elif allowed_collision_type == "NEVER":
+        elif allowed_collision_type in "NEVER":
             return False
         else:
             raise ValueError(
@@ -803,11 +812,11 @@ class MoveItInterface(BaseInterface):
 
     def is_collision_allowed(self, id_0: str, id_1: str) -> bool:
         """Check if collision is allowed between two collision objects."""
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             matrix: AllowedCollisionMatrix = scene.allowed_collision_matrix
-            success, allowed_collision_type = matrix.get_entry(id_0, id_1)
+            entry_found, allowed_collision_type = matrix.get_entry(id_0, id_1)
             return self._parse_collision_matrix_entry(
-                success, allowed_collision_type
+                entry_found, allowed_collision_type
             )
 
     def _modify_collision_matrix(
@@ -858,7 +867,7 @@ class MoveItInterface(BaseInterface):
 
         # Modify the collision matrix
         modified: list[tuple[str, str]] = []
-        with self.planning_scene_rw() as scene:
+        with self.psm.read_write() as scene:
             matrix: AllowedCollisionMatrix = scene.allowed_collision_matrix
             for x, y in zip(ids_0, ids_1):
                 success, allowed_collision_type = matrix.get_entry(x, y)
@@ -882,6 +891,8 @@ class MoveItInterface(BaseInterface):
 
             scene.current_state.update()
 
+        self.log(f"Modified collision pairs: {modified}", severity="DEBUG")
+
         return modified
 
     def allow_collision(
@@ -894,6 +905,10 @@ class MoveItInterface(BaseInterface):
         See Also:
             `_modify_collision_matrix` for argument and return value details
         """
+        self.log(
+            f"Disallowing collision between {id_0} and {id_1}",
+            severity="DEBUG",
+        )
         return self._modify_collision_matrix(id_0, id_1, allow=True)
 
     def disallow_collision(
@@ -906,6 +921,9 @@ class MoveItInterface(BaseInterface):
         See Also:
             `_modify_collision_matrix` for argument and return value details
         """
+        self.log(
+            f"Allowing collision between {id_0} and {id_1}", severity="DEBUG"
+        )
         return self._modify_collision_matrix(id_0, id_1, allow=False)
 
     def process_add_collision_object(
@@ -953,9 +971,7 @@ class MoveItInterface(BaseInterface):
                 color = object_color_msg(collision_object.id, color)
 
         # Add collision object to the planning scene
-        self.planning_scene_monitor.process_collision_object(
-            collision_object, color
-        )
+        self.psm.process_collision_object(collision_object, color)
 
         # Allow collision with provided ids
         if allowed_collision_ids is not None:
@@ -1236,9 +1252,7 @@ class MoveItInterface(BaseInterface):
             operation="ADD",
             touch_links=touch_links,
         )
-        self.planning_scene_monitor.process_attached_collision_object(
-            attached_collision_object
-        )
+        self.psm.process_attached_collision_object(attached_collision_object)
 
     def detach_collision_object(self, object_id: str, link_name: str = ""):
         """Detach an object from the robot."""
@@ -1248,9 +1262,7 @@ class MoveItInterface(BaseInterface):
             operation="REMOVE",
             link_name=link_name,
         )
-        self.planning_scene_monitor.process_attached_collision_object(
-            attached_collision_object
-        )
+        self.psm.process_attached_collision_object(attached_collision_object)
 
     def detach_all_collision_objects(self):
         """Detach all collision objects from the robot."""
@@ -1265,7 +1277,7 @@ class MoveItInterface(BaseInterface):
         collision_object = CollisionObject(
             id=object_id, operation=CollisionObject.REMOVE
         )
-        self.planning_scene_monitor.process_collision_object(collision_object)
+        self.psm.process_collision_object(collision_object)
 
     def remove_all_collision_objects(self):
         """Remove all collision objects from the planning scene."""
@@ -1273,7 +1285,7 @@ class MoveItInterface(BaseInterface):
 
         self.detach_all_collision_objects()
 
-        with self.planning_scene_rw() as scene:
+        with self.psm.read_write() as scene:
             scene.remove_all_collision_objects()
             scene.current_state.update()
 
@@ -1294,7 +1306,7 @@ class MoveItInterface(BaseInterface):
         collision_object.pose = pose_stamped.pose
         collision_object.operation = CollisionObject.MOVE
 
-        self.planning_scene_monitor.process_collision_object(collision_object)
+        self.psm.process_collision_object(collision_object)
 
     ###########################################################################
     ########## Exclusive Regions ##############################################
@@ -1485,7 +1497,7 @@ class MoveItInterface(BaseInterface):
             return
 
         self.log("Logging planning scene", severity=severity)
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
 
             for collision_object in planning_scene_msg.world.collision_objects:
@@ -1527,7 +1539,7 @@ class MoveItInterface(BaseInterface):
             return
 
         self.log("Logging collision objects", severity=severity)
-        with self.planning_scene_ro() as scene:
+        with self.psm.read_only() as scene:
             planning_scene_msg: PlanningSceneMsg = scene.planning_scene_message
             for collision_object in planning_scene_msg.world.collision_objects:
                 collision_object.meshes = []

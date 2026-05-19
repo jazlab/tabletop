@@ -31,6 +31,7 @@ import os
 import pickle
 import traceback
 from collections.abc import Callable
+from copy import deepcopy
 from enum import IntEnum
 from glob import glob
 from typing import Any, NamedTuple, Optional
@@ -1076,20 +1077,19 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if pre_reset_allow_collisions:
                 await self.plan_and_execute(
                     goal=config.start_goal,
-                    group_name=self.group_name,
                     planning_pipeline="linear",
+                    use_cache=False,
                     cache_trajectories=False,
                 )
 
-            kwargs = await self.plan_and_execute(
+            reset_request = deepcopy(config.reset_request)
+            reset_request.use_cache = False
+            await self.plan_and_execute(
                 config.reset_request, cache_trajectories=False
             )
         finally:
             if len(modified_collisions) > 0:
                 self._moveit.disallow_collision(*zip(*modified_collisions))
-
-        if cache_trajectories and kwargs is not None:
-            cache_kwargs.extend(kwargs)
 
         self._manipulation_state = ManipulationState.RESETTED
 
