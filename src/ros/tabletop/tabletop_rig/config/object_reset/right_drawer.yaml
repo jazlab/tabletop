@@ -1,23 +1,23 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [-0.1, 0.0, 0.0]
+  position: [-0.1, 0.0, -0.07]
   rpy: [0.0, 0.0, 0.0]
-  frame_id: right_drawer_station/pad
+  frame_id: right_reset_station/drawer
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [-0.022, 0.0, 0.0]
+      position: [-0.022, 0.0, -0.07]
       rpy: [0.0, 0.0, 0.0]
-      frame_id: right_drawer_station/pad
+      frame_id: right_reset_station/drawer
     - !PoseStamped
-      position: [-0.1, 0.0, 0.0]
+      position: [-0.1, 0.0, -0.07]
       rpy: [0.0, 0.0, 0.0]
-      frame_id: right_drawer_station/pad
+      frame_id: right_reset_station/drawer
+  velocity_scaling_factor: 0.3
   acceleration_scaling_factor: 0.3
 object_allowed_collision_ids:
-  - right_drawer_station
+  - right_reset_station
+  - right_reset_bar
 additional_allowed_collisions:
-  - [right_eef_sphere, right_drawer_station]
-  - [right_eef_link, right_drawer_station]
-  - [right_wrist_2_link, right_drawer_station]
-  - [right_wrist_3_link, right_drawer_station]
+  - [right_eef_sphere, right_reset_station]
+  - [right_eef_sphere, right_reset_bar]

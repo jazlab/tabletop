@@ -11,7 +11,11 @@
   "mounts": [
     "source=claude-code-config-${devcontainerId},target=/home/mules/.claude,type=volume"
   ],
-  "postCreateCommand": "(command -v pre-commit && pre-commit install-hooks); sudo chown -R mules:mules /home/mules/.claude",
+  "postCreateCommand": [
+    "bash",
+    "-c",
+    "cd /tabletop && source /tabletop/setup.bash && (command -v pre-commit && pre-commit install-hooks; sudo chown -R mules:mules /home/mules/.claude)"
+  ],
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "instalZsh": false

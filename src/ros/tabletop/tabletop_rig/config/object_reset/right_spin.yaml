@@ -1,0 +1,43 @@
+!ObjectResetConfig
+start_goal: !PoseStamped
+  position: [-0.2, 0.0, 0.074]
+  rpy: [1.5707, -5.4978, 1.5707]
+  frame_id: right_reset_station/spike
+reset_request: !ConcatPlanRequest
+  goals:
+    # Move forward into drawer station
+    - !PoseStamped
+      position: [-0.075, 0.0, 0.074]
+      rpy: [1.5707, -5.4978, 1.5707]
+      frame_id: right_reset_station/spike
+
+    # 360 deg spin in place: 8 x 45 deg about roll axis
+    - !PoseStamped
+      position: [-0.075, 0.0, 0.074]
+      rpy: [1.5707, -3.927, 1.5707]
+      frame_id: right_reset_station/spike
+    - !PoseStamped
+      position: [-0.075, 0.0, 0.074]
+      rpy: [1.5707, -2.3562, 1.5707]
+      frame_id: right_reset_station/spike
+    - !PoseStamped
+      position: [-0.075, 0.0, 0.074]
+      rpy: [1.5707, -0.7854, 1.5707]
+      frame_id: right_reset_station/spike
+    - !PoseStamped
+      position: [-0.075, 0.0, 0.074]
+      rpy: [1.5707, 0.7854, 1.5707]
+      frame_id: right_reset_station/spike
+
+    # Retract to start position
+    - !PoseStamped
+      position: [-0.2, 0.0, 0.074]
+      rpy: [1.5707, 0.7854, 1.5707]
+      frame_id: right_reset_station/spike
+  # velocity_scaling_factor: 0.3
+  acceleration_scaling_factor: 0.3
+object_allowed_collision_ids:
+  - right_reset_station
+  - right_reset_bar
+additional_allowed_collisions:
+  - [right_eef_sphere, right_reset_station]

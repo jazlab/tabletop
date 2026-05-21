@@ -238,24 +238,25 @@ class MoveItInterface(BaseInterface):
 
         self.log("Initializing planning scene from config")
 
+        # Add plane collision objects
+        if "planes" in config["rig"]:
+            for object_id, kwargs in config["rig"]["planes"].items():
+                self.add_plane_collision_object(object_id=object_id, **kwargs)
+
         # Add primitive collision objects
-        if "primitives" in config:
-            for object_id, kwargs in config["primitives"].items():
+        if "primitives" in config["rig"]:
+            for object_id, kwargs in config["rig"]["primitives"].items():
                 self.add_primitive_collision_object(
                     object_id=object_id, **kwargs
                 )
 
-        # Add plane collision objects
-        if "planes" in config:
-            for object_id, kwargs in config["planes"].items():
-                self.add_plane_collision_object(object_id=object_id, **kwargs)
+        # Add rig mesh collision objects
+        if "meshes" in config["rig"]:
+            for object_id, kwargs in config["rig"]["meshes"].items():
+                self.add_mesh_collision_object(object_id=object_id, **kwargs)
 
         # Add dynamic object meshes
-        self.add_grid_mesh_collision_objects(**config["object_meshes"])
-
-        # Add rig mesh collision objects
-        for object_id, kwargs in config["rig_meshes"].items():
-            self.add_mesh_collision_object(object_id=object_id, **kwargs)
+        self.add_grid_mesh_collision_objects(**config["grid_objects"])
 
         # Save planning scene to file
         os.makedirs(cache_dir, exist_ok=True)
@@ -545,14 +546,15 @@ class MoveItInterface(BaseInterface):
         mesh_paths: list[str] = []
 
         # Rig meshes
-        for kwargs in config["rig_meshes"].values():
-            mesh_paths.append(kwargs["path"])
+        if "meshes" in config["rig"]:
+            for kwargs in config["rig"]["meshes"].values():
+                mesh_paths.append(kwargs["path"])
 
         # Grid object meshes
-        mesh_dir = config["object_meshes"]["mesh_dir"]
+        mesh_dir = config["grid_objects"]["mesh_dir"]
         object_id_to_path = self._grid_object_id_to_path(mesh_dir)
 
-        for kwargs in config["object_meshes"]["object_kwargs"].values():
+        for kwargs in config["grid_objects"]["object_kwargs"].values():
             object_id = kwargs["object_id"]
             mesh_paths.append(object_id_to_path[object_id])
 
@@ -573,23 +575,10 @@ class MoveItInterface(BaseInterface):
 
         hash_algorithm = hashlib.md5()
 
-        # Rig mesh collision objects
-        keys_to_hash = ["pose_stamped", "correction", "scale"]
-        for object_id, kwargs in sorted(config["rig_meshes"].items()):
-            hash_algorithm.update(object_id.encode("utf-8"))
-            with open(kwargs["path"], "rb") as f:
-                while chunk := f.read(8192):
-                    hash_algorithm.update(chunk)
-            for key in keys_to_hash:
-                if key in kwargs:
-                    hash_algorithm.update(
-                        json.dumps(kwargs[key], sort_keys=True).encode("utf-8")
-                    )
-
         # Plane collision objects
-        if "planes" in config:
+        if "planes" in config["rig"]:
             keys_to_hash = ["pose_stamped", "coef"]
-            for object_id, kwargs in sorted(config["planes"].items()):
+            for object_id, kwargs in sorted(config["rig"]["planes"].items()):
                 hash_algorithm.update(object_id.encode("utf-8"))
                 for key in keys_to_hash:
                     if key in kwargs:
@@ -600,10 +589,28 @@ class MoveItInterface(BaseInterface):
                         )
 
         # Primitive collision objects
-        if "primitives" in config:
+        if "primitives" in config["rig"]:
             keys_to_hash = ["pose_stamped", "type", "dimensions"]
-            for object_id, kwargs in sorted(config["primitives"].items()):
+            for object_id, kwargs in sorted(
+                config["rig"]["primitives"].items()
+            ):
                 hash_algorithm.update(object_id.encode("utf-8"))
+                for key in keys_to_hash:
+                    if key in kwargs:
+                        hash_algorithm.update(
+                            json.dumps(kwargs[key], sort_keys=True).encode(
+                                "utf-8"
+                            )
+                        )
+
+        # Rig mesh collision objects
+        if "meshes" in config["rig"]:
+            keys_to_hash = ["pose_stamped", "correction", "scale"]
+            for object_id, kwargs in sorted(config["rig"]["meshes"].items()):
+                hash_algorithm.update(object_id.encode("utf-8"))
+                with open(kwargs["path"], "rb") as f:
+                    while chunk := f.read(8192):
+                        hash_algorithm.update(chunk)
                 for key in keys_to_hash:
                     if key in kwargs:
                         hash_algorithm.update(
@@ -615,7 +622,7 @@ class MoveItInterface(BaseInterface):
         # Dynamic collision objects
         keys_to_hash = ["pose_stamped"]
         for _, kwargs in sorted(
-            config["object_meshes"]["object_kwargs"].items()
+            config["grid_objects"]["object_kwargs"].items()
         ):
             for key in keys_to_hash:
                 if key in kwargs:

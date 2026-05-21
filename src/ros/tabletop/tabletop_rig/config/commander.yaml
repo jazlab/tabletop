@@ -277,10 +277,10 @@
         - 4,2
       reset_config_map:
         big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_spin.yaml
         big_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         big_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
-        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
+        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_spin.yaml
         big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         big_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         big_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
@@ -417,10 +417,10 @@
         - 9,2
       reset_config_map:
         big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_spin.yaml
         big_object_2: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         big_object_3: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
-        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
+        big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/right_spin.yaml
         big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         big_object_6: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         big_object_7: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
@@ -542,139 +542,160 @@
       planning_scene:
         cache_dir: $TABLETOP_CACHE_DIR/planning_scene
         use_saved_scene: true
-        primitives:
-          robot_platform:
-            type: BOX
-            dimensions: [0.914, 0.914, 0.3085]
-            pose_stamped:
-              position: [0.9525, 1.0845, 0.15425]
-            allowed_collision_ids:
-              - left_base_link_inertia
-              - right_base_link_inertia
-            color: [1.0, 1.0, 1.0, 0.5]
-          robot_divider:
-            type: BOX
-            dimensions: [0.001, 0.814, 1.0]
-            pose_stamped:
-              position: [0.9525, 1.1345, 0.8085]
-            allowed_collision_ids:
-              - left_eef_sphere
-              - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.2]
-          robot_divider_front:
-            type: BOX
-            dimensions: [0.001, 0.4975, 0.5]
-            pose_stamped:
-              position: [0.9525, 0.4788, 1.025]
-            allowed_collision_ids:
-              - left_eef_sphere
-              - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.2]
-          safety_laser_boundary:
-            type: BOX
-            dimensions: [1.8288, 0.001, 0.7]
-            pose_stamped:
-              position: [0.9525, 0.23, 0.35]
-            color: [1.0, 0.0, 0.0, 0.1]
-          left_projector_safety_box:
-            type: BOX
-            dimensions: [0.5, 0.35, 1.25]
-            pose_stamped:
-              position: [0.25, 0.175, 0.625]
-            color: [1.0, 0.0, 0.0, 0.1]
-          right_projector_safety_box:
-            type: BOX
-            dimensions: [0.5, 0.35, 1.25]
-            pose_stamped:
-              position: [1.655, 0.175, 0.625]
-            color: [1.0, 0.0, 0.0, 0.1]
-          optitrack_safety_box:
-            type: BOX
-            dimensions: [1.8288, 0.52, 0.2]
-            pose_stamped:
-              position: [0.9525, 0.26, 1.25]
-            color: [1.0, 0.0, 0.0, 0.1]
-          floor:
-            type: BOX
-            dimensions: [1.8288, 1.8288, 0.0]
-            pose_stamped:
-              position: [0.9525, 0.9779, 0.0]
-            color: [1.0, 1.0, 1.0, 0.1]
-          front_wall:
-            type: BOX
-            dimensions: [1.8288, 0.0, 2.0]
-            pose_stamped:
-              position: [0.9525, 0.0635, 1.0]
-            color: [1.0, 1.0, 1.0, 0.1]
-          back_wall:
-            type: BOX
-            dimensions: [1.8288, 0.0, 2.0]
-            pose_stamped:
-              position: [0.9525, 1.8923, 1.0]
-            color: [1.0, 1.0, 1.0, 0.1]
-          left_wall:
-            type: BOX
-            dimensions: [0.0, 1.8288, 2.0]
-            pose_stamped:
-              position: [0.0381, 0.9779, 1.0]
-            color: [1.0, 1.0, 1.0, 0.1]
-          right_wall:
-            type: BOX
-            dimensions: [0.0, 1.8288, 2.0]
-            pose_stamped:
-              position: [1.8669, 0.9779, 1.0]
-            color: [1.0, 1.0, 1.0, 0.1]
-          left_drawer_station:
-            type: BOX
-            dimensions: [0.1, 0.1, 1.18]
-            pose_stamped:
-              position: [0.0881, 1.0, 0.59]
-            color: [0.0, 0.0, 1.0, 0.5]
-            subframes:
-              pad:
-                position: [0.05, 0.0, 0.0]
-                rpy: [0.0, 0.0, 3.1415] # x facing into object
-          right_drawer_station:
-            type: BOX
-            dimensions: [0.1, 0.1, 1.18]
-            pose_stamped:
-              position: [1.8169, 1.0, 0.59]
-            color: [0.0, 0.0, 1.0, 0.5]
-            subframes:
-              pad:
-                position: [-0.05, 0.0, 0.0]
-                rpy: [0.0, 0.0, 0.0] # x facing into object
-          left_presentation_wall:
-            type: BOX
-            dimensions: [0.001, 0.7036, 0.8]
-            pose_stamped:
-              position: [0.7038, 0.4788, 0.4]
-              rpy: [0.0, 0.0, -0.7854]
-            allowed_collision_ids:
-              - left_eef_sphere
-              - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.2]
-          right_presentation_wall:
-            type: BOX
-            dimensions: [0.001, 0.7036, 0.8]
-            pose_stamped:
-              position: [1.2013, 0.4788, 0.4]
-              rpy: [0.0, 0.0, 0.7854]
-            allowed_collision_ids:
-              - left_eef_sphere
-              - right_eef_sphere
-            color: [1.0, 0.0, 0.0, 0.2]
-        rig_meshes:
-          rig:
-            path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
-            simplification: bounding_primitive
-            pose_stamped:
-              position: [0.0, 0.0, 0.0]
-            allowed_collision_ids:
-              - left_base_link_inertia
-              - right_base_link_inertia
-            color: [1.0, 1.0, 1.0, 0.5]
-        object_meshes:
+        rig:
+          primitives:
+            robot_platform:
+              type: BOX
+              dimensions: [0.914, 0.914, 0.3085]
+              pose_stamped:
+                position: [0.9525, 1.0845, 0.15425]
+              allowed_collision_ids:
+                - left_base_link_inertia
+                - right_base_link_inertia
+              color: [1.0, 1.0, 1.0, 0.5]
+            robot_divider:
+              type: BOX
+              dimensions: [0.001, 0.814, 1.0]
+              pose_stamped:
+                position: [0.9525, 1.1345, 0.8085]
+              allowed_collision_ids:
+                - left_eef_sphere
+                - right_eef_sphere
+              color: [1.0, 0.0, 0.0, 0.2]
+            robot_divider_front:
+              type: BOX
+              dimensions: [0.001, 0.4975, 0.5]
+              pose_stamped:
+                position: [0.9525, 0.4788, 1.025]
+              allowed_collision_ids:
+                - left_eef_sphere
+                - right_eef_sphere
+              color: [1.0, 0.0, 0.0, 0.2]
+            safety_laser_boundary:
+              type: BOX
+              dimensions: [1.8288, 0.001, 0.7]
+              pose_stamped:
+                position: [0.9525, 0.23, 0.35]
+              color: [1.0, 0.0, 0.0, 0.1]
+            left_projector_safety_box:
+              type: BOX
+              dimensions: [0.5, 0.35, 1.25]
+              pose_stamped:
+                position: [0.25, 0.175, 0.625]
+              color: [1.0, 0.0, 0.0, 0.1]
+            right_projector_safety_box:
+              type: BOX
+              dimensions: [0.5, 0.35, 1.25]
+              pose_stamped:
+                position: [1.655, 0.175, 0.625]
+              color: [1.0, 0.0, 0.0, 0.1]
+            optitrack_safety_box:
+              type: BOX
+              dimensions: [1.8288, 0.52, 0.2]
+              pose_stamped:
+                position: [0.9525, 0.26, 1.25]
+              color: [1.0, 0.0, 0.0, 0.1]
+            floor:
+              type: BOX
+              dimensions: [1.8288, 1.8288, 0.0]
+              pose_stamped:
+                position: [0.9525, 0.9779, 0.0]
+              color: [1.0, 1.0, 1.0, 0.1]
+            front_wall:
+              type: BOX
+              dimensions: [1.8288, 0.0, 2.0]
+              pose_stamped:
+                position: [0.9525, 0.0635, 1.0]
+              color: [1.0, 1.0, 1.0, 0.1]
+            back_wall:
+              type: BOX
+              dimensions: [1.8288, 0.0, 2.0]
+              pose_stamped:
+                position: [0.9525, 1.8923, 1.0]
+              color: [1.0, 1.0, 1.0, 0.1]
+            left_wall:
+              type: BOX
+              dimensions: [0.0, 1.8288, 2.0]
+              pose_stamped:
+                position: [0.0381, 0.9779, 1.0]
+              color: [1.0, 1.0, 1.0, 0.1]
+            right_wall:
+              type: BOX
+              dimensions: [0.0, 1.8288, 2.0]
+              pose_stamped:
+                position: [1.8669, 0.9779, 1.0]
+              color: [1.0, 1.0, 1.0, 0.1]
+            left_reset_bar:
+              type: BOX
+              dimensions: [0.05, 0.05, 1.18]
+              pose_stamped:
+                position: [0.0856, 1.0, 0.59]
+              color: [0.0, 0.0, 1.0, 0.5]
+            right_reset_bar:
+              type: BOX
+              dimensions: [0.05, 0.05, 1.18]
+              pose_stamped:
+                position: [1.8194, 1.0, 0.59]
+              color: [0.0, 0.0, 1.0, 0.5]
+            left_presentation_wall:
+              type: BOX
+              dimensions: [0.001, 0.7036, 0.8]
+              pose_stamped:
+                position: [0.7038, 0.4788, 0.4]
+                rpy: [0.0, 0.0, -0.7854]
+              allowed_collision_ids:
+                - left_eef_sphere
+                - right_eef_sphere
+              color: [1.0, 0.0, 0.0, 0.2]
+            right_presentation_wall:
+              type: BOX
+              dimensions: [0.001, 0.7036, 0.8]
+              pose_stamped:
+                position: [1.2013, 0.4788, 0.4]
+                rpy: [0.0, 0.0, 0.7854]
+              allowed_collision_ids:
+                - left_eef_sphere
+                - right_eef_sphere
+              color: [1.0, 0.0, 0.0, 0.2]
+          meshes:
+            rig:
+              path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
+              simplification: bounding_primitive
+              pose_stamped:
+                position: [0.0, 0.0, 0.0]
+              allowed_collision_ids:
+                - left_base_link_inertia
+                - right_base_link_inertia
+              color: [1.0, 1.0, 1.0, 0.5]
+            left_reset_station:
+              path: $(find-pkg-share tabletop_rig)/meshes/rig/reset_station.step
+              simplification: bounding_primitive
+              pose_stamped:
+                position: [0.1106, 1.0, 0.66]
+                rpy: [0.0, 0.0, 0.0]
+              color: [0.0, 0.0, 1.0, 0.5]
+              subframes:
+                drawer:
+                  position: [0.0275, 0.0, 0.0]
+                  rpy: [0.0, 0.0, 0.0] # aligned with world frame rotation
+                spike:
+                  position: [0.0575, 0.0, 0.075]
+                  rpy: [0.0, 0.0, 0.0] # aligned with world frame rotation
+            right_reset_station:
+              path: $(find-pkg-share tabletop_rig)/meshes/rig/reset_station.step
+              simplification: bounding_primitive
+              pose_stamped:
+                position: [1.7944, 1.0, 0.66]
+                rpy: [0.0, 0.0, 3.1415]
+              color: [0.0, 0.0, 1.0, 0.5]
+              subframes:
+                drawer:
+                  position: [0.0275, 0.0, 0.0]
+                  rpy: [0.0, 0.0, 3.1415] # aligned with world frame rotation
+                spike:
+                  position: [0.0575, 0.0, 0.075]
+                  rpy: [0.0, 0.0, 3.1415] # aligned with world frame rotation
+        grid_objects:
           mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
           common_kwargs:
             # allowed_collision_ids:
