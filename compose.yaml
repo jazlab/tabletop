@@ -218,6 +218,17 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
+  sniffer:
+    extends: ros-base
+    container_name: tabletop-sniffer
+    profiles: !override
+      - real
+    build: !reset null
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    restart: unless-stopped
+    command: tt-launch teensy simulate:=false micro_ros_device:=/dev/ttyUSB0
+
   teensy-sim:
     extends: ros-base
     container_name: tabletop-teensy-sim
