@@ -27,6 +27,7 @@ dependencies = [
   "tqdm>=4.67.1",
   "transformations>=2025.8.1",
   "trimesh[easy,recommend]>=4.7.4",
+  "scapy>=2.7.0",
 ]
 
 [project.scripts]
@@ -36,6 +37,7 @@ tt-gaze-train = "tabletop_py.gaze.train:main"
 tt-gaze-predict = "tabletop_py.gaze.predict:main"
 tt-gaze-visualize = "tabletop_py.gaze.visualize:main"
 tt-flic-client = "tabletop_py.flic.client:main"
+tt-flic-scapy = "tabletop_py.flic.scapy_client:main"
 
 
 [project.optional-dependencies]

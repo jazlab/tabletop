@@ -56,7 +56,7 @@ import itertools
 import logging
 import struct
 import time
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -340,6 +340,7 @@ class ButtonConnectionChannel:
 
     def on_create_connection_channel_response(
         self,
+        *,
         error: CreateConnectionChannelError,
         connection_status: ConnectionStatus,
     ):
@@ -353,13 +354,14 @@ class ButtonConnectionChannel:
         self._connection_status = connection_status
         self._created_event.set()
 
-    def on_removed(self, removed_reason: RemovedReason):
+    def on_removed(self, *, removed_reason: RemovedReason):
         logger.debug(f"Removed: {removed_reason}")
         self._removed_reason = removed_reason
         self._removed_event.set()
 
     def on_connection_status_changed(
         self,
+        *,
         connection_status: ConnectionStatus,
         disconnect_reason: DisconnectReason,
     ):
@@ -376,6 +378,7 @@ class ButtonConnectionChannel:
 
     def on_button_event(
         self,
+        *,
         click_type: ClickType,
         was_queued: bool,
         time_diff: int,
@@ -392,6 +395,11 @@ class ButtonConnectionChannel:
         if self._ignore_queued and was_queued:
             logger.debug(f"Ignoring queued button event: {msg}")
             return
+
+        if self._button_events[click_type].is_set():
+            logger.debug(
+                f"Ignoring button event for click type {click_type.name} until next awaited: {msg}"
+            )
 
         if click_type in self._log_click_types:
             logger.info(msg)
@@ -442,10 +450,12 @@ class ButtonScanner:
 
     _cnt = itertools.count()
 
-    def __init__(self, log_interval: Optional[float] = None):
+    def __init__(self):
         self._scan_id = next(ButtonScanner._cnt)
-        self._last_log_time = {}
-        self._log_interval = log_interval
+        self._last_time_advertisement_packet: dict[str, Any] = {}
+        self._advertisement_packet_events: defaultdict[str, asyncio.Event] = (
+            defaultdict(asyncio.Event)
+        )
 
     @property
     def scan_id(self):
@@ -453,30 +463,43 @@ class ButtonScanner:
 
     def on_advertisement_packet(
         self,
-        bd_addr,
-        name,
+        *,
+        bd_addr: str,
+        name: str,
         rssi,
-        is_private,
-        already_verified,
-        already_connected_to_this_device,
-        already_connected_to_other_device,
+        is_private: bool,
+        already_verified: bool,
+        already_connected_to_this_device: bool,
+        already_connected_to_other_device: bool,
+        event_time: Any,
     ):
-        now = time.time()
-        if self._log_interval is None or (
-            bd_addr not in self._last_log_time
-            or now - self._last_log_time[bd_addr] >= self._log_interval
-        ):
-            logger.debug(
-                f"Received advertisement packet | "
-                f"bd_addr: {bd_addr}, "
-                f"name: {name}, "
-                f"rssi: {rssi}, "
-                f"is_private: {is_private}, "
-                f"already_verified: {already_verified}, "
-                f"already_connected_to_this_device: {already_connected_to_this_device}, "
-                f"already_connected_to_other_device: {already_connected_to_other_device}"
+        msg = (
+            f"Received advertisement packet | "
+            f"bd_addr: {bd_addr}, "
+            f"name: {name}, "
+            f"rssi: {rssi}, "
+            f"is_private: {is_private}, "
+            f"already_verified: {already_verified}, "
+            f"already_connected_to_this_device: {already_connected_to_this_device}, "
+            f"already_connected_to_other_device: {already_connected_to_other_device}, "
+            f"time: {event_time}"
+        )
+
+        if self._advertisement_packet_events[bd_addr].is_set():
+            logger.info(
+                f"Ignoring advertisement packets for {bd_addr} until next awaited: {msg}"
             )
-            self._last_log_time[bd_addr] = now
+
+        logger.info(msg)
+
+        self._last_time_advertisement_packet[bd_addr] = event_time
+        self._advertisement_packet_events[bd_addr].set()
+
+    async def wait_for_advertisement_packet(self, bd_addr: str) -> Any:
+        """Wait for a button to be pressed."""
+        self._advertisement_packet_events[bd_addr].clear()
+        await self._advertisement_packet_events[bd_addr].wait()
+        return self._last_time_advertisement_packet[bd_addr]
 
 
 class ScanWizard:
@@ -722,11 +745,9 @@ class FlicClient(asyncio.Protocol):
 
     def __init__(
         self,
-        loop: asyncio.AbstractEventLoop,
         max_connection_channels: int = MAX_PENDING_CONNECTIONS,
         time_fn: Callable[[], Any] = time.time,
     ):
-        self._loop = loop
         if max_connection_channels > self.MAX_PENDING_CONNECTIONS:
             raise ValueError(
                 f"max_connection_channels must be less than {self.MAX_PENDING_CONNECTIONS}"
@@ -751,12 +772,12 @@ class FlicClient(asyncio.Protocol):
 
         self._closed_event = asyncio.Event()
 
-        self._last_button_event_cc: dict[
-            ClickType, ButtonConnectionChannel
-        ] = {}
+        self._last_button_event_info: dict[ClickType, tuple[str, Any]] = {}
         self._button_events = {
             click_type: asyncio.Event() for click_type in ClickType
         }
+        self._last_advertisement_packet_info: tuple[str, Any]
+        self._advertisement_packet_event = asyncio.Event()
 
     @property
     def num_connection_channels(self) -> int:
@@ -838,6 +859,7 @@ class FlicClient(asyncio.Protocol):
     def _dispatch_event(self, data: bytes):
         if len(data) == 0:
             return
+        event_time = self.time()
         opcode = data[0]
 
         if opcode >= len(FlicClient._EVENTS):
@@ -850,6 +872,9 @@ class FlicClient(asyncio.Protocol):
         items = (
             FlicClient._EVENT_NAMED_TUPLES[opcode]._make(data_tuple)._asdict()
         )
+
+        # Add event time to items
+        items["event_time"] = event_time
 
         # Process some kind of items whose data type is not supported by struct
         if "bd_addr" in items:
@@ -917,7 +942,6 @@ class FlicClient(asyncio.Protocol):
                 pass  # EvtButtonDeleted starts with EvtButton but has no click_type
             case _ if event_name.startswith("EvtButton"):
                 items["click_type"] = ClickType(items["click_type"])
-                items["event_time"] = self.time()
 
         # Process event
         match event_name:
@@ -935,6 +959,7 @@ class FlicClient(asyncio.Protocol):
                     already_connected_to_other_device=items[
                         "already_connected_to_other_device"
                     ],
+                    event_time=items["event_time"],
                 )
             case "EvtCreateConnectionChannelResponse":
                 self.on_create_connection_channel_response(
@@ -1152,18 +1177,25 @@ class FlicClient(asyncio.Protocol):
         already_verified: bool,
         already_connected_to_this_device: bool,
         already_connected_to_other_device: bool,
+        event_time: Any,
     ):
         scanner = self._scanners[scan_id]
-        if scanner is not None:
-            scanner.on_advertisement_packet(
-                bd_addr=bd_addr,
-                name=name,
-                rssi=rssi,
-                is_private=is_private,
-                already_verified=already_verified,
-                already_connected_to_this_device=already_connected_to_this_device,
-                already_connected_to_other_device=already_connected_to_other_device,
-            )
+        scanner.on_advertisement_packet(
+            bd_addr=bd_addr,
+            name=name,
+            rssi=rssi,
+            is_private=is_private,
+            already_verified=already_verified,
+            already_connected_to_this_device=already_connected_to_this_device,
+            already_connected_to_other_device=already_connected_to_other_device,
+            event_time=event_time,
+        )
+
+        if self._advertisement_packet_event.is_set():
+            return
+
+        self._last_advertisement_packet_info = (bd_addr, event_time)
+        self._advertisement_packet_event.set()
 
     def on_create_connection_channel_response(
         self,
@@ -1171,15 +1203,15 @@ class FlicClient(asyncio.Protocol):
         error: CreateConnectionChannelError,
         connection_status: ConnectionStatus,
     ):
-        channel = self._pending_connection_channels[conn_id]
-        channel.on_create_connection_channel_response(
+        cc = self._pending_connection_channels[conn_id]
+        cc.on_create_connection_channel_response(
             error=error,
             connection_status=connection_status,
         )
         del self._pending_connection_channels[conn_id]
 
         if error == CreateConnectionChannelError.NoError:
-            self._connection_channels[conn_id] = channel
+            self._connection_channels[conn_id] = cc
         else:
             logger.warning(f"Failed to create connection channel: {error}")
 
@@ -1189,8 +1221,8 @@ class FlicClient(asyncio.Protocol):
         connection_status: ConnectionStatus,
         disconnect_reason: DisconnectReason,
     ):
-        channel = self._connection_channels[conn_id]
-        channel.on_connection_status_changed(
+        cc = self._connection_channels[conn_id]
+        cc.on_connection_status_changed(
             connection_status=connection_status,
             disconnect_reason=disconnect_reason,
         )
@@ -1203,18 +1235,21 @@ class FlicClient(asyncio.Protocol):
         time_diff: int,
         event_time: Any,
     ):
-        channel = self._connection_channels[conn_id]
-        channel.on_button_event(
+        cc = self._connection_channels[conn_id]
+        cc.on_button_event(
             click_type=click_type,
             was_queued=was_queued,
             time_diff=time_diff,
             event_time=event_time,
         )
 
-        if channel.ignore_queued and was_queued:
+        if cc.ignore_queued and was_queued:
             return
 
-        self._last_button_event_cc[click_type] = channel
+        if self._button_events[click_type].is_set():
+            return
+
+        self._last_button_event_info[click_type] = (cc.bd_addr, event_time)
         self._button_events[click_type].set()
 
     def on_connection_channel_removed(
@@ -1462,7 +1497,7 @@ class FlicClient(asyncio.Protocol):
         """Disconnect all buttons."""
         info = await self.get_info()
         logger.info(
-            f"Disconnecting any of {len(info.bd_addr_of_verified_buttons)} buttons"
+            f"Disconnecting from {len(info.bd_addr_of_verified_buttons)} buttons"
         )
         for bd_addr in info.bd_addr_of_verified_buttons:
             self.force_disconnect(bd_addr)
@@ -1545,15 +1580,17 @@ class FlicClient(asyncio.Protocol):
 
     async def wait_for_button_event(
         self, click_type: ClickType
-    ) -> tuple[ButtonConnectionChannel, Any]:
+    ) -> tuple[str, Any]:
         """Wait for a button to be pressed."""
         self._button_events[click_type].clear()
         await self._button_events[click_type].wait()
+        return self._last_button_event_info[click_type]
 
-        cc = self._last_button_event_cc[click_type]
-        time = cc._last_time_button_event[click_type]
-
-        return cc, time
+    async def wait_for_advertisement_packet(self) -> tuple[str, Any]:
+        """Wait for a button to be pressed."""
+        self._advertisement_packet_event.clear()
+        await self._advertisement_packet_event.wait()
+        return self._last_advertisement_packet_info
 
     ##############################################################
     # Close methods
@@ -1665,10 +1702,7 @@ async def main_async(
 ):
     loop = asyncio.get_event_loop()
     _, client = await loop.create_connection(
-        lambda: FlicClient(
-            loop=loop,
-            max_connection_channels=max_connections,
-        ),
+        lambda: FlicClient(max_connection_channels=max_connections),
         host,
         port,
     )

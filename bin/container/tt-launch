@@ -75,6 +75,16 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
         LAUNCH="tabletop_rig flic.launch.py"
         ;;
+    flic_scapy)
+        # sudo touch /etc/ld.so.conf.d/ros.conf
+        # IFS=':' read -ra ADDR <<< "$LD_LIBRARY_PATH"
+        # for i in "${ADDR[@]}"; do
+        #     sudo echo "$i" >> /etc/ld.so.conf.d/ros.conf
+        # done
+        sudo setcap 'cap_net_raw,cap_net_admin=+eip' /usr/bin/python3.12
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
+        LAUNCH="tabletop_rig flic.launch.py"
+        ;;
     eyelink)
         export ROS_LOG_DIR="$ROS_LOG_DIR/eyelink"
         LAUNCH="tabletop_rig eyelink.launch.py"

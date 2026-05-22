@@ -227,6 +227,17 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
+  flic-scapy:
+    extends: ros-base
+    container_name: tabletop-flic-scapy
+    profiles: !override
+      - real
+    build: !reset null
+    cap_add:
+      - NET_ADMIN
+    # user: root
+    command: tt-launch flic_scapy
+
   flic:
     container_name: tabletop-flic
     extends: ros-base

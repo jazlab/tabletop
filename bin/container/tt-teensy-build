@@ -40,7 +40,6 @@ if [[ $clean = true ]]; then
     print_status "Cleaning microros build directory"
     # rm -rf .pio
     pio run --target clean_microros
-
 fi
 
 print_status "Building Teensy code"

@@ -2265,6 +2265,15 @@ wheels = [
 ]
 
 [[package]]
+name = "scapy"
+version = "2.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/97/7caec64f05eae3d305d83e7cce1ef2f337710513b89efb334f7278202e79/scapy-2.7.0.tar.gz", hash = "sha256:bfc1ef1b93280aea1ddee53be7f74232aa28ac3d891244d41ee85200d24aa446", size = 2412897, upload-time = "2025-12-26T22:10:53.359Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/6f/bd32e5e8adc391063858da17271bb444e4b009842cffa593bca8b2b78af7/scapy-2.7.0-py3-none-any.whl", hash = "sha256:eb22786da92be6fd8e5c694ae5595e4f5b9ac1f4364c9c45986844f3e3063561", size = 2590982, upload-time = "2025-12-26T22:07:48.941Z" },
+]
+
+[[package]]
 name = "scikit-image"
 version = "0.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2432,6 +2441,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv", extra = ["cli"] },
     { name = "pyyaml" },
+    { name = "scapy" },
     { name = "scikit-learn" },
     { name = "sr-research-pylink", marker = "platform_machine == 'x86_64' or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu126') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu130') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu130') or (extra == 'extra-11-tabletop-py-cu128' and extra == 'extra-11-tabletop-py-cu130')" },
     { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-11-tabletop-py-cpu') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu126') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cpu' and extra == 'extra-11-tabletop-py-cu130') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu128') or (extra == 'extra-11-tabletop-py-cu126' and extra == 'extra-11-tabletop-py-cu130') or (extra == 'extra-11-tabletop-py-cu128' and extra == 'extra-11-tabletop-py-cu130')" },
@@ -2485,6 +2495,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-dotenv", extras = ["cli"], specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "scapy", specifier = ">=2.7.0" },
     { name = "scikit-learn", specifier = ">=1.7.1" },
     { name = "sr-research-pylink", marker = "platform_machine == 'x86_64'", specifier = ">=2.1.1145.post1" },
     { name = "torch", specifier = ">=2.8.0" },

@@ -38,7 +38,7 @@ def generate_launch_description():
 
     flic = Node(
         package="tabletop_rig",
-        executable="flic",
+        executable="flic_scapy",
         output="both",
         parameters=[
             {

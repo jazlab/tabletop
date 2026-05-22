@@ -68,6 +68,12 @@ if [ -f "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash" ]; then
     fi
 fi
 
+# Add LD_LIBRARY_PATH paths to ld.so.conf.d and reconfigure
+if [ "$TABLETOP_CONTAINER" = "true" ]; then
+    echo "$LD_LIBRARY_PATH" | tr ':' '\n' | sudo tee /etc/ld.so.conf.d/ros.conf > /dev/null
+    sudo ldconfig
+fi
+
 # Add correct bin directories to PATH based on whether or not setup.bash was called inside the container or not
 export PATH="$TABLETOP_DIR/bin/common:$PATH"
 if [ "$TABLETOP_CONTAINER" = "true" ]; then
