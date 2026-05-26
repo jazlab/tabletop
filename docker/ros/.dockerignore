@@ -1,4 +1,4 @@
 *
 !src/ros/**/package.xml
-src/ros/**/tabletop_teensy/
+src/ros/tabletop/tabletop_micro/
 !docker/ros/entrypoint.sh
