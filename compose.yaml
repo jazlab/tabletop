@@ -5,6 +5,23 @@ x-common: &common
   network_mode: host
 
 services:
+  novnc-image-builder:
+    profiles: [ image-builder ]
+    image: tabletop/novnc
+    build:
+      context: ./docker/novnc
+
+  ros-image-builder:
+    profiles: [ image-builder ]
+    image: tabletop/ros-base
+    build:
+      context: .
+      dockerfile: ./docker/ros/Dockerfile
+      args:
+        - USER_NAME=$USER_NAME
+        - USER_UID=$USER_UID
+        - USER_GID=$USER_GID
+
   autoheal:
     container_name: tabletop-autoheal
     profiles:
@@ -23,13 +40,10 @@ services:
     <<: *common
     container_name: tabletop-novnc
     profiles:
-      - builder
       - real
       - sim
       - ursim
     image: tabletop/novnc
-    build:
-      context: ./docker/novnc
     environment:
       - PORT=8080
       - DISPLAY=$NOVNC_DISPLAY
@@ -94,14 +108,8 @@ services:
   ros-base:
     <<: *common
     image: tabletop/ros-base
+    container_name: tabletop-ros-base
     profiles: [ builder ]
-    build:
-      context: .
-      dockerfile: ./docker/ros/Dockerfile
-      args:
-        - USER_NAME=$USER_NAME
-        - USER_UID=$USER_UID
-        - USER_GID=$USER_GID
     volumes:
       - type: bind
         source: .
@@ -110,6 +118,7 @@ services:
     environment:
       - UV_EXTRA=$UV_EXTRA
     stop_signal: SIGINT
+    working_dir: /tabletop
     command: tt-build --all
 
   foxglove:
@@ -118,7 +127,6 @@ services:
     profiles: !override
       - real
       - sim
-    build: !reset null
     restart: unless-stopped
     command: tt-launch foxglove
 
@@ -128,7 +136,6 @@ services:
     profiles: !override
       - real
       - sim
-    build: !reset null
     environment:
       - DISPLAY=$NOVNC_DISPLAY
     depends_on:
@@ -142,7 +149,6 @@ services:
     container_name: tabletop-ur
     profiles: !override
       - real
-    build: !reset null
     cap_add:
       - SYS_NICE
     ulimits:
@@ -156,7 +162,6 @@ services:
     container_name: tabletop-ur-mock
     profiles: !override
       - sim
-    build: !reset null
     cap_add:
       - SYS_NICE
     ulimits:
@@ -170,7 +175,6 @@ services:
     container_name: tabletop-optitrack
     profiles: !override
       - real
-    build: !reset null
     restart: unless-stopped
     command: tt-launch optitrack
 
@@ -179,7 +183,6 @@ services:
     container_name: tabletop-flir
     profiles: !override
       - flir
-    build: !reset null
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -201,7 +204,6 @@ services:
   teensy-builder:
     extends: ros-base
     container_name: tabletop-teensy-builder
-    build: !reset null
     volumes:
       - /dev:/dev
     privileged: true
@@ -212,7 +214,6 @@ services:
     container_name: tabletop-teensy
     profiles: !override
       - real
-    build: !reset null
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
@@ -223,7 +224,6 @@ services:
     container_name: tabletop-sniffer
     profiles: !override
       - real
-    build: !reset null
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
     restart: unless-stopped
@@ -234,7 +234,6 @@ services:
     container_name: tabletop-teensy-sim
     profiles: !override
       - sim
-    build: !reset null
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
@@ -243,7 +242,6 @@ services:
     container_name: tabletop-flic-scapy
     profiles: !override
       - real
-    build: !reset null
     cap_add:
       - NET_ADMIN
     # user: root
@@ -254,7 +252,6 @@ services:
     extends: ros-base
     profiles: !override
       - real
-    build: !reset null
     depends_on:
       flicd:
         condition: service_healthy
@@ -268,7 +265,6 @@ services:
     extends: ros-base
     profiles: !override
       - sim
-    build: !reset null
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
@@ -277,7 +273,6 @@ services:
     container_name: tabletop-eyelink
     profiles: !override
       - real
-    build: !reset null
     cap_add:
       - SYS_NICE # TODO: see if needed
     ulimits:
@@ -294,7 +289,6 @@ services:
     container_name: tabletop-eyelink-sim
     profiles: !override
       - sim
-    build: !reset null
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
@@ -303,7 +297,6 @@ services:
     container_name: tabletop-commander
     profiles: !override
       - commander
-    build: !reset null
     runtime: $COMMANDER_RUNTIME
     volumes:
       - $ROS_BAG_DIR_MNT
@@ -323,7 +316,6 @@ services:
     container_name: tabletop-dev
     profiles: !override
       - dev
-    build: !reset null
     runtime: $COMMANDER_RUNTIME
     volumes:
       - $ROS_BAG_DIR_MNT

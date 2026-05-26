@@ -179,15 +179,3 @@ else
     dotenv_set PULSE_COOKIE_MNT /dev/null:/dev/null
     dotenv_set PULSE_SERVER_CONTAINER /dev/null:/dev/null
 fi
-
-# Mount kitty socket if available
-if [[ $KITTY_LISTEN_ON = unix* ]]; then
-    dotenv_set KITTY_LISTEN_ON_MNT "${KITTY_LISTEN_ON#unix:}:/tmp/kitty"
-    dotenv_set KITTY_LISTEN_ON_CONTAINER unix:/tmp/kitty
-elif [[ $KITTY_LISTEN_ON = tcp* ]]; then
-    dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
-    dotenv_set KITTY_LISTEN_ON_CONTAINER "$KITTY_LISTEN_ON"
-else
-    dotenv_set KITTY_LISTEN_ON_MNT /dev/null:/dev/null
-    dotenv_set KITTY_LISTEN_ON_CONTAINER ""
-fi

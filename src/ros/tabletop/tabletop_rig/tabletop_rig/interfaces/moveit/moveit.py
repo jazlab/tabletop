@@ -791,10 +791,7 @@ class MoveItInterface(BaseInterface):
 
         with self.psm.read_only() as scene:
             return scene.is_path_valid(
-                trajectory,
-                joint_model_group_name=group_name,
-                verbose=verbose,
-                invalid_index=[],
+                trajectory, joint_model_group_name=group_name, verbose=verbose
             )
 
     def _parse_collision_matrix_entry(

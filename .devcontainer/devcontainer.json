@@ -41,9 +41,7 @@
         "ms-vscode.cmake-tools",
         "ms-toolsai.jupyter",
         "mads-hartmann.bash-ide-vscode",
-        "christian-kohler.npm-intellisense",
         "docker.docker",
-        "Ranch-Hand-Robotics.rde-pack",
         "DavidAnson.vscode-markdownlint",
         "benjamin-simmonds.pythoncpp-debug"
       ]
