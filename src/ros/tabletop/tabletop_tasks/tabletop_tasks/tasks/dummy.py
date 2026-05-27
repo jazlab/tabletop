@@ -50,7 +50,7 @@ class DummyTask(BaseTask):
 
     async def test_teensy_latency(self):
         client = self.commander.create_client(
-            Ping, "teensy/ping", enable_introspection=False
+            Ping, "ble_sniffer/ping", enable_introspection=False
         )
 
         await asyncio.to_thread(client.wait_for_service)
@@ -244,23 +244,35 @@ class DummyTask(BaseTask):
             loop.call_soon_threadsafe(queue.put_nowait, msg)
 
         sub = self.commander.create_subscription(
-            Header, "ble_sniffer/button_pressed_time", flic_sub_cb, 10
+            Header, "/ble_sniffer/button_pressed_time", flic_sub_cb, 10
         )
 
         latencies = []
+        last_teensy_time_msg = (
+            self.commander._teensy.last_teensy_sensor.button_last_time_pressed
+        )
+        self.log(
+            "Press flic button and teensy button simultaneously (smash them)"
+        )
         try:
             while True:
-                self.log(
-                    "Press flic button and teensy button simultaneously (smash them)"
-                )
-                msg = await queue.get()
-                flic_time = seconds_from_ros_time(msg.stamp)
-                bd_addr = msg.frame_id
+                flic_msg = await queue.get()
 
+                bd_addr = flic_msg.frame_id
                 teensy_time_msg = self.commander._teensy.last_teensy_sensor.button_last_time_pressed
-                teensy_time = seconds_from_ros_time(teensy_time_msg)
 
+                if last_teensy_time_msg == teensy_time_msg:
+                    self.log(
+                        f"Flic button '{bd_addr}' pressed but teensy button not pressed, try again"
+                    )
+                    continue
+
+                last_teensy_time_msg = teensy_time_msg
+
+                flic_time = seconds_from_ros_time(flic_msg.stamp)
+                teensy_time = seconds_from_ros_time(teensy_time_msg)
                 latency = flic_time - teensy_time
+
                 self.log(f"Latency for button '{bd_addr}': {latency:.4f}s")
                 latencies.append(latency)
         finally:
@@ -427,13 +439,14 @@ class DummyTask(BaseTask):
 
     async def run(self) -> None:
         """Run one or more of the tests"""
-        # await self.test_teensy_latency()
+        await self.test_teensy_latency()
         # await self.test_flic_latency_pre_pressed()
         # await self.test_flic_latency_human()
         # await self.test_flic_latency_button()
+        await self.test_flic_latency_button_new()
         # await self.test_optitrack_latency_solenoid()
         # await self.test_sound()
         # await self.test_smooth_pursuit()
         # await self.test_link_position()
         # await self.test_object_fetch_return()
-        await self.test_move_to_reset()
+        # await self.test_move_to_reset()

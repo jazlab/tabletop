@@ -1043,6 +1043,8 @@ async def asyncio_runner(
                 )
             )
             await task
+    except asyncio.CancelledError:
+        pass
     except BaseException as e:
         print(
             f"Caught exception in task: \n "

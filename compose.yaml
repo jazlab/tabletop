@@ -249,7 +249,7 @@ services:
     devices:
       - /dev/ttyUSB0
     restart: unless-stopped
-    command: tt-launch teensy simulate:=false micro_ros_device:=/dev/ttyUSB0
+    command: tt-launch sniffer simulate:=false
 
   flic-scapy:
     extends: ros-base

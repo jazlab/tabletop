@@ -71,6 +71,10 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/teensy"
         LAUNCH="tabletop_rig teensy.launch.py"
         ;;
+    sniffer)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flic_sniffer"
+        LAUNCH="tabletop_rig teensy.launch.py micro_ros_device:=/dev/ttyUSB0"
+        ;;
     flic)
         export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
         LAUNCH="tabletop_rig flic.launch.py"

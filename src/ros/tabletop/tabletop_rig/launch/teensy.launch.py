@@ -59,7 +59,6 @@ def generate_launch_description():
 
     micro_ros_agent = Node(
         package="micro_ros_agent",
-        name="micro_ros_agent",
         executable="micro_ros_agent",
         output="both",
         arguments=[

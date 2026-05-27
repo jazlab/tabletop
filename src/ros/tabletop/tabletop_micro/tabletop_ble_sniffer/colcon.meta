@@ -5,10 +5,10 @@
                 "-DRMW_UXRCE_MAX_NODES=1",
                 "-DRMW_UXRCE_MAX_PUBLISHERS=3",
                 "-DRMW_UXRCE_MAX_SUBSCRIPTIONS=0",
-                "-DRMW_UXRCE_MAX_SERVICES=0",
+                "-DRMW_UXRCE_MAX_SERVICES=1",
                 "-DRMW_UXRCE_MAX_CLIENTS=0",
                 "-DRMW_UXRCE_MAX_HISTORY=20",
-                "-DRMW_UXRCE_MAX_GUARD_CONDITION=8",
+                "-DRMW_UXRCE_MAX_GUARD_CONDITION=5",
                 "-DRMW_UXRCE_TRANSPORT=custom"
             ]
         }

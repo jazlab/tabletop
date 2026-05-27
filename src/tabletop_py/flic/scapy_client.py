@@ -22,7 +22,6 @@ up a small custom :class:`_HCISocketTransport`. Construction looks like:
 
     client = await FlicClient.create(
         loop=loop,
-        bd_addrs=("aa:bb:cc:dd:ee:ff",),
     )
 
 Trade-offs vs. the daemon-based client:
@@ -45,10 +44,9 @@ import asyncio
 import logging
 import socket
 import time
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable
 from fcntl import ioctl
-from typing import Any, Literal, NamedTuple, Optional
+from typing import Any, Literal, NamedTuple
 
 from scapy.data import MTU
 from scapy.layers.bluetooth import (
@@ -72,6 +70,7 @@ from scapy.layers.bluetooth import (
     HCI_Event_Command_Status,
     HCI_Event_Disconnection_Complete,
     HCI_Hdr,
+    HCI_LE_Meta_Advertising_Report,
     HCI_LE_Meta_Advertising_Reports,
     HCI_LE_Meta_Connection_Complete,
     HCI_Mon_Hdr,
@@ -102,21 +101,6 @@ _OPCODE_DISCONNECT = 0x0406
 _DISCONNECT_REASON_REMOTE_USER = 0x13
 
 
-@dataclass(slots=True)
-class _ScanConfig:
-    active_scan: bool = False
-    # Interval/window are in 0.625 ms units (BT spec). 16 = 10 ms — a
-    # tight, continuous scan suitable for response-time experiments.
-    scan_interval: int = 16
-    scan_window: int = 16
-
-
-class PacketInfo(NamedTuple):
-    bd_addr: str
-    rssi: int | None
-    time: Any
-
-
 def _hci_dev_down(adapter_idx: int = 0):
     sock = socket.socket(
         socket.AF_BLUETOOTH,  # type: ignore
@@ -139,6 +123,19 @@ def _hci_dev_up(adapter_idx: int = 0):
         ioctl(sock.fileno(), HCIDEVUP, adapter_idx)
     finally:
         sock.close()
+
+
+class ButtonPressInfo(NamedTuple):
+    addr: str
+    time: Any
+
+
+def default_advertisement_event_filter(
+    report: HCI_LE_Meta_Advertising_Report, event_time: Any
+) -> bool:
+    addr = str(report.addr).lower()
+    prefix = addr[:8]
+    return prefix in ("80:e4:da", "90:88:a9")
 
 
 type SocketTypeT = (
@@ -229,27 +226,19 @@ class FlicClient(asyncio.Protocol):
 
     def __init__(
         self,
-        bd_addrs: Optional[Iterable[str]] = None,
         socket_type: Literal["hci", "user", "monitor"] = "user",
-        time_fn: Callable[[], Any] = time.time,
-        kill_on_press: bool = False,
+        advertising_event_filter: Callable[
+            [HCI_LE_Meta_Advertising_Report, Any], bool
+        ] = default_advertisement_event_filter,
+        event_time_fn: Callable[[], Any] = time.time,
+        kill_on_press: bool = True,
         kill_timeout: float = 2.0,
     ):
-        self.time = time_fn
         self._socket_type = socket_type
+        self._advertising_event_filter = advertising_event_filter
+        self._event_time_fn = event_time_fn
         self._kill_on_press = kill_on_press
         self._kill_timeout = kill_timeout
-
-        # Normalize to lowercase so we can compare against scapy's
-        # MAC formatting without surprises.
-        self._bd_addrs: set[str] | None
-        if not bd_addrs:
-            logger.warning(
-                "'bd_addrs' not provided or empty, listening for all advertisements"
-            )
-            self._bd_addrs = None
-        else:
-            self._bd_addrs = set(a.lower() for a in bd_addrs)
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._transport: _HCISocketTransport | None = None
@@ -260,21 +249,20 @@ class FlicClient(asyncio.Protocol):
         # Kill-on-press bookkeeping. The controller can only initiate
         # one LE connection at a time, so we serialize via _killing and
         # drop overlapping triggers.
-        self._killing: bool = False
-        self._kill_tasks: set[asyncio.Task] = set()
-        # bd_addr (lowercased) -> future resolving to the connection
+        self._kill_lock = asyncio.Lock()
+        self._kill_tasks: dict[str, asyncio.Task] = {}
         # handle from LE_Meta_Connection_Complete. At most one entry.
         self._pending_connect_futures: dict[str, asyncio.Future[int]] = {}
         # connection_handle -> future resolving when Disconnection
         # Complete arrives.
         self._pending_disconnect_futures: dict[int, asyncio.Future[None]] = {}
 
-        self._button_packet_info: dict[str, PacketInfo] = {}
-        self._button_packet_events: dict[str, asyncio.Event] = {}
+        self._button_press_info: dict[str, ButtonPressInfo] = {}
+        self._button_press_event: dict[str, asyncio.Event] = {}
 
-        self._any_button_packet_info: PacketInfo | None = None
-        self._any_button_packet_event: asyncio.Event = asyncio.Event()
-        self._any_button_packet_event.set()
+        self._any_button_press_info: ButtonPressInfo | None = None
+        self._any_button_press_event: asyncio.Event = asyncio.Event()
+        self._any_button_press_event.set()
 
     @staticmethod
     def _create_socket(
@@ -304,16 +292,18 @@ class FlicClient(asyncio.Protocol):
     async def create(
         cls,
         *,
-        loop: asyncio.AbstractEventLoop,
         device_id: int = 0,
-        bd_addrs: Optional[Iterable[str]] = None,
-        time_fn: Callable[[], Any] = time.time,
         socket_type: Literal["hci", "user", "monitor"] = "user",
+        advertising_event_filter: Callable[
+            [HCI_LE_Meta_Advertising_Report, Any], bool
+        ] = default_advertisement_event_filter,
+        event_time_fn: Callable[[], Any] = time.time,
+        kill_on_press: bool = True,
+        kill_timeout: float = 2.0,
+        loop: asyncio.AbstractEventLoop,
         active_scan: bool = False,
         scan_interval: int = 16,
         scan_window: int = 16,
-        kill_on_press: bool = False,
-        kill_timeout: float = 2.0,
     ) -> "FlicClient":
         """Open the HCI socket, install the Protocol, and start LE scanning.
 
@@ -324,8 +314,6 @@ class FlicClient(asyncio.Protocol):
 
         Args:
             loop: Event loop to register the socket reader on.
-            bd_addrs: Bluetooth addresses of buttons to listen for.
-                Adverts from unlisted devices are silently dropped.
             device_id: HCI controller index (``hciN``). Defaults to 0.
             active_scan: If ``True``, the controller sends SCAN_REQ to
                 advertisers. Passive scanning is sufficient for Flic
@@ -341,9 +329,9 @@ class FlicClient(asyncio.Protocol):
         """
         sock = cls._create_socket(device_id, socket_type)
         client = cls(
-            bd_addrs=bd_addrs,
             socket_type=socket_type,
-            time_fn=time_fn,
+            advertising_event_filter=advertising_event_filter,
+            event_time_fn=event_time_fn,
             kill_on_press=kill_on_press,
             kill_timeout=kill_timeout,
         )
@@ -353,14 +341,11 @@ class FlicClient(asyncio.Protocol):
         _HCISocketTransport(loop, sock, client)
 
         try:
-            if isinstance(sock, BluetoothUserSocket):
-                await client._configure_scan(
-                    _ScanConfig(
-                        active_scan=active_scan,
-                        scan_interval=scan_interval,
-                        scan_window=scan_window,
-                    )
-                )
+            await client._configure_scan(
+                active_scan=active_scan,
+                scan_interval=scan_interval,
+                scan_window=scan_window,
+            )
         except BaseException:
             client.close()
             raise
@@ -377,7 +362,7 @@ class FlicClient(asyncio.Protocol):
         self._transport = transport
 
     def data_received(self, data: bytes):
-        event_time = self.time()
+        event_time = self._event_time_fn()
         try:
             if self._socket_type == "monitor":
                 pkt = HCI_Mon_Hdr(data)
@@ -419,6 +404,11 @@ class FlicClient(asyncio.Protocol):
             for report in pkt[HCI_LE_Meta_Advertising_Reports].reports:
                 self.on_advertising_report(report, event_time=event_time)
 
+        # if HCI_LE_Meta_Advertising_Report in pkt:
+        #     self.on_advertising_report(
+        #         pkt[HCI_LE_Meta_Advertising_Report], event_time=event_time
+        #     )
+
         if HCI_LE_Meta_Connection_Complete in pkt:
             self.on_connection_complete(pkt[HCI_LE_Meta_Connection_Complete])
 
@@ -431,9 +421,9 @@ class FlicClient(asyncio.Protocol):
     # Event handlers
     ##############################################################
 
-    def on_command_complete(self, res: Packet):
+    def on_command_complete(self, pkt: HCI_Event_Command_Complete):
         """Resolve the pending future for this opcode, if any."""
-        opcode = res.opcode
+        opcode = pkt.opcode
         future = self._pending_command_futures.get(opcode)
         if future is None:
             logger.debug(
@@ -442,9 +432,9 @@ class FlicClient(asyncio.Protocol):
             return
         if future.done():
             return
-        future.set_result(res)
+        future.set_result(pkt)
 
-    def on_command_status(self, res: Packet):
+    def on_command_status(self, pkt: HCI_Event_Command_Status):
         """Surface failures for commands that emit Command Status only.
 
         LE_Create_Connection and Disconnect don't generate Command
@@ -454,110 +444,102 @@ class FlicClient(asyncio.Protocol):
         we fail the matching pending future so the kill task aborts
         instead of waiting for an event that will never come.
         """
-        if res.status == 0:
+        if pkt.status == 0:
             return  # success — wait for the follow-up event
         logger.warning(
-            f"Command Status: opcode=0x{res.opcode:04x} "
-            f"status=0x{res.status:02x}"
+            f"Command Status: opcode=0x{pkt.opcode:04x} "
+            f"status=0x{pkt.status:02x}"
         )
-        if res.opcode == _OPCODE_LE_CREATE_CONNECTION:
-            for bd_addr, future in list(self._pending_connect_futures.items()):
+        if pkt.opcode == _OPCODE_LE_CREATE_CONNECTION:
+            for addr, future in list(self._pending_connect_futures.items()):
                 if not future.done():
                     future.set_exception(
                         BluetoothCommandError(
                             f"LE_Create_Connection rejected: "
-                            f"status=0x{res.status:02x}"
+                            f"status=0x{pkt.status:02x}"
                         )
                     )
-                self._pending_connect_futures.pop(bd_addr, None)
-        elif res.opcode == _OPCODE_DISCONNECT:
+                self._pending_connect_futures.pop(addr, None)
+        elif pkt.opcode == _OPCODE_DISCONNECT:
             for handle, future in list(
                 self._pending_disconnect_futures.items()
             ):
                 if not future.done():
                     future.set_exception(
                         BluetoothCommandError(
-                            f"Disconnect rejected: status=0x{res.status:02x}"
+                            f"Disconnect rejected: status=0x{pkt.status:02x}"
                         )
                     )
                 self._pending_disconnect_futures.pop(handle, None)
 
-    def on_connection_complete(self, info: Packet):
+    def on_connection_complete(self, pkt: HCI_LE_Meta_Connection_Complete):
         """Resolve the pending connect future for the matching peer."""
-        bd_addr = str(info.paddr).lower()
-        future = self._pending_connect_futures.pop(bd_addr, None)
+        addr = str(pkt.paddr).lower()
+        future = self._pending_connect_futures.pop(addr, None)
         if future is None:
             logger.debug(
-                f"Unsolicited Connection Complete for {bd_addr} "
-                f"handle={info.handle}"
+                f"Unsolicited Connection Complete for {addr} "
+                f"handle={pkt.handle}"
             )
             return
         if future.done():
             return
-        if info.status != 0:
+        if pkt.status != 0:
             future.set_exception(
                 BluetoothCommandError(
-                    f"Connection to {bd_addr} failed: "
-                    f"status=0x{info.status:02x}"
+                    f"Connection to {addr} failed: status=0x{pkt.status:02x}"
                 )
             )
             return
-        future.set_result(int(info.handle))
+        future.set_result(int(pkt.handle))
 
-    def on_disconnection_complete(self, info: Packet):
+    def on_disconnection_complete(self, pkt: HCI_Event_Disconnection_Complete):
         """Resolve the pending disconnect future for the matching handle."""
-        future = self._pending_disconnect_futures.pop(int(info.handle), None)
+        future = self._pending_disconnect_futures.pop(int(pkt.handle), None)
         if future is None:
             logger.debug(
-                f"Unsolicited Disconnection Complete handle={info.handle}"
+                f"Unsolicited Disconnection Complete handle={pkt.handle}"
             )
             return
         if not future.done():
             future.set_result(None)
 
-    def filter_report(self, report: Packet) -> bool:
-        bd_addr = str(report.addr).lower()
-        if "80:e4:da" not in bd_addr and "90:88:a9" not in bd_addr:
-            return False
-        if self._bd_addrs is not None and bd_addr not in self._bd_addrs:
-            return False
-        return True
-
-    def on_advertising_report(self, report: Packet, *, event_time: Any):
+    def on_advertising_report(
+        self, pkt: HCI_LE_Meta_Advertising_Report, *, event_time: Any
+    ):
         """Forward an LE advertising report to the button waiters."""
-        if not self.filter_report(report):
+        if not self._advertising_event_filter(pkt, event_time):
             return
-        bd_addr = str(report.addr).lower()
-        rssi = getattr(report, "rssi", None)
-        packet_info = PacketInfo(bd_addr, rssi, event_time)
-        self._dispatch_advertisement(packet_info)
+        addr = str(pkt.addr).lower()
 
-        if self._kill_on_press:
+        if addr not in self._kill_tasks:
+            self._dispatch_button_press(addr, event_time=event_time)
+
+        if self._kill_on_press and addr not in self._kill_tasks:
             self._schedule_kill_advertising(
-                bd_addr, int(getattr(report, "atype", 0))
+                addr, int(getattr(pkt, "atype", 0))
             )
 
-    def _dispatch_advertisement(self, packet_info: PacketInfo):
-        bd_addr = packet_info.bd_addr
-
+    def _dispatch_button_press(self, addr: str, *, event_time: Any):
+        info = ButtonPressInfo(addr, event_time)
         if (
-            bd_addr in self._button_packet_events
-            and not self._button_packet_events[bd_addr].is_set()
+            addr in self._button_press_event
+            and not self._button_press_event[addr].is_set()
         ):
-            assert bd_addr not in self._button_packet_info
-            self._button_packet_info[bd_addr] = packet_info
-            self._button_packet_events[bd_addr].set()
+            assert addr not in self._button_press_info
+            self._button_press_info[addr] = info
+            self._button_press_event[addr].set()
 
-        if not self._any_button_packet_event.is_set():
-            assert self._any_button_packet_info is None
-            self._any_button_packet_info = packet_info
-            self._any_button_packet_event.set()
+        if not self._any_button_press_event.is_set():
+            assert self._any_button_press_info is None
+            self._any_button_press_info = info
+            self._any_button_press_event.set()
 
     ##############################################################
     # Kill-on-press flow
     ##############################################################
 
-    def _schedule_kill_advertising(self, bd_addr: str, patype: int):
+    def _schedule_kill_advertising(self, addr: str, patype: int):
         """Fire a one-shot connect+disconnect to silence the Flic.
 
         Called synchronously from the reader callback so we can issue
@@ -566,30 +548,25 @@ class FlicClient(asyncio.Protocol):
         overlapping adverts (from a second button, or a repeat from the
         same one) are dropped until the in-flight kill finishes.
         """
-        if self._killing:
-            logger.debug(f"Kill already in flight, skipping {bd_addr}")
-            return
         if self._loop is None or self._transport is None:
             return
         if self._transport.is_closing() or self._closed_event.is_set():
             return
 
-        self._killing = True
-        task = self._loop.create_task(self._kill_advertising(bd_addr, patype))
-        self._kill_tasks.add(task)
-        task.add_done_callback(self._on_kill_done)
+        task = self._loop.create_task(self._kill_advertising(addr, patype))
+        self._kill_tasks[addr] = task
+        task.add_done_callback(lambda x: self._on_kill_done(x, addr=addr))
 
-    def _on_kill_done(self, task: asyncio.Task):
-        self._kill_tasks.discard(task)
-        self._killing = False
+    def _on_kill_done(self, task: asyncio.Task, *, addr: str):
+        self._kill_tasks.pop(addr, None)
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
             logger.warning(f"Kill task raised: {exc!r}")
 
-    async def _kill_advertising(self, bd_addr: str, patype: int):
-        """Connect to ``bd_addr`` and immediately disconnect.
+    async def _kill_advertising(self, addr: str, patype: int):
+        """Connect to ``addr`` and immediately disconnect.
 
         The CONNECT_IND sent by our controller during initiation is what
         actually stops the Flic from continuing its advertising burst.
@@ -600,70 +577,76 @@ class FlicClient(asyncio.Protocol):
         report (0=public, 1=random).
         """
         assert self._loop is not None
-        logger.debug(f"Killing advertising for {bd_addr}")
 
-        connect_future: asyncio.Future[int] = self._loop.create_future()
-        self._pending_connect_futures[bd_addr] = connect_future
-        try:
-            # Parameters lifted from the BlueZ defaults; the actual
-            # connection latency / timeout don't matter much because
-            # we tear the link down on the first event.
-            self._send_command(
-                HCI_Cmd_LE_Create_Connection(
-                    interval=0x60,
-                    window=0x60,
-                    filter=0,  # use the peer address fields below
-                    patype=patype,
-                    paddr=bd_addr,
-                    atype=0,  # our address type — public
-                    min_interval=0x18,
-                    max_interval=0x28,
-                    latency=0,
-                    timeout=0x2A,
-                    min_ce=0,
-                    max_ce=0,
-                )
-            )
-            handle = await asyncio.wait_for(
-                connect_future, timeout=self._kill_timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"Kill connect to {bd_addr} timed out, cancelling")
-            self._pending_connect_futures.pop(bd_addr, None)
+        async with self._kill_lock:
+            logger.debug(f"Killing advertising for {addr}")
+
+            connect_future: asyncio.Future[int] = self._loop.create_future()
+            self._pending_connect_futures[addr] = connect_future
             try:
-                self._send_command(HCI_Cmd_LE_Create_Connection_Cancel())
-            except Exception as ce:
-                logger.debug(f"Create_Connection_Cancel failed: {ce}")
-            return
-        except BluetoothCommandError as e:
-            logger.warning(f"Kill connect to {bd_addr} failed: {e}")
-            self._pending_connect_futures.pop(bd_addr, None)
-            return
-        finally:
-            # In every other exit path the handler has already popped;
-            # this guards against leakage on cancellation.
-            self._pending_connect_futures.pop(bd_addr, None)
-
-        disconnect_future: asyncio.Future[None] = self._loop.create_future()
-        self._pending_disconnect_futures[handle] = disconnect_future
-        try:
-            self._send_command(
-                HCI_Cmd_Disconnect(
-                    handle=handle,
-                    reason=_DISCONNECT_REASON_REMOTE_USER,
+                # Parameters lifted from the BlueZ defaults; the actual
+                # connection latency / timeout don't matter much because
+                # we tear the link down on the first event.
+                self._send_command(
+                    HCI_Cmd_LE_Create_Connection(
+                        interval=0x60,
+                        window=0x60,
+                        filter=0,  # use the peer address fields below
+                        patype=patype,
+                        paddr=addr,
+                        atype=0,  # our address type — public
+                        min_interval=0x18,
+                        max_interval=0x28,
+                        latency=0,
+                        timeout=0x2A,
+                        min_ce=0,
+                        max_ce=0,
+                    )
                 )
+                handle = await asyncio.wait_for(
+                    connect_future, timeout=self._kill_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Kill connect to {addr} timed out, cancelling")
+                self._pending_connect_futures.pop(addr, None)
+                try:
+                    self._send_command(HCI_Cmd_LE_Create_Connection_Cancel())
+                except Exception as ce:
+                    logger.debug(f"Create_Connection_Cancel failed: {ce}")
+                return
+            except BluetoothCommandError as e:
+                logger.warning(f"Kill connect to {addr} failed: {e}")
+                self._pending_connect_futures.pop(addr, None)
+                return
+            finally:
+                # In every other exit path the handler has already popped;
+                # this guards against leakage on cancellation.
+                self._pending_connect_futures.pop(addr, None)
+
+            disconnect_future: asyncio.Future[None] = (
+                self._loop.create_future()
             )
-            await asyncio.wait_for(
-                disconnect_future, timeout=self._kill_timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"Disconnect for handle={handle} ({bd_addr}) timed out"
-            )
-        except BluetoothCommandError as e:
-            logger.warning(f"Disconnect for {bd_addr} failed: {e}")
-        finally:
-            self._pending_disconnect_futures.pop(handle, None)
+            self._pending_disconnect_futures[handle] = disconnect_future
+            try:
+                self._send_command(
+                    HCI_Cmd_Disconnect(
+                        handle=handle,
+                        reason=_DISCONNECT_REASON_REMOTE_USER,
+                    )
+                )
+                await asyncio.wait_for(
+                    disconnect_future, timeout=self._kill_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Disconnect for handle={handle} ({addr}) timed out"
+                )
+            except BluetoothCommandError as e:
+                logger.warning(f"Disconnect for {addr} failed: {e}")
+            finally:
+                self._pending_disconnect_futures.pop(handle, None)
+
+            logger.debug(f"Done killing advertising for {addr}")
 
     ##############################################################
     # Command sender
@@ -720,14 +703,15 @@ class FlicClient(asyncio.Protocol):
             raise BluetoothCommandError(
                 "Command %x failed with %x" % (opcode, r.status)
             )
-        logger.debug(repr(r))
         return r
 
     ##############################################################
     # Scan configuration
     ##############################################################
 
-    async def _configure_scan(self, cfg: _ScanConfig):
+    async def _configure_scan(
+        self, *, active_scan: bool, scan_interval: int, scan_window: int
+    ):
         await self.send_command(HCI_Cmd_Reset())
         await self.send_command(HCI_Cmd_LE_Set_Scan_Enable(enable=0))
         await self.send_command(HCI_Cmd_Set_Event_Filter())
@@ -737,9 +721,9 @@ class FlicClient(asyncio.Protocol):
         await self.send_command(HCI_Cmd_LE_Read_Buffer_Size_V2())
         await self.send_command(
             HCI_Cmd_LE_Set_Scan_Parameters(
-                type=1 if cfg.active_scan else 0,
-                interval=cfg.scan_interval,
-                window=cfg.scan_window,
+                type=1 if active_scan else 0,
+                interval=scan_interval,
+                window=scan_window,
             )
         )
         await self.send_command(
@@ -750,26 +734,26 @@ class FlicClient(asyncio.Protocol):
     # Event waiters (mirror flicd client API)
     ##############################################################
 
-    async def wait_for_any_button(self) -> PacketInfo:
-        assert self._any_button_packet_info is None
-        self._any_button_packet_event.clear()
+    async def wait_for_any_button(self) -> ButtonPressInfo:
+        assert self._any_button_press_info is None
+        self._any_button_press_event.clear()
         try:
-            await self._any_button_packet_event.wait()
-            packet_info = self._any_button_packet_info
+            await self._any_button_press_event.wait()
+            packet_info = self._any_button_press_info
             assert packet_info is not None
             return packet_info
         finally:
-            self._any_button_packet_info = None
+            self._any_button_press_info = None
 
-    async def wait_for_button(self, bd_addr: str) -> PacketInfo:
-        assert bd_addr not in self._button_packet_events
-        assert bd_addr not in self._button_packet_info
-        self._button_packet_events[bd_addr] = asyncio.Event()
+    async def wait_for_button(self, addr: str) -> ButtonPressInfo:
+        assert addr not in self._button_press_event
+        assert addr not in self._button_press_info
+        self._button_press_event[addr] = asyncio.Event()
         try:
-            await self._button_packet_events[bd_addr].wait()
-            return self._button_packet_info[bd_addr]
+            await self._button_press_event[addr].wait()
+            return self._button_press_info[addr]
         finally:
-            del self._button_packet_info[bd_addr]
+            del self._button_press_info[addr]
 
     ##############################################################
     # Lifecycle
@@ -784,9 +768,7 @@ class FlicClient(asyncio.Protocol):
 
         logger.info("Closing scapy flic client")
 
-        # Cancel any in-flight kill tasks so they don't try to write to
-        # a torn-down transport. The done_callback clears _killing.
-        for task in list(self._kill_tasks):
+        for task in self._kill_tasks.values():
             task.cancel()
 
         if (
@@ -815,7 +797,6 @@ class FlicClient(asyncio.Protocol):
 
 async def main_async(
     *,
-    bd_addrs: Optional[list[str]],
     device_id: int,
     active_scan: bool,
     kill_on_press: bool,
@@ -823,14 +804,13 @@ async def main_async(
     loop = asyncio.get_running_loop()
     client = await FlicClient.create(
         loop=loop,
-        bd_addrs=bd_addrs,
         device_id=device_id,
         active_scan=active_scan,
         kill_on_press=kill_on_press,
     )
     logger.info(
-        f"Sniffing advertisements from {len(bd_addrs) if bd_addrs else 'all'} "
-        f"button(s); press Ctrl-C to stop."
+        "Sniffing BLE advertisements for Flic button presses; "
+        "press Ctrl-C to stop."
     )
     try:
         while True:
@@ -840,69 +820,26 @@ async def main_async(
         client.close()
 
 
-DEFAULT_BD_ADDRS = [
-    "90:88:a9:50:5f:b6",
-    "90:88:a9:50:5f:db",
-    "90:88:a9:50:5d:f7",
-    "90:88:a9:50:5f:92",
-    "90:88:a9:50:7b:a3",
-    "90:88:a9:50:65:da",
-    "90:88:a9:50:63:08",
-    "90:88:a9:50:62:eb",
-    "90:88:a9:50:66:0f",
-    "90:88:a9:50:61:4e",
-    "90:88:a9:50:5f:ac",
-    "90:88:a9:50:60:11",
-    "90:88:a9:50:60:9f",
-    "90:88:a9:50:66:10",
-    "90:88:a9:50:7c:cc",
-    "90:88:a9:50:65:ff",
-    "90:88:a9:50:7d:8f",
-    "90:88:a9:50:5e:c2",
-    "90:88:a9:50:60:09",
-    "90:88:a9:50:61:a5",
-    "90:88:a9:50:5f:70",
-    "90:88:a9:50:7c:7a",
-    "90:88:a9:50:5f:87",
-    "90:88:a9:50:7c:9d",
-    "90:88:a9:50:7c:b1",
-    "90:88:a9:50:7c:ba",
-    "90:88:a9:50:75:07",
-    "90:88:a9:50:65:fb",
-    "90:88:a9:50:66:09",
-    "90:88:a9:50:5f:68",
-]
-
-
 def main(args=None):
     import argparse
 
     parser = argparse.ArgumentParser(
         description="Sniff Flic button presses via raw BLE advertisements."
     )
-    parser.add_argument(
-        "--bd-addr",
-        action="append",
-        dest="bd_addrs",
-        default=None,
-        help="Verified Flic bd_addr to listen for (repeatable).",
-    )
     parser.add_argument("--device-id", type=int, default=0)
     parser.add_argument("--active-scan", action="store_true")
     parser.add_argument(
-        "--kill-on-press",
+        "--no-kill-on-press",
         action="store_true",
         help=(
-            "After detecting an advertisement, briefly connect to the "
-            "button to force it to stop its press advertising burst."
+            "After detecting an advertisement, the default behavior "
+            "is to briefly connect to the button to force it to stop "
+            "its press advertising burst. Use this flag to turn off "
+            "this behavior."
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     ns = parser.parse_args(args)
-
-    # if ns.bd_addrs is None:
-    #     print("yayyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy")
-    #     ns.bd_addrs = DEFAULT_BD_ADDRS
 
     logging.basicConfig(
         level=logging.DEBUG if ns.verbose else logging.INFO,
@@ -912,10 +849,9 @@ def main(args=None):
     try:
         asyncio.run(
             main_async(
-                bd_addrs=ns.bd_addrs,
                 device_id=ns.device_id,
                 active_scan=ns.active_scan,
-                kill_on_press=ns.kill_on_press,
+                kill_on_press=not ns.no_kill_on_press,
             )
         )
     except KeyboardInterrupt:

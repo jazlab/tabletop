@@ -45,6 +45,7 @@
 #include <rclc/rclc.h>
 #include <std_msgs/msg/header.h>
 #include <std_msgs/msg/string.h>
+#include <tabletop_interfaces/srv/ping.h>
 
 #include "rmw_microros/time_sync.h"
 
@@ -74,13 +75,14 @@
 #define BLE_PRESS_TOPIC "~/button_pressed_time"
 #define HW_PRESS_TOPIC "~/hw_sync_pressed_time"
 #define LOG_TOPIC "~/log"
+#define PING_SRV_NAME "~/ping"
 
 // Agent-supervision timings (mirrors tabletop_teensy).
 #define AGENT_RECONNECT_PERIOD_MS 100
 #define AGENT_RECONNECT_TIMEOUT_MS 20
-#define EXECUTOR_SPIN_TIMEOUT_MS 5
-#define AGENT_SYNC_PERIOD_MS 200
-#define AGENT_SYNC_TIMEOUT_MS 1
+#define EXECUTOR_SPIN_TIMEOUT_MS 1
+#define AGENT_SYNC_PERIOD_MS 10000
+#define AGENT_SYNC_TIMEOUT_MS 10
 #define AGENT_SYNC_MAX_RETRIES 3
 #define BLINK_CONNECTED_PERIOD_MS 500
 
@@ -116,6 +118,7 @@ static QueueHandle_t blePressQueue = nullptr;
 rcl_publisher_t ble_press_publisher;
 rcl_publisher_t hw_press_publisher;
 rcl_publisher_t log_publisher;
+rcl_service_t ping_service;
 rcl_allocator_t allocator;
 rclc_support_t support;
 rcl_node_t node;
@@ -124,6 +127,8 @@ rclc_executor_t executor;
 std_msgs__msg__Header ble_press_msg;
 std_msgs__msg__Header hw_press_msg;
 std_msgs__msg__String log_msg;
+tabletop_interfaces__srv__Ping_Request ping_request;
+tabletop_interfaces__srv__Ping_Response ping_response;
 
 uint8_t agent_sync_retries;
 
@@ -176,6 +181,11 @@ enum agent_states
   {                                                                                                                    \
     (time_msg).sec = (int32_t)((ns) / 1000000000LL);                                                                   \
     (time_msg).nanosec = (uint32_t)((ns) % 1000000000LL);                                                              \
+  }
+#define GET_CURRENT_ROS_TIME(time_msg)                                                                                 \
+  {                                                                                                                    \
+    int64_t now_ns = rmw_uros_epoch_nanos();                                                                           \
+    NS_TO_ROS_TIME(time_msg, now_ns);                                                                                  \
   }
 #define EXECUTE_EVERY_N_MS(MS, X)                                                                                      \
   {                                                                                                                    \
@@ -268,6 +278,15 @@ static void publish_ble_press(const BlePressEvent& ev)
   NS_TO_ROS_TIME(ble_press_msg.stamp, epoch_ns);
   STRING_SET(&ble_press_msg.frame_id, "%s", ev.addr.toString().c_str());
   RCSOFTCHECK(rcl_publish(&ble_press_publisher, &ble_press_msg, NULL));
+}
+
+void ping_callback(const void* req, void* res)
+{
+  RCLC_UNUSED(req);
+  tabletop_interfaces__srv__Ping_Response* response = static_cast<tabletop_interfaces__srv__Ping_Response*>(res);
+
+  GET_CURRENT_ROS_TIME(response->received_time);
+  response->success = (response->received_time.sec != 0) || (response->received_time.nanosec != 0);
 }
 
 // static void publish_hw_press(uint32_t hw_us)
@@ -390,16 +409,19 @@ bool init_client()
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
   RCCHECK(rclc_node_init_default(&node, NODE_NAME, NODE_NS, &support));
 
-  RCCHECK(rclc_publisher_init_best_effort(&ble_press_publisher, &node,
-                                          ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header), BLE_PRESS_TOPIC));
-  RCCHECK(rclc_publisher_init_best_effort(&hw_press_publisher, &node,
-                                          ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header), HW_PRESS_TOPIC));
+  RCCHECK(rclc_publisher_init_default(&ble_press_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header),
+                                      BLE_PRESS_TOPIC));
+  RCCHECK(rclc_publisher_init_default(&hw_press_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header),
+                                      HW_PRESS_TOPIC));
   RCCHECK(rclc_publisher_init_default(&log_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
                                       LOG_TOPIC));
+  RCCHECK(rclc_service_init_default(&ping_service, &node, ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, Ping),
+                                    PING_SRV_NAME));
 
   // No timers, services, or subscriptions on this node — but rclc still
   // wants a non-zero handle count for spin_some to be useful, so size 1.
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+  RCCHECK(rclc_executor_add_service(&executor, &ping_service, &ping_request, &ping_response, ping_callback));
 
   RCCHECK(rmw_uros_sync_session(1000));
 
@@ -422,6 +444,7 @@ bool deinit_client()
   RCCHECK(rcl_publisher_fini(&ble_press_publisher, &node));
   RCCHECK(rcl_publisher_fini(&hw_press_publisher, &node));
   RCCHECK(rcl_publisher_fini(&log_publisher, &node));
+  RCCHECK(rcl_service_fini(&ping_service, &node));
   RCCHECK(rclc_executor_fini(&executor));
   RCCHECK(rcl_node_fini(&node));
   RCCHECK(rclc_support_fini(&support));
@@ -458,6 +481,7 @@ void setup()
   // collecting events even before the first micro-ROS connection.
   ok &= init_ble();
 
+  agent_sync_retries = 0;
   agent_state = ok ? WAITING_AGENT : UNRECOVERABLE_ERROR;
   delay(500);
 }
@@ -482,13 +506,13 @@ void loop()
                          agent_sync_retries = (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)) ?
                                                   0 :
                                                   agent_sync_retries + 1;);
-      // if (agent_sync_retries >= AGENT_SYNC_MAX_RETRIES)
-      if ((agent_sync_retries >= AGENT_SYNC_MAX_RETRIES) ||
-          (RCL_RET_OK != rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))))
+      if (agent_sync_retries >= AGENT_SYNC_MAX_RETRIES)
       {
+        agent_sync_retries = 0;
         agent_state = AGENT_DISCONNECTED;
         break;
       }
+      rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS));
       pump_publish_queue();
       break;
 

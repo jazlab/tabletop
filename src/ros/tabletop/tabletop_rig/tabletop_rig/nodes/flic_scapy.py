@@ -123,7 +123,7 @@ class Flic(BaseNode):
                 device_id=device_id,
                 active_scan=active_scan,
                 kill_on_press=True,
-                time_fn=lambda: self.get_clock().now(),
+                event_time_fn=lambda: self.get_clock().now(),
             )
 
             self.log("Flic client initialized!")
@@ -287,7 +287,7 @@ class Flic(BaseNode):
                 self.simulate_button_event.clear()
             else:
                 info = await self.flic_client.wait_for_any_button()
-                bd_addr = info.bd_addr
+                bd_addr = info.addr
                 time = info.time
             assert isinstance(time, Time)
             self.log(
