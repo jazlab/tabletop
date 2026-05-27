@@ -4,6 +4,7 @@ from launch.actions import (
     Shutdown,
 )
 from launch.substitutions import (
+    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
 )
@@ -12,6 +13,12 @@ from launch_ros.actions import Node, SetROSLogDir
 
 def declare_arguments():
     return [
+        DeclareLaunchArgument(
+            "use_scapy",
+            default_value="false",
+            choices=["true", "false"],
+            description="Whether or not to use the scapy backend",
+        ),
         DeclareLaunchArgument(
             "simulate",
             default_value="false",
@@ -35,10 +42,13 @@ def declare_arguments():
 
 def generate_launch_description():
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+    executable = IfElseSubstitution(
+        LaunchConfiguration("use_scapy"), "flic_scapy", "flic"
+    )
 
     flic = Node(
         package="tabletop_rig",
-        executable="flic_scapy",
+        executable=executable,
         output="both",
         parameters=[
             {

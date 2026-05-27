@@ -38,6 +38,5 @@ reset_request: !ConcatPlanRequest
   acceleration_scaling_factor: 0.3
 object_allowed_collision_ids:
   - left_reset_station
-  - left_reset_bar
 additional_allowed_collisions:
   - [left_eef_sphere, left_reset_station]

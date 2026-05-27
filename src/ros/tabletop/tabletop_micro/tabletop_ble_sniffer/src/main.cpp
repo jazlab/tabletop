@@ -53,22 +53,20 @@
 #endif
 
 // ── Configuration ──────────────────────────────────────────────────────
-// Hardware sync button (active-low). Pin 13 also drives LED_BUILTIN on
-// the Feather ESP32 V1, so the on-board LED is unusable while this pin
-// is wired to a button — fine for our use, just noting it.
-static const int HW_BUTTON_PIN = 13;
-static const uint32_t HW_BUTTON_DEBOUNCE_US = 500000;  // 500 ms
+// Hardware sync button (active-low).
+#define HW_BUTTON_PIN 12
+#define HW_BUTTON_DEBOUNCE_US 500000  // 500 ms
 
 // Per-button cooldown. Sized to absorb a single Flic press' adv burst
 // without firing multiple events. Shorter → risk of duplicate events
 // per press; longer → rapid presses get coalesced.
-static const uint32_t PER_BUTTON_COOLDOWN_MS = 2000;
+#define PER_BUTTON_COOLDOWN_MS 1000
 
 // Bounded queue of press events from BLE callback → main loop.
-static const size_t BLE_PRESS_QUEUE_LEN = 16;
+#define BLE_PRESS_QUEUE_LEN 16
 
 // Latency stats batch size (matches the .ino).
-static const int MAX_MEASUREMENTS = 10;
+#define MAX_MEASUREMENTS 10
 
 // micro-ROS topology
 #define NODE_NAME "ble_sniffer"
@@ -88,11 +86,11 @@ static const int MAX_MEASUREMENTS = 10;
 
 // Message memory configuration (used to back the Header.frame_id /
 // String.data fields).
-#define MAX_STRING_CAPACITY 100
-static const micro_ros_utilities_memory_conf_t memory_conf = { MAX_STRING_CAPACITY, 5, 5, NULL, 0, NULL };
+static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 0, NULL };
 
 // ── BLE state ──────────────────────────────────────────────────────────
 static NimBLEScan* pScan = nullptr;
+static NimBLEClient* pClient = nullptr;
 // Indexed by the last octet of the bd_addr — a cheap 256-bucket hash
 // that's collision-free in practice for the small number of buttons in
 // the rig.
@@ -100,18 +98,19 @@ static uint32_t lastPressMs[256] = { 0 };
 
 struct BlePressEvent
 {
-  char bd_addr_str[18];  // "aa:bb:cc:dd:ee:ff\0"
+  // char bd_addr_str[18];  // "aa:bb:cc:dd:ee:ff\0"
+  NimBLEAddress addr;
   int8_t rssi;
   uint32_t local_us;  // micros() at detection, used for epoch conversion
 };
 static QueueHandle_t blePressQueue = nullptr;
 
 // ── HW latency tester state ────────────────────────────────────────────
-volatile uint32_t hwPressTimeUs = 0;
-volatile bool hwPressPending = false;
-
-static long latencyMeasurements[MAX_MEASUREMENTS];
-static int measurementCount = 0;
+// volatile uint32_t hwPressTimeUs = 0;
+// volatile bool hwPressPending = false;
+//
+// static long latencyMeasurements[MAX_MEASUREMENTS];
+// static int measurementCount = 0;
 
 // ── micro-ROS entities ────────────────────────────────────────────────
 rcl_publisher_t ble_press_publisher;
@@ -153,6 +152,14 @@ enum agent_states
     if ((temp_rc != RCL_RET_OK))                                                                                       \
     {                                                                                                                  \
       printf("Error: %s\n", rcl_get_error_string().str);                                                               \
+    }                                                                                                                  \
+  }
+#define BOOLCHECK(fn)                                                                                                  \
+  {                                                                                                                    \
+    bool temp_ret = fn;                                                                                                \
+    if (!temp_ret)                                                                                                     \
+    {                                                                                                                  \
+      return false;                                                                                                    \
     }                                                                                                                  \
   }
 #define STRING_SET(str_ptr, fmt, ...)                                                                                  \
@@ -200,21 +207,25 @@ static uint8_t lastOctet(const NimBLEAddress& addr)
 // ── Hardware sync ISR ──────────────────────────────────────────────────
 // IRAM_ATTR: ESP32 ISRs must be in IRAM. Keep this lean — no calls into
 // micro-ROS or anything that isn't IRAM-safe.
-void IRAM_ATTR onHardwareButtonPress()
-{
-  uint32_t now = micros();
-  if (now - hwPressTimeUs > HW_BUTTON_DEBOUNCE_US)
-  {
-    hwPressTimeUs = now;
-    hwPressPending = true;
-  }
-}
+// void ARDUINO_ISR_ATTR onHardwareButtonPress()
+// {
+//   uint32_t now = micros();
+//   if (now - hwPressTimeUs > HW_BUTTON_DEBOUNCE_US)
+//   {
+//     hwPressTimeUs = now;
+//     hwPressPending = true;
+//   }
+// }
 
 // ── BLE scan callback (runs on the NimBLE host task) ───────────────────
 class ScanCallbacks : public NimBLEScanCallbacks
 {
   void onResult(const NimBLEAdvertisedDevice* device) override
   {
+    // Capture the detection time before doing any work so the
+    // measurement reflects the BLE arrival, not the queue push.
+    uint32_t local_us = micros();
+
     NimBLEAddress addr = device->getAddress();
     if (!isFlicAddress(addr))
       return;
@@ -225,13 +236,8 @@ class ScanCallbacks : public NimBLEScanCallbacks
       return;
     lastPressMs[key] = now_ms;
 
-    // Capture the detection time before doing any string work so the
-    // measurement reflects the BLE arrival, not the queue push.
-    uint32_t local_us = micros();
-
     BlePressEvent ev = {};
-    std::string s = addr.toString();
-    strncpy(ev.bd_addr_str, s.c_str(), sizeof(ev.bd_addr_str) - 1);
+    ev.addr = addr;
     ev.rssi = device->getRSSI();
     ev.local_us = local_us;
 
@@ -239,7 +245,7 @@ class ScanCallbacks : public NimBLEScanCallbacks
     // wedged), drop the event rather than back-pressuring the BLE task.
     xQueueSend(blePressQueue, &ev, 0);
   }
-};
+} scan_callbacks;
 
 // ── Publishing (runs on the main loop) ────────────────────────────────
 // Convert a captured micros() timestamp to ROS epoch ns by anchoring
@@ -260,39 +266,59 @@ static void publish_ble_press(const BlePressEvent& ev)
 {
   int64_t epoch_ns = local_us_to_epoch_ns(ev.local_us);
   NS_TO_ROS_TIME(ble_press_msg.stamp, epoch_ns);
-  STRING_SET(&ble_press_msg.frame_id, "%s", ev.bd_addr_str);
+  STRING_SET(&ble_press_msg.frame_id, "%s", ev.addr.toString().c_str());
   RCSOFTCHECK(rcl_publish(&ble_press_publisher, &ble_press_msg, NULL));
 }
 
-static void publish_hw_press(uint32_t hw_us)
+// static void publish_hw_press(uint32_t hw_us)
+// {
+//   int64_t epoch_ns = local_us_to_epoch_ns(hw_us);
+//   NS_TO_ROS_TIME(hw_press_msg.stamp, epoch_ns);
+//   STRING_SET(&hw_press_msg.frame_id, "hw_sync");
+//   RCSOFTCHECK(rcl_publish(&hw_press_publisher, &hw_press_msg, NULL));
+// }
+
+// static void record_latency_stats(long latency_us)
+// {
+//   latencyMeasurements[measurementCount++] = latency_us;
+//   if (measurementCount < MAX_MEASUREMENTS)
+//     return;
+//
+//   long sum = 0;
+//   for (int i = 0; i < MAX_MEASUREMENTS; i++)
+//     sum += latencyMeasurements[i];
+//   float avg = (float)sum / MAX_MEASUREMENTS;
+//
+//   float var = 0;
+//   for (int i = 0; i < MAX_MEASUREMENTS; i++)
+//   {
+//     float d = (float)latencyMeasurements[i] - avg;
+//     var += d * d;
+//   }
+//   float stddev = sqrtf(var / MAX_MEASUREMENTS);
+//
+//   LOG("HW->BLE stats (n=%d): avg=%.2f ms, stddev=%.2f ms", MAX_MEASUREMENTS, avg / 1000.0f, stddev / 1000.0f);
+//   measurementCount = 0;
+// }
+
+// ── Connect & disconnect ───────────────────────────────────────────────
+static void resetButtonAds(const NimBLEAddress& addr)
 {
-  int64_t epoch_ns = local_us_to_epoch_ns(hw_us);
-  NS_TO_ROS_TIME(hw_press_msg.stamp, epoch_ns);
-  STRING_SET(&hw_press_msg.frame_id, "hw_sync");
-  RCSOFTCHECK(rcl_publish(&hw_press_publisher, &hw_press_msg, NULL));
-}
+  // delay(CONNECT_DELAY_MS);
 
-static void record_latency_stats(long latency_us)
-{
-  latencyMeasurements[measurementCount++] = latency_us;
-  if (measurementCount < MAX_MEASUREMENTS)
-    return;
+  LOG("Connecting to %s to reset ads...", addr.toString().c_str());
 
-  long sum = 0;
-  for (int i = 0; i < MAX_MEASUREMENTS; i++)
-    sum += latencyMeasurements[i];
-  float avg = (float)sum / MAX_MEASUREMENTS;
+  bool connected = pClient->connect(addr, false);
 
-  float var = 0;
-  for (int i = 0; i < MAX_MEASUREMENTS; i++)
+  if (connected)
   {
-    float d = (float)latencyMeasurements[i] - avg;
-    var += d * d;
+    LOG("Connected. Immediately disconnecting...");
+    pClient->disconnect();
   }
-  float stddev = sqrtf(var / MAX_MEASUREMENTS);
-
-  LOG("HW->BLE stats (n=%d): avg=%.2f ms, stddev=%.2f ms", MAX_MEASUREMENTS, avg / 1000.0f, stddev / 1000.0f);
-  measurementCount = 0;
+  else
+  {
+    LOG("Connect failed (button may have stopped advertising).");
+  }
 }
 
 static void pump_publish_queue()
@@ -301,45 +327,59 @@ static void pump_publish_queue()
   // press whose latency we should record. The "match the next BLE press
   // to the most recent HW press" semantics are preserved from the .ino.
   BlePressEvent ev;
+  bool scan_stopped = false;
   while (xQueueReceive(blePressQueue, &ev, 0) == pdTRUE)
   {
     publish_ble_press(ev);
-
-    if (hwPressPending)
+    if (!scan_stopped)
     {
-      uint32_t hw_us = hwPressTimeUs;
-      hwPressPending = false;
-      long latency_us = (long)(ev.local_us - hw_us);
-      LOG("HW->BLE latency: %ld us  (bd_addr=%s)", latency_us, ev.bd_addr_str);
-      record_latency_stats(latency_us);
+      pScan->stop();
+      scan_stopped = true;
     }
+    resetButtonAds(ev.addr);
+
+    // if (hwPressPending)
+    // {
+    //   uint32_t hw_us = hwPressTimeUs;
+    //   hwPressPending = false;
+    //   long latency_us = (long)(ev.local_us - hw_us);
+    //   LOG("HW->BLE latency: %ld us  (bd_addr=%s)", latency_us, ev.bd_addr_str);
+    //   record_latency_stats(latency_us);
+    // }
+  }
+  if (scan_stopped)
+  {
+    pScan->start(0, false);
   }
 
   // Publish any HW press that didn't get paired with a BLE event (e.g.
   // the user only pressed the hardware sync). The Python side can still
   // correlate it against advertisements seen by the scapy client.
-  if (hwPressPending)
-  {
-    uint32_t hw_us = hwPressTimeUs;
-    hwPressPending = false;
-    publish_hw_press(hw_us);
-  }
+  // if (hwPressPending)
+  // {
+  //   uint32_t hw_us = hwPressTimeUs;
+  //   hwPressPending = false;
+  //   publish_hw_press(hw_us);
+  // }
 }
 
 // ── BLE init (called once at boot) ─────────────────────────────────────
-static void init_ble()
+static bool init_ble()
 {
-  NimBLEDevice::init("FlicSniffer");
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  BOOLCHECK(NimBLEDevice::init("FlicSniffer"));
+  BOOLCHECK(NimBLEDevice::setPower(ESP_PWR_LVL_P9));
 
   pScan = NimBLEDevice::getScan();
-  pScan->setScanCallbacks(new ScanCallbacks(), true);
+  pScan->setScanCallbacks(&scan_callbacks, true);
   pScan->setActiveScan(false);
   pScan->setInterval(16);  // 0.625 ms units → ~10 ms
   pScan->setWindow(16);    // 100% duty cycle
   pScan->setDuplicateFilter(false);
   pScan->setMaxResults(0);
-  pScan->start(0, false);
+
+  pClient = NimBLEDevice::createClient();
+
+  return true;
 }
 
 // ── micro-ROS client lifecycle ────────────────────────────────────────
@@ -362,6 +402,11 @@ bool init_client()
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
 
   RCCHECK(rmw_uros_sync_session(1000));
+
+  xQueueReset(blePressQueue);
+
+  BOOLCHECK(pScan->start(0, false));
+
   LOG("BLE sniffer ready (cooldown=%lu ms, queue=%u)", (unsigned long)PER_BUTTON_COOLDOWN_MS,
       (unsigned)BLE_PRESS_QUEUE_LEN);
   return true;
@@ -369,6 +414,8 @@ bool init_client()
 
 bool deinit_client()
 {
+  pScan->stop();
+
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
   RCCHECK(rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0));
 
@@ -392,8 +439,8 @@ void setup()
 
   WiFi.mode(WIFI_OFF);
 
-  pinMode(HW_BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(HW_BUTTON_PIN), onHardwareButtonPress, FALLING);
+  // pinMode(HW_BUTTON_PIN, INPUT_PULLUP);
+  // attachInterrupt(digitalPinToInterrupt(HW_BUTTON_PIN), onHardwareButtonPress, FALLING);
 
   // Pre-allocate string memory for the three messages we publish.
   bool ok = micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Header),
@@ -404,11 +451,12 @@ void setup()
                                                   memory_conf);
 
   blePressQueue = xQueueCreate(BLE_PRESS_QUEUE_LEN, sizeof(BlePressEvent));
+  // bleConnectQueue = xQueueCreate(BLE_PRESS_QUEUE_LEN, sizeof(BlePressEvent));
   ok &= (blePressQueue != nullptr);
 
   // BLE runs independently of the agent; bring it up once here so we're
   // collecting events even before the first micro-ROS connection.
-  init_ble();
+  ok &= init_ble();
 
   agent_state = ok ? WAITING_AGENT : UNRECOVERABLE_ERROR;
   delay(500);
@@ -423,10 +471,6 @@ void loop()
                          agent_state = (RMW_RET_OK == rmw_uros_ping_agent(AGENT_RECONNECT_TIMEOUT_MS, 1)) ?
                                            AGENT_AVAILABLE :
                                            WAITING_AGENT;);
-      // Drop queued events while disconnected so we don't republish
-      // stale timestamps on reconnect.
-      xQueueReset(blePressQueue);
-      hwPressPending = false;
       break;
 
     case AGENT_AVAILABLE:
@@ -438,6 +482,7 @@ void loop()
                          agent_sync_retries = (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)) ?
                                                   0 :
                                                   agent_sync_retries + 1;);
+      // if (agent_sync_retries >= AGENT_SYNC_MAX_RETRIES)
       if ((agent_sync_retries >= AGENT_SYNC_MAX_RETRIES) ||
           (RCL_RET_OK != rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))))
       {

@@ -15,6 +15,7 @@ from typing import cast
 
 import numpy as np
 from rclpy.time import Time
+from std_msgs.msg import Header
 from tabletop_interfaces.srv import Ping
 from tabletop_rig.exceptions import ManipulationContextExitedError
 from tabletop_rig.nodes import Commander
@@ -232,6 +233,46 @@ class DummyTask(BaseTask):
                 f"Latency: {avg:.2f} ± {std:.2f} ms\n"
                 f"----------------------------------------------------------"
             )
+
+    async def test_flic_latency_button_new(self) -> None:
+        """Test Flic button latency using the teensy button as ground truth"""
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[Header] = asyncio.Queue()
+
+        def flic_sub_cb(msg: Header):
+            loop.call_soon_threadsafe(queue.put_nowait, msg)
+
+        sub = self.commander.create_subscription(
+            Header, "ble_sniffer/button_pressed_time", flic_sub_cb, 10
+        )
+
+        latencies = []
+        try:
+            while True:
+                self.log(
+                    "Press flic button and teensy button simultaneously (smash them)"
+                )
+                msg = await queue.get()
+                flic_time = seconds_from_ros_time(msg.stamp)
+                bd_addr = msg.frame_id
+
+                teensy_time_msg = self.commander._teensy.last_teensy_sensor.button_last_time_pressed
+                teensy_time = seconds_from_ros_time(teensy_time_msg)
+
+                latency = flic_time - teensy_time
+                self.log(f"Latency for button '{bd_addr}': {latency:.4f}s")
+                latencies.append(latency)
+        finally:
+            avg = np.mean(latencies)
+            std = np.std(latencies)
+            self.log(
+                f"----------------------------------------------------------\n"
+                f"Flic latency (using teensy button as ground truth) stats (N={len(latencies)}):\n"
+                f"Latency: {avg:.2f} ± {std:.2f} ms\n"
+                f"----------------------------------------------------------"
+            )
+            sub.destroy()
 
     async def test_optitrack_latency_solenoid(self):
         """Test using a solenoid to press the button"""

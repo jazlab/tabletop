@@ -385,13 +385,15 @@ class MoveItInterface(BaseInterface):
         self.log("Getting current state from planning scene", severity="DEBUG")
 
         # TODO: Should probably use this
-        # now = self.node.get_clock().now()
-        # wait_time = self.param("current_state_wait_time")
-        #
-        # if not self.planning_scene_monitor.wait_for_current_robot_state(
-        #     now, wait_time
-        # ):
-        #     raise RuntimeError("Could not get current robot state")
+        now = self.node.get_clock().now()
+        wait_time = self.param("current_state_wait_time")
+
+        if not self.psm.wait_for_current_robot_state(now, wait_time):
+            self.log(
+                f"Could not get current robot state in "
+                f"{wait_time} seconds, using existing state",
+                severity="WARN",
+            )
 
         with self.psm.read_only() as scene:
             return deepcopy(scene.current_state)

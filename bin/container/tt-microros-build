@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+
+print_usage() {
+    echo "Usage: $0 [-t|--target teensy|sniffer] [--clean] [--no-upload] [--compiledb]"
+}
+
+target_arg="--target upload"
+retries=2
+project_dirs=(
+    "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
+    "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer"
+)
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --clean)
+            clean=true
+            ;;
+        --no-upload)
+            unset target_arg
+            retries=1
+            ;;
+        --compiledb)
+            target_arg="--target compiledb"
+            retries=1
+            ;;
+        -t|--target)
+            shift
+            case $1 in
+                teensy)
+                    project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy")
+                    ;;
+                sniffer)
+                    project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer")
+                    ;;
+                *)
+                    print_error "Error: Unknown target '$1'"
+                    print_usage
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            print_error "Error: Unknown argument '$1'"
+            print_usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+for project_dir in "${project_dirs[@]}"; do
+    builtin cd $project_dir
+
+    if [[ "$clean" = true ]]; then
+        print_status "Cleaning microros build directory"
+        # rm -rf .pio
+        pio run --target clean_microros
+    fi
+
+    print_status "Building MicroROS at $project_dir"
+    i=0
+    while (( i < retries )) && ! pio run $target_arg; do
+        (( i+=1 ))
+        if (( i >= retries )); then
+            print_error "Build failed $i times, aborting"
+            exit 1
+        fi
+
+        if [[ -n $target_arg ]]; then
+            print_status "Build failed, retrying..."
+            sleep 1
+        else
+            print_error "Build failed, aborting"
+            exit 1
+        fi
+    done
+done

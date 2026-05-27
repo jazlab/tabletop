@@ -1,23 +1,33 @@
 {
   "configurations": [
     {
+      "name": "ros2",
       "browse": {
         "databaseFilename": "${workspaceFolder}/.vscode/ros.browse.vc.db",
         "limitSymbolsToIncludedHeaders": false
       },
-      "name": "ros2",
       "compileCommands": [
         "${workspaceFolder}/build/compile_commands.json"
       ]
     },
     {
-      "name": "PlatformIO",
+      "name": "pio_teensy",
       "browse": {
-        "databaseFilename": "${workspaceFolder}/.vscode/pio.browse.vc.db",
+        "databaseFilename": "${workspaceFolder}/.vscode/pio_teensy.browse.vc.db",
         "limitSymbolsToIncludedHeaders": false
       },
       "compileCommands": [
-        "${workspaceFolder}/src/ros/tabletop/tabletop_teensy/compile_commands.json"
+        "${workspaceFolder}/src/ros/tabletop/tabletop_micro/tabletop_teensy/compile_commands.json"
+      ]
+    },
+    {
+      "name": "pio_sniffer",
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/pio_ble_sniffer.browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "compileCommands": [
+        "${workspaceFolder}/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer/compile_commands.json"
       ]
     }
   ],

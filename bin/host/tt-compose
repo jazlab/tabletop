@@ -46,8 +46,8 @@ set -- "${ARGS[@]}"
 print_status "docker compose $@"
 echo
 
-if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
-    sudo modprobe -r btusb
-    sudo modprobe btusb
-fi
+# if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
+#     sudo modprobe -r btusb
+#     sudo modprobe btusb
+# fi
 exec docker compose "$@"

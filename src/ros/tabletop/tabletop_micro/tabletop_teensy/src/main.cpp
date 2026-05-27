@@ -37,9 +37,9 @@
 #define SYNC_PULSE_CONTROL_PIN 9
 #define SOLENOID_CONTROL_PIN 12
 #define SAFETY_LASER_STATE_PIN 25
-#define LEFT_ARM_LOCK_STATE_PIN 36
+#define LEFT_ARM_LOCK_STATE_PIN 38  // TODO: change back to 36
 #define RIGHT_ARM_LOCK_STATE_PIN 39
-#define BUTTON_STATE_PIN 33
+#define BUTTON_STATE_PIN 36
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 
@@ -56,12 +56,7 @@ static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 #define BUTTON_ISR_TRIGGER CHANGE
 
 // Message memory configuration
-#define MAX_STRING_CAPACITY 100
-#define MAX_ROS2_TYPE_SEQUENCE_CAPACITY 5
-#define MAX_BASIC_TYPE_SEQUENCE_CAPACITY 5
-static const micro_ros_utilities_memory_conf_t memory_conf = {
-  MAX_STRING_CAPACITY, MAX_ROS2_TYPE_SEQUENCE_CAPACITY, MAX_BASIC_TYPE_SEQUENCE_CAPACITY, NULL, 0, NULL
-};
+static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 0, NULL };
 
 // ROS2 node name
 #define NODE_NAME "teensy"
@@ -327,50 +322,6 @@ static inline void set_solenoid(bool activate)
     digitalWriteFast(SOLENOID_CONTROL_PIN, LOW);
   }
   is_solenoid_active = activate;
-}
-
-// Support init with custom clock
-rcl_ret_t rclc_support_init_with_clock(rclc_support_t* support, int argc, const char* const* argv,
-                                       rcl_clock_type_t clock_type, rcl_allocator_t* allocator)
-{
-  // Check for null pointers
-  RCL_CHECK_FOR_NULL_WITH_MSG(support, "support is a null pointer", return RCL_RET_INVALID_ARGUMENT);
-  RCL_CHECK_FOR_NULL_WITH_MSG(allocator, "allocator is a null pointer", return RCL_RET_INVALID_ARGUMENT);
-
-  rcl_ret_t rc = RCL_RET_OK;
-
-  // Initialize init options
-  rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
-  rc = rcl_init_options_init(&init_options, (*allocator));
-  if (rc != RCL_RET_OK)
-  {
-    PRINT_RCLC_ERROR(rclc_support_init, rcl_init_options_init);
-    return rc;
-  }
-
-  // Initialize context
-  support->context = rcl_get_zero_initialized_context();
-  rc = rcl_init(argc, argv, &init_options, &support->context);
-  if (rc != RCL_RET_OK)
-  {
-    PRINT_RCLC_ERROR(rclc_init, rcl_init);
-    return rc;
-  }
-  support->allocator = allocator;
-
-  // Initialize clock
-  rc = rcl_clock_init(clock_type, &support->clock, support->allocator);
-  if (rc != RCL_RET_OK)
-  {
-    PRINT_RCLC_ERROR(rclc_init, rcl_clock_init);
-  }
-
-  // Finalize init options
-  if (rcl_init_options_fini(&init_options) != RCL_RET_OK)
-  {
-    PRINT_RCLC_ERROR(rclc_support_init, rcl_init_options_fini);
-  }
-  return rc;
 }
 
 // Timer callback for publishing the sensor message

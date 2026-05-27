@@ -79,7 +79,7 @@ services:
   flicd:
     <<: *common
     container_name: tabletop-flicd
-    profiles: [ real ]
+    profiles: [ flicd ]
     image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
     labels:
       autoheal-tabletop: true
@@ -120,6 +120,15 @@ services:
     stop_signal: SIGINT
     working_dir: /tabletop
     command: tt-build --all
+
+  microros-builder:
+    extends: ros-base
+    container_name: tabletop-microros-builder
+    volumes:
+      - /dev:/dev
+      - platformio-core:/platformio
+    privileged: true
+    command: tt-microros-build
 
   foxglove:
     extends: ros-base
@@ -201,14 +210,6 @@ services:
     restart: unless-stopped
     command: tt-launch flir
 
-  teensy-builder:
-    extends: ros-base
-    container_name: tabletop-teensy-builder
-    volumes:
-      - /dev:/dev
-    privileged: true
-    command: tt-teensy-build
-
   teensy:
     extends: ros-base
     container_name: tabletop-teensy
@@ -219,16 +220,6 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=false
 
-  sniffer:
-    extends: ros-base
-    container_name: tabletop-sniffer
-    profiles: !override
-      - real
-    devices:
-      - /dev/ttyUSB0:/dev/ttyUSB0
-    restart: unless-stopped
-    command: tt-launch teensy simulate:=false micro_ros_device:=/dev/ttyUSB0
-
   teensy-sim:
     extends: ros-base
     container_name: tabletop-teensy-sim
@@ -236,6 +227,29 @@ services:
       - sim
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
+
+  flic:
+    container_name: tabletop-flic-client
+    extends: ros-base
+    profiles: !override
+      - flicd
+    depends_on:
+      flicd:
+        condition: service_healthy
+        # condition: service_started
+        restart: true
+    restart: unless-stopped
+    command: tt-launch flic simulate:=false use_scapy:=false
+
+  flic-sniffer:
+    extends: ros-base
+    container_name: tabletop-flic-sniffer
+    profiles: !override
+      - flic-sniffer
+    devices:
+      - /dev/ttyUSB0
+    restart: unless-stopped
+    command: tt-launch teensy simulate:=false micro_ros_device:=/dev/ttyUSB0
 
   flic-scapy:
     extends: ros-base
@@ -245,20 +259,7 @@ services:
     cap_add:
       - NET_ADMIN
     # user: root
-    command: tt-launch flic_scapy
-
-  flic:
-    container_name: tabletop-flic
-    extends: ros-base
-    profiles: !override
-      - real
-    depends_on:
-      flicd:
-        condition: service_healthy
-        # condition: service_started
-        restart: true
-    restart: unless-stopped
-    command: tt-launch flic simulate:=false
+    command: tt-launch flic_scapy use_scapy:=true
 
   flic-sim:
     container_name: tabletop-flic-sim
@@ -318,6 +319,7 @@ services:
       - dev
     runtime: $COMMANDER_RUNTIME
     volumes:
+      - platformio-core:/platformio
       - $ROS_BAG_DIR_MNT
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
@@ -329,3 +331,6 @@ services:
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
     init: true
     command: sleep infinity
+
+volumes:
+  platformio-core:
