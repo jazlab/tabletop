@@ -43,6 +43,7 @@ flic.db
 
 # Bags
 /bags
+/bags_container
 /bags_i_care_about
 
 # Saved models

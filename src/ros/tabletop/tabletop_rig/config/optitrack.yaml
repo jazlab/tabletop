@@ -22,7 +22,7 @@
     marker_topics: ["markers", "predicted_markers"]
     rb_topics: ["rigid_bodies"]
     rb_require_markers: true
-    marker_lifetime: 0.1
+    marker_lifetime: 0.05
     marker_colors:
       markers:
         r: 0.0

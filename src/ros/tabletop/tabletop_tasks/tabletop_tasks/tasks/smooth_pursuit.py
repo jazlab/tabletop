@@ -67,7 +67,7 @@ class SmoothPursuitTask(BaseTask):
         motion_kwargs: Mapping[str, Any],
         num_repetitions: int,
         object_id: str,
-        group_name: str,
+        robot_name: str,
         velocity_scaling_factor: float = 1.0,
         max_motion_generation_attempts: int = 5,
     ):
@@ -109,7 +109,7 @@ class SmoothPursuitTask(BaseTask):
                 raise ValueError(f"Unsupported motion type: {motion_type}")
 
         self._object_id = object_id
-        self._group_name = group_name
+        self._robot_name = robot_name
         self._motion_type = motion_type
         self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
@@ -290,6 +290,29 @@ class SmoothPursuitTask(BaseTask):
         for _ in range(self._num_repetitions):
             await manipulator.move(trajectory)
 
+    def _get_allowed_collisions(self) -> list[tuple[str, str]]:
+        robot_collision_ids = [
+            "right_base_link_inertia",
+            "right_shoulder_link",
+            "right_upper_arm_link",
+            "right_forearm_link",
+            "right_wrist_1_link",
+            "right_wrist_2_link",
+            "right_wrist_3_link",
+            "right_eef_link",
+            "right_eef_sphere",
+            self._object_id,
+        ]
+        region_collision_ids = [
+            "robot_divider",
+            "robot_divider_front",
+            "left_presentation_wall",
+            "right_presentation_wall",
+        ]
+        return [
+            (x, y) for x in robot_collision_ids for y in region_collision_ids
+        ]
+
     async def run(self):
         """Run the smooth pursuit task.
 
@@ -309,76 +332,88 @@ class SmoothPursuitTask(BaseTask):
         await self.commander.occlude_smartglass()
 
         async with self.commander.manipulation_context(
-            self._group_name
+            self._robot_name
         ) as manipulator:
-            await manipulator.fetch_object(self._object_id)
+            # TODO: FIX!!!!!!!!!!
+            # await manipulator.fetch_object(self._object_id)
+            await manipulator.manually_atatch_object(self._object_id)
 
-            for i in range(self._max_motion_generation_attempts):
-                goals = self._motion_fn(**self._motion_kwargs)
+            collisions_to_allow = self._get_allowed_collisions()
+            modified_collisions = self.commander._moveit.allow_collision(
+                *zip(*collisions_to_allow)
+            )
+            try:
+                for i in range(self._max_motion_generation_attempts):
+                    goals = self._motion_fn(**self._motion_kwargs)
 
-                try:
-                    # Plan to first waypoint using default planning pipeline
-                    start_trajectory = await manipulator.plan(
-                        goal=goals[0], group_name=self._group_name
+                    try:
+                        # Plan to first waypoint using default planning pipeline
+                        start_trajectory = await manipulator.plan(
+                            goal=goals[0], group_name=self._robot_name
+                        )
+
+                        # Plan the full concatenated trajectory through remaining waypoints
+                        trajectory = await manipulator.plan(
+                            goals=goals[1:],
+                            group_name=self._robot_name,
+                            start_state=start_trajectory[
+                                len(start_trajectory) - 1
+                            ],
+                            velocity_scaling_factor=self._velocity_scaling_factor,
+                            post_process_after_concat=self._post_process_after_concat,
+                            loop=True,
+                            planning_pipeline="linear",
+                            use_cache=False,
+                        )
+                        break
+                    except PlanningError as e:
+                        self.log(
+                            f"Error while planning smooth pursuit trajectory: {type(e).__name__}: {e}",
+                            severity="ERROR",
+                        )
+                        if (
+                            remaining := self._max_motion_generation_attempts
+                            - i
+                            - 1
+                        ) > 0:
+                            self.log(f"Trying again {remaining} more times")
+                else:
+                    raise RuntimeError(
+                        f"Could not plan smooth pursuit trajectory after {self._max_motion_generation_attempts} attempts"
                     )
 
-                    # Plan the full concatenated trajectory through remaining waypoints
-                    trajectory = await manipulator.plan(
-                        goals=goals[1:],
-                        group_name=self._group_name,
-                        start_state=start_trajectory[
-                            len(start_trajectory) - 1
-                        ],
-                        velocity_scaling_factor=self._velocity_scaling_factor,
-                        post_process_after_concat=self._post_process_after_concat,
-                        loop=True,
-                        planning_pipeline="linear",
-                        use_cache=False,
+                # Move to first waypoint
+                await manipulator.move(start_trajectory)
+
+                # Make stimulus visible to subject
+                await self.commander.reveal_smartglass()
+
+                async with asyncio.TaskGroup() as tg:
+                    smooth_pursuit_task = tg.create_task(
+                        self.commander.smooth_pursuit_and_reward()
                     )
-                    break
-                except PlanningError as e:
+
+                    # Wait before moving to get a baseline for no eye movement
+                    wait_time = 5
                     self.log(
-                        f"Error while planning smooth pursuit trajectory: {type(e).__name__}: {e}",
-                        severity="ERROR",
+                        f"Waiting {wait_time} seconds before moving to get baseline for no smooth pursuit"
                     )
-                    if (
-                        remaining := self._max_motion_generation_attempts
-                        - i
-                        - 1
-                    ) > 0:
-                        self.log(f"Trying again {remaining} more times")
-            else:
-                raise RuntimeError(
-                    f"Could not plan smooth pursuit trajectory after {self._max_motion_generation_attempts} attempts"
-                )
+                    await asyncio.sleep(wait_time)
 
-            # Move to first waypoint
-            await manipulator.move(start_trajectory)
+                    # Run trajectory execution and eye tracking concurrently
+                    execution_task = tg.create_task(
+                        self.execute_loop(manipulator, trajectory)
+                    )
 
-            # Make stimulus visible to subject
-            await self.commander.reveal_smartglass()
-
-            async with asyncio.TaskGroup() as tg:
-                smooth_pursuit_task = tg.create_task(
-                    self.commander.smooth_pursuit_and_reward()
-                )
-
-                # Wait before moving to get a baseline for no eye movement
-                wait_time = 5
-                self.log(
-                    f"Waiting {wait_time} seconds before moving to get baseline for no smooth pursuit"
-                )
-                await asyncio.sleep(wait_time)
-
-                # Run trajectory execution and eye tracking concurrently
-                execution_task = tg.create_task(
-                    self.execute_loop(manipulator, trajectory)
-                )
-
-                # Wait for either task to complete, then cancel the other
-                await asyncio.wait(
-                    [smooth_pursuit_task, execution_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                smooth_pursuit_task.cancel()
-                execution_task.cancel()
+                    # Wait for either task to complete, then cancel the other
+                    await asyncio.wait(
+                        [smooth_pursuit_task, execution_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    smooth_pursuit_task.cancel()
+                    execution_task.cancel()
+            finally:
+                if len(modified_collisions) > 0:
+                    self.commander._moveit.disallow_collision(
+                        *zip(*modified_collisions)
+                    )

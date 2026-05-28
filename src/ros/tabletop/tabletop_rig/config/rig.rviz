@@ -4,6 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /PlanningScene1
         - /PlanningScene1/Scene Robot1
       Splitter Ratio: 0.570588231086731
     Tree Height: 836
@@ -260,7 +261,7 @@ Visualization Manager:
             Alpha: 1
             Show Axes: false
             Show Trail: false
-        Robot Alpha: 0
+        Robot Alpha: 0.5
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
@@ -453,25 +454,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.2021565437316895
+      Distance: 3.9027767181396484
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.9045069217681885
-        Y: 1.213905692100525
-        Z: 0.3120221495628357
+        X: 0.6491725444793701
+        Y: 0.6073958277702332
+        Z: 0.3178696036338806
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4751569926738739
+      Pitch: 0.5151566863059998
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.8186886310577393
+      Yaw: 3.9954993724823
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051

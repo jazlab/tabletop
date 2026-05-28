@@ -974,9 +974,16 @@ class Commander(BaseNode):
         self.log("Exiting commander context manager")
         try:
             await self._teensy.set_sync_pulse_solenoid(activate=False)
-        finally:
-            self._entered_context = False
-            self._exited_context = True
+        except BaseException as e:
+            self.log(f"Failed to set sync pulse: {e!r}")
+
+        try:
+            self.destroy_node()
+        except BaseException as e:
+            self.log(f"Failed to destroy node: {e!r}")
+
+        self._entered_context = False
+        self._exited_context = True
 
 
 async def debug_commander(
@@ -1100,7 +1107,6 @@ def main_sync(args=None) -> None:
 
     executor = None
     spin_future = None
-    commander = None
 
     try:
         # Parse non-ROS arguments
@@ -1174,9 +1180,6 @@ def main_sync(args=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        if commander is not None:
-            print("Shutting down commander")
-            commander.destroy_node()
         if executor is not None:
             print("Shutting down executor")
             executor.shutdown()

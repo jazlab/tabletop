@@ -10,6 +10,7 @@ tasks:
         length: 0.2
         num_revolutions: 10
         num_segments: 800
+      robot_name: right_manipulator
       num_repetitions: 3
       object_id: smooth_pursuit_object
       velocity_scaling_factor: 0.1

@@ -4,12 +4,13 @@ tasks:
       motion_type: sin
       motion_kwargs:
         center_pose:
-          position: [0.9525, 0.4, 0.5]
+          position: [0.9525, 0.6, 0.53]
           rpy: [1.5707, 1.5707, 0.0]
         amplitudes: [0.1, 0.1, 0.1]
         periods: [4.3, 6.2, 10.0]
         num_revolutions: 10
         num_segments: 800
-      num_repetitions: 3
+      robot_name: right_manipulator
+      num_repetitions: 100
       object_id: smooth_pursuit_object
       velocity_scaling_factor: 0.075

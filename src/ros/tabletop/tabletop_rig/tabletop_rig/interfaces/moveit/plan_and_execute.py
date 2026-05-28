@@ -751,7 +751,7 @@ class PlanAndExecuteInterface(BaseInterface):
 
         for i, req in enumerate(request.generate_plan_requests()):
             self.log(
-                f"Planning trajectory segment {i}/{len(request.goals)}",
+                f"Planning trajectory segment {i + 1}/{len(request.goals)}",
             )
             try:
                 req.start_state = start_state

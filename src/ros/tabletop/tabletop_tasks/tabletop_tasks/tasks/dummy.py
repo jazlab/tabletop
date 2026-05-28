@@ -50,42 +50,47 @@ class DummyTask(BaseTask):
 
     async def test_teensy_latency(self):
         client = self.commander.create_client(
-            Ping, "ble_sniffer/ping", enable_introspection=False
+            Ping, "teensy/ping", enable_introspection=False
         )
 
-        await asyncio.to_thread(client.wait_for_service)
+        try:
+            await asyncio.to_thread(client.wait_for_service, 5.0)
 
-        roundtrips = []
-        forwards = []
-        backwards = []
+            roundtrips = []
+            forwards = []
+            backwards = []
 
-        for _ in range(1000):
-            start_time = self.commander.get_clock().now()
-            response = cast(
-                Ping.Response,
-                await self.commander.service_call_async(
-                    srv_request=Ping.Request(sent_time=start_time.to_msg()),
-                    srv_client=client,
-                ),
-            )
-            end_time = self.commander.get_clock().now()
-            teensy_time = Time.from_msg(response.received_time)
+            for _ in range(1000):
+                start_time = self.commander.get_clock().now()
+                response = cast(
+                    Ping.Response,
+                    await self.commander.service_call_async(
+                        srv_request=Ping.Request(
+                            sent_time=start_time.to_msg()
+                        ),
+                        srv_client=client,
+                    ),
+                )
+                end_time = self.commander.get_clock().now()
+                teensy_time = Time.from_msg(response.received_time)
 
-            roundtrip = seconds_from_ros_time(end_time - start_time)
-            forward = seconds_from_ros_time(teensy_time - start_time)
-            backward = seconds_from_ros_time(end_time - teensy_time)
+                roundtrip = seconds_from_ros_time(end_time - start_time)
+                forward = seconds_from_ros_time(teensy_time - start_time)
+                backward = seconds_from_ros_time(end_time - teensy_time)
 
-            # Warmup period
-            roundtrips.append(roundtrip)
-            forwards.append(forward)
-            backwards.append(backward)
+                # Warmup period
+                roundtrips.append(roundtrip)
+                forwards.append(forward)
+                backwards.append(backward)
 
-        roundtrip_mean = np.mean(roundtrips)
-        roundtrip_std = np.std(roundtrips)
-        forward_mean = np.mean(forwards)
-        forward_std = np.std(forwards)
-        backward_mean = np.mean(backwards)
-        backward_std = np.std(backwards)
+            roundtrip_mean = np.mean(roundtrips)
+            roundtrip_std = np.std(roundtrips)
+            forward_mean = np.mean(forwards)
+            forward_std = np.std(forwards)
+            backward_mean = np.mean(backwards)
+            backward_std = np.std(backwards)
+        finally:
+            client.destroy()
 
         self.log(
             "----------------------------------------------------------\n"

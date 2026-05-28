@@ -877,7 +877,7 @@
                 position: [1.6219, 1.1934, 1.1836]
                 rpy: [0.0, 0.0, -1.5707]
             9,2:
-              object_id: smooth_pursuit_object
+              object_id: small_object_29
               color: [0.5, 0.25, 0.75, 0.5] # lavender
               pose_stamped:
                 position: [1.6315, 1.3958, 0.9865]
