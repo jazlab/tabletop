@@ -93,17 +93,12 @@ class SmoothPursuitTask(BaseTask):
         match motion_type:
             case "spiral":
                 self._post_process_after_concat = True
-                self._max_motion_generation_attempts = 1
                 self._motion_fn = self.generate_spiral
             case "sin":
                 self._post_process_after_concat = True
-                self._max_motion_generation_attempts = 1
                 self._motion_fn = self.generate_sin
             case "random":
                 self._post_process_after_concat = False
-                self._max_motion_generation_attempts = (
-                    max_motion_generation_attempts
-                )
                 self._motion_fn = self.generate_random
             case _:
                 raise ValueError(f"Unsupported motion type: {motion_type}")
@@ -114,6 +109,7 @@ class SmoothPursuitTask(BaseTask):
         self._motion_kwargs = motion_kwargs
         self._num_repetitions = num_repetitions
         self._velocity_scaling_factor = velocity_scaling_factor
+        self._max_motion_generation_attempts = max_motion_generation_attempts
 
     def generate_spiral(
         self,
@@ -342,6 +338,10 @@ class SmoothPursuitTask(BaseTask):
             modified_collisions = self.commander._moveit.allow_collision(
                 *zip(*collisions_to_allow)
             )
+
+            # TODO: Maybe remove
+            await manipulator.plan_and_move(goal="fetched")
+
             try:
                 for i in range(self._max_motion_generation_attempts):
                     goals = self._motion_fn(**self._motion_kwargs)
@@ -349,7 +349,9 @@ class SmoothPursuitTask(BaseTask):
                     try:
                         # Plan to first waypoint using default planning pipeline
                         start_trajectory = await manipulator.plan(
-                            goal=goals[0], group_name=self._robot_name
+                            goal=goals[0],
+                            group_name=self._robot_name,
+                            use_cache=False,
                         )
 
                         # Plan the full concatenated trajectory through remaining waypoints

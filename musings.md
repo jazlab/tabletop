@@ -366,3 +366,9 @@ This gets its own section because it's a pain in the ass.
 
 1. If sound doesn't work when running inside Dev Container, the Pulse port probably changed.
     Either rebuild the Dev Container or run the code from the host (via `tt-launch`)
+
+## Planning
+
+1. When planning using ConcatPlanRequest (namely in smooth pursuit task), if you experience a long
+    freeze/pause when applying TOTG post processing, make sure you have not added too many waypoints
+    to the request. If you need a lot of waypoints, toggle off the 'post_process_after_concat' flag

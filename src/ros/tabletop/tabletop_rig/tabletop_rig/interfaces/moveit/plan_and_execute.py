@@ -530,7 +530,12 @@ class PlanAndExecuteInterface(BaseInterface):
 
         # Set path constraints
         if request.path_constraints is not None:
-            planning_component.set_path_constraints(request.path_constraints)
+            if not planning_component.set_path_constraints(
+                request.path_constraints
+            ):
+                raise ValueError(
+                    f"Invalid path constraints: {request.path_constraints}"
+                )
 
         # Create request parameters
         if isinstance(request.planning_pipeline, str):
@@ -784,7 +789,7 @@ class PlanAndExecuteInterface(BaseInterface):
                 start_state = trajectory[len(trajectory) - 1]
             except Exception:
                 self.log(
-                    f"Error generating segment {i}/{len(request.goals)}",
+                    f"Error generating segment {i + 1}/{len(request.goals)}",
                     severity="ERROR",
                 )
                 raise

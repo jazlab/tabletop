@@ -14,3 +14,4 @@ tasks:
       num_repetitions: 100
       object_id: smooth_pursuit_object
       velocity_scaling_factor: 0.075
+      max_motion_generation_attempts: 20

@@ -21,8 +21,15 @@
     mocap4r2_system: "optitrack"
     marker_topics: ["markers", "predicted_markers"]
     rb_topics: ["rigid_bodies"]
+    marker_scale_x: 0.05
+    marker_scale_y: 0.05
+    marker_scale_z: 0.05
+    marker_lifetime: 0.1
+    rb_scale_x: 0.1
+    rb_scale_y: 0.014
+    rb_scale_z: 0.014
+    rb_lifetime: 0.05
     rb_require_markers: true
-    marker_lifetime: 0.05
     marker_colors:
       markers:
         r: 0.0
@@ -31,7 +38,7 @@
         a: 0.8
       predicted_markers:
         r: 1.0
-        g: 1.0
+        g: 0.0
         b: 0.0
         a: 0.8
       rigid_bodies:

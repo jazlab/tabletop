@@ -23,6 +23,7 @@ only_modules=false
 workers=
 linker=mold
 clang=false
+foxglove=false
 verbose=false
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -75,6 +76,9 @@ while [[ $# -gt 0 ]]; do
             fi
             linker=$2
             shift
+            ;;
+        --foxglove)
+            foxglove=true
             ;;
         -v|--verbose)
             verbose=true
@@ -189,8 +193,7 @@ print_status "Successfully built ROS 2 packages!"
 
 source install/setup.bash
 
-# Install ROS 2 runtime dependencies
-# tt-dep-install --type exec $from_paths --skip-uv $skip_apt
-
-# Write to build/last_built.txt to indicate to docker containers a rebuild has occured
-date > "build/last_built.txt"
+if [[ "$foxglove" == true ]]; then
+    builtin cd src/ros/modules/foxglove_moveit_msg_converter
+    npm run package
+fi

@@ -51,7 +51,7 @@ Visualization Manager:
       Update Interval: 0
       Value: false
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Optitrack Markers
       Namespaces:
         {}
@@ -61,12 +61,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /markers_viz
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Eyelink Predicted Markers
       Namespaces:
-        {}
+        mocap4r2_markers: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -261,7 +261,7 @@ Visualization Manager:
             Alpha: 1
             Show Axes: false
             Show Trail: false
-        Robot Alpha: 0.5
+        Robot Alpha: 0
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
@@ -278,7 +278,7 @@ Visualization Manager:
         Value: /robot_description
       Enabled: true
       Links:
-        All Links Enabled: true
+        All Links Enabled: false
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
@@ -295,7 +295,7 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_eef:
           Alpha: 1
           Show Axes: false
@@ -304,12 +304,12 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_eef_sphere:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_flange:
           Alpha: 1
           Show Axes: false
@@ -318,7 +318,7 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_ft_frame:
           Alpha: 1
           Show Axes: false
@@ -327,7 +327,7 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_tool0:
           Alpha: 1
           Show Axes: false
@@ -336,22 +336,22 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_wrist_1_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_wrist_2_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         left_wrist_3_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-          Value: true
+          Value: false
         right_base:
           Alpha: 1
           Show Axes: false
@@ -454,25 +454,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.9027767181396484
+      Distance: 2.6549861431121826
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.6491725444793701
-        Y: 0.6073958277702332
-        Z: 0.3178696036338806
+        X: 0.8424306511878967
+        Y: 0.6318913698196411
+        Z: 0.5382103323936462
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5151566863059998
+      Pitch: 0.13515672087669373
       Target Frame: base_link_inertia
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.9954993724823
+      Yaw: 5.09550142288208
     Saved:
       - Class: rviz_default_plugins/Orbit
         Distance: 6.649411201477051
@@ -496,11 +496,11 @@ Visualization Manager:
         Yaw: 5.40731143951416
 Window Geometry:
   Displays:
-    collapsed: false
+    collapsed: true
   Height: 1059
-  Hide Left Dock: false
+  Hide Left Dock: true
   Hide Right Dock: true
-  QMainWindow State: 000000ff00000000fd0000000100000000000002b7000003c8fc0200000005fb000000100044006900730070006c006100790073010000003e000003c8000000cb00fffffffb0000000a005600690065007700730000000325000000e1000000a500fffffffb0000000c00430061006d0065007200610100000339000000cd0000000000000000fb0000000a0049006d0061006700650000000243000001c30000000000000000fb0000000c00430061006d0065007200610100000339000000cd0000000000000000000004c1000003c800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000100000000000002b7000003c8fc0200000005fb000000100044006900730070006c006100790073000000003e000003c8000000cb00fffffffb0000000a005600690065007700730000000325000000e1000000a500fffffffb0000000c00430061006d0065007200610100000339000000cd0000000000000000fb0000000a0049006d0061006700650000000243000001c30000000000000000fb0000000c00430061006d0065007200610100000339000000cd00000000000000000000077e000003c800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
   Width: 1918

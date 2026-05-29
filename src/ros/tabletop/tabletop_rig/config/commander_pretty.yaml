@@ -222,8 +222,8 @@
       manually_attach:
         mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
         collision_object_kwargs:
-          simplification: bounding_primitive
-          color: [1.0, 1.0, 1.0, 0.5]
+          simplification: null
+          color: [1.0, 1.0, 1.0, 0.8]
       reset_config_map:
         smooth_pursuit_object: null
 
@@ -561,7 +561,7 @@
               allowed_collision_ids:
                 - left_eef_sphere
                 - right_eef_sphere
-              color: [1.0, 0.0, 0.0, 0.2]
+              color: [1.0, 0.0, 0.0, 0.0]
             robot_divider_front:
               type: BOX
               dimensions: [0.001, 0.4975, 0.5]
@@ -570,31 +570,31 @@
               allowed_collision_ids:
                 - left_eef_sphere
                 - right_eef_sphere
-              color: [1.0, 0.0, 0.0, 0.2]
+              color: [1.0, 0.0, 0.0, 0.0]
             safety_laser_boundary:
               type: BOX
               dimensions: [1.8288, 0.001, 0.7]
               pose_stamped:
                 position: [0.9525, 0.23, 0.35]
-              color: [1.0, 0.0, 0.0, 0.1]
+              color: [1.0, 0.0, 0.0, 0.0]
             left_projector_safety_box:
               type: BOX
               dimensions: [0.5, 0.35, 1.25]
               pose_stamped:
                 position: [0.25, 0.175, 0.625]
-              color: [1.0, 0.0, 0.0, 0.1]
+              color: [1.0, 0.0, 0.0, 0.0]
             right_projector_safety_box:
               type: BOX
               dimensions: [0.5, 0.35, 1.25]
               pose_stamped:
                 position: [1.655, 0.175, 0.625]
-              color: [1.0, 0.0, 0.0, 0.1]
+              color: [1.0, 0.0, 0.0, 0.0]
             optitrack_safety_box:
               type: BOX
               dimensions: [1.8288, 0.52, 0.2]
               pose_stamped:
                 position: [0.9525, 0.26, 1.25]
-              color: [1.0, 0.0, 0.0, 0.1]
+              color: [1.0, 0.0, 0.0, 0.0]
             floor:
               type: BOX
               dimensions: [1.8288, 1.8288, 0.0]
@@ -606,37 +606,37 @@
               dimensions: [1.8288, 0.0, 2.0]
               pose_stamped:
                 position: [0.9525, 0.0635, 1.0]
-              color: [1.0, 1.0, 1.0, 0.1]
+              color: [1.0, 1.0, 1.0, 0.0]
             back_wall:
               type: BOX
               dimensions: [1.8288, 0.0, 2.0]
               pose_stamped:
                 position: [0.9525, 1.8923, 1.0]
-              color: [1.0, 1.0, 1.0, 0.1]
+              color: [1.0, 1.0, 1.0, 0.0]
             left_wall:
               type: BOX
               dimensions: [0.0, 1.8288, 2.0]
               pose_stamped:
                 position: [0.0381, 0.9779, 1.0]
-              color: [1.0, 1.0, 1.0, 0.1]
+              color: [1.0, 1.0, 1.0, 0.0]
             right_wall:
               type: BOX
               dimensions: [0.0, 1.8288, 2.0]
               pose_stamped:
                 position: [1.8669, 0.9779, 1.0]
-              color: [1.0, 1.0, 1.0, 0.1]
+              color: [1.0, 1.0, 1.0, 0.0]
             left_reset_bar:
               type: BOX
               dimensions: [0.05, 0.05, 1.18]
               pose_stamped:
                 position: [0.0606, 1.09, 0.59]
-              color: [0.0, 0.0, 1.0, 0.5]
+              color: [0.0, 0.0, 1.0, 0.0]
             right_reset_bar:
               type: BOX
               dimensions: [0.05, 0.05, 1.18]
               pose_stamped:
                 position: [1.8194, 1.0, 0.59]
-              color: [0.0, 0.0, 1.0, 0.5]
+              color: [0.0, 0.0, 1.0, 0.0]
             left_presentation_wall:
               type: BOX
               dimensions: [0.001, 0.7036, 0.8]
@@ -646,7 +646,7 @@
               allowed_collision_ids:
                 - left_eef_sphere
                 - right_eef_sphere
-              color: [1.0, 0.0, 0.0, 0.2]
+              color: [1.0, 0.0, 0.0, 0.0]
             right_presentation_wall:
               type: BOX
               dimensions: [0.001, 0.7036, 0.8]
@@ -656,7 +656,7 @@
               allowed_collision_ids:
                 - left_eef_sphere
                 - right_eef_sphere
-              color: [1.0, 0.0, 0.0, 0.2]
+              color: [1.0, 0.0, 0.0, 0.0]
           meshes:
             rig:
               path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
@@ -666,14 +666,14 @@
               allowed_collision_ids:
                 - left_base_link_inertia
                 - right_base_link_inertia
-              color: [1.0, 1.0, 1.0, 0.5]
+              color: [1.0, 1.0, 1.0, 0.2]
             left_reset_station:
               path: $(find-pkg-share tabletop_rig)/meshes/rig/reset_station.step
               simplification: bounding_primitive
               pose_stamped:
                 position: [0.0856, 1.09, 0.655]
                 rpy: [0.0, 0.0, 0.0]
-              color: [0.0, 0.0, 1.0, 0.5]
+              color: [0.0, 0.0, 1.0, 0.0]
               subframes:
                 drawer:
                   position: [0.0275, 0.0, 0.0]
@@ -687,7 +687,7 @@
               pose_stamped:
                 position: [1.7944, 1.0, 0.66]
                 rpy: [0.0, 0.0, 3.1415]
-              color: [0.0, 0.0, 1.0, 0.5]
+              color: [0.0, 0.0, 1.0, 0.0]
               subframes:
                 drawer:
                   position: [0.0275, 0.0, 0.0]
@@ -704,181 +704,181 @@
           object_kwargs:
             0,0:
               object_id: small_object_0
-              color: [1.0, 0.0, 0.0, 0.5] # red
+              color: [1.0, 0.0, 0.0, 0.0] # red
               pose_stamped:
                 position: [0.2744, 0.7652, 1.1798]
                 rpy: [0.0, 0.0, -1.5707]
             0,1:
               object_id: small_object_1
-              color: [0.0, 1.0, 0.0, 0.5] # green
+              color: [0.0, 1.0, 0.0, 0.0] # green
               pose_stamped:
                 position: [0.2822, 1.2054, 1.1766]
                 rpy: [0.0, 0.0, -1.5707]
             0,2:
               object_id: small_object_2
-              color: [0.0, 0.0, 1.0, 0.5] # blue
+              color: [0.0, 0.0, 1.0, 0.0] # blue
               pose_stamped:
                 position: [0.2803, 1.4096, 0.98]
                 rpy: [-1.5707, 1.5707, 0.0]
             1,0:
               object_id: big_object_0
-              color: [1.0, 1.0, 0.0, 0.5] # yellow
+              color: [1.0, 1.0, 0.0, 0.0] # yellow
               pose_stamped:
                 position: [0.427, 0.7655, 1.1805]
                 rpy: [0.0, 0.0, -1.5707]
             1,1:
               object_id: big_object_1
-              color: [1.0, 0.0, 1.0, 0.5] # purple
+              color: [1.0, 0.0, 1.0, 0.0] # purple
               pose_stamped:
                 position: [0.4329, 1.2038, 1.1772]
                 rpy: [0.0, 0.0, -1.5707]
             1,2:
               object_id: big_object_2
-              color: [0.0, 1.0, 1.0, 0.5] # cyan
+              color: [0.0, 1.0, 1.0, 0.0] # cyan
               pose_stamped:
                 position: [0.4289, 1.4077, 0.9807]
                 rpy: [-1.5707, 1.5707, 0.0]
             2,0:
               object_id: small_object_6
-              color: [1.0, 0.5, 0.0, 0.5] # orange
+              color: [1.0, 0.5, 0.0, 0.0] # orange
               pose_stamped:
                 position: [0.5762, 0.7646, 1.1826]
                 rpy: [0.0, 0.0, -1.5707]
             2,1:
               object_id: small_object_7
-              color: [0.5, 0.0, 0.5, 0.5] # magenta
+              color: [0.5, 0.0, 0.5, 0.0] # magenta
               pose_stamped:
                 position: [0.5838, 1.201, 1.1785]
                 rpy: [0.0, 0.0, -1.5707]
             2,2:
               object_id: small_object_8
-              color: [0.5, 0.5, 0.0, 0.5] # olive
+              color: [0.5, 0.5, 0.0, 0.0] # olive
               pose_stamped:
                 position: [0.5778, 1.4059, 0.981]
                 rpy: [-1.5707, 1.5707, 0.0]
             3,0:
               object_id: small_object_9
-              color: [0.0, 0.5, 0.5, 0.5] # teal
+              color: [0.0, 0.5, 0.5, 0.0] # teal
               pose_stamped:
                 position: [0.7253, 0.7646, 1.1826]
                 rpy: [0.0, 0.0, -1.5707]
             3,1:
               object_id: small_object_10
-              color: [0.5, 0.0, 0.0, 0.5] # maroon
+              color: [0.5, 0.0, 0.0, 0.0] # maroon
               pose_stamped:
                 position: [0.7289, 1.1997, 1.1789]
                 rpy: [0.0, 0.0, -1.5707]
             3,2:
               object_id: small_object_11
-              color: [0.0, 0.5, 0.0, 0.5] # lime
+              color: [0.0, 0.5, 0.0, 0.0] # lime
               pose_stamped:
                 position: [0.7281, 1.4045, 0.9784]
                 rpy: [-1.5707, 1.5707, 0.0]
             4,0:
               object_id: small_object_12
-              color: [0.0, 0.0, 0.5, 0.5] # navy
+              color: [0.0, 0.0, 0.5, 0.0] # navy
               pose_stamped:
                 position: [0.8731, 0.7643, 1.1837]
                 rpy: [0.0, 0.0, -1.5707]
             4,1:
               object_id: small_object_13
-              color: [0.5, 0.5, 0.5, 0.5] # gray
+              color: [0.5, 0.5, 0.5, 0.0] # gray
               pose_stamped:
                 position: [0.8793, 1.1989, 1.1796]
                 rpy: [0.0, 0.0, -1.5707]
             4,2:
               object_id: small_object_14
-              color: [0.75, 0.75, 0.75, 0.5] # light gray
+              color: [0.75, 0.75, 0.75, 0.0] # light gray
               pose_stamped:
                 position: [0.8802, 1.4022, 0.9819]
                 rpy: [-1.5707, 1.5707, 0.0]
             5,0:
               object_id: small_object_15
-              color: [0.5, 0.25, 0.0, 0.5] # brown
+              color: [0.5, 0.25, 0.0, 0.0] # brown
               pose_stamped:
                 position: [1.0231, 0.7647, 1.1841]
                 rpy: [0.0, 0.0, -1.5707]
             5,1:
               object_id: small_object_16
-              color: [0.25, 0.5, 0.0, 0.5] # dark green
+              color: [0.25, 0.5, 0.0, 0.0] # dark green
               pose_stamped:
                 position: [1.0269, 1.2006, 1.1809]
                 rpy: [0.0, 0.0, -1.5707]
             5,2:
               object_id: small_object_17
-              color: [0.0, 0.25, 0.5, 0.5] # dark blue
+              color: [0.0, 0.25, 0.5, 0.0] # dark blue
               pose_stamped:
                 position: [1.0312, 1.4016, 0.9805]
                 rpy: [-1.5707, 1.5707, 0.0]
             6,0:
               object_id: small_object_18
-              color: [0.5, 0.0, 0.25, 0.5] # dark red
+              color: [0.5, 0.0, 0.25, 0.0] # dark red
               pose_stamped:
                 position: [1.1712, 0.7638, 1.1845]
                 rpy: [0.0, 0.0, -1.5707]
             6,1:
               object_id: big_object_3
-              color: [0.25, 0.0, 0.5, 0.5] # dark purple
+              color: [0.25, 0.0, 0.5, 0.0] # dark purple
               pose_stamped:
                 position: [1.1736, 1.1993, 1.1813]
                 rpy: [0.0, 0.0, -1.5707]
             6,2:
               object_id: small_object_20
-              color: [0.0, 0.5, 0.25, 0.5] # dark cyan
+              color: [0.0, 0.5, 0.25, 0.0] # dark cyan
               pose_stamped:
                 position: [1.181, 1.4003, 0.9819]
                 rpy: [-1.5707, 1.5707, 0.0]
             7,0:
               object_id: small_object_21
-              color: [0.75, 0.25, 0.0, 0.5] # dark orange
+              color: [0.75, 0.25, 0.0, 0.0] # dark orange
               pose_stamped:
                 position: [1.3215, 0.7638, 1.1845]
                 rpy: [0.0, 0.0, -1.5707]
             7,1:
               object_id: small_object_22
-              color: [0.25, 0.75, 0.0, 0.5] # light green
+              color: [0.25, 0.75, 0.0, 0.0] # light green
               pose_stamped:
                 position: [1.3223, 1.197, 1.182]
                 rpy: [0.0, 0.0, -1.5707]
             7,2:
               object_id: small_object_23
-              color: [0.0, 0.25, 0.75, 0.5] # light blue
+              color: [0.0, 0.25, 0.75, 0.0] # light blue
               pose_stamped:
                 position: [1.3326, 1.3979, 0.9823]
                 rpy: [-1.5707, 1.5707, 0.0]
             8,0:
               object_id: small_object_24
-              color: [0.75, 0.0, 0.25, 0.5] # light red
+              color: [0.75, 0.0, 0.25, 0.0] # light red
               pose_stamped:
                 position: [1.4717, 0.7633, 1.1855]
                 rpy: [0.0, 0.0, -1.5707]
             8,1:
               object_id: big_object_4
-              color: [0.25, 0.0, 0.75, 0.5] # light purple
+              color: [0.25, 0.0, 0.75, 0.0] # light purple
               pose_stamped:
                 position: [1.4722, 1.1948, 1.183]
                 rpy: [0.0, 0.0, -1.5707]
             8,2:
               object_id: big_object_5
-              color: [0.0, 0.75, 0.25, 0.5] # light cyan
+              color: [0.0, 0.75, 0.25, 0.0] # light cyan
               pose_stamped:
                 position: [1.4818, 1.3971, 0.9864]
                 rpy: [-1.5707, 1.5707, 0.0]
             9,0:
               object_id: small_object_27
-              color: [0.75, 0.5, 0.25, 0.5] # peach
+              color: [0.75, 0.5, 0.25, 0.0] # peach
               pose_stamped:
                 position: [1.6202, 0.7627, 1.1863]
                 rpy: [0.0, 0.0, -1.5707]
             9,1:
               object_id: small_object_28
-              color: [0.25, 0.75, 0.5, 0.5] # mint
+              color: [0.25, 0.75, 0.5, 0.0] # mint
               pose_stamped:
                 position: [1.6219, 1.1934, 1.1836]
                 rpy: [0.0, 0.0, -1.5707]
             9,2:
               object_id: small_object_29
-              color: [0.5, 0.25, 0.75, 0.5] # lavender
+              color: [0.5, 0.25, 0.75, 0.0] # lavender
               pose_stamped:
                 position: [1.6315, 1.3958, 0.9865]
                 rpy: [-1.5707, 1.5707, 0.0]
