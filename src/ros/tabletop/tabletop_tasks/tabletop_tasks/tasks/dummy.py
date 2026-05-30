@@ -48,9 +48,9 @@ class DummyTask(BaseTask):
         """
         super().__init__("dummy_task", commander)
 
-    async def test_teensy_latency(self):
+    async def test_ping_latency(self, srv_name: str):
         client = self.commander.create_client(
-            Ping, "teensy/ping", enable_introspection=False
+            Ping, srv_name, enable_introspection=False
         )
 
         try:
@@ -94,7 +94,7 @@ class DummyTask(BaseTask):
 
         self.log(
             "----------------------------------------------------------\n"
-            f"Teensy latency stats (N={len(roundtrips)}):\n"
+            f"Ping latency stats for '{srv_name}' service (N={len(roundtrips)}):\n"
             f"Roundtrip: {roundtrip_mean:.5f} ± {roundtrip_std:.5f} s\n"
             f"Forward:   {forward_mean:.5f} ± {forward_std:.5f} s\n"
             f"Backward:  {backward_mean:.5f} ± {backward_std:.5f} s\n"
@@ -194,6 +194,7 @@ class DummyTask(BaseTask):
         finally:
             avg = np.mean(rts)
             std = np.std(rts)
+            np.save("/tabletop/rts.npy", rts)
             self.log(
                 f"----------------------------------------------------------\n"
                 f"Flic human latency stats (N={len(rts)}):\n"
@@ -286,7 +287,7 @@ class DummyTask(BaseTask):
             self.log(
                 f"----------------------------------------------------------\n"
                 f"Flic latency (using teensy button as ground truth) stats (N={len(latencies)}):\n"
-                f"Latency: {avg:.2f} ± {std:.2f} ms\n"
+                f"Latency: {avg:.2f} ± {std:.2f} s\n"
                 f"----------------------------------------------------------"
             )
             sub.destroy()
@@ -444,7 +445,8 @@ class DummyTask(BaseTask):
 
     async def run(self) -> None:
         """Run one or more of the tests"""
-        await self.test_teensy_latency()
+        await self.test_ping_latency("teensy/ping")
+        await self.test_ping_latency("ble_sniffer/ping")
         # await self.test_flic_latency_pre_pressed()
         # await self.test_flic_latency_human()
         # await self.test_flic_latency_button()

@@ -39,6 +39,7 @@ from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
+from moveit_msgs.msg import Constraints
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.impl.rcutils_logger import RcutilsLogger
 
@@ -551,6 +552,14 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
 
         if not isinstance(start_state, RobotState):
             raise TypeError(f"Start state must be a RobotState: {start_state}")
+        if isinstance(goal, list) and all(
+            isinstance(c, Constraints) for c in goal
+        ):
+            raise TypeError(
+                "list[Constraints] goals are not cacheable: there is no "
+                "canonical end-state to key on. Plan with use_cache=False "
+                "and skip cache_trajectories=True."
+            )
         if not isinstance(goal, (RobotState, PoseStamped)):
             raise TypeError(
                 f"Goal must be a RobotState or PoseStamped (named-target "

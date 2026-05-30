@@ -25,7 +25,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Duration as DurationMsg
 from builtin_interfaces.msg import Time as TimeMsg
-from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion, Vector3
 from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
     RobotState,
 )
@@ -34,8 +34,14 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
 )
 from moveit_msgs.msg import (
     AttachedCollisionObject,
+    BoundingVolume,
     CollisionObject,
+    Constraints,
+    JointConstraint,
     ObjectColor,
+    OrientationConstraint,
+    PositionConstraint,
+    VisibilityConstraint,
 )
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.time import Duration, Time
@@ -500,6 +506,401 @@ def pose_stamped_msg(
         )
 
     return pose_stamped
+
+
+# Motion planning constraint utilities
+
+
+def _vector3_msg(
+    v: Vector3 | Iterable[float] | Mapping[str, float],
+) -> Vector3:
+    """Convert flexible input to a geometry_msgs/Vector3 message."""
+    v = deepcopy(v)
+    if isinstance(v, Vector3):
+        return v
+    if isinstance(v, Mapping):
+        return Vector3(**v)  # type: ignore[reportCallIssue]
+    if is_iterable(v):
+        x, y, z = (float(p) for p in v)
+        return Vector3(x=x, y=y, z=z)
+    raise ValueError(
+        f"Invalid Vector3 input type: expected Vector3, Mapping, or Iterable, "
+        f"got {type(v)}"
+    )
+
+
+def joint_constraint_msg(
+    *,
+    joint_name: str,
+    position: float,
+    tolerance_above: float = 0.0,
+    tolerance_below: float = 0.0,
+    weight: float = 1.0,
+) -> JointConstraint:
+    """Create a moveit_msgs/JointConstraint message.
+
+    Args:
+        joint_name: The joint this constraint applies to.
+        position: The target position (radians or meters depending on joint type).
+        tolerance_above: Allowed positive deviation from `position`.
+        tolerance_below: Allowed negative deviation from `position`.
+        weight: Relative weight of this constraint (planner-specific).
+
+    Returns:
+        A JointConstraint message.
+    """
+    return JointConstraint(
+        joint_name=joint_name,
+        position=float(position),
+        tolerance_above=float(tolerance_above),
+        tolerance_below=float(tolerance_below),
+        weight=float(weight),
+    )
+
+
+def bounding_volume_msg(
+    *,
+    primitives: Optional[Iterable[SolidPrimitive | Mapping[str, Any]]] = None,
+    primitive_poses: Optional[Iterable[Pose | Mapping[str, Any]]] = None,
+    meshes: Optional[Iterable[MeshMsg]] = None,
+    mesh_poses: Optional[Iterable[Pose | Mapping[str, Any]]] = None,
+) -> BoundingVolume:
+    """Create a moveit_msgs/BoundingVolume message.
+
+    Args:
+        primitives: List of SolidPrimitives, or mappings with `type` (str
+            mapping into SOLID_PRIMITIVE_TYPE_MAP) and `dimensions` keys.
+        primitive_poses: Poses for each primitive (same length as `primitives`).
+            Accepts Pose messages or mappings consumed by `pose_msg()`.
+        meshes: List of pre-built Mesh messages.
+        mesh_poses: Poses for each mesh. Accepts Pose or mapping.
+
+    Returns:
+        A BoundingVolume message.
+
+    Raises:
+        ValueError: If primitives and primitive_poses (or meshes and
+            mesh_poses) have mismatched lengths.
+    """
+    bv = BoundingVolume()
+
+    primitive_msgs: list[SolidPrimitive] = []
+    if primitives is not None:
+        for p in primitives:
+            p = deepcopy(p)
+            if isinstance(p, SolidPrimitive):
+                primitive_msgs.append(p)
+            else:
+                primitive_msgs.append(
+                    SolidPrimitive(
+                        type=SOLID_PRIMITIVE_TYPE_MAP[p["type"]],
+                        dimensions=list(p["dimensions"]),
+                    )
+                )
+
+    primitive_pose_msgs: list[Pose] = []
+    if primitive_poses is not None:
+        for p in primitive_poses:
+            if isinstance(p, Pose):
+                primitive_pose_msgs.append(deepcopy(p))
+            else:
+                primitive_pose_msgs.append(pose_msg(**p))
+
+    if len(primitive_msgs) != len(primitive_pose_msgs):
+        raise ValueError(
+            f"primitives ({len(primitive_msgs)}) and primitive_poses "
+            f"({len(primitive_pose_msgs)}) must have the same length"
+        )
+
+    mesh_msgs: list[MeshMsg] = list(meshes) if meshes is not None else []
+    mesh_pose_msgs: list[Pose] = []
+    if mesh_poses is not None:
+        for p in mesh_poses:
+            if isinstance(p, Pose):
+                mesh_pose_msgs.append(deepcopy(p))
+            else:
+                mesh_pose_msgs.append(pose_msg(**p))
+
+    if len(mesh_msgs) != len(mesh_pose_msgs):
+        raise ValueError(
+            f"meshes ({len(mesh_msgs)}) and mesh_poses "
+            f"({len(mesh_pose_msgs)}) must have the same length"
+        )
+
+    bv.primitives = primitive_msgs
+    bv.primitive_poses = primitive_pose_msgs
+    bv.meshes = mesh_msgs
+    bv.mesh_poses = mesh_pose_msgs
+    return bv
+
+
+def _header_msg(
+    *,
+    header: Optional[Header | Mapping[str, Any]] = None,
+    frame_id: Optional[str] = None,
+    timestamp: Optional[Time | Mapping[str, Any]] = None,
+) -> Header:
+    """Build a std_msgs/Header from either `header` or `frame_id`/`timestamp`."""
+    if header is not None:
+        if frame_id is not None or timestamp is not None:
+            raise ValueError(
+                "Either header or (frame_id and/or timestamp) must be "
+                "provided, but not both"
+            )
+        header = deepcopy(header)
+        if isinstance(header, Header):
+            return header
+        return Header(**header)
+    out = Header()
+    if frame_id is not None:
+        out.frame_id = frame_id
+    if timestamp is not None:
+        timestamp = deepcopy(timestamp)
+        if isinstance(timestamp, Time):
+            out.stamp = timestamp
+        else:
+            out.stamp = Time(**timestamp)
+    return out
+
+
+def position_constraint_msg(
+    *,
+    link_name: str,
+    header: Optional[Header | Mapping[str, Any]] = None,
+    frame_id: Optional[str] = None,
+    timestamp: Optional[Time | Mapping[str, Any]] = None,
+    target_point_offset: Optional[
+        Vector3 | Iterable[float] | Mapping[str, float]
+    ] = None,
+    constraint_region: Optional[BoundingVolume | Mapping[str, Any]] = None,
+    weight: float = 1.0,
+) -> PositionConstraint:
+    """Create a moveit_msgs/PositionConstraint message.
+
+    Args:
+        link_name: The link whose position is constrained.
+        header: Complete Header or mapping with `frame_id`/`stamp` keys.
+            Mutually exclusive with `frame_id`/`timestamp`.
+        frame_id: Frame the position constraint is expressed in.
+        timestamp: Optional Time stamp.
+        target_point_offset: Offset of the constrained point within
+            `link_name`'s frame. Accepts Vector3, iterable, or mapping.
+        constraint_region: Allowed region. Accepts a BoundingVolume or
+            a mapping consumed by `bounding_volume_msg()`.
+        weight: Relative weight of this constraint.
+
+    Returns:
+        A PositionConstraint message.
+    """
+    pc = PositionConstraint()
+    pc.header = _header_msg(
+        header=header, frame_id=frame_id, timestamp=timestamp
+    )
+    pc.link_name = link_name
+    if target_point_offset is not None:
+        pc.target_point_offset = _vector3_msg(target_point_offset)
+    if constraint_region is not None:
+        constraint_region = deepcopy(constraint_region)
+        if isinstance(constraint_region, BoundingVolume):
+            pc.constraint_region = constraint_region
+        else:
+            pc.constraint_region = bounding_volume_msg(**constraint_region)
+    pc.weight = float(weight)
+    return pc
+
+
+def orientation_constraint_msg(
+    *,
+    link_name: str,
+    header: Optional[Header | Mapping[str, Any]] = None,
+    frame_id: Optional[str] = None,
+    timestamp: Optional[Time | Mapping[str, Any]] = None,
+    orientation: Optional[
+        Quaternion | Iterable[float] | Mapping[str, float]
+    ] = None,
+    rpy: Optional[Iterable[float] | Mapping[str, float]] = None,
+    absolute_x_axis_tolerance: float = 0.0,
+    absolute_y_axis_tolerance: float = 0.0,
+    absolute_z_axis_tolerance: float = 0.0,
+    parameterization: int = OrientationConstraint.XYZ_EULER_ANGLES,
+    weight: float = 1.0,
+) -> OrientationConstraint:
+    """Create a moveit_msgs/OrientationConstraint message.
+
+    Args:
+        link_name: The link whose orientation is constrained.
+        header: Complete Header or mapping.
+        frame_id: Frame the orientation is expressed in (mutually
+            exclusive with header).
+        timestamp: Optional Time stamp.
+        orientation: Target orientation as Quaternion, iterable [w,x,y,z],
+            or mapping. Mutually exclusive with `rpy`.
+        rpy: Target orientation as Euler angles [roll, pitch, yaw] in radians.
+        absolute_x_axis_tolerance: Allowed deviation about the x axis.
+        absolute_y_axis_tolerance: Allowed deviation about the y axis.
+        absolute_z_axis_tolerance: Allowed deviation about the z axis.
+        parameterization: How to interpret the per-axis tolerances
+            (XYZ_EULER_ANGLES or ROTATION_VECTOR).
+        weight: Relative weight of this constraint.
+
+    Returns:
+        An OrientationConstraint message.
+    """
+    oc = OrientationConstraint()
+    oc.header = _header_msg(
+        header=header, frame_id=frame_id, timestamp=timestamp
+    )
+    oc.link_name = link_name
+
+    if orientation is not None and rpy is not None:
+        raise ValueError("orientation and rpy cannot both be provided")
+    if rpy is not None:
+        rpy = deepcopy(rpy)
+        if isinstance(rpy, Mapping):
+            oc.orientation = quaternion_msg_from_euler(**rpy)  # type: ignore
+        else:
+            oc.orientation = quaternion_msg_from_euler(*rpy)
+    elif orientation is not None:
+        orientation = deepcopy(orientation)
+        if isinstance(orientation, Quaternion):
+            oc.orientation = normalize_quaternion_msg(orientation)
+        elif isinstance(orientation, Mapping):
+            oc.orientation = quaternion_msg(**orientation)  # type: ignore
+        elif is_iterable(orientation):
+            oc.orientation = quaternion_msg(*orientation)
+        else:
+            raise ValueError(f"Invalid orientation type: {type(orientation)}")
+
+    oc.absolute_x_axis_tolerance = float(absolute_x_axis_tolerance)
+    oc.absolute_y_axis_tolerance = float(absolute_y_axis_tolerance)
+    oc.absolute_z_axis_tolerance = float(absolute_z_axis_tolerance)
+    oc.parameterization = int(parameterization)
+    oc.weight = float(weight)
+    return oc
+
+
+def visibility_constraint_msg(
+    *,
+    target_radius: float,
+    target_pose: PoseStamped | Mapping[str, Any],
+    sensor_pose: PoseStamped | Mapping[str, Any],
+    cone_sides: int = 4,
+    max_view_angle: float = 0.0,
+    max_range_angle: float = 0.0,
+    sensor_view_direction: int = VisibilityConstraint.SENSOR_Z,
+    weight: float = 1.0,
+) -> VisibilityConstraint:
+    """Create a moveit_msgs/VisibilityConstraint message.
+
+    Args:
+        target_radius: Radius of the target visibility disk (m).
+        target_pose: Pose of the target. Accepts PoseStamped or a mapping
+            consumed by `pose_stamped_msg()`.
+        sensor_pose: Pose of the sensor. Accepts PoseStamped or mapping.
+        cone_sides: Number of sides used to approximate the visibility cone.
+        max_view_angle: Max allowed view angle (rad). 0 disables the check.
+        max_range_angle: Max allowed range angle (rad). 0 disables the check.
+        sensor_view_direction: Which sensor axis the cone opens along
+            (SENSOR_Z, SENSOR_Y, SENSOR_X).
+        weight: Relative weight of this constraint.
+
+    Returns:
+        A VisibilityConstraint message.
+    """
+    vc = VisibilityConstraint()
+    vc.target_radius = float(target_radius)
+    target_pose = deepcopy(target_pose)
+    if isinstance(target_pose, PoseStamped):
+        vc.target_pose = target_pose
+    else:
+        vc.target_pose = pose_stamped_msg(**target_pose)
+    sensor_pose = deepcopy(sensor_pose)
+    if isinstance(sensor_pose, PoseStamped):
+        vc.sensor_pose = sensor_pose
+    else:
+        vc.sensor_pose = pose_stamped_msg(**sensor_pose)
+    vc.cone_sides = int(cone_sides)
+    vc.max_view_angle = float(max_view_angle)
+    vc.max_range_angle = float(max_range_angle)
+    vc.sensor_view_direction = int(sensor_view_direction)
+    vc.weight = float(weight)
+    return vc
+
+
+def constraints_msg(
+    *,
+    name: str = "",
+    joint_constraints: Optional[
+        Iterable[JointConstraint | Mapping[str, Any]]
+    ] = None,
+    position_constraints: Optional[
+        Iterable[PositionConstraint | Mapping[str, Any]]
+    ] = None,
+    orientation_constraints: Optional[
+        Iterable[OrientationConstraint | Mapping[str, Any]]
+    ] = None,
+    visibility_constraints: Optional[
+        Iterable[VisibilityConstraint | Mapping[str, Any]]
+    ] = None,
+) -> Constraints:
+    """Create a moveit_msgs/Constraints message.
+
+    A `Constraints` is an AND of every sub-constraint it contains; the
+    planner-facing goal is a *list* of these, interpreted as an OR of
+    alternatives.
+
+    Each sub-constraint list accepts either pre-built messages or
+    plain mappings (which are routed through the matching `*_constraint_msg()`
+    factory). The latter form lets YAML files express constraints declaratively
+    without needing their own YAML tags.
+
+    Args:
+        name: Optional identifier for this Constraints set.
+        joint_constraints: Sub-constraints on joint positions.
+        position_constraints: Sub-constraints on link positions.
+        orientation_constraints: Sub-constraints on link orientations.
+        visibility_constraints: Sub-constraints for sensor visibility.
+
+    Returns:
+        A Constraints message.
+    """
+    constraints = Constraints(name=name)
+
+    if joint_constraints is not None:
+        for c in joint_constraints:
+            if isinstance(c, JointConstraint):
+                constraints.joint_constraints.append(deepcopy(c))
+            else:
+                constraints.joint_constraints.append(joint_constraint_msg(**c))
+
+    if position_constraints is not None:
+        for c in position_constraints:
+            if isinstance(c, PositionConstraint):
+                constraints.position_constraints.append(deepcopy(c))
+            else:
+                constraints.position_constraints.append(
+                    position_constraint_msg(**c)
+                )
+
+    if orientation_constraints is not None:
+        for c in orientation_constraints:
+            if isinstance(c, OrientationConstraint):
+                constraints.orientation_constraints.append(deepcopy(c))
+            else:
+                constraints.orientation_constraints.append(
+                    orientation_constraint_msg(**c)
+                )
+
+    if visibility_constraints is not None:
+        for c in visibility_constraints:
+            if isinstance(c, VisibilityConstraint):
+                constraints.visibility_constraints.append(deepcopy(c))
+            else:
+                constraints.visibility_constraints.append(
+                    visibility_constraint_msg(**c)
+                )
+
+    return constraints
 
 
 # Comparison utilities

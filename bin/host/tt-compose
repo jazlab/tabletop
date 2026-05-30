@@ -19,35 +19,21 @@ ps_format="table {{.Name}}\
 \t{{.Service}}\
 \t{{.Status}}"
 
-ARGS=()
-up=false
-bluetooth=false
+args=()
 while [[ $# -gt 0 ]]; do
-    ARGS+=("$1")
+    args+=("$1")
     case $1 in
         ps)
-            ARGS+=("--format" "$ps_format")
-            ARGS+=("--all")
-            ;;
-        up)
-            up=true
-            ;;
-        *flic-sim)
-            ;;
-        *flic|*flicd|*real)
-            bluetooth=true
+            args+=("--format" "$ps_format")
+            args+=("--all")
             ;;
     esac
     shift
 done
 
-set -- "${ARGS[@]}"
+set -- "${args[@]}"
 
 print_status "docker compose $@"
 echo
 
-# if [[ "$up" == "true" && "$bluetooth" == "true" ]]; then
-#     sudo modprobe -r btusb
-#     sudo modprobe btusb
-# fi
 exec docker compose "$@"

@@ -24,10 +24,7 @@ services:
 
   autoheal:
     container_name: tabletop-autoheal
-    profiles:
-      - real
-      - sim
-      - ursim
+    profiles: [ real, sim, ursim ]
     image: willfarrell/autoheal@sha256:ae1599ab171135fe3d5b779d84ece28f5cac95137e0e508ca49c62ccd740785e
     network_mode: none
     volumes:
@@ -39,10 +36,7 @@ services:
   novnc:
     <<: *common
     container_name: tabletop-novnc
-    profiles:
-      - real
-      - sim
-      - ursim
+    profiles: [ real, sim, ursim ]
     image: tabletop/novnc
     environment:
       - PORT=8080
@@ -79,7 +73,7 @@ services:
   flicd:
     <<: *common
     container_name: tabletop-flicd
-    profiles: [ flicd ]
+    profiles: [ deprecated ]
     image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
     labels:
       autoheal-tabletop: true
@@ -133,18 +127,14 @@ services:
   foxglove:
     extends: ros-base
     container_name: tabletop-foxglove
-    profiles: !override
-      - real
-      - sim
+    profiles: !override [ real, sim ]
     restart: unless-stopped
     command: tt-launch foxglove
 
   rviz:
     extends: ros-base
     container_name: tabletop-rviz
-    profiles: !override
-      - real
-      - sim
+    profiles: !override [ real, sim ]
     environment:
       - DISPLAY=$NOVNC_DISPLAY
     depends_on:
@@ -156,8 +146,7 @@ services:
   ur:
     extends: ros-base
     container_name: tabletop-ur
-    profiles: !override
-      - real
+    profiles: !override [ real ]
     cap_add:
       - SYS_NICE
     ulimits:
@@ -169,8 +158,7 @@ services:
   ur-mock:
     extends: ros-base
     container_name: tabletop-ur-mock
-    profiles: !override
-      - sim
+    profiles: !override [ sim ]
     cap_add:
       - SYS_NICE
     ulimits:
@@ -182,16 +170,15 @@ services:
   optitrack:
     extends: ros-base
     container_name: tabletop-optitrack
-    profiles: !override
-      - real
+    profiles: !override [ real ]
     restart: unless-stopped
     command: tt-launch optitrack
 
   flir:
     extends: ros-base
     container_name: tabletop-flir
-    profiles: !override
-      - flir
+    # TODO: Change to real profile
+    profiles: !override [ flir ]
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -213,8 +200,7 @@ services:
   teensy:
     extends: ros-base
     container_name: tabletop-teensy
-    profiles: !override
-      - real
+    profiles: !override [ real ]
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
@@ -223,16 +209,14 @@ services:
   teensy-sim:
     extends: ros-base
     container_name: tabletop-teensy-sim
-    profiles: !override
-      - sim
+    profiles: !override [ sim ]
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
-  flic:
+  flic-client:
     container_name: tabletop-flic-client
     extends: ros-base
-    profiles: !override
-      - flicd
+    profiles: !override [ deprecated ]
     depends_on:
       flicd:
         condition: service_healthy
@@ -241,39 +225,34 @@ services:
     restart: unless-stopped
     command: tt-launch flic simulate:=false use_scapy:=false
 
-  flic-sniffer:
+  flic-micro:
     extends: ros-base
-    container_name: tabletop-flic-sniffer
-    profiles: !override
-      - flic-sniffer
+    container_name: tabletop-flic-micro
+    profiles: !override [ deprecated ]
     devices:
       - /dev/ttyUSB0
     restart: unless-stopped
     command: tt-launch sniffer simulate:=false
 
-  flic-scapy:
+  flic:
     extends: ros-base
-    container_name: tabletop-flic-scapy
-    profiles: !override
-      - real
+    container_name: tabletop-flic
+    profiles: !override [ real ]
     cap_add:
       - NET_ADMIN
-    # user: root
     command: tt-launch flic_scapy use_scapy:=true
 
   flic-sim:
     container_name: tabletop-flic-sim
     extends: ros-base
-    profiles: !override
-      - sim
+    profiles: !override [ sim ]
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
   eyelink:
     extends: ros-base
     container_name: tabletop-eyelink
-    profiles: !override
-      - real
+    profiles: !override [ real ]
     cap_add:
       - SYS_NICE # TODO: see if needed
     ulimits:
@@ -288,16 +267,14 @@ services:
   eyelink-sim:
     extends: ros-base
     container_name: tabletop-eyelink-sim
-    profiles: !override
-      - sim
+    profiles: !override [ sim ]
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
   commander:
     extends: ros-base
     container_name: tabletop-commander
-    profiles: !override
-      - commander
+    profiles: !override [ commander ]
     runtime: $COMMANDER_RUNTIME
     volumes:
       - $ROS_BAG_DIR_MNT
@@ -315,8 +292,7 @@ services:
   dev:
     extends: ros-base
     container_name: tabletop-dev
-    profiles: !override
-      - dev
+    profiles: !override [ dev ]
     runtime: $COMMANDER_RUNTIME
     volumes:
       - platformio-core:/platformio

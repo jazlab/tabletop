@@ -51,6 +51,7 @@ from moveit.planning import (
     PlanningComponent,
     PlanRequestParameters,
 )
+from moveit_msgs.msg import Constraints
 from rclpy.action.client import ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from trajectory_msgs.msg import JointTrajectory
@@ -90,6 +91,20 @@ from tabletop_rig.utils.ros import (
     all_close_robot_states,
     robot_trajectory_copy,
 )
+
+
+def _is_constraints_goal(goal: Any) -> bool:
+    """True iff `goal` is a `list[Constraints]` motion-plan goal.
+
+    Matches the shape accepted by MoveIt's `set_goal_state(
+    motion_plan_constraints=...)` overload. An empty list returns False
+    (treated as a malformed goal, caught downstream by MoveIt itself).
+    """
+    return (
+        isinstance(goal, list)
+        and len(goal) > 0
+        and all(isinstance(c, Constraints) for c in goal)
+    )
 
 
 class PlanAndExecuteInterface(BaseInterface):
@@ -514,6 +529,11 @@ class PlanAndExecuteInterface(BaseInterface):
         # Verify goal has already been transformed correctly
         if isinstance(request.goal, PoseStamped):
             assert request.goal.header.frame_id == self._moveit.planning_frame
+        elif _is_constraints_goal(request.goal):
+            # Raw Constraints goals are passed through to MoveIt unchanged;
+            # no frame transformation is meaningful at this level (any
+            # per-constraint frame_ids live inside the sub-messages).
+            pass
         else:
             assert isinstance(request.goal, RobotState)
 
@@ -522,6 +542,8 @@ class PlanAndExecuteInterface(BaseInterface):
         if isinstance(request.goal, PoseStamped):
             goal_kwargs["pose_stamped_msg"] = request.goal
             goal_kwargs["pose_link"] = request.pose_link
+        elif _is_constraints_goal(request.goal):
+            goal_kwargs["motion_plan_constraints"] = request.goal
         else:
             goal_kwargs["robot_state"] = request.goal
 
@@ -611,6 +633,15 @@ class PlanAndExecuteInterface(BaseInterface):
 
         request = deepcopy(request)
 
+        constraints_goal = _is_constraints_goal(request.goal)
+
+        # Constraints goals are opaque to us — frames live inside the
+        # sub-messages, there's no canonical end-state to key the cache
+        # on, and the trajectory cache rejects them outright in
+        # _validate_request. Skip cache I/O for this whole request.
+        if constraints_goal:
+            request.use_cache = False
+
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
             if not request.goal.header.frame_id:
@@ -623,14 +654,15 @@ class PlanAndExecuteInterface(BaseInterface):
             request.goal = self._moveit.get_target_state(
                 request.goal, self.group_name
             )
+        # list[Constraints] goals are passed through unchanged.
 
         # Set start state to current state if None
         if request.start_state is None:
             request.start_state = self._moveit.get_current_state()
 
         # Set pose link to default if not provided, but only for Cartesian
-        # goals — RobotState goals must have pose_link=None per the cache's
-        # request-validation contract.
+        # goals — RobotState and Constraints goals must have pose_link=None
+        # per the cache's request-validation contract.
         if request.pose_link is None and isinstance(request.goal, PoseStamped):
             request.pose_link = self.default_pose_link
 
@@ -663,6 +695,8 @@ class PlanAndExecuteInterface(BaseInterface):
                     "'planning.fallback_pipeline' must not be 'linear'"
                 )
 
+            # The linear pipeline only knows how to plan to a Cartesian
+            # PoseStamped — skip it for RobotState / Constraints goals.
             if (
                 isinstance(request.goal, PoseStamped)
                 or fast_pipeline != "linear"
@@ -676,7 +710,9 @@ class PlanAndExecuteInterface(BaseInterface):
             request.goal, PoseStamped
         ):
             raise ValueError(
-                "The `linear` planning pipeline cannot be used with RobotState goals"
+                "The `linear` planning pipeline can only be used with "
+                "PoseStamped goals (got "
+                f"{'list[Constraints]' if constraints_goal else type(request.goal).__name__})"
             )
         else:
             pipelines.append(request.planning_pipeline)
@@ -704,6 +740,12 @@ class PlanAndExecuteInterface(BaseInterface):
         trajectory = self._post_process_trajectory(trajectory, request)
         # TODO: Maybe revalidate
         # self._validate_trajectory(trajectory)
+
+        # Constraints goals can't be cached (no canonical end-state to
+        # key on; the cache's _validate_request rejects them).
+        if constraints_goal:
+            return trajectory, None
+
         cache_kwargs: TrajectoryCacheKwargs = {
             "trajectory": trajectory,
             "request": request,

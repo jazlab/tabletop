@@ -9,7 +9,10 @@ The request models support:
 - Object reset configurations (ObjectResetConfig)
 
 Type Definitions:
-    PlanGoalT: Union type for planning goals (RobotState, PoseStamped, or named goal string)
+    PlanGoalT: Union type for planning goals — `RobotState` (joint-space),
+        `PoseStamped` (Cartesian), `str` (named target), or
+        `list[Constraints]` (raw motion-plan constraints, interpreted as
+        an OR of alternative AND-of-sub-constraints sets).
     SinglePlanResponseT: Response type for single trajectory planning
     PlanResponseT: Response type for multi-trajectory planning
 """
@@ -29,6 +32,19 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
 from moveit_msgs.msg import Constraints
 from pydantic import BaseModel
 
+# Re-export the Constraints message type for users who want to import
+# everything they need to build a PlanRequest from this module alone.
+__all__ = [
+    "Constraints",
+    "PlanGoalT",
+    "PlanRequest",
+    "ConcatPlanRequest",
+    "ObjectResetConfig",
+    "TrajectoryCacheKwargs",
+    "SinglePlanResponseT",
+    "PlanResponseT",
+]
+
 
 def is_real_number(x: Any) -> bool:
     """Check if a value is a real number (int or float, but not bool).
@@ -44,8 +60,19 @@ def is_real_number(x: Any) -> bool:
     return False
 
 
-PlanGoalT = RobotState | PoseStamped | str
-"""Type alias for planning goal types: joint state, Cartesian pose, or named target."""
+PlanGoalT = RobotState | PoseStamped | str | list[Constraints]
+"""Type alias for planning goal types.
+
+May be one of:
+- `RobotState`: joint-space goal.
+- `PoseStamped`: Cartesian goal for `pose_link` (frame-converted internally).
+- `str`: name of a predefined joint state in the SRDF.
+- `list[Constraints]`: raw motion-plan constraints, passed through to the
+    planner's `setGoal(vector<Constraints>)` overload. The list is
+    interpreted as an OR of alternatives; each `Constraints` is an AND
+    of its sub-constraints. Goals of this kind bypass the trajectory
+    cache (no canonical end-state to key on).
+"""
 
 
 class _BasePlanRequest(
@@ -111,7 +138,8 @@ class PlanRequest(
 
     Attributes:
         goal: The planning goal as a RobotState (joint space), PoseStamped
-            (Cartesian space), or string (named target).
+            (Cartesian space), string (named target), or a list of
+            moveit_msgs/Constraints (raw constraint goal; OR of alternatives).
     """
 
     goal: PlanGoalT
@@ -129,7 +157,9 @@ class ConcatPlanRequest(
     trajectory visits each goal in sequence.
 
     Attributes:
-        goals: List of planning goals to visit in order.
+        goals: List of planning goals to visit in order. Each element may be
+            any `PlanGoalT` — including `list[Constraints]`, which makes the
+            outer `goals` field a `list[list[Constraints]]` for that entry.
         dts: Optional dwell times at each waypoint (in seconds).
         loop: If True, add a segment returning to the first goal.
         post_process_after_concat: Apply TOTG/smoothing after concatenation

@@ -72,6 +72,7 @@ from tabletop_rig.interfaces.moveit.requests import (
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import (
     change_reference_frame_pose_stamped,
+    constraints_msg,
     get_joint_group_positions,
     matrix_from_pose_msg,
     pose_stamped_msg,
@@ -199,6 +200,7 @@ class ResetLoader(KwargYamlLoader):
     def get_kwarg_constructors(self) -> dict[str, Callable]:
         return {
             "!PoseStamped": pose_stamped_msg,
+            "!Constraints": constraints_msg,
             "!ConcatPlanRequest": ConcatPlanRequest,
             "!ObjectResetConfig": ObjectResetConfig,
         }

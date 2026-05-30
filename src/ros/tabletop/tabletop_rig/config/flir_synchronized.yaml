@@ -1,0 +1,141 @@
+# Configuration for the spinnaker_synchronized_camera_driver.
+#
+# All cameras are externally triggered by a shared hardware sync pulse on
+# `common.trigger_source`. The driver groups frames that share the same
+# external trigger count and publishes them with identical timestamps. Each
+# camera has its own master exposure controller that regulates exposure_time
+# and gain individually based on the camera's brightness — useful when
+# cameras view the scene from different angles / lighting.
+
+# Top-level parameters applied to the SynchronizedCameraDriver node itself.
+driver:
+  # Per-image-transport encoder settings (optional; only used if the
+  # ffmpeg/foxglove transport is loaded by a subscriber).
+  ffmpeg_image_transport:
+    encoding: hevc_nvenc
+
+# Template applied (per camera) to build each camera's master exposure
+# controller. The launch file replicates this block for every camera, under
+# `{cam_name}.exposure_controller.*`.
+exposure_controller:
+  type: master
+  brightness_target: 120 # 0..255
+  brightness_tolerance: 20 # update only when |err| exceeds this
+  # max_exposure_time MUST be < trigger period (1/trigger_hz)
+  max_exposure_time: 7000 # usec
+  min_exposure_time: 1000 # usec
+  max_gain: 29.9
+  gain_priority: false
+
+# Shared camera parameters. Merged with the per-camera entry in `cameras`
+# (per-camera values win). Keys here become `{cam_name}.{key}` for the
+# SynchronizedCameraDriver.
+common:
+  camera_type: blackfly_s
+  image_transport_plugins:
+    enable_pub_plugins:
+      # - image_transport/foxglove
+      # - image_transport/ffmpeg
+      - image_transport/compressed
+      # - image_transport/raw
+    foxglove:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
+      gop_size: 1
+    ffmpeg:
+      encoder: h264_nvenc
+      encoder_av_options: "preset:p4,tune:ull"
+    compressed:
+      jpeg_quality: 80
+      jpeg_compress_bayer: true
+      format: jpeg
+    jpeg_compress_bayer: true
+  debug: false
+  dump_node_map: false
+  # Required so the master exposure controller can react to scene brightness.
+  compute_brightness: true
+  image_queue_size: 10
+  buffer_queue_size: 10
+  acquisition_timeout: 5.0
+
+  # Camera feature set
+  user_set_selector: Default
+  user_set_load: "Yes"
+  adjust_timestamp: true
+
+  # --- External hardware trigger ---
+  # gain & exposure are regulated by the master exposure controller, so both
+  # auto modes are turned Off and the controller writes the values directly.
+  gain_auto: "Off"
+  exposure_auto: "Off"
+  exposure_mode: Timed
+  exposure_time: 4000 # initial value; controller will adapt
+
+  # Use Line0 as the external sync pulse input (Line0 was already configured
+  # as Input below). If you wire the pulse to the opto-isolated Line3 input
+  # instead, change trigger_source to Line3.
+  trigger_mode: "On"
+  trigger_source: Line0
+  trigger_selector: FrameStart
+  trigger_overlap: ReadOut
+  trigger_activation: RisingEdge
+
+  # When trigger_mode is On, the camera exposes once per pulse and the
+  # internal frame-rate generator is ignored. Disabling here avoids
+  # confusing camera state if the pulse stops.
+  frame_rate_enable: false
+
+  acquisition_mode: Continuous
+  pixel_format: BayerRG8
+
+  image_width: 1920
+  image_height: 1200
+
+  line0_selector: Line0
+  line0_linemode: Input
+
+  # Chunk data — required by the synchronized driver to match frames across
+  # cameras: it uses the FrameID chunk as the synchronization key.
+  chunk_mode_active: true
+  chunk_selector_frame_id: FrameID
+  chunk_enable_frame_id: true
+  chunk_selector_exposure_time: ExposureTime
+  chunk_enable_exposure_time: true
+  chunk_selector_gain: Gain
+  chunk_enable_gain: true
+  chunk_selector_timestamp: Timestamp
+  chunk_enable_timestamp: true
+  chunk_selector_line_status: ExposureEndLineStatusAll
+  chunk_enable_line_status: true
+
+cameras:
+  - name: left_front_top_cam
+    serial_number: "23240397"
+    pose:
+      position: [0.6, 0.3, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: left_back_top_cam
+    serial_number: "22442796"
+    pose:
+      position: [0.5, 0.5, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: left_bottom_cam
+    serial_number: "23240395"
+    pose:
+      position: [0.3, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]
+  - name: right_front_top_cam
+    serial_number: "23240393"
+    pose:
+      position: [1.3, 0.3, 1.3]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_back_top_cam
+    serial_number: "22157020"
+    pose:
+      position: [1.4, 0.5, 1.2]
+      rpy: [3.1416, 0.0, -1.5707]
+  - name: right_bottom_cam
+    serial_number: "22442797"
+    pose:
+      position: [1.2, 0.3, 0.3]
+      rpy: [-1.5707, 0.0, -1.5707]
