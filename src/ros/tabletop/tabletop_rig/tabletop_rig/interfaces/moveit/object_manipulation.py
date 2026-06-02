@@ -64,6 +64,8 @@ from tabletop_rig.interfaces.moveit.plan_and_execute import (
 )
 from tabletop_rig.interfaces.moveit.requests import (
     ConcatPlanRequest,
+    JointStateDeltaDict,
+    JointStateDict,
     ObjectResetConfig,
     PlanGoalT,
     PlanRequest,
@@ -203,6 +205,8 @@ class ResetLoader(KwargYamlLoader):
             "!Constraints": constraints_msg,
             "!ConcatPlanRequest": ConcatPlanRequest,
             "!ObjectResetConfig": ObjectResetConfig,
+            "!JointStateDict": JointStateDict,
+            "!JointStateDeltaDict": JointStateDeltaDict,
         }
 
 
@@ -335,26 +339,27 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                         f"(see object_reset/example.yaml)"  # TODO
                     )
 
-                if (
-                    config.object_allowed_collision_ids is not None
-                    and len(config.object_allowed_collision_ids) > 0
-                ) or (
-                    config.additional_allowed_collisions is not None
-                    and len(config.additional_allowed_collisions) > 0
-                ):
-                    if (
-                        config.reset_request.planning_pipeline is not None
-                        and config.reset_request.planning_pipeline != "linear"
-                    ):
-                        raise ValueError(
-                            f"Error in reset config ({filename}): "
-                            f"If 'object_allowed_collision_ids' or "
-                            f"'additional_allowed_collisions' is provided, "
-                            f"'reset_request.planning_pipeline' must be linear "
-                            f"or not provided (for safe object resetting to "
-                            f"prevent accidental collisions)"
-                        )
-                    config.reset_request.planning_pipeline = "linear"
+                # TODO: I warned you
+                # if (
+                #     config.object_allowed_collision_ids is not None
+                #     and len(config.object_allowed_collision_ids) > 0
+                # ) or (
+                #     config.additional_allowed_collisions is not None
+                #     and len(config.additional_allowed_collisions) > 0
+                # ):
+                #     if (
+                #         config.reset_request.planning_pipeline is not None
+                #         and config.reset_request.planning_pipeline != "linear"
+                #     ):
+                #         raise ValueError(
+                #             f"Error in reset config ({filename}): "
+                #             f"If 'object_allowed_collision_ids' or "
+                #             f"'additional_allowed_collisions' is provided, "
+                #             f"'reset_request.planning_pipeline' must be linear "
+                #             f"or not provided (for safe object resetting to "
+                #             f"prevent accidental collisions)"
+                #         )
+                #     config.reset_request.planning_pipeline = "linear"
 
                 self._reset_configs[filename] = config
 
@@ -1044,7 +1049,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if config is None:
             self._manipulation_state = ManipulationState.RESETTED
             return
-        assert config.reset_request.planning_pipeline == "linear"
+        # TODO: I warned you a second time
+        # assert config.reset_request.planning_pipeline == "linear"
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 

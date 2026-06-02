@@ -1,58 +1,32 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
   position: [0.15, 0.0, 0.074]
-  rpy: [1.5707, 3.9269, -1.5707]
+  rpy: [1.5707, 0.7853, -1.5707]
   frame_id: left_reset_station/spike
 reset_request: !ConcatPlanRequest
   goals:
-    # Move forward into drawer station
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 3.9269, -1.5707]
-      frame_id: left_reset_station/spike
+    # Rotate all the way CW to make sure we can rotate at least 360 CCW
+    - !JointStateDict
+      left_wrist_3_joint: 0.0
 
-    # 360 deg spin in place: 8 x 45 deg about roll axis
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 3.1415, -1.5707]
-      frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 2.3561, -1.5707]
-      frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 1.5707, -1.5707]
-      frame_id: left_reset_station/spike
+    # Move forward into drawer station
     - !PoseStamped
       position: [0.075, 0.0, 0.074]
       rpy: [1.5707, 0.7853, -1.5707]
       frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 0.0, -1.5707]
-      frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, -0.7853, -1.5707]
-      frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, -1.5707, -1.5707]
-      frame_id: left_reset_station/spike
-    - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, -2.3561, -1.5707]
-      frame_id: left_reset_station/spike
 
-    # Retract to start position
+    # 180 deg spin CCW, then 360 spin CW
+    - !JointStateDeltaDict
+      left_wrist_3_joint: -3.1415
+    - !JointStateDeltaDict
+      left_wrist_3_joint: 6.2831
+
+    # Retract to start position (Cartesian, unchanged)
     - !PoseStamped
       position: [0.15, 0.0, 0.074]
       rpy: [1.5707, -2.3561, -1.5707]
       frame_id: left_reset_station/spike
-  velocity_scaling_factor: 0.3
-  acceleration_scaling_factor: 0.3
-  post_process_after_concat: true
+  planning_pipeline: ptp
 object_allowed_collision_ids:
   - left_reset_station
 additional_allowed_collisions:

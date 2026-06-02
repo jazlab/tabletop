@@ -867,38 +867,40 @@ def constraints_msg(
     constraints = Constraints(name=name)
 
     if joint_constraints is not None:
+        jcs: list[JointConstraint] = []
         for c in joint_constraints:
             if isinstance(c, JointConstraint):
-                constraints.joint_constraints.append(deepcopy(c))
+                jcs.append(deepcopy(c))
             else:
-                constraints.joint_constraints.append(joint_constraint_msg(**c))
+                jcs.append(joint_constraint_msg(**c))
+        constraints.joint_constraints = jcs
 
     if position_constraints is not None:
+        pcs: list[PositionConstraint] = []
         for c in position_constraints:
             if isinstance(c, PositionConstraint):
-                constraints.position_constraints.append(deepcopy(c))
+                pcs.append(deepcopy(c))
             else:
-                constraints.position_constraints.append(
-                    position_constraint_msg(**c)
-                )
+                pcs.append(position_constraint_msg(**c))
+        constraints.position_constraints = pcs
 
     if orientation_constraints is not None:
+        ocs: list[OrientationConstraint] = []
         for c in orientation_constraints:
             if isinstance(c, OrientationConstraint):
-                constraints.orientation_constraints.append(deepcopy(c))
+                ocs.append(deepcopy(c))
             else:
-                constraints.orientation_constraints.append(
-                    orientation_constraint_msg(**c)
-                )
+                ocs.append(orientation_constraint_msg(**c))
+        constraints.orientation_constraints = ocs
 
     if visibility_constraints is not None:
+        vcs: list[VisibilityConstraint] = []
         for c in visibility_constraints:
             if isinstance(c, VisibilityConstraint):
-                constraints.visibility_constraints.append(deepcopy(c))
+                vcs.append(deepcopy(c))
             else:
-                constraints.visibility_constraints.append(
-                    visibility_constraint_msg(**c)
-                )
+                vcs.append(visibility_constraint_msg(**c))
+        constraints.visibility_constraints = vcs
 
     return constraints
 

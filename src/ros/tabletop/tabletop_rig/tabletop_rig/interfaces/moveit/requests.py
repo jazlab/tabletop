@@ -10,15 +10,18 @@ The request models support:
 
 Type Definitions:
     PlanGoalT: Union type for planning goals — `RobotState` (joint-space),
-        `PoseStamped` (Cartesian), `str` (named target), or
+        `PoseStamped` (Cartesian), `str` (named target),
         `list[Constraints]` (raw motion-plan constraints, interpreted as
-        an OR of alternative AND-of-sub-constraints sets).
+        an OR of alternative AND-of-sub-constraints sets), `JointStateDict`
+        (absolute partial joint goal), or `JointStateDeltaDict` (relative
+        partial joint goal).
     SinglePlanResponseT: Response type for single trajectory planning
     PlanResponseT: Response type for multi-trajectory planning
 """
 
-from typing import Any, Optional, TypedDict
+from typing import Annotated, Any, Optional, TypedDict
 
+from annotated_types import Gt, Le
 from geometry_msgs.msg import PoseStamped
 from moveit.core.planning_scene import (  # type: ignore[reportMissingModuleSource]
     PlanningScene,
@@ -30,13 +33,15 @@ from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSo
     RobotTrajectory,
 )
 from moveit_msgs.msg import Constraints
-from pydantic import BaseModel
+from pydantic import BaseModel, NonNegativeFloat, PositiveFloat, PositiveInt
 
 # Re-export the Constraints message type for users who want to import
 # everything they need to build a PlanRequest from this module alone.
 __all__ = [
     "Constraints",
     "PlanGoalT",
+    "JointStateDict",
+    "JointStateDeltaDict",
     "PlanRequest",
     "ConcatPlanRequest",
     "ObjectResetConfig",
@@ -60,7 +65,52 @@ def is_real_number(x: Any) -> bool:
     return False
 
 
-PlanGoalT = RobotState | PoseStamped | str | list[Constraints]
+class JointStateDict(dict[str, float]):
+    """Absolute joint-space goal as a mapping of joint name to position.
+
+    A partial mapping is allowed: only the joints you want to move need to be
+    present. Any active joint of the planning group that is *not* listed is
+    filled in with its position from the start state (the current robot state
+    when no explicit start state is given), so unspecified joints are held
+    where they already are.
+
+    This is a thin ``dict[str, float]`` subclass so the planning pipeline can
+    distinguish an absolute joint goal from a relative one (`JointStateDeltaDict`)
+    and from a plain ``dict`` via ``isinstance``. Construct it like a dict::
+
+        JointStateDict({"left_shoulder_pan_joint": 1.57})
+
+    Positions follow REP 103 units (radians for revolute joints, meters for
+    prismatic joints).
+    """
+
+
+class JointStateDeltaDict(dict[str, float]):
+    """Relative joint-space goal as a mapping of joint name to delta.
+
+    Like `JointStateDict`, but each value is *added* to the corresponding joint's
+    start position rather than replacing it. Unspecified joints are left at
+    their start position (equivalent to a delta of ``0.0``).
+
+    A distinct subclass from `JointStateDict` so the two can be told apart by
+    ``isinstance``. Construct it like a dict::
+
+        # rotate the elbow back by 0.2 rad, leave every other joint put
+        JointStateDeltaDict({"left_elbow_joint": -0.2})
+
+    Deltas follow REP 103 units (radians for revolute joints, meters for
+    prismatic joints).
+    """
+
+
+PlanGoalT = (
+    RobotState
+    | PoseStamped
+    | str
+    | list[Constraints]
+    | JointStateDict
+    | JointStateDeltaDict
+)
 """Type alias for planning goal types.
 
 May be one of:
@@ -72,7 +122,15 @@ May be one of:
     interpreted as an OR of alternatives; each `Constraints` is an AND
     of its sub-constraints. Goals of this kind bypass the trajectory
     cache (no canonical end-state to key on).
+- `JointStateDict`: absolute partial joint goal (dict of joint name -> position).
+    Unprovided joints are filled from the start state, then the goal is
+    resolved to a `RobotState` internally.
+- `JointStateDeltaDict`: relative partial joint goal (dict of joint name ->
+    delta). Each delta is added to the start-state position; unprovided
+    joints are unchanged. Resolved to a `RobotState` internally.
 """
+
+BoundFloat = Annotated[float, Gt(0.0), Le(1.0)]
 
 
 class _BasePlanRequest(
@@ -112,18 +170,18 @@ class _BasePlanRequest(
     planning_pipeline: Optional[str] = None
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
-    planning_time: Optional[float] = None
-    max_attempts: int = 3
+    planning_time: Optional[PositiveFloat] = None
+    max_attempts: PositiveInt = 3
     use_cache: bool = True
     apply_totg: bool = True
     apply_smoothing: bool = False
-    velocity_scaling_factor: float = 1.0
-    acceleration_scaling_factor: float = 1.0
-    path_tolerance: float = 0.001
-    resample_dt: float = 0.05
-    min_angle_change: float = 0.001
+    velocity_scaling_factor: BoundFloat = 1.0
+    acceleration_scaling_factor: BoundFloat = 1.0
+    path_tolerance: PositiveFloat = 0.001
+    resample_dt: PositiveFloat = 0.05
+    min_angle_change: PositiveFloat = 0.001
     mitigate_overshoot: bool = False
-    overshoot_threshold: float = 0.002
+    overshoot_threshold: PositiveFloat = 0.002
 
 
 class PlanRequest(
@@ -167,7 +225,7 @@ class ConcatPlanRequest(
     """
 
     goals: list[PlanGoalT]
-    dts: Optional[list[float]] = None
+    dts: Optional[list[NonNegativeFloat]] = None
     loop: bool = False
     post_process_after_concat: bool = False
 

@@ -154,10 +154,10 @@
           value: [0.0, 0.0, 0.0] # relative to object init pose
         post_attach:
           type: offset
-          value: [0.1, 0.0, 0.0] # relative to object init pose
+          value: [0.15, 0.0, 0.0] # relative to object init pose
         post_fetch:
           type: offset
-          value: [0.1, 0.0, -0.15] # relative to object init pose
+          value: [0.15, 0.0, -0.15] # relative to object init pose
         fetched:
           type: named_target_state
           value: fetched
@@ -168,57 +168,6 @@
           # value:
           #   position: [ 0.9525, 0.4, 0.6 ]
           #   rpy: [ 0.0, 0.0, -1.5707 ]
-        object_overrides:
-          # be careful about doing this
-          big_object_0:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          big_object_1:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          big_object_2:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          big_object_3:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          big_object_4:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          big_object_5:
-            post_attach:
-              type: offset
-              value: [0.15, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.15, 0.0, -0.15]
-          smooth_pursuit_object:
-            post_attach:
-              type: offset
-              value: [0.12, 0.0, 0.0]
-            post_fetch:
-              type: offset
-              value: [0.12, 0.0, -0.15]
       manually_attach:
         mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
         collision_object_kwargs:

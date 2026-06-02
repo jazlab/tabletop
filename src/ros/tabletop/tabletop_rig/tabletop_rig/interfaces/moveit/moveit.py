@@ -90,6 +90,7 @@ from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
     attached_collision_object_msg,
     change_reference_frame_pose_stamped,
+    get_joint_group_positions,
     matrix_from_pose_msg,
     object_color_msg,
     pose_msg,
@@ -432,6 +433,68 @@ class MoveItInterface(BaseInterface):
             robot_state = deepcopy(scene.current_state)
 
         robot_state.joint_positions = joint_positions
+        robot_state.update()
+        return robot_state
+
+    def get_joint_state_target(
+        self,
+        joint_positions: Mapping[str, float],
+        group_name: str,
+        *,
+        relative: bool = False,
+        base_state: Optional[RobotState] = None,
+    ) -> RobotState:
+        """Build a target RobotState from a partial joint-position mapping.
+
+        Joints absent from `joint_positions` keep their value from
+        `base_state`, so a partial mapping only moves the joints it names.
+        Provided joints are set to the given absolute position, or added to
+        the base position when `relative` is True.
+
+        This is the joint-space analogue of `get_target_state` (which resolves
+        an SRDF-named target) and backs the `JointState` / `JointStateDelta`
+        planning goals.
+
+        Args:
+            joint_positions: Mapping of joint name -> absolute position (or
+                delta, when `relative` is True). May cover any subset of the
+                group's active joints.
+            group_name: Planning group whose active joints define the full
+                target state; every key must belong to this group.
+            relative: If True, treat each value as a delta added to the base
+                position; otherwise treat it as an absolute target.
+            base_state: State used to fill unprovided joints (and as the base
+                for deltas). Defaults to the current robot state.
+
+        Returns:
+            A new RobotState with the group's joints set accordingly.
+
+        Raises:
+            ValueError: If any provided joint is not an active joint of the
+                group.
+        """
+        group_joint_names = set(self.get_joint_names(group_name))
+        unknown = set(joint_positions) - group_joint_names
+        if unknown:
+            raise ValueError(
+                f"Joint(s) {sorted(unknown)} are not active joints of group "
+                f"'{group_name}'. Active joints: {sorted(group_joint_names)}"
+            )
+
+        if base_state is None:
+            base_state = self.get_current_state()
+
+        # Start from the full set of group joint positions so unprovided
+        # joints stay where they are, then apply the requested overrides.
+        target_positions = get_joint_group_positions(base_state, group_name)
+        for joint, value in joint_positions.items():
+            if relative:
+                target_positions[joint] += value
+            else:
+                target_positions[joint] = value
+
+        robot_state = deepcopy(base_state)
+        robot_state.joint_positions = target_positions
         robot_state.update()
         return robot_state
 

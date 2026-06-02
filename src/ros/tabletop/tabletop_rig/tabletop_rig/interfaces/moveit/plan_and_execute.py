@@ -74,6 +74,8 @@ from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
 from tabletop_rig.interfaces.moveit.requests import (
     ConcatPlanRequest,
+    JointStateDeltaDict,
+    JointStateDict,
     PlanGoalT,
     PlanRequest,
     PlanResponseT,
@@ -526,26 +528,17 @@ class PlanAndExecuteInterface(BaseInterface):
         ):
             raise ValueError(f"Invalid start state: {request.start_state}")
 
-        # Verify goal has already been transformed correctly
-        if isinstance(request.goal, PoseStamped):
-            assert request.goal.header.frame_id == self._moveit.planning_frame
-        elif _is_constraints_goal(request.goal):
-            # Raw Constraints goals are passed through to MoveIt unchanged;
-            # no frame transformation is meaningful at this level (any
-            # per-constraint frame_ids live inside the sub-messages).
-            pass
-        else:
-            assert isinstance(request.goal, RobotState)
-
         # Set goal state
         goal_kwargs = {}
         if isinstance(request.goal, PoseStamped):
+            assert request.goal.header.frame_id == self._moveit.planning_frame
             goal_kwargs["pose_stamped_msg"] = request.goal
             goal_kwargs["pose_link"] = request.pose_link
-        elif _is_constraints_goal(request.goal):
-            goal_kwargs["motion_plan_constraints"] = request.goal
-        else:
+        elif isinstance(request.goal, RobotState):
             goal_kwargs["robot_state"] = request.goal
+        else:
+            assert _is_constraints_goal(request.goal)
+            goal_kwargs["motion_plan_constraints"] = request.goal
 
         if not planning_component.set_goal_state(**goal_kwargs):
             raise ValueError(f"Invalid goal: {request.goal}")
@@ -633,6 +626,10 @@ class PlanAndExecuteInterface(BaseInterface):
 
         request = deepcopy(request)
 
+        # Set start state to current state if None
+        if request.start_state is None:
+            request.start_state = self._moveit.get_current_state()
+
         constraints_goal = _is_constraints_goal(request.goal)
 
         # Constraints goals are opaque to us — frames live inside the
@@ -654,11 +651,35 @@ class PlanAndExecuteInterface(BaseInterface):
             request.goal = self._moveit.get_target_state(
                 request.goal, self.group_name
             )
-        # list[Constraints] goals are passed through unchanged.
-
-        # Set start state to current state if None
-        if request.start_state is None:
-            request.start_state = self._moveit.get_current_state()
+        elif isinstance(request.goal, (JointStateDict, JointStateDeltaDict)):
+            # Resolve partial joint goals to a concrete RobotState: unprovided
+            # joints are filled from the start state, and JointStateDeltaDict
+            # values are added to (rather than replacing) the start positions.
+            # Downstream this behaves exactly like a RobotState goal, so it
+            # plans, caches, and validates the same way.
+            request.goal = self._moveit.get_joint_state_target(
+                request.goal,
+                self.group_name,
+                relative=isinstance(request.goal, JointStateDeltaDict),
+                base_state=request.start_state,
+            )
+        # elif constraints_goal:
+        #     # Fill joint constraints with the start positions of any joints
+        #     # that were not provided as constraints, if requested.
+        #     for constraints in request.goal:  # type: ignore
+        #         jcs: list[JointConstraint] = constraints.joint_constraints
+        #         if request.fill_goal_joint_constraints and len(jcs) > 0:
+        #             provided_joints = set((x.joint_name for x in jcs))
+        #             joint_positions = get_joint_group_positions(
+        #                 request.start_state, self.group_name
+        #             )
+        #             for joint, pos in joint_positions.items():
+        #                 if joint not in provided_joints:
+        #                     jcs.append(
+        #                         joint_constraint_msg(
+        #                             joint_name=joint, position=pos
+        #                         )
+        #                     )
 
         # Set pose link to default if not provided, but only for Cartesian
         # goals — RobotState and Constraints goals must have pose_link=None

@@ -18,9 +18,12 @@ from rclpy.time import Time
 from std_msgs.msg import Header
 from tabletop_interfaces.srv import Ping
 from tabletop_rig.exceptions import ManipulationContextExitedError
+from tabletop_rig.interfaces.moveit.requests import PlanRequest
 from tabletop_rig.nodes import Commander
 from tabletop_rig.utils.ros import (
     arrays_from_pose_msg,
+    constraints_msg,
+    get_joint_group_positions,
     seconds_from_ros_time,
 )
 
@@ -443,17 +446,47 @@ class DummyTask(BaseTask):
                 )
             )
 
+    async def test_linear(self):
+        robot_name = "left_manipulator"
+        joint_name = "left_wrist_3_joint"
+        async with self.commander.manipulation_context(robot_name) as ctx:
+            cw = True
+            while True:
+                joint_pos = 3.1415 if cw else -3.1415
+                cw = not cw
+
+                goal = constraints_msg(
+                    joint_constraints=[
+                        {"joint_name": joint_name, "position": joint_pos}
+                    ]
+                )
+
+                req = PlanRequest(
+                    goal=[goal],
+                    planning_pipeline="ptp",
+                    use_cache=False,
+                )
+                traj = await ctx.plan(req)
+
+                for i, (s, t) in enumerate(traj):
+                    self.log(
+                        f"Waypoint {i} for CW traj at time {t}s: {get_joint_group_positions(s, robot_name)}"
+                    )
+
+                await ctx.move(traj)
+
     async def run(self) -> None:
         """Run one or more of the tests"""
-        await self.test_ping_latency("teensy/ping")
-        await self.test_ping_latency("ble_sniffer/ping")
+        # await self.test_ping_latency("teensy/ping")
+        # await self.test_ping_latency("ble_sniffer/ping")
         # await self.test_flic_latency_pre_pressed()
         # await self.test_flic_latency_human()
         # await self.test_flic_latency_button()
-        await self.test_flic_latency_button_new()
+        # await self.test_flic_latency_button_new()
         # await self.test_optitrack_latency_solenoid()
         # await self.test_sound()
         # await self.test_smooth_pursuit()
         # await self.test_link_position()
         # await self.test_object_fetch_return()
         # await self.test_move_to_reset()
+        await self.test_linear()

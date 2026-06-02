@@ -9,7 +9,10 @@
     "!reset",
     "!PoseStamped mapping",
     "!ConcatPlanRequest mapping",
-    "!ObjectResetConfig mapping"
+    "!ObjectResetConfig mapping",
+    "!Constraints mapping",
+    "!JointStateDict mapping",
+    "!JointStateDeltaDict mapping"
   ],
   "search.exclude": {
     "build/**": true,
