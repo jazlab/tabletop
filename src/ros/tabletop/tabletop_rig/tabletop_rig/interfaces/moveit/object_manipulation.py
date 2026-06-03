@@ -31,7 +31,7 @@ import os
 import pickle
 import traceback
 from collections.abc import Callable
-from copy import deepcopy
+from copy import copy
 from enum import IntEnum
 from glob import glob
 from typing import Any, NamedTuple, Optional
@@ -129,7 +129,6 @@ class ManipulationState(IntEnum):
 
 _FETCH_OR_RETURN_STATES = set(
     (
-        ManipulationState.IDLE,
         ManipulationState.PRE_FETCH,
         ManipulationState.PRE_ATTACH,
         ManipulationState.ATTACH,
@@ -243,6 +242,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     _reachable_object_ids: set[str]
     _reset_configs: dict[str, ObjectResetConfig]
     _saved_return_states: dict[str, tuple[ManipulationState, RobotState]]
+    _last_pre_reset_state: RobotState | None
     _persistent_state_path: str
 
     def __init__(
@@ -264,6 +264,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             parameter_fallback_prefix=parameter_fallback_prefix,
         )
 
+        self._simulate = simulate
+
         self._init_reachable_indices()
 
         self._init_reset_configs()
@@ -272,6 +274,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._current_manipulation_id = None
         self._manipulation_lock = asyncio.Lock()
 
+        self._saved_return_states = {}
+        self._last_pre_reset_state = None
+
         path: str = self.param("persistent_state_path")
         path = os.path.expandvars(os.path.expanduser(path))
         if not os.path.isabs(path):
@@ -279,10 +284,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 f"'persistent_state_path' parameter must be absolute: {path}"
             )
         self._persistent_state_path = path
-
-        self._simulate = simulate
-
-        self._saved_return_states = {}
 
         self.log("MoveIt object manipulation interface initialized")
 
@@ -340,26 +341,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     )
 
                 # TODO: I warned you
-                # if (
-                #     config.object_allowed_collision_ids is not None
-                #     and len(config.object_allowed_collision_ids) > 0
-                # ) or (
-                #     config.additional_allowed_collisions is not None
-                #     and len(config.additional_allowed_collisions) > 0
-                # ):
-                #     if (
-                #         config.reset_request.planning_pipeline is not None
-                #         and config.reset_request.planning_pipeline != "linear"
-                #     ):
-                #         raise ValueError(
-                #             f"Error in reset config ({filename}): "
-                #             f"If 'object_allowed_collision_ids' or "
-                #             f"'additional_allowed_collisions' is provided, "
-                #             f"'reset_request.planning_pipeline' must be linear "
-                #             f"or not provided (for safe object resetting to "
-                #             f"prevent accidental collisions)"
-                #         )
-                #     config.reset_request.planning_pipeline = "linear"
+                if (
+                    config.object_allowed_collision_ids is not None
+                    and len(config.object_allowed_collision_ids) > 0
+                ) or (
+                    config.additional_allowed_collisions is not None
+                    and len(config.additional_allowed_collisions) > 0
+                ):
+                    if config.reset_request.planning_pipeline not in (
+                        "linear",
+                        "ptp",
+                    ):
+                        raise ValueError(
+                            f"Error in reset config ({filename}): "
+                            f"If 'object_allowed_collision_ids' or "
+                            f"'additional_allowed_collisions' is provided, "
+                            f"'reset_request.planning_pipeline' must be 'linear' "
+                            f"or 'ptp' (for safe object resetting to "
+                            f"prevent accidental collisions)"
+                        )
 
                 self._reset_configs[filename] = config
 
@@ -697,10 +697,14 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         )
 
         assert (
-            self._manipulation_state == ManipulationState.RESETTED
+            self._manipulation_state
+            in (ManipulationState.IDLE, ManipulationState.RESETTED)
             or self._manipulation_state in _FETCH_OR_RETURN_STATES
         )
-        assert next_state in _FETCH_OR_RETURN_STATES
+        assert (
+            next_state == ManipulationState.IDLE
+            or next_state in _FETCH_OR_RETURN_STATES
+        )
 
         if (
             next_state == ManipulationState.IDLE
@@ -1031,9 +1035,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match self._manipulation_state:
             case ManipulationState.NEEDS_RESET:
-                pre_reset_allow_collisions = False
+                assert self._last_pre_reset_state is None
+                reset_interrupted = False
             case ManipulationState.PRE_RESET:
-                pre_reset_allow_collisions = True
+                assert self._last_pre_reset_state is not None
+                reset_interrupted = True
             case unexpected if isinstance(unexpected, ManipulationState):
                 raise StateTransitionError(
                     f"Cannot reset object from current state: {unexpected.name}",
@@ -1049,25 +1055,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if config is None:
             self._manipulation_state = ManipulationState.RESETTED
             return
-        # TODO: I warned you a second time
-        # assert config.reset_request.planning_pipeline == "linear"
 
         cache_kwargs: list[TrajectoryCacheKwargs] = []
 
-        # Plan and execute to start goal
-        if not pre_reset_allow_collisions:
-            kwargs = await self.plan_and_execute(
-                goal=config.start_goal,
-                cache_trajectories=False,
-            )
-            if cache_trajectories and kwargs is not None:
-                cache_kwargs.extend(kwargs)
-
-            self._manipulation_state = ManipulationState.PRE_RESET
-
         # Plan and execute reset path with allowed collisions
         collisions_to_allow: list[tuple[str, str]] = []
-        modified_collisions: list[tuple[str, str]] = []
 
         if config.object_allowed_collision_ids is not None:
             collisions_to_allow.extend(
@@ -1077,20 +1069,40 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         if config.additional_allowed_collisions is not None:
             collisions_to_allow.extend(config.additional_allowed_collisions)
 
+        # Plan and execute to start goal using default planning pipeline
+        # unless the previous reset attempt was interrupted and collisions
+        # were allowed during the resetting
+        pre_reset_complete = False
+        if not reset_interrupted or len(collisions_to_allow) == 0:
+            kwargs = await self.plan_and_execute(
+                goal=config.start_goal,
+                cache_trajectories=False,
+            )
+            if cache_trajectories and kwargs is not None:
+                cache_kwargs.extend(kwargs)
+
+            self._last_pre_reset_state = self._moveit.get_current_state()
+            self._manipulation_state = ManipulationState.PRE_RESET
+            pre_reset_complete = True
+
+        # Plan and execute reset path with allowed collisions
         if len(collisions_to_allow) > 0:
             modified_collisions = self._moveit.allow_collision(
                 *zip(*collisions_to_allow)
             )
+        else:
+            modified_collisions = []
         try:
-            if pre_reset_allow_collisions:
+            if not pre_reset_complete:
+                assert self._last_pre_reset_state is not None
                 await self.plan_and_execute(
-                    goal=config.start_goal,
+                    goal=self._last_pre_reset_state,
                     planning_pipeline="linear",
                     use_cache=False,
                     cache_trajectories=False,
                 )
 
-            reset_request = deepcopy(config.reset_request)
+            reset_request = copy(config.reset_request)
             reset_request.use_cache = False
             await self.plan_and_execute(
                 config.reset_request, cache_trajectories=False
@@ -1099,6 +1111,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             if len(modified_collisions) > 0:
                 self._moveit.disallow_collision(*zip(*modified_collisions))
 
+        self._last_pre_reset_state = None
         self._manipulation_state = ManipulationState.RESETTED
 
         # Cache all trajectories if requested
@@ -1650,22 +1663,6 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             #     #             "Object seems stuck, aborting"
             #     #         ) from e
 
-            # "Unreturn" object and move to idle to try and get a better plan
-            # if self._manipulation_state in (
-            #     ManipulationState.PRE_RETURN,
-            #     ManipulationState.PRE_DETACH,
-            #     ManipulationState.DETACH,
-            # ):
-            #     await self._fetch_object_impl(
-            #         object_id, cache_trajectories=False
-            #     )
-            #     goal = self._get_state_goal(
-            #         ManipulationState.IDLE, object_id=None
-            #     )
-            #     await self.plan_and_execute(
-            #         goal=goal, cache_trajectories=False
-            #     )
-
             # Unpresent object if needed
             if self._manipulation_state == ManipulationState.PRESENTED:
                 await self._unpresent_object_impl(
@@ -1678,7 +1675,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 ManipulationState.PRE_RESET,
             ):
                 try:
-                    await self._reset_object_impl(object_id)
+                    await self._reset_object_impl(
+                        object_id, cache_trajectories=cache_trajectories
+                    )
                 except PlanningError:
                     goal = self._get_state_goal(
                         ManipulationState.IDLE, object_id=None
@@ -1691,9 +1690,33 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     )
 
             # Return object
-            await self._return_object_impl(
-                object_id, cache_trajectories=cache_trajectories
+            assert (
+                self._manipulation_state
+                in (ManipulationState.IDLE, ManipulationState.RESETTED)
+                or self._manipulation_state in _FETCH_OR_RETURN_STATES
             )
+            try:
+                await self._return_object_impl(
+                    object_id, cache_trajectories=cache_trajectories
+                )
+            except PlanningError:
+                if self._manipulation_state == ManipulationState.POST_RETURN:
+                    # Almost made it, good enough
+                    self._manipulation_state = ManipulationState.IDLE
+                else:
+                    # "Unreturn" object and move to idle to try and get a better plan
+                    await self._fetch_object_impl(
+                        object_id, cache_trajectories=False
+                    )
+                    goal = self._get_state_goal(
+                        ManipulationState.IDLE, object_id=None
+                    )
+                    await self.plan_and_execute(
+                        goal=goal, cache_trajectories=False
+                    )
+                    await self._return_object_impl(
+                        object_id, cache_trajectories=cache_trajectories
+                    )
 
         if reset_to_idle:
             goal = self._get_state_goal(ManipulationState.IDLE, object_id=None)

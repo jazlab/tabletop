@@ -38,7 +38,6 @@ from pydantic import BaseModel, NonNegativeFloat, PositiveFloat, PositiveInt
 # Re-export the Constraints message type for users who want to import
 # everything they need to build a PlanRequest from this module alone.
 __all__ = [
-    "Constraints",
     "PlanGoalT",
     "JointStateDict",
     "JointStateDeltaDict",

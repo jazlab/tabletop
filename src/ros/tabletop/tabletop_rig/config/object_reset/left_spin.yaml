@@ -1,32 +1,50 @@
 !ObjectResetConfig
-start_goal: !PoseStamped
-  position: [0.15, 0.0, 0.074]
-  rpy: [1.5707, 0.7853, -1.5707]
-  frame_id: left_reset_station/spike
+start_goal:
+  - !Constraints
+    pose_goal:
+      link_name: left_eef
+      pose_stamped: !PoseStamped
+        position: [0.15, 0.0, 0.074]
+        rpy: [1.5707, 2.5307, -1.5707]
+        frame_id: left_reset_station/spike
+    joint_constraints:
+      - joint_name: left_wrist_3_joint
+        position: -3.1415
+        tolerance_above: 3.1415
+        tolerance_below: 3.1415
+
 reset_request: !ConcatPlanRequest
   goals:
-    # Rotate all the way CW to make sure we can rotate at least 360 CCW
-    - !JointStateDict
-      left_wrist_3_joint: 0.0
-
     # Move forward into drawer station
     - !PoseStamped
       position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 0.7853, -1.5707]
+      rpy: [1.5707, 2.5307, -1.5707]
       frame_id: left_reset_station/spike
 
-    # 180 deg spin CCW, then 360 spin CW
-    - !JointStateDeltaDict
-      left_wrist_3_joint: -3.1415
-    - !JointStateDeltaDict
-      left_wrist_3_joint: 6.2831
+    # 360 spin CW (must use ptp planner)
+    # - !JointStateDeltaDict
+    #   left_wrist_3_joint: 6.2831
 
-    # Retract to start position (Cartesian, unchanged)
+    # 360 spin CW in 90 deg steps
+    # The steps are necessary for the linear planner because the linear
+    # planner simply converts joint state goals into a pose goal for the
+    # end effector link, and a 360 rotation about any joint results in
+    # the same end effector pose, so we do it in steps
+    - !JointStateDeltaDict
+      left_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      left_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      left_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      left_wrist_3_joint: 1.5707
+
+    # Retract to start position
     - !PoseStamped
       position: [0.15, 0.0, 0.074]
-      rpy: [1.5707, -2.3561, -1.5707]
+      rpy: [1.5707, 2.5307, -1.5707]
       frame_id: left_reset_station/spike
-  planning_pipeline: ptp
+  planning_pipeline: linear
 object_allowed_collision_ids:
   - left_reset_station
 additional_allowed_collisions:

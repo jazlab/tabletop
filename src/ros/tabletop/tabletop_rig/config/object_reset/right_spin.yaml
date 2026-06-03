@@ -1,41 +1,50 @@
 !ObjectResetConfig
-start_goal: !PoseStamped
-  position: [-0.2, 0.0, 0.074]
-  rpy: [1.5707, -5.4978, 1.5707]
-  frame_id: right_reset_station/spike
+start_goal:
+  - !Constraints
+    pose_goal:
+      link_name: right_eef
+      pose_stamped: !PoseStamped
+        position: [-0.15, 0.0, 0.074]
+        rpy: [1.5707, 2.5307, 1.5707]
+        frame_id: right_reset_station/spike
+    joint_constraints:
+      - joint_name: right_wrist_3_joint
+        position: -3.1415
+        tolerance_above: 3.1415
+        tolerance_below: 3.1415
+
 reset_request: !ConcatPlanRequest
   goals:
     # Move forward into drawer station
     - !PoseStamped
       position: [-0.075, 0.0, 0.074]
-      rpy: [1.5707, -5.4978, 1.5707]
+      rpy: [1.5707, 2.5307, 1.5707]
       frame_id: right_reset_station/spike
 
-    # 360 deg spin in place: 8 x 45 deg about roll axis
-    - !PoseStamped
-      position: [-0.075, 0.0, 0.074]
-      rpy: [1.5707, -3.927, 1.5707]
-      frame_id: right_reset_station/spike
-    - !PoseStamped
-      position: [-0.075, 0.0, 0.074]
-      rpy: [1.5707, -2.3562, 1.5707]
-      frame_id: right_reset_station/spike
-    - !PoseStamped
-      position: [-0.075, 0.0, 0.074]
-      rpy: [1.5707, -0.7854, 1.5707]
-      frame_id: right_reset_station/spike
-    - !PoseStamped
-      position: [-0.075, 0.0, 0.074]
-      rpy: [1.5707, 0.7854, 1.5707]
-      frame_id: right_reset_station/spike
+    # 360 spin CW (must use ptp planner)
+    # - !JointStateDeltaDict
+    #   right_wrist_3_joint: 6.2831
+
+    # 360 spin CW in 90 deg steps
+    # The steps are necessary for the linear planner because the linear
+    # planner simply converts joint state goals into a pose goal for the
+    # end effector link, and a 360 rotation about any joint results in
+    # the same end effector pose, so we do it in steps
+    - !JointStateDeltaDict
+      right_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      right_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      right_wrist_3_joint: 1.5707
+    - !JointStateDeltaDict
+      right_wrist_3_joint: 1.5707
 
     # Retract to start position
     - !PoseStamped
-      position: [-0.2, 0.0, 0.074]
-      rpy: [1.5707, 0.7854, 1.5707]
+      position: [-0.15, 0.0, 0.074]
+      rpy: [1.5707, 2.5307, 1.5707]
       frame_id: right_reset_station/spike
-  # velocity_scaling_factor: 0.3
-  acceleration_scaling_factor: 0.3
+  planning_pipeline: linear
 object_allowed_collision_ids:
   - right_reset_station
 additional_allowed_collisions:

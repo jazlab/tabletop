@@ -51,7 +51,9 @@ from moveit.planning import (
     PlanningComponent,
     PlanRequestParameters,
 )
-from moveit_msgs.msg import Constraints
+from moveit_msgs.msg import (
+    Constraints,
+)
 from rclpy.action.client import ClientGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from trajectory_msgs.msg import JointTrajectory
@@ -632,13 +634,6 @@ class PlanAndExecuteInterface(BaseInterface):
 
         constraints_goal = _is_constraints_goal(request.goal)
 
-        # Constraints goals are opaque to us — frames live inside the
-        # sub-messages, there's no canonical end-state to key the cache
-        # on, and the trajectory cache rejects them outright in
-        # _validate_request. Skip cache I/O for this whole request.
-        if constraints_goal:
-            request.use_cache = False
-
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
             if not request.goal.header.frame_id:
@@ -663,7 +658,19 @@ class PlanAndExecuteInterface(BaseInterface):
                 relative=isinstance(request.goal, JointStateDeltaDict),
                 base_state=request.start_state,
             )
-        # elif constraints_goal:
+        elif isinstance(request.goal, RobotState):
+            pass
+        else:
+            assert constraints_goal
+            for constraints in request.goal:
+                for pc in constraints.position_constraints:
+                    if not pc.header.frame_id:
+                        pc.header.frame_id = self._moveit.planning_frame
+
+                for oc in constraints.orientation_constraints:
+                    if not oc.header.frame_id:
+                        oc.header.frame_id = self._moveit.planning_frame
+
         #     # Fill joint constraints with the start positions of any joints
         #     # that were not provided as constraints, if requested.
         #     for constraints in request.goal:  # type: ignore
@@ -691,10 +698,13 @@ class PlanAndExecuteInterface(BaseInterface):
         if request.group_name is None:
             request.group_name = self.group_name
 
-        # Attempt to retrieve cached trajectories for this request
+        # Attempt to retrieve cached trajectories if use_cache is True
+        # and if the goal is not a Constraints goal, since Constraints
+        # goals are not supported by the trajectory cache,
         if (
             self.param("trajectory_cache.use_cached_trajectories")
             and request.use_cache
+            and not constraints_goal
         ):
             trajectory = self._get_cached_trajectory(request, cancel_event)
             if trajectory is not None:
@@ -711,29 +721,24 @@ class PlanAndExecuteInterface(BaseInterface):
             fast_pipeline: str = self.param("planning.fast_pipeline")
             fallback_pipeline: str = self.param("planning.fallback_pipeline")
 
-            if fallback_pipeline == "linear":
+            if fallback_pipeline in ("linear", "ptp"):
                 raise ValueError(
-                    "'planning.fallback_pipeline' must not be 'linear'"
+                    "'planning.fallback_pipeline' must not be 'linear' or 'ptp'"
                 )
 
-            # The linear pipeline only knows how to plan to a Cartesian
-            # PoseStamped — skip it for RobotState / Constraints goals.
-            if (
-                isinstance(request.goal, PoseStamped)
-                or fast_pipeline != "linear"
-            ):
+            # The linear and ptp pipelines do not support Constraints goals
+            if fast_pipeline not in ("linear", "ptp") or not constraints_goal:
                 pipelines.append(fast_pipeline)
                 attempts.append(1)
 
             pipelines.append(fallback_pipeline)
             attempts.append(request.max_attempts)
-        elif request.planning_pipeline == "linear" and not isinstance(
-            request.goal, PoseStamped
+        elif (
+            request.planning_pipeline in ("linear", "ptp") and constraints_goal
         ):
             raise ValueError(
-                "The `linear` planning pipeline can only be used with "
-                "PoseStamped goals (got "
-                f"{'list[Constraints]' if constraints_goal else type(request.goal).__name__})"
+                f"The '{request.planning_pipeline}' planning pipeline "
+                f"cannot be used with Constraints goals"
             )
         else:
             pipelines.append(request.planning_pipeline)

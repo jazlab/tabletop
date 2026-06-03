@@ -9,7 +9,7 @@
   "containerUser": "mules",
   "remoteUser": "mules",
   "mounts": [
-    "source=claude-code-config-${devcontainerId},target=/home/mules/.claude,type=volume"
+    "source=claude-code-config,target=/home/mules/.claude,type=volume"
   ],
   "postCreateCommand": [
     "bash",

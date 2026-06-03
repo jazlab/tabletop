@@ -179,7 +179,7 @@ class MoveItInterface(BaseInterface):
 
         self._init_link_padding()
 
-        self._init_collision_detector()
+        # self._init_collision_detector()
 
         # self.log(self.robot_model.get_model_info())
 

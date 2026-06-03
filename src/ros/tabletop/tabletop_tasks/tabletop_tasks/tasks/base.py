@@ -207,7 +207,7 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
         to complete.
         """
         async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.commander.lock_arms_and_wait())
+            tg.create_task(self.commander.lock_arm("both"))
             tg.create_task(self.commander.occlude_smartglass())
 
     async def _run_one_trial(

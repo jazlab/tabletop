@@ -775,6 +775,15 @@ class Commander(BaseNode):
         await self._teensy.set_arm_lock(arm, lock=False)
 
     @ensure_context
+    async def lock_arm(self, arm: Literal["left", "right", "both"]) -> None:
+        """Release the specified arm lock(s).
+
+        Args:
+            arm: Which arm(s) to release - "left", "right", or "both".
+        """
+        await self._teensy.set_arm_lock(arm, lock=True)
+
+    @ensure_context
     async def lock_arms_and_wait(
         self, timeout: Optional[float] = None
     ) -> bool:
@@ -943,11 +952,17 @@ class Commander(BaseNode):
         if self._exited_context:
             raise RuntimeError("Commander context manager already exited")
 
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self._teensy.set_sync_pulse_solenoid(activate=True))
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(
+                    self._teensy.set_sync_pulse_solenoid(activate=True)
+                )
 
-            for context in self._manipulation_contexts.values():
-                tg.create_task(context._ur.reset())
+                for context in self._manipulation_contexts.values():
+                    tg.create_task(context._ur.reset())
+        except BaseException:
+            self.destroy_node()
+            raise
 
         self._entered_context = True
         return self

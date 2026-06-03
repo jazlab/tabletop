@@ -1,18 +1,19 @@
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [0.1, 0.0, -0.07]
+  position: [0.15, 0.0, -0.065]
   rpy: [0.0, 0.0, 3.1415]
   frame_id: left_reset_station/drawer
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [0.022, 0.0, -0.07]
+      position: [0.067, 0.0, -0.065]
       rpy: [0.0, 0.0, 3.1415]
       frame_id: left_reset_station/drawer
     - !PoseStamped
-      position: [0.1, 0.0, -0.07]
+      position: [0.15, 0.0, -0.065]
       rpy: [0.0, 0.0, 3.1415]
       frame_id: left_reset_station/drawer
+  planning_pipeline: linear
   velocity_scaling_factor: 0.3
   acceleration_scaling_factor: 0.3
 object_allowed_collision_ids:

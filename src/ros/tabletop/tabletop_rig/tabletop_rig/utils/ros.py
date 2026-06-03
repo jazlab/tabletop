@@ -827,9 +827,164 @@ def visibility_constraint_msg(
     return vc
 
 
+def goal_constraints_from_pose_stamped(
+    *,
+    link_name: str,
+    pose_stamped: PoseStamped | Mapping[str, Any],
+    tolerance_pos: float | Iterable[float] = 1e-3,
+    tolerance_angle: float | Iterable[float] = 1e-2,
+    weight: float = 1.0,
+) -> Constraints:
+    """Build goal constraints for a link from a Cartesian pose goal.
+
+    This is a Python reimplementation of MoveIt's
+    ``kinematic_constraints::constructGoalConstraints(link_name, pose, ...)``.
+    The returned message contains exactly one `PositionConstraint` and one
+    `OrientationConstraint`, both referencing ``link_name`` and expressed in
+    the pose's header frame.
+
+    The shape of ``tolerance_pos`` selects the position constraint region,
+    matching the two C++ overloads:
+    - A scalar is the radius of a SPHERE centered on the goal position.
+    - A 3-element iterable is the [x, y, z] extents of a BOX centered on the
+      goal position.
+
+    The orientation constraint always uses ROTATION_VECTOR parameterization
+    (as the C++ does), so a scalar ``tolerance_angle`` is an isotropic ball
+    applied to all three axes, while a 3-element iterable sets per-axis bounds.
+
+    Args:
+        link_name: The link constrained by both sub-constraints.
+        pose_stamped: The Cartesian goal. Accepts a PoseStamped or a mapping
+            consumed by `pose_stamped_msg()`. Its header frame is propagated
+            to both constraints.
+        tolerance_pos: Sphere radius (scalar) or box xyz extents (3-iterable)
+            for the position constraint region.
+        tolerance_angle: Isotropic (scalar) or per-axis (3-iterable) absolute
+            orientation tolerance.
+        weight: Relative weight applied to both sub-constraints.
+
+    Returns:
+        A Constraints message with one position and one orientation constraint.
+
+    Raises:
+        ValueError: If a vector tolerance does not have exactly three elements.
+    """
+    if not isinstance(pose_stamped, PoseStamped):
+        pose_stamped = pose_stamped_msg(**pose_stamped)
+
+    header = pose_stamped.header
+    goal_position = pose_stamped.pose.position
+    goal_orientation = pose_stamped.pose.orientation
+
+    # A scalar position tolerance is a sphere radius; a 3-vector is box dims.
+    if is_iterable(tolerance_pos):
+        dimensions = [float(t) for t in tolerance_pos]  # type: ignore
+        if len(dimensions) != 3:
+            raise ValueError(
+                "tolerance_pos must be a scalar (sphere radius) or a "
+                f"3-element iterable (box xyz extents), got {len(dimensions)}"
+            )
+        primitive: dict[str, Any] = {"type": "BOX", "dimensions": dimensions}
+    else:
+        primitive = {"type": "SPHERE", "dimensions": [float(tolerance_pos)]}  # type: ignore
+
+    # The constraint-region primitive is centered on the goal position. Its
+    # orientation is irrelevant for a sphere and held at identity for a box.
+    region_pose = pose_msg(
+        position=goal_position, orientation=(1.0, 0.0, 0.0, 0.0)
+    )
+    position_constraint = position_constraint_msg(
+        link_name=link_name,
+        header=header,
+        constraint_region=bounding_volume_msg(
+            primitives=[primitive],
+            primitive_poses=[region_pose],
+        ),
+        weight=weight,
+    )
+
+    # A scalar angular tolerance is applied isotropically to all three axes.
+    if is_iterable(tolerance_angle):
+        angles = [float(t) for t in tolerance_angle]  # type: ignore
+        if len(angles) != 3:
+            raise ValueError(
+                "tolerance_angle must be a scalar or a 3-element iterable "
+                f"(xyz), got {len(angles)}"
+            )
+    else:
+        angles = [float(tolerance_angle)] * 3  # type: ignore
+
+    orientation_constraint = orientation_constraint_msg(
+        link_name=link_name,
+        header=header,
+        orientation=goal_orientation,
+        absolute_x_axis_tolerance=angles[0],
+        absolute_y_axis_tolerance=angles[1],
+        absolute_z_axis_tolerance=angles[2],
+        parameterization=OrientationConstraint.ROTATION_VECTOR,
+        weight=weight,
+    )
+
+    return Constraints(
+        position_constraints=[position_constraint],
+        orientation_constraints=[orientation_constraint],
+    )
+
+
+def goal_constraints_from_robot_state(
+    *,
+    robot_state: RobotState,
+    group_name: str,
+    tolerance: float = float(np.finfo(float).eps),
+    tolerance_above: Optional[float] = None,
+    tolerance_below: Optional[float] = None,
+    weight: float = 1.0,
+) -> Constraints:
+    """Build joint-space goal constraints from a RobotState.
+
+    This is a Python reimplementation of MoveIt's
+    ``kinematic_constraints::constructGoalConstraints(state, jmg, ...)``. It
+    emits one `JointConstraint` per active joint of ``group_name``, each
+    pinned to that joint's position in ``robot_state``.
+
+    Args:
+        robot_state: The state from which to read the goal joint positions.
+        group_name: The joint model group whose active joints are constrained.
+        tolerance: Symmetric tolerance applied above and below each joint
+            position. Defaults to machine epsilon (an effectively exact goal),
+            matching the C++ default. Ignored for a side when the
+            corresponding ``tolerance_above``/``tolerance_below`` is given.
+        tolerance_above: Optional override for the above tolerance on every
+            joint.
+        tolerance_below: Optional override for the below tolerance on every
+            joint.
+        weight: Relative weight applied to every joint constraint.
+
+    Returns:
+        A Constraints message containing one joint constraint per active joint.
+    """
+    above = tolerance if tolerance_above is None else tolerance_above
+    below = tolerance if tolerance_below is None else tolerance_below
+    positions = get_joint_group_positions(robot_state, group_name)
+    joint_constraints = [
+        joint_constraint_msg(
+            joint_name=joint_name,
+            position=position,
+            tolerance_above=above,
+            tolerance_below=below,
+            weight=weight,
+        )
+        for joint_name, position in positions.items()
+    ]
+    return Constraints(joint_constraints=joint_constraints)
+
+
 def constraints_msg(
     *,
     name: str = "",
+    robot_state_goal: Optional[Mapping[str, Any]] = None,
+    pose_goal: Optional[Mapping[str, Any]] = None,
     joint_constraints: Optional[
         Iterable[JointConstraint | Mapping[str, Any]]
     ] = None,
@@ -854,53 +1009,110 @@ def constraints_msg(
     factory). The latter form lets YAML files express constraints declaratively
     without needing their own YAML tags.
 
+    Two convenience goal forms are also accepted, mirroring MoveIt's
+    ``constructGoalConstraints`` helpers:
+    - ``pose_goal`` derives a position + orientation constraint for a link
+      from a Cartesian pose (see `goal_constraints_from_pose_stamped`). The
+      resulting sub-constraints are appended to any explicitly provided
+      position/orientation constraints.
+    - ``robot_state_goal`` derives a full set of joint constraints from a
+      RobotState (see `goal_constraints_from_robot_state`). Because this is a
+      complete joint-space goal, it is mutually exclusive with every other
+      argument that contributes constraints.
+
     Args:
         name: Optional identifier for this Constraints set.
         joint_constraints: Sub-constraints on joint positions.
         position_constraints: Sub-constraints on link positions.
         orientation_constraints: Sub-constraints on link orientations.
         visibility_constraints: Sub-constraints for sensor visibility.
+        pose_goal: Mapping of keyword arguments forwarded to
+            `goal_constraints_from_pose_stamped()` (e.g. ``link_name``,
+            ``pose_stamped``, ``tolerance_pos``, ``tolerance_angle``).
+            Mutually exclusive with ``robot_state_goal``.
+        robot_state_goal: Mapping of keyword arguments forwarded to
+            `goal_constraints_from_robot_state()` (e.g. ``robot_state``,
+            ``group_name``, ``tolerance``). Mutually exclusive with every
+            other constraint-bearing argument.
 
     Returns:
         A Constraints message.
+
+    Raises:
+        ValueError: If both ``pose_goal`` and ``robot_state_goal`` are given,
+            or if ``robot_state_goal`` is combined with any other constraint.
     """
-    constraints = Constraints(name=name)
+    if pose_goal is not None and robot_state_goal is not None:
+        raise ValueError(
+            "pose_goal and robot_state_goal cannot both be provided"
+        )
+
+    if robot_state_goal is not None and any(
+        c is not None
+        for c in (
+            pose_goal,
+            joint_constraints,
+            position_constraints,
+            orientation_constraints,
+            visibility_constraints,
+        )
+    ):
+        raise ValueError(
+            "robot_state_goal is a complete joint-space goal and cannot be "
+            "combined with any other constraints"
+        )
+
+    jcs: list[JointConstraint] = []
+    pcs: list[PositionConstraint] = []
+    ocs: list[OrientationConstraint] = []
+    vcs: list[VisibilityConstraint] = []
+
+    if robot_state_goal is not None:
+        goal_constraints = goal_constraints_from_robot_state(
+            **robot_state_goal
+        )
+        jcs.extend(goal_constraints.joint_constraints)
+
+    if pose_goal is not None:
+        goal_constraints = goal_constraints_from_pose_stamped(**pose_goal)
+        pcs.extend(goal_constraints.position_constraints)
+        ocs.extend(goal_constraints.orientation_constraints)
 
     if joint_constraints is not None:
-        jcs: list[JointConstraint] = []
         for c in joint_constraints:
             if isinstance(c, JointConstraint):
                 jcs.append(deepcopy(c))
             else:
                 jcs.append(joint_constraint_msg(**c))
-        constraints.joint_constraints = jcs
 
     if position_constraints is not None:
-        pcs: list[PositionConstraint] = []
         for c in position_constraints:
             if isinstance(c, PositionConstraint):
                 pcs.append(deepcopy(c))
             else:
                 pcs.append(position_constraint_msg(**c))
-        constraints.position_constraints = pcs
 
     if orientation_constraints is not None:
-        ocs: list[OrientationConstraint] = []
         for c in orientation_constraints:
             if isinstance(c, OrientationConstraint):
                 ocs.append(deepcopy(c))
             else:
                 ocs.append(orientation_constraint_msg(**c))
-        constraints.orientation_constraints = ocs
 
     if visibility_constraints is not None:
-        vcs: list[VisibilityConstraint] = []
         for c in visibility_constraints:
             if isinstance(c, VisibilityConstraint):
                 vcs.append(deepcopy(c))
             else:
                 vcs.append(visibility_constraint_msg(**c))
-        constraints.visibility_constraints = vcs
+
+    constraints = Constraints(
+        name=name,
+        joint_constraints=jcs,
+        position_constraints=pcs,
+        orientation_constraints=ocs,
+        visibility_constraints=vcs,
+    )
 
     return constraints
 
