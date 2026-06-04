@@ -6,10 +6,10 @@ tasks:
         kwargs:
           grouped_object_ids:
             left_manipulator:
-              # - big_object_2
+              - big_object_2
               # - big_object_3
-              - big_object_0
-              - big_object_1
+              # - big_object_0
+              # - big_object_1
             # - small_object_0
             # - small_object_1
             # - small_object_2
@@ -25,11 +25,11 @@ tasks:
             # - small_object_12
             # - small_object_13
             # - small_object_14
-            right_manipulator:
-              # - big_object_6
-              # - big_object_7
-              - big_object_4
-              - big_object_5
+            # right_manipulator:
+            #   # - big_object_6
+            #   # - big_object_7
+            #   - big_object_4
+            #   - big_object_5
             # - small_object_15
             # - small_object_16
             # - small_object_17

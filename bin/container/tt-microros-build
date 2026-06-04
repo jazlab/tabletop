@@ -8,14 +8,13 @@ source $bin_dir/../utils.sh
 
 
 print_usage() {
-    echo "Usage: $0 [-t|--target teensy|sniffer] [--clean] [--no-upload] [--compiledb]"
+    echo "Usage: $0 [-t|--target teensy(default)|sniffer|all] [--clean] [--no-upload] [--compiledb]"
 }
 
 target_arg="--target upload"
 retries=2
 project_dirs=(
     "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
-    "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer"
 )
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -38,6 +37,12 @@ while [[ $# -gt 0 ]]; do
                     ;;
                 sniffer)
                     project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer")
+                    ;;
+                all)
+                    project_dirs=(
+                        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
+                        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer"
+                    )
                     ;;
                 *)
                     print_error "Error: Unknown target '$1'"

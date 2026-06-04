@@ -267,12 +267,12 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     )
 
     # ROS Warehouse Config
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path").perform(
-            context
-        ),
-    }
+    # warehouse_ros_config = {
+    #     "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+    #     "warehouse_host": LaunchConfiguration("warehouse_sqlite_path").perform(
+    #         context
+    #     ),
+    # }
 
     # ROS args
     ros_args: list[str] = []
@@ -329,7 +329,7 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
         sigterm_timeout=sigterm_timeout,
         parameters=[
             moveit_config.to_dict(),
-            warehouse_ros_config,
+            # warehouse_ros_config,
             ParameterFile(param_file, allow_substs=True),
             ParameterFile(overrides_file, allow_substs=True),
             {
