@@ -29,7 +29,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Optional, cast
 
-import rclpy.task
+import rclpy
 from action_msgs.msg import GoalStatus
 from rclpy.action.client import ActionClient, ClientGoalHandle
 from rclpy.callback_groups import CallbackGroup, MutuallyExclusiveCallbackGroup
@@ -94,7 +94,7 @@ def _get_loop(fut: asyncio.Future):
     return fut._loop
 
 
-def _copy_future_state(source: rclpy.task.Future, destination: asyncio.Future):
+def _copy_future_state(source: rclpy.Future, destination: asyncio.Future):
     assert source.done() or source.cancelled()
     if destination.cancelled():
         return
@@ -110,14 +110,14 @@ def _copy_future_state(source: rclpy.task.Future, destination: asyncio.Future):
             destination.set_result(result)
 
 
-def _chain_future(source: rclpy.task.Future, destination: asyncio.Future):
+def _chain_future(source: rclpy.Future, destination: asyncio.Future):
     """Chain two futures so that when one completes, so does the other.
 
     The result (or exception) of source will be copied to destination.
     If destination is cancelled, source gets cancelled too.
     Compatible with both asyncio.Future and concurrent.futures.Future.
     """
-    if not isinstance(source, rclpy.task.Future):
+    if not isinstance(source, rclpy.Future):
         raise TypeError("An rclpy future is required for source argument")
     if not asyncio.isfuture(destination):
         raise TypeError("A future is required for destination argument")
@@ -160,9 +160,9 @@ def _chain_future(source: rclpy.task.Future, destination: asyncio.Future):
     source.add_done_callback(_set_state)
 
 
-def wrap_rclpy_future(future: rclpy.task.Future, *, loop=None):
+def wrap_rclpy_future(future: rclpy.Future, *, loop=None):
     """Wrap concurrent.futures.Future object."""
-    assert isinstance(future, rclpy.task.Future), (
+    assert isinstance(future, rclpy.Future), (
         f"rclpy.task.Future is expected, got {future!r}"
     )
     if loop is None:
@@ -577,13 +577,29 @@ class BaseNode(Node, LoggerMixin):
             ServiceCallUnsuccessfulError: If the service call returned with a failure status.
         """
         if response is None:
-            error_msg = (
+            raise ServiceCallTimeoutError(
                 f"{service_client.service_name} service call timed out!"
             )
-            raise ServiceCallTimeoutError(error_msg)
         elif hasattr(response, "success") and not response.success:  # type: ignore
-            error_msg = f"{service_client.service_name} service call returned unsuccessfully with response: {msg_to_dict(response)}"
-            raise ServiceCallUnsuccessfulError(error_msg)
+            raise ServiceCallUnsuccessfulError(
+                f"{service_client.service_name} service call returned unsuccessfully with response: {msg_to_dict(response)}"
+            )
+
+    def wait_for_service_blocking(
+        self, srv_client: Client, timeout: Optional[float] = None
+    ) -> bool:
+        if timeout is None:
+            timeout = cast(float, self.param("default_service_wait_timeout"))
+
+        return srv_client.wait_for_service(timeout)
+
+    async def wait_for_service_async(
+        self, srv_client: Client, timeout: Optional[float] = None
+    ) -> bool:
+        if timeout is None:
+            timeout = cast(float, self.param("default_service_wait_timeout"))
+
+        return await asyncio.to_thread(srv_client.wait_for_service, timeout)
 
     def service_call_blocking(
         self,
@@ -636,6 +652,12 @@ class BaseNode(Node, LoggerMixin):
         else:
             self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
+
+        if not srv_client.service_is_ready():
+            if not self.wait_for_service_blocking(srv_client):
+                raise ServiceCallTimeoutError(
+                    f"Wait for '{srv_client.service_name}' service timed out!"
+                )
 
         try:
             response = srv_client.call(srv_request, timeout_sec=timeout)
@@ -697,6 +719,13 @@ class BaseNode(Node, LoggerMixin):
         else:
             self._validate_service_client(srv_client, srv_type, srv_name)
             destroy_service_client = False
+
+        if not srv_client.service_is_ready():
+            ready = await self.wait_for_service_async(srv_client)
+            if not ready:
+                raise ServiceCallTimeoutError(
+                    f"Wait for '{srv_client.service_name}' service timed out!"
+                )
 
         try:
             future = wrap_rclpy_future(srv_client.call_async(srv_request))

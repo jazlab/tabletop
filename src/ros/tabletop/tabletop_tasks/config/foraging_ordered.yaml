@@ -3,7 +3,7 @@ tasks:
     kwargs:
       stimulus_duration: 1.0
       delay_duration: 1.0
-      response_timeout: 1.0
+      response_timeout: 10.0
       reward_duration: 0.25
       reveal_duration: 0
       reward_sound: true
@@ -16,7 +16,8 @@ tasks:
             left_manipulator:
               - big_object_0
               - big_object_1
-              - big_object_2
+              # - big_object_2
+              # - big_object_3
               # - small_object_0
               # - small_object_1
               # - small_object_2
@@ -33,9 +34,10 @@ tasks:
               # - small_object_13
               # - small_object_14
             right_manipulator:
-              - big_object_3
               - big_object_4
               - big_object_5
+              - big_object_6
+              # - big_object_7
               # - small_object_15
               # - small_object_16
               # - small_object_17
@@ -62,6 +64,6 @@ tasks:
             - right
             - both
           occlude:
-            - true
+            - false
           num_trials: 100000
           skip_failed: false

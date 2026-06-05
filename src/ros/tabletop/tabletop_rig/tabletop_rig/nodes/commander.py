@@ -140,8 +140,21 @@ def handle_interruptions(coro_fn):
             raise ValueError(
                 "'safe_execution.max_attempts' parameter must be at least 1"
             )
-
         remaining = max_attempts
+
+        if not self._safe_to_execute_condition():
+            assert (
+                self._manipulator.manipulation_state
+                == ManipulationState.PRESENTED
+            )
+            self.log(
+                f"Not safe to execute before running '{coro_fn.__name__}'. "
+                f"Locking arms and waiting for safety.",
+                severity="WARN",
+            )
+            await self._teensy.lock_arms_and_wait(
+                condition=self._safe_to_execute_condition
+            )
 
         excs: list[Exception] = []
         while remaining > 0:
@@ -178,11 +191,14 @@ def handle_interruptions(coro_fn):
                             == ManipulationState.PRESENTED
                         )
                         self.log(
-                            "Not safe to execute during interruption handling. "
-                            "Locking arms and waiting for safety.",
+                            f"Not safe to execute during interruption handling "
+                            f"while running '{coro_fn.__name__}'. Locking arms "
+                            f"and waiting for safety.",
                             severity="WARN",
                         )
-                        await self._teensy.lock_arms_and_wait()
+                        await self._teensy.lock_arms_and_wait(
+                            condition=self._safe_to_execute_condition
+                        )
 
                 if isinstance(
                     e,
@@ -195,8 +211,9 @@ def handle_interruptions(coro_fn):
                     ready = await self._ur.is_ready()
                     if not ready:
                         self.log(
-                            "Dashboard not ready during interrupting handling. "
-                            "Resetting UR interface.",
+                            f"Dashboard not ready during interrupting handling "
+                            f"while running '{coro_fn.__name__}'. Resetting UR "
+                            f"interface.",
                             severity="WARN",
                         )
                         await self._ur.reset()
@@ -461,7 +478,9 @@ class ManipulationContextManager(BaseInterface):
                         "Locking arms and waiting for safety.",
                         severity="WARN",
                     )
-                    await self._teensy.lock_arms_and_wait()
+                    await self._teensy.lock_arms_and_wait(
+                        condition=self._safe_to_execute_condition
+                    )
 
                 ready = await self._ur.is_ready()
                 if not ready:
@@ -740,12 +759,17 @@ class Commander(BaseNode):
                         severity="WARN",
                     )
 
-    # def _safe_to_execute_condition(self, robot_name: str) -> bool:
-    #     return (
-    #         self._manipulators[robot_name].manipulation_state
-    #         != ManipulationState.PRESENTED
-    #         or self._teensy.safe_to_execute
-    #     )
+    def _safe_to_execute_condition(self) -> bool:
+        return (
+            all(
+                (
+                    x._manipulator.manipulation_state
+                    != ManipulationState.PRESENTED
+                    for x in self._manipulation_contexts.values()
+                )
+            )
+            or self._teensy.safe_to_execute
+        )
 
     ###########################################################################
     ########## User Interface #################################################
@@ -799,7 +823,9 @@ class Commander(BaseNode):
         Returns:
             True if safety conditions met within timeout.
         """
-        return await self._teensy.lock_arms_and_wait(timeout)
+        return await self._teensy.lock_arms_and_wait(
+            timeout, condition=self._safe_to_execute_condition
+        )
 
     @ensure_context
     async def reveal_smartglass(self) -> None:

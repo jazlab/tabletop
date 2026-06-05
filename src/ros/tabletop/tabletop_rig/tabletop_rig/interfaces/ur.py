@@ -12,9 +12,10 @@ that are essential for recovering from safety stops and protective stops.
 import asyncio
 from typing import Optional, cast
 
+import rclpy
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.client import Client
 from std_srvs.srv import Trigger
 from ur_dashboard_msgs.action import SetMode
@@ -29,8 +30,8 @@ from ur_dashboard_msgs.srv import (
 
 from tabletop_rig.exceptions import (
     ActionClientError,
-    ServiceCallTimeoutError,
     ServiceCallUnsuccessfulError,
+    ServiceClientError,
 )
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode
@@ -88,93 +89,94 @@ class URInterface(BaseInterface):
             node,
             SetMode,
             f"{self._state_helper_ns}/set_mode",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # Parameter query service clients (one per node namespace)
         self._dashboard_get_parameters_client = self.node.create_client(
             GetParameters,
             f"{self._dashboard_ns}/get_parameters",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._state_helper_get_parameters_client = self.node.create_client(
             GetParameters,
             f"{self._state_helper_ns}/get_parameters",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # Dashboard query service clients
         self._is_in_remote_control_client = self.node.create_client(
             IsInRemoteControl,
             f"{self._dashboard_ns}/is_in_remote_control",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._get_robot_mode_client = self.node.create_client(
             GetRobotMode,
             f"{self._dashboard_ns}/get_robot_mode",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._get_safety_mode_client = self.node.create_client(
             GetSafetyMode,
             f"{self._dashboard_ns}/get_safety_mode",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._get_program_state_client = self.node.create_client(
             GetProgramState,
             f"{self._dashboard_ns}/program_state",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # Dashboard load service client
         self._load_program_client = self.node.create_client(
             Load,
             f"{self._dashboard_ns}/load_program",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # Dashboard trigger service clients
         self._quit_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/quit",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._connect_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/connect",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._close_popup_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/close_popup",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._close_safety_popup_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/close_safety_popup",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._unlock_protective_stop_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/unlock_protective_stop",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._stop_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/stop",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._play_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/play",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._restart_safety_client = self.node.create_client(
             Trigger,
             f"{self._dashboard_ns}/restart_safety",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         self._connected = False
+        self._stop_future: rclpy.Future | None = None
 
         self.log("UR interface initialized")
 
@@ -385,22 +387,33 @@ class URInterface(BaseInterface):
     async def is_ready(self) -> bool:
         # TODO: add logging and documentation
         if not self._connected:
+            self.log("UR not ready: Not yet connected")
             return False
 
         remote_control = await self._is_in_remote_control()
         if not remote_control:
+            self.log("UR not ready: Not in remote control")
             return False
 
         robot_mode = await self.get_robot_mode()
-        if robot_mode != RobotMode.RUNNING:
+        if robot_mode.mode != RobotMode.RUNNING:
+            self.log(
+                f"UR not ready: Robot mode not RUNNING, got {robot_mode.mode}"
+            )
             return False
 
         program_state = await self.get_program_state()
-        if program_state != ProgramState.PLAYING:
+        if program_state.state != ProgramState.PLAYING:
+            self.log(
+                f"UR not ready: Program state not PLAYING, got {program_state.state}"
+            )
             return False
 
         safety_mode = await self.get_safety_mode()
-        if safety_mode != SafetyMode.NORMAL:
+        if safety_mode.mode != SafetyMode.NORMAL:
+            self.log(
+                f"UR not ready: Safety mode not NORMAL, got {safety_mode.mode}"
+            )
             return False
 
         return True
@@ -491,8 +504,6 @@ class URInterface(BaseInterface):
             await asyncio.sleep(delay)
             safety_mode = await self.get_safety_mode()
 
-        await asyncio.sleep(self.param("post_reset_delay"))
-
     async def reset(self, timeout: Optional[float] = None):
         """Execute full dashboard recovery sequence.
 
@@ -518,9 +529,11 @@ class URInterface(BaseInterface):
             ActionError: If the SetMode action fails.
         """
         max_attempts: int = self.param("max_reset_attempts")
-        num_attempts_before_safety_restart: Optional[int] = self.param(
+        num_attempts_before_safety_restart: int | None = self.param(
             "num_reset_attempts_before_safety_restart"
         )
+        reset_retry_delay: float = self.param("reset_retry_delay")
+        post_reset_delay: float = self.param("post_reset_delay")
 
         if (
             num_attempts_before_safety_restart is not None
@@ -534,12 +547,8 @@ class URInterface(BaseInterface):
             for i in range(max_attempts):
                 try:
                     await self._reset_impl()
-                    return
-                except (
-                    ServiceCallUnsuccessfulError,
-                    ServiceCallTimeoutError,
-                    ActionClientError,
-                ) as e:
+                    break
+                except (ServiceClientError, ActionClientError) as e:
                     self.log(
                         f"Caught exception while resetting dashboard | {type(e).__name__}: {e}",
                         severity="WARN",
@@ -557,10 +566,21 @@ class URInterface(BaseInterface):
                     if i == max_attempts - 1:
                         raise
 
-                    self.log("Retrying dashboard reset")
+                    self.log(
+                        f"Retrying dashboard reset after {reset_retry_delay}s"
+                    )
+                    await asyncio.sleep(reset_retry_delay)
+
+        await asyncio.sleep(post_reset_delay)
 
     def stop_program(self) -> None:
-        self._stop_client.call_async(Trigger.Request())
+        # if (
+        #     self._stop_future is None
+        #     or self._stop_future.done()
+        #     or self._stop_future.cancelled()
+        # ):
+        #     self._stop_future = self._stop_client.call_async(Trigger.Request())
+        self._stop_future = self._stop_client.call_async(Trigger.Request())
 
     def destroy_interface(self):
         """Clean up SetMode action client"""

@@ -11,7 +11,7 @@ experiments to capture precise response timing.
 import asyncio
 from typing import Optional
 
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from tabletop_interfaces.action import FlicResponseTime
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -59,7 +59,7 @@ class FlicInterface(BaseInterface):
             self.node,
             FlicResponseTime,
             "flic/response_time",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         self.log("Flic interface initialized")

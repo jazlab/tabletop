@@ -1703,6 +1703,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 if self._manipulation_state == ManipulationState.POST_RETURN:
                     # Almost made it, good enough
                     self._manipulation_state = ManipulationState.IDLE
+                    self._current_manipulation_id = None
                 else:
                     # "Unreturn" object and move to idle to try and get a better plan
                     await self._fetch_object_impl(

@@ -33,42 +33,52 @@ ptp:
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
-rrt_star:
+# rrt_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: RRTstar
+#     planning_time: 0.5 # TODO
+#     # planning_time: 2.0
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+
+aps_rrt_star:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTstar
-    planning_time: 0.5 # TODO
+    planning_time: 0.5
     # planning_time: 2.0
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0
 
-rrtc:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTConnect
-    planning_time: 0.5
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
+# aps_rrtc:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: APSRRTConnect
+#     planning_time: 0.5
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
+#
+# aps_rrtc_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: APSRRTConnectstar
+#     planning_time: 0.5
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
 
-rrtc_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: APSRRTConnectstar
-    planning_time: 0.5
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
-
-prm_star:
-  plan_request_params:
-    planning_attempts: 1
-    planning_pipeline: ompl
-    planner_id: PersistentLazyPRMstar
-    planning_time: 2.0
-    max_velocity_scaling_factor: 1.0
-    max_acceleration_scaling_factor: 1.0
+# prm_star:
+#   plan_request_params:
+#     planning_attempts: 1
+#     planning_pipeline: ompl
+#     planner_id: PersistentLazyPRMstar
+#     planning_time: 2.0
+#     max_velocity_scaling_factor: 1.0
+#     max_acceleration_scaling_factor: 1.0
 #
 # ompl_aps_persistent:
 #   plan_request_params:

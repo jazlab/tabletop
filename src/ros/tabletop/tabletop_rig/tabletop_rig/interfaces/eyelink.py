@@ -15,7 +15,7 @@ from collections.abc import (
 )
 from typing import Any, Coroutine, Optional
 
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 
 from tabletop_rig.interfaces.base import BaseInterface
@@ -61,7 +61,7 @@ class EyelinkInterface(BaseInterface):
             self.node,
             EyelinkSmoothPursuit,
             "eyelink/smooth_pursuit",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         self.log("Eyelink interface initialized")

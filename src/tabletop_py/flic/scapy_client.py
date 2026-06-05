@@ -257,12 +257,13 @@ class FlicClient(asyncio.Protocol):
         # Complete arrives.
         self._pending_disconnect_futures: dict[int, asyncio.Future[None]] = {}
 
-        self._button_press_info: dict[str, ButtonPressInfo] = {}
-        self._button_press_event: dict[str, asyncio.Event] = {}
+        self._button_press_futures: dict[
+            str, asyncio.Future[ButtonPressInfo]
+        ] = {}
 
-        self._any_button_press_info: ButtonPressInfo | None = None
-        self._any_button_press_event: asyncio.Event = asyncio.Event()
-        self._any_button_press_event.set()
+        self._any_button_press_future: (
+            asyncio.Future[ButtonPressInfo] | None
+        ) = None
 
     @staticmethod
     def _create_socket(
@@ -521,19 +522,21 @@ class FlicClient(asyncio.Protocol):
             )
 
     def _dispatch_button_press(self, addr: str, *, event_time: Any):
-        info = ButtonPressInfo(addr, event_time)
         if (
-            addr in self._button_press_event
-            and not self._button_press_event[addr].is_set()
+            addr in self._button_press_futures
+            and not self._button_press_futures[addr].done()
         ):
-            assert addr not in self._button_press_info
-            self._button_press_info[addr] = info
-            self._button_press_event[addr].set()
+            self._button_press_futures[addr].set_result(
+                ButtonPressInfo(addr, event_time)
+            )
 
-        if not self._any_button_press_event.is_set():
-            assert self._any_button_press_info is None
-            self._any_button_press_info = info
-            self._any_button_press_event.set()
+        if (
+            self._any_button_press_future is not None
+            and not self._any_button_press_future.done()
+        ):
+            self._any_button_press_future.set_result(
+                ButtonPressInfo(addr, event_time)
+            )
 
     ##############################################################
     # Kill-on-press flow
@@ -735,25 +738,30 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     async def wait_for_any_button(self) -> ButtonPressInfo:
-        assert self._any_button_press_info is None
-        self._any_button_press_event.clear()
-        try:
-            await self._any_button_press_event.wait()
-            packet_info = self._any_button_press_info
-            assert packet_info is not None
-            return packet_info
-        finally:
-            self._any_button_press_info = None
+        if (
+            self._any_button_press_future is not None
+            and not self._any_button_press_future.done()
+        ):
+            future = self._any_button_press_future
+        else:
+            future = asyncio.get_running_loop().create_future()
+            self._any_button_press_future = future
+
+        return await future
 
     async def wait_for_button(self, addr: str) -> ButtonPressInfo:
-        assert addr not in self._button_press_event
-        assert addr not in self._button_press_info
-        self._button_press_event[addr] = asyncio.Event()
-        try:
-            await self._button_press_event[addr].wait()
-            return self._button_press_info[addr]
-        finally:
-            del self._button_press_info[addr]
+        if (
+            addr in self._button_press_futures
+            and not self._button_press_futures[addr].done()
+        ):
+            future = self._button_press_futures[addr]
+        else:
+            future = asyncio.get_running_loop().create_future()
+            self._button_press_futures[addr] = future
+
+        info = await future
+        assert info.addr == addr
+        return info
 
     ##############################################################
     # Lifecycle

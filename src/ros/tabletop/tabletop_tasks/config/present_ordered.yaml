@@ -6,44 +6,44 @@ tasks:
         kwargs:
           grouped_object_ids:
             left_manipulator:
+              - big_object_0
+              - big_object_1
               - big_object_2
               # - big_object_3
-              # - big_object_0
-              # - big_object_1
-            # - small_object_0
-            # - small_object_1
-            # - small_object_2
-            # - small_object_3
-            # - small_object_4
-            # - small_object_5
-            # # - small_object_6
-            # - small_object_7
-            # - small_object_8
-            # # - small_object_9
-            # - small_object_10
-            # - small_object_11
-            # - small_object_12
-            # - small_object_13
-            # - small_object_14
-            # right_manipulator:
-            #   # - big_object_6
-            #   # - big_object_7
-            #   - big_object_4
-            #   - big_object_5
-            # - small_object_15
-            # - small_object_16
-            # - small_object_17
-            # - small_object_18
-            # - small_object_19
-            # - small_object_20
-            # # - small_object_21
-            # - small_object_22
-            # - small_object_23
-            # # - small_object_24
-            # - small_object_25
-            # - small_object_26
-            # - small_object_27
-            # - small_object_28
+              # - small_object_0
+              # - small_object_1
+              # - small_object_2
+              # - small_object_3
+              # - small_object_4
+              # - small_object_5
+              # # - small_object_6
+              # - small_object_7
+              # - small_object_8
+              # # - small_object_9
+              # - small_object_10
+              # - small_object_11
+              # - small_object_12
+              # - small_object_13
+              # - small_object_14
+            right_manipulator:
+              - big_object_4
+              - big_object_5
+              - big_object_6
+              # - big_object_7
+              # - small_object_15
+              # - small_object_16
+              # - small_object_17
+              # - small_object_18
+              # - small_object_19
+              # - small_object_20
+              # # - small_object_21
+              # - small_object_22
+              # - small_object_23
+              # # - small_object_24
+              # - small_object_25
+              # - small_object_26
+              # - small_object_27
+              # - small_object_28
           poses:
             - position: [0.9525, 0.4, 0.6]
               rpy: [0.0, 0.0, -1.5707]

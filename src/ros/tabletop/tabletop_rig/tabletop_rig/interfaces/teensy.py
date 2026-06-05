@@ -14,7 +14,10 @@ from collections.abc import Callable
 from copy import copy, deepcopy
 from typing import Literal, Optional
 
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import (
+    MutuallyExclusiveCallbackGroup,
+    ReentrantCallbackGroup,
+)
 from rclpy.duration import Duration
 from rclpy.qos import QoSPresetProfiles
 from tabletop_interfaces.msg import TeensySensor
@@ -96,9 +99,7 @@ class TeensyInterface(BaseInterface):
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self._last_teensy_sensor = TeensySensor()
-        self._last_teensy_sensor_time = self.node.ros_time()
         self._last_unsafe_to_execute_time = self.node.ros_time()
-        self._safe_to_execute = False
         self._teensy_sensor_lock = threading.Lock()
 
         if additional_subscription_callback is None:
@@ -112,22 +113,22 @@ class TeensyInterface(BaseInterface):
         self._set_arm_lock_client = self.node.create_client(
             SetArmLock,
             "teensy/set_arm_lock",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._set_reward_client = self.node.create_client(
             SetReward,
             "teensy/set_reward",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._set_smartglass_client = self.node.create_client(
             SetSmartglass,
             "teensy/set_smartglass",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._set_solenoid_client = self.node.create_client(
             SetSolenoid,
             "teensy/set_solenoid",
-            callback_group=MutuallyExclusiveCallbackGroup(),
+            callback_group=ReentrantCallbackGroup(),
         )
 
         self.log("Teensy interface initialized")
@@ -158,18 +159,31 @@ class TeensyInterface(BaseInterface):
             True if all safety conditions are met, False otherwise.
         """
         max_sensor_delay = self.param("safe_to_execute.max_sensor_delay")
+        required_safe_time = self.param("safe_to_execute.required_time")
 
         with self._teensy_sensor_lock:
-            current_time = self.node.ros_time()
-            if current_time - self._last_teensy_sensor_time > max_sensor_delay:
-                self.log(
-                    f"Have not received teensy sensor message in "
-                    f"{current_time - self._last_teensy_sensor_time} > "
-                    f"{max_sensor_delay}, not safe to execute",
-                    severity="WARN",
-                )
-                return False
-            return self._safe_to_execute
+            msg = self._last_teensy_sensor
+            last_unsafe_time = self._last_unsafe_to_execute_time
+
+        last_sensor_time = seconds_from_ros_time(msg.header.stamp)
+        current_time = self.node.ros_time()
+
+        if not self._msg_safe_to_execute(msg):
+            return False
+
+        if current_time - last_sensor_time > max_sensor_delay:
+            self.log(
+                f"Have not received teensy sensor message in "
+                f"{current_time - last_sensor_time} > "
+                f"{max_sensor_delay}, not safe to execute",
+                severity="WARN",
+            )
+            return False
+
+        if current_time - last_unsafe_time < required_safe_time:
+            return False
+
+        return True
 
     # Subscribers
 
@@ -199,31 +213,23 @@ class TeensyInterface(BaseInterface):
         Args:
             msg: The incoming sensor message.
         """
-        current_time = self.node.ros_time()
-        required_time = self.param("safe_to_execute.required_time")
         warn_threshold = self.param("sensor_delay_warn_threshold")
+
+        received_time = self.node.ros_time()
+        teensy_time = seconds_from_ros_time(msg.header.stamp)
+        delay = received_time - teensy_time
+        if delay > warn_threshold:
+            self.log(
+                f"Teensy sensor callback delay {delay:.4f}s > {warn_threshold}s",
+                severity="WARN",
+                throttle_duration_sec=2,
+            )
 
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
-            teensy_time = seconds_from_ros_time(msg.header.stamp)
-            delay = current_time - teensy_time
-            if delay > warn_threshold:
-                self.log(
-                    f"Teensy sensor callback delay {delay:.4f}s > {warn_threshold}s",
-                    severity="WARN",
-                    throttle_duration_sec=2,
-                )
-
             self._last_teensy_sensor = msg
-            self._last_teensy_sensor_time = current_time
-            if self._msg_safe_to_execute(msg):
-                self._safe_to_execute = (
-                    current_time - self._last_unsafe_to_execute_time
-                    > required_time
-                )
-            else:
-                self._safe_to_execute = False
-                self._last_unsafe_to_execute_time = current_time
+            if not self._msg_safe_to_execute(msg):
+                self._last_unsafe_to_execute_time = teensy_time
 
         # Call additional callback if provided
         self._additional_subscription_callback(msg)
@@ -245,11 +251,11 @@ class TeensyInterface(BaseInterface):
         Raises:
             ValueError: If arm is not one of the valid options.
         """
-        if arm not in ["left", "right", "both"]:
+        if arm not in ("left", "right", "both"):
             raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
 
-        left_arm = arm in ["left", "both"]
-        right_arm = arm in ["right", "both"]
+        left_arm = arm in ("left", "both")
+        right_arm = arm in ("right", "both")
 
         await self.node.service_call_async(
             srv_request=SetArmLock.Request(
@@ -259,7 +265,10 @@ class TeensyInterface(BaseInterface):
         )
 
     async def lock_arms_and_wait(
-        self, timeout: Optional[float] = None
+        self,
+        timeout: Optional[float] = None,
+        *,
+        condition: Optional[Callable[[], bool]] = None,
     ) -> bool:
         """Lock both arms and wait until conditions are safe for robot execution.
 
@@ -268,6 +277,7 @@ class TeensyInterface(BaseInterface):
 
         Args:
             timeout: Maximum time to wait in seconds. If None, waits indefinitely.
+            condition: Alternative condition to wait for instead of 'safe_to_execute'
 
         Returns:
             True if safe conditions were achieved within the timeout,
@@ -279,8 +289,12 @@ class TeensyInterface(BaseInterface):
         spin_period = self.param("spin_period")
         try:
             async with asyncio.timeout(timeout):
-                while not self.safe_to_execute:
-                    await asyncio.sleep(spin_period)
+                if condition is None:
+                    while not self.safe_to_execute:
+                        await asyncio.sleep(spin_period)
+                else:
+                    while not condition():
+                        await asyncio.sleep(spin_period)
             return True
         except TimeoutError:
             return False

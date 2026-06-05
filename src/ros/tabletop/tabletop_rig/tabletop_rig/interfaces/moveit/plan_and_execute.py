@@ -1091,9 +1091,9 @@ class PlanAndExecuteInterface(BaseInterface):
             assert not self._execution_stopped
             assert self._execution_stopped_future is None
 
-            self._executing = True
             loop = asyncio.get_running_loop()
             self._execution_stopped_future = loop.create_future()
+            self._executing = True
 
         try:
             for trajectory in trajectories:

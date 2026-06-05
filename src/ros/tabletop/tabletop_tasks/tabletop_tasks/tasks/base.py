@@ -236,15 +236,7 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                 presented = True
 
                 await manipulator.present_object(trial_spec.object_id)
-                # self.log("-" * 100)
-                # joint_positions = get_joint_group_positions(
-                #     self.commander._moveit.get_current_state(),
-                #     trial_spec.group_name,
-                # )
-                # self.log(
-                #     f"Robot {trial_spec.group_name} present state: {joint_positions}"
-                # )
-                # self.log("-" * 100)
+
                 await manipulator.plan_and_move(goal=trial_spec.object_pose)
 
                 feedback = await self.run_trial(trial_spec, manipulator)

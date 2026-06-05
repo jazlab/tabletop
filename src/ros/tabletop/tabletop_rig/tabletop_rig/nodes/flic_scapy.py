@@ -43,7 +43,7 @@ from std_msgs.msg import Header
 from tabletop_interfaces.action import FlicResponseTime
 
 import tabletop_py.flic.client
-from tabletop_py.flic.scapy_client import FlicClient
+from tabletop_py.flic.scapy_client import ButtonPressInfo, FlicClient
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
 from tabletop_rig.utils.ros import seconds_from_ros_time
@@ -156,14 +156,6 @@ class Flic(BaseNode):
                 self.cancel_event = asyncio.Event()
                 return GoalResponse.ACCEPT
 
-            # info = await self.flic_client.get_info()
-            # if goal_request.bd_addr not in info.bd_addr_of_verified_buttons:
-            #     self.log(
-            #         f"Button {goal_request.bd_addr} not found",
-            #         severity="WARN",
-            #     )
-            #     return GoalResponse.REJECT
-            # else:
             self.log(f"Accepting goal for button {goal_request.bd_addr}")
             self.cancel_event = asyncio.Event()
             return GoalResponse.ACCEPT
@@ -210,7 +202,7 @@ class Flic(BaseNode):
         try:
             self.log("Flic response time action started")
 
-            bd_addr: str = goal_handle.request.bd_addr
+            addr: str = goal_handle.request.bd_addr
 
             # Button task to wait for the (potentially simulated) button to be pressed
             async with asyncio.TaskGroup() as tg:
@@ -223,32 +215,36 @@ class Flic(BaseNode):
                 else:
                     # Connect to the button
                     button_task = tg.create_task(
-                        self.flic_client.wait_for_button(bd_addr)
+                        self.flic_client.wait_for_button(addr)
                     )
 
                 # Cancel event task to terminate early
                 cancel_task = tg.create_task(self.cancel_event.wait())
 
                 # Wait for the button to be pressed or the cancel event to be set
-                await asyncio.wait(
-                    [button_task, cancel_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if cancel_task.done():
+                try:
+                    await asyncio.wait(
+                        [button_task, cancel_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
                     button_task.cancel()
+                    cancel_task.cancel()
+
+                if cancel_task.done():
                     self.log("Flic response time action cancelled")
                     goal_handle.canceled()
                     return FlicResponseTime.Result()
                 else:
-                    cancel_task.cancel()
                     assert button_task.done()
                     if self.simulate:
                         response_time = self.get_clock().now()
                         self.last_simulated_button_time = response_time
-                        self.last_simulated_button_addr = bd_addr
+                        self.last_simulated_button_addr = addr
                         self.simulate_button_event.set()
                     else:
-                        response_time = button_task.result()
+                        info: ButtonPressInfo = button_task.result()  # pyright: ignore[reportAssignmentType]
+                        response_time = info.time
 
                     assert isinstance(response_time, Time)
                     result = FlicResponseTime.Result(
@@ -281,21 +277,21 @@ class Flic(BaseNode):
                     and self.last_simulated_button_time is not None
                 )
                 time = self.last_simulated_button_time
-                bd_addr = self.last_simulated_button_addr
+                addr = self.last_simulated_button_addr
                 self.last_simulated_button_time = None
                 self.last_simulated_button_addr = None
                 self.simulate_button_event.clear()
             else:
                 info = await self.flic_client.wait_for_any_button()
-                bd_addr = info.addr
+                addr = info.addr
                 time = info.time
             assert isinstance(time, Time)
             self.log(
-                f"Button '{bd_addr}' pressed at time {seconds_from_ros_time(time)}"
+                f"Button '{addr}' pressed at time {seconds_from_ros_time(time)}"
             )
             self.button_pressed_publisher.publish(
                 Header(
-                    stamp=time.to_msg(), frame_id=bd_addr
+                    stamp=time.to_msg(), frame_id=addr
                 )  # TODO: Change to custom message
             )
 
