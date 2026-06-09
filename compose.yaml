@@ -7,13 +7,13 @@ x-common: &common
 services:
   novnc-image-builder:
     profiles: [ image-builder ]
-    image: tabletop/novnc
+    image: jazlabtabletop/novnc
     build:
       context: ./docker/novnc
 
   ros-image-builder:
     profiles: [ image-builder ]
-    image: tabletop/ros-base
+    image: jazlabtabletop/ros-base
     build:
       context: .
       dockerfile: ./docker/ros/Dockerfile
@@ -37,7 +37,7 @@ services:
     <<: *common
     container_name: tabletop-novnc
     profiles: [ real, sim, ursim ]
-    image: tabletop/novnc
+    image: jazlabtabletop/novnc
     environment:
       - PORT=8080
       - DISPLAY=$NOVNC_DISPLAY
@@ -101,7 +101,7 @@ services:
 
   ros-base:
     <<: *common
-    image: tabletop/ros-base
+    image: jazlabtabletop/ros-base
     container_name: tabletop-ros-base
     profiles: [ builder ]
     volumes:
