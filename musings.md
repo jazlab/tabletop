@@ -338,12 +338,13 @@ This gets its own section because it's a pain in the ass.
     tt-build --workers 2    # Compromise
     ```
 
-3. To clean up disk space from old builds and logs:
+3. To clean up build artifacts, caches, and logs:
 
     ```bash
-    tt-clean-ws             # Clean tabletop build artifacts
-    tt-clean-ws --all       # Clean everything including moveit2
-    tt-clean-logs           # Clean log files
+    tt-clean --tabletop-colcon      # Clean tabletop build artifacts
+    tt-clean --all-colcon           # Clean all colcon build artifacts
+    tt-clean --logs                 # Clean log files
+    tt-clean --tabletop-cache       # Clean tabletop cache (planning scene, trajectory cache, etc.)
     ```
 
 ## Reason for Commander signal handling not working

@@ -508,11 +508,7 @@ These commands are available inside Docker containers (rig, devcontainer):
 | ------- | ----------- |
 | `tt-build` | Build ROS 2 packages with colcon |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, etc.) |
-| `tt-clean-ws` | Clean the colcon workspace |
-| `tt-clean-logs` | Clean ROS and colcon log files |
-| `tt-dep-install` | Install ROS 2 dependencies via rosdep |
-| `tt-display-set` | Configure DISPLAY variable for GUI (novnc or x11) |
-| `tt-calibrate` | Run UR5e calibration and save to config file |
+| `tt-clean` | Clean various build artifacts, logs, caches, etc. |
 | `tt-create-graph` | Generate ROS 2 node/topic graph visualization |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
 

@@ -7,7 +7,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
+    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [-c|--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
 }
 
 if [[ "$#" < 1 ]]; then
@@ -28,7 +28,7 @@ while [[ "$#" -gt 0 ]]; do
         -t|--tabletop-colcon)
             tabletop_colcon=true
             ;;
-        --tabletop-cache)
+        -c|--tabletop-cache)
             tabletop_cache=true
             ;;
         -l|--logs)
@@ -39,6 +39,7 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --all-colcon)
             all_colcon=true
+            ccache=true
             ;;
         --everything)
             all=true

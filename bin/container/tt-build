@@ -129,9 +129,9 @@ packages_skip="--packages-skip ${packages_to_skip[@]}"
 
 # Clean workspace
 if [[ "$clean_all" == true ]]; then
-    tt-clean-ws --all-colcon
+    tt-clean --all-colcon
 elif [[ "$clean_tabletop" == true ]]; then
-    tt-clean-ws --tabletop-colcon
+    tt-clean --tabletop-colcon
 fi
 
 # Install python dependencies with uv
