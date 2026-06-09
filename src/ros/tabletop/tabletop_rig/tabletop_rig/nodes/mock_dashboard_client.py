@@ -27,8 +27,9 @@ from rclpy.executors import (
 )
 from rclpy.experimental import EventsExecutor
 from std_srvs.srv import Trigger
-from ur_dashboard_msgs.msg import RobotMode, SafetyMode
+from ur_dashboard_msgs.msg import ProgramState, RobotMode, SafetyMode
 from ur_dashboard_msgs.srv import (
+    GetProgramState,
     GetRobotMode,
     GetSafetyMode,
     IsInRemoteControl,
@@ -179,6 +180,12 @@ class MockDashboardClient(BaseNode):
             self.get_robot_mode_callback,  # type: ignore
         )
 
+        self.get_program_state_srv = self.create_service(
+            GetProgramState,
+            "~/program_state",
+            self.get_program_state_callback,  # type: ignore
+        )
+
         self.is_in_remote_control_srv = self.create_service(
             IsInRemoteControl,
             "~/is_in_remote_control",
@@ -269,6 +276,28 @@ class MockDashboardClient(BaseNode):
         self.log("Received GetRobotMode request")
         response.robot_mode.mode = RobotMode.RUNNING
         response.answer = "Robot mode is RUNNING"
+        response.success = True
+        return response
+
+    def get_program_state_callback(
+        self,
+        request: GetProgramState.Request,
+        response: GetProgramState.Response,
+    ) -> GetProgramState.Response:
+        """Return the simulated robot mode.
+
+        Always returns RUNNING robot mode.
+
+        Args:
+            request: The service request (empty).
+            response: The response to populate.
+
+        Returns:
+            Response with robot_mode set to RUNNING.
+        """
+        self.log("Received GetRobotMode request")
+        response.state.state = ProgramState.PLAYING
+        response.answer = "Program state is PLAYING"
         response.success = True
         return response
 

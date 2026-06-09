@@ -39,7 +39,6 @@ from moveit.core.robot_state import (  # type: ignore[reportMissingModuleSource]
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
-from moveit_msgs.msg import Constraints
 from moveit_msgs.msg import RobotTrajectory as RobotTrajectoryMsg
 from rclpy.impl.rcutils_logger import RcutilsLogger
 
@@ -51,6 +50,7 @@ from tabletop_rig.utils.ros import (
     all_close_robot_states,
     get_joint_group_positions,
     pose_stamped_msg,
+    robot_trajectory_copy,
     robot_trajectory_from_msg,
 )
 
@@ -166,7 +166,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         scene_hash: str,
         planning_frame: str,
         group_name: str,
-        pose_link: Optional[str] = None,
+        pose_link: str,
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
         orientation_tolerance: OrientationToleranceT,
@@ -197,9 +197,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
             )
         self._group_name = group_name
 
-        if pose_link is not None and (
-            not isinstance(pose_link, str) or not pose_link
-        ):
+        if not isinstance(pose_link, str) or not pose_link:
             raise TypeError(
                 f"'pose_link' must be None or a non-empty string: "
                 f"{pose_link!r}"
@@ -550,25 +548,13 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         pose_link = request.pose_link
         group_name = request.group_name
 
-        if not isinstance(start_state, RobotState):
-            raise TypeError(f"Start state must be a RobotState: {start_state}")
-        if isinstance(goal, list) and all(
-            isinstance(c, Constraints) for c in goal
-        ):
-            raise TypeError(
-                "list[Constraints] goals are not cacheable: there is no "
-                "canonical end-state to key on. Plan with use_cache=False "
-                "and skip cache_trajectories=True."
-            )
+        if start_state is None:
+            raise ValueError("Request start_state must not be None")
         if not isinstance(goal, (RobotState, PoseStamped)):
             raise TypeError(
-                f"Goal must be a RobotState or PoseStamped (named-target "
-                f"goals are not cacheable): {goal}"
+                f"Request goal must be a RobotState or PoseStamped (named-target "
+                f"goals or constraint goals are not cacheable): {goal}"
             )
-        if pose_link is not None and not isinstance(pose_link, str):
-            raise TypeError(f"Pose link must be a string: {pose_link}")
-        if not isinstance(group_name, str):
-            raise TypeError(f"Group name must be a string: {group_name}")
 
         if group_name != self._group_name:
             raise ValueError(
@@ -607,11 +593,6 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
                     f"{group_name}"
                 )
         else:
-            if self._pose_link is None:
-                raise ValueError(
-                    "Cache was configured without a 'pose_link'; "
-                    "PoseStamped goals are not accepted"
-                )
             if goal.header.frame_id != self._planning_frame:
                 raise ValueError(
                     f"Goal pose frame id must be "
@@ -661,33 +642,6 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
                 f"{get_joint_group_positions(trajectory_start_state, group_name)}"
             )
 
-        trajectory_end_pose = None
-        if request.pose_link is not None:
-            trajectory_start_pose = pose_stamped_msg(
-                pose=trajectory_start_state.get_pose(request.pose_link),
-                frame_id=trajectory_start_state.robot_model.model_frame,
-            )
-            trajectory_end_pose = pose_stamped_msg(
-                pose=trajectory_end_state.get_pose(request.pose_link),
-                frame_id=trajectory_end_state.robot_model.model_frame,
-            )
-
-            request_start_pose = pose_stamped_msg(
-                pose=request.start_state.get_pose(request.pose_link),
-                frame_id=request.start_state.robot_model.model_frame,
-            )
-            if not all_close_poses_stamped(
-                trajectory_start_pose,
-                request_start_pose,
-                position_tolerance=self.position_tolerance,
-                orientation_tolerance=self.orientation_tolerance,
-            ):
-                raise ValueError(
-                    "Request start pose is not close to the trajectory start "
-                    f"pose. Request start pose: {request_start_pose}, "
-                    f"Trajectory start pose: {trajectory_start_pose}"
-                )
-
         if isinstance(request.goal, RobotState):
             if not all_close_robot_states(
                 trajectory_end_state,
@@ -703,7 +657,11 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
                     f"{get_joint_group_positions(trajectory_end_state, group_name)}"
                 )
         else:
-            assert trajectory_end_pose is not None
+            assert request.pose_link is not None
+            trajectory_end_pose = pose_stamped_msg(
+                pose=trajectory_end_state.get_pose(request.pose_link),
+                frame_id=trajectory_end_state.robot_model.model_frame,
+            )
             if not all_close_poses_stamped(
                 trajectory_end_pose,
                 request.goal,
@@ -726,7 +684,7 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         *,
         request: PlanRequest,
         validate: bool = True,
-        _reverse: bool = True,
+        cache_reverse: bool = True,
     ) -> None:
         """Cache `trajectory`, indexed by both joint-space and Cartesian goals.
 
@@ -748,58 +706,76 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
                 `group_name` and `pose_link`, not the request's.
             validate: If True, verify that the trajectory's endpoints
                 match the request before caching.
-            _reverse: If True, also cache the time-reversed trajectory.
-                Internal recursion flag; do not set from outside.
+            cache_reverse: If True, also cache the time-reversed trajectory.
         """
         self._validate_request(request)
 
         if trajectory.joint_model_group_name != self._group_name:
             raise ValueError(
                 f"Trajectory's group_name "
-                f"{trajectory.joint_model_group_name!r} does not match "
-                f"the cache's configured group_name {self._group_name!r}"
+                f"'{trajectory.joint_model_group_name}' does not match "
+                f"the cache's configured group_name '{self._group_name}'"
             )
 
-        if validate and _reverse:
-            try:
-                self._validate_trajectory_quality(trajectory, request)
-            except ValueError as e:
-                self.log(
-                    f"Trajectory is not valid: {e}. Skipping cache.",
-                    severity="WARN",
-                )
-                raise
+        if validate:
+            self._validate_trajectory_quality(trajectory, request)
+            # try:
+            #     self._validate_trajectory_quality(trajectory, request)
+            # except ValueError as e:
+            #     self.log(
+            #         f"Trajectory is not valid: {e}. Skipping cache.",
+            #         severity="WARN",
+            #     )
+            #     raise
 
-        start_state: RobotState = trajectory[0]
-        end_state: RobotState = trajectory[len(trajectory) - 1]
+        # start_state: RobotState = trajectory[0]
+        # end_state: RobotState = trajectory[len(trajectory) - 1]
+        #
+        # state_request = PlanRequest(
+        #     start_state=start_state,
+        #     goal=end_state,
+        #     pose_link=None,
+        #     group_name=self._group_name,
+        # )
+        self[request] = trajectory
 
-        state_request = PlanRequest(
-            start_state=start_state,
-            goal=end_state,
-            pose_link=None,
-            group_name=self._group_name,
-        )
-        self[state_request] = trajectory
+        # if self._pose_link is not None:
+        #     end_pose = pose_stamped_msg(
+        #         pose=end_state.get_pose(self._pose_link),
+        #         frame_id=end_state.robot_model.model_frame,
+        #     )
+        #     pose_request = PlanRequest(
+        #         start_state=start_state,
+        #         goal=end_pose,
+        #         pose_link=self._pose_link,
+        #         group_name=self._group_name,
+        #     )
+        #     self[pose_request] = trajectory
 
-        if self._pose_link is not None:
-            end_pose = pose_stamped_msg(
-                pose=end_state.get_pose(self._pose_link),
-                frame_id=end_state.robot_model.model_frame,
-            )
-            pose_request = PlanRequest(
-                start_state=start_state,
-                goal=end_pose,
-                pose_link=self._pose_link,
+        if cache_reverse:
+            assert request.start_state is not None
+            reverse_trajectory = robot_trajectory_copy(trajectory).reverse()
+            reverse_request = PlanRequest(
+                start_state=reverse_trajectory[0],
+                goal=request.start_state,
+                pose_link=None,
                 group_name=self._group_name,
             )
-            self[pose_request] = trajectory
-
-        if _reverse:
+            try:
+                self._validate_trajectory_quality(
+                    reverse_trajectory, reverse_request
+                )
+            except ValueError as e:
+                self.log(
+                    f"Reverse trajectory failed validation with error '{e}'. "
+                    f"Skipping reversed trajectory cache.",
+                    severity="WARN",
+                )
             self.cache_trajectory(
-                trajectory.reverse(),
-                request=request,
-                validate=validate,
-                _reverse=False,
+                reverse_trajectory,
+                request=reverse_request,
+                validate=False,
+                cache_reverse=False,
             )
 
     def get_best_trajectory(

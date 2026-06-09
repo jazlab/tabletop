@@ -147,10 +147,12 @@ class _BasePlanRequest(
         group_name: MoveIt planning group name.
         start_state: Starting robot configuration. If None, uses current state.
         pose_link: End-effector link for Cartesian goals.
-        planning_pipeline: Which planner to use (e.g., "ompl", "pilz").
+        planning_pipeline: Which planner to use (e.g., "linear", "ptp", "aps_rrt_star").
         path_constraints: Optional path constraints for planning.
         planning_scene: Custom planning scene. If None, uses current scene.
+        planning_time: Allowed planning time for one planning attempt.
         max_attempts: Maximum planning attempts before failing.
+        exp_backoff_factor: Planning time is multiplied by this factor after each failed attempt.
         use_cache: Whether to use the trajectory cache.
         apply_totg: Apply Time-Optimal Trajectory Generation.
         apply_smoothing: Apply trajectory smoothing.
@@ -170,7 +172,8 @@ class _BasePlanRequest(
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
     planning_time: Optional[PositiveFloat] = None
-    max_attempts: PositiveInt = 3
+    max_attempts: Optional[PositiveInt] = None
+    exp_backoff_factor: Optional[PositiveFloat] = None
     use_cache: bool = True
     apply_totg: bool = True
     apply_smoothing: bool = False

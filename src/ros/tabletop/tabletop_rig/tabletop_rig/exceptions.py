@@ -12,9 +12,9 @@ Exception Hierarchy:
     ├── ActionError
     └── MoveitRecoverableError
         ├── PlanningError
-        │   ├── PlanOnceError
-        │   ├── MaxPlanningAttemptsReachedError
-        │   └── TrajectoryError
+        │   ├── PlanningPipelineError
+        │   ├── TrajectoryError
+        │   └── MaxPlanningAttemptsReachedError
         ├── ExecutionError
         │   ├── ExecutionRejectedError
         │   ├── ExecutionInterruptedError
@@ -31,7 +31,7 @@ from tabletop_rig.utils.logging import msg_to_dict
 
 # Constants
 
-MOVEIT_ERROR_CODE_MAP: dict[int, str] = {
+_MOVEIT_ERROR_CODE_MAP: dict[int, str] = {
     v: k
     for k, v in type(
         MoveItErrorCodes
@@ -150,7 +150,7 @@ class MoveitRecoverableError(Exception):
         group_name: Name of joint model group that caused the error.
     """
 
-    def __init__(self, *args, group_name: str):
+    def __init__(self, msg: str, group_name: str):
         """Initialize with the group name for proper handling
 
         Args:
@@ -158,7 +158,7 @@ class MoveitRecoverableError(Exception):
         """
         self.group_name = group_name
 
-        super().__init__(*args)
+        super().__init__(f"{msg} (group_name: '{group_name}')")
 
 
 class PlanningError(MoveitRecoverableError):
@@ -169,8 +169,8 @@ class PlanningError(MoveitRecoverableError):
     """
 
 
-class PlanOnceError(PlanningError):
-    """Raised when a single planning attempt fails.
+class PlanningPipelineError(PlanningError):
+    """Raised when a single planning pipeline attempt fails.
 
     This exception wraps a MoveIt error code from a failed planning request
     and provides human-readable error messages.
@@ -188,8 +188,19 @@ class PlanOnceError(PlanningError):
             error_code: The MoveItErrorCodes message from the failed plan.
         """
         self.error_code = error_code
+        if error_code.message:
+            msg = f", message: {error_code.message}"
+        else:
+            msg = ""
+
+        if error_code.source:
+            src = f", source: {error_code.source}"
+        else:
+            src = ""
+
         super().__init__(
-            f"Plan once error: {MOVEIT_ERROR_CODE_MAP[error_code.val]}",
+            f"Planning pipeline failed with error code: "
+            f"{_MOVEIT_ERROR_CODE_MAP[error_code.val]}{msg}{src}",
             group_name=group_name,
         )
 
@@ -200,41 +211,13 @@ class PlanOnceError(PlanningError):
             other: Object to compare against.
 
         Returns:
-            True if other is a PlanOnceError with the same error code value.
+            True if other is a PlanningPipelineError with the same error code value.
         """
-        if isinstance(other, PlanOnceError):
-            return self.error_code.val == other.error_code.val
+        if isinstance(other, PlanningPipelineError):
+            return (self.group_name == other.group_name) and (
+                self.error_code == other.error_code
+            )
         return False
-
-
-class MaxPlanningAttemptsReachedError(PlanningError):
-    """Raised when all planning retry attempts have been exhausted.
-
-    This exception aggregates the errors from each failed planning attempt,
-    providing insight into whether failures were consistent or varied.
-
-    Attributes:
-        errors: List of PlanOnceError instances from each failed attempt.
-    """
-
-    def __init__(
-        self, errors: list[PlanOnceError], *, group_name: str
-    ) -> None:
-        """Initialize with the list of errors from each planning attempt.
-
-        Args:
-            errors: List of PlanOnceError exceptions from failed attempts.
-        """
-        self.errors = errors
-        if all(e == errors[0] for e in errors):
-            error_code_str = f"same error: {errors[0]}"
-        else:
-            error_code_strs = [str(e) for e in errors]
-            error_code_str = f"different errors: {error_code_strs}"
-        super().__init__(
-            f"Max planning attempts ({len(errors)}) reached with {error_code_str}",
-            group_name=group_name,
-        )
 
 
 class TrajectoryError(PlanningError):
@@ -270,8 +253,40 @@ class TrajectoryError(PlanningError):
             True if other is a TrajectoryError with the same error code.
         """
         if isinstance(other, TrajectoryError):
-            return self.error_code == other.error_code
+            return (self.group_name == other.group_name) and (
+                self.error_code == other.error_code
+            )
         return False
+
+
+class MaxPlanningAttemptsReachedError(PlanningError):
+    """Raised when all planning retry attempts have been exhausted.
+
+    This exception aggregates the errors from each failed planning attempt,
+    providing insight into whether failures were consistent or varied.
+
+    Attributes:
+        errors: List of PlanningPipelineError instances from each failed attempt.
+    """
+
+    def __init__(
+        self, errors: list[PlanningError], *, group_name: str
+    ) -> None:
+        """Initialize with the list of errors from each planning attempt.
+
+        Args:
+            errors: List of PlanningPipelineError exceptions from failed attempts.
+        """
+        self.errors = errors
+        if all(e == errors[0] for e in errors):
+            error_code_str = f"same error: {errors[0]}"
+        else:
+            error_code_strs = [str(e) for e in errors]
+            error_code_str = f"different errors: {error_code_strs}"
+        super().__init__(
+            f"Max planning attempts ({len(errors)}) reached with {error_code_str}",
+            group_name=group_name,
+        )
 
 
 class ExecutionError(MoveitRecoverableError):

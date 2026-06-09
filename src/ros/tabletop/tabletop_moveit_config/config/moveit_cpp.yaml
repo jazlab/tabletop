@@ -48,7 +48,7 @@ aps_rrt_star:
     planning_attempts: 1
     planning_pipeline: ompl
     planner_id: APSRRTstar
-    planning_time: 0.5
+    planning_time: 0.25
     # planning_time: 2.0
     max_velocity_scaling_factor: 1.0
     max_acceleration_scaling_factor: 1.0

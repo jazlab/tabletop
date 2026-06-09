@@ -31,7 +31,7 @@ import asyncio
 import os
 import threading
 from collections.abc import Callable
-from copy import deepcopy
+from copy import copy, deepcopy
 from typing import Any, Optional
 
 from action_msgs.msg import GoalStatus
@@ -68,7 +68,7 @@ from tabletop_rig.exceptions import (
     MaxPlanningAttemptsReachedError,
     NotSafeToExecuteError,
     PlanningError,
-    PlanOnceError,
+    PlanningPipelineError,
     TrajectoryError,
     TrajectoryErrorCodes,
 )
@@ -282,8 +282,6 @@ class PlanAndExecuteInterface(BaseInterface):
             severity="DEBUG",
         )
 
-        assert trajectory.joint_model_group_name == self.group_name
-
         trajectory = robot_trajectory_copy(trajectory)
 
         old_num_waypoints = len(trajectory)
@@ -338,8 +336,6 @@ class PlanAndExecuteInterface(BaseInterface):
         Raises:
             TrajectoryError: If smoothing fails.
         """
-        assert trajectory.joint_model_group_name == self.group_name
-
         trajectory = robot_trajectory_copy(trajectory)
 
         old_num_waypoints = len(trajectory)
@@ -389,8 +385,6 @@ class PlanAndExecuteInterface(BaseInterface):
         Returns:
             The preprocessed trajectory.
         """
-        assert trajectory.joint_model_group_name == self.group_name
-
         if request.apply_totg:
             trajectory = self._apply_totg(
                 trajectory,
@@ -423,8 +417,6 @@ class PlanAndExecuteInterface(BaseInterface):
         """
         self.log("Validating trajectory", severity="DEBUG")
 
-        assert trajectory.joint_model_group_name == self.group_name
-
         if not self._moveit.is_path_valid(trajectory):
             raise TrajectoryError(
                 TrajectoryErrorCodes.INVALID_TRAJECTORY,
@@ -445,11 +437,9 @@ class PlanAndExecuteInterface(BaseInterface):
             "Attempting to retrieve cached trajectories", severity="DEBUG"
         )
         try:
-            trajectories = self._trajectory_cache.get_trajectories(
-                request, validate=False
-            )
+            trajectories = self._trajectory_cache.get_trajectories(request)
         except KeyError:
-            self.log("No cached trajectory found", severity="DEBUG")
+            self.log("No cached trajectory found", severity="INFO")
             return None
 
         for trajectory in trajectories:
@@ -467,6 +457,7 @@ class PlanAndExecuteInterface(BaseInterface):
                 )
 
         self.log("All cached trajectories invalid", severity="WARN")
+        # self._trajectory_cache.delete_trajectory(request)
         return None
 
     def cache_trajectories(self, cache_kwargs: list[TrajectoryCacheKwargs]):
@@ -478,10 +469,7 @@ class PlanAndExecuteInterface(BaseInterface):
         """
         if not self.param("trajectory_cache.freeze_cache"):
             for kwargs in cache_kwargs:
-                # TODO: Make validation a parameter
-                self._trajectory_cache.cache_trajectory(
-                    **kwargs, validate=False
-                )
+                self._trajectory_cache.cache_trajectory(**kwargs)
             self.log(
                 f"Cached {len(cache_kwargs)} trajectories successfully",
                 severity="DEBUG",
@@ -509,14 +497,8 @@ class PlanAndExecuteInterface(BaseInterface):
         )
 
         assert request.group_name is not None
-
-        if request.group_name != self.group_name:
-            raise ValueError(
-                "'group_name' must be the same as the group name used to initialize this interface"
-            )
-
         planning_component = self._moveit.get_planning_component(
-            self.group_name
+            request.group_name
         )
 
         # Set workspace
@@ -528,22 +510,24 @@ class PlanAndExecuteInterface(BaseInterface):
         if not planning_component.set_start_state(
             robot_state=request.start_state
         ):
-            raise ValueError(f"Invalid start state: {request.start_state}")
+            raise ValueError(
+                f"Error setting PlanningComponent start state: {request.start_state}"
+            )
 
         # Set goal state
         goal_kwargs = {}
         if isinstance(request.goal, PoseStamped):
-            assert request.goal.header.frame_id == self._moveit.planning_frame
             goal_kwargs["pose_stamped_msg"] = request.goal
             goal_kwargs["pose_link"] = request.pose_link
         elif isinstance(request.goal, RobotState):
             goal_kwargs["robot_state"] = request.goal
         else:
-            assert _is_constraints_goal(request.goal)
             goal_kwargs["motion_plan_constraints"] = request.goal
 
         if not planning_component.set_goal_state(**goal_kwargs):
-            raise ValueError(f"Invalid goal: {request.goal}")
+            raise ValueError(
+                f"Error setting PlanningComponent goal: {request.goal}"
+            )
 
         # Set path constraints
         if request.path_constraints is not None:
@@ -551,71 +535,106 @@ class PlanAndExecuteInterface(BaseInterface):
                 request.path_constraints
             ):
                 raise ValueError(
-                    f"Invalid path constraints: {request.path_constraints}"
+                    f"Error setting PlanningComponent path constraints: {request.path_constraints}"
                 )
 
         # Create request parameters
         if isinstance(request.planning_pipeline, str):
-            request_params = PlanRequestParameters(
+            params = PlanRequestParameters(
                 self._moveit.moveit_py, request.planning_pipeline
             )
             if request.planning_time is not None:
-                request_params.planning_time = request.planning_time
+                params.planning_time = request.planning_time
         else:
             assert isinstance(request.planning_pipeline, (list, tuple))
-            request_params = MultiPipelinePlanRequestParameters(
+            params = MultiPipelinePlanRequestParameters(
                 self._moveit.moveit_py, request.planning_pipeline
             )
             if request.planning_time is not None:
-                for params in request_params.multi_plan_request_parameters:
+                for params in params.multi_plan_request_parameters:
                     params.planning_time = request.planning_time
 
-        return planning_component, request_params
+        return planning_component, params
 
     def _plan_pipeline(
         self,
         request: PlanRequest,
         cancel_event: Optional[threading.Event] = None,
     ) -> RobotTrajectory:
+        assert request.group_name is not None
+        assert request.max_attempts is not None
+        assert request.exp_backoff_factor is not None
+
         # Get the planning component and request parameters
-        planning_component, request_params = self._prepare_planning_component(
-            request
-        )
+        planning_component, params = self._prepare_planning_component(request)
+
+        if isinstance(params, PlanRequestParameters):
+            max_backoff_time = max(
+                params.planning_time,
+                self.param("planning.max_backoff_time"),
+            )
+        else:
+            max_backoff_time = None
 
         # Plan until successful or max attempts reached
-        errors: list[PlanOnceError] = []
+        excs: list[PlanningError] = []
         for i in range(request.max_attempts):
-            if cancel_event is not None and cancel_event.is_set():
-                raise asyncio.CancelledError("Plan cancelled")
+            try:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise asyncio.CancelledError("Plan cancelled")
 
-            if isinstance(request_params, MultiPipelinePlanRequestParameters):
-                plan_response: MotionPlanResponse = planning_component.plan(
-                    self._moveit.moveit_py,
-                    multi_plan_parameters=request_params,
-                    planning_scene=request.planning_scene,
-                )
-            else:
-                plan_response: MotionPlanResponse = planning_component.plan(
-                    self._moveit.moveit_py,
-                    single_plan_parameters=request_params,
-                    planning_scene=request.planning_scene,
-                )
+                if isinstance(params, PlanRequestParameters):
+                    plan_response: MotionPlanResponse = (
+                        planning_component.plan(
+                            self._moveit.moveit_py,
+                            single_plan_parameters=params,
+                            planning_scene=request.planning_scene,
+                        )
+                    )
+                else:
+                    plan_response: MotionPlanResponse = (
+                        planning_component.plan(
+                            self._moveit.moveit_py,
+                            multi_plan_parameters=params,
+                            planning_scene=request.planning_scene,
+                        )
+                    )
 
-            if plan_response:
-                return plan_response.trajectory
-            else:
-                error = PlanOnceError(
-                    plan_response.error_code, group_name=self.group_name
+                if not plan_response:
+                    raise PlanningPipelineError(
+                        plan_response.error_code, group_name=request.group_name
+                    )
+
+                if cancel_event is not None and cancel_event.is_set():
+                    raise asyncio.CancelledError("Plan cancelled")
+
+                trajectory = self._post_process_trajectory(
+                    plan_response.trajectory, request
                 )
+                # TODO: Maybe revalidate
+                # self._validate_trajectory(trajectory)
+                return trajectory
+            except PlanningError as e:
                 self.log(
-                    f"Planning attempt {i + 1}/{request.max_attempts} failed: {error}",
+                    f"Planning attempt {i + 1}/{request.max_attempts} failed: {e!r}",
                     severity="WARN",
                 )
-                errors.append(error)
-        else:
-            raise MaxPlanningAttemptsReachedError(
-                errors, group_name=self.group_name
-            )
+                excs.append(e)
+
+                # Apply exponential backoff to planning time in case of
+                # planning pipeline failure
+                if isinstance(e, PlanningPipelineError) and isinstance(
+                    params, PlanRequestParameters
+                ):
+                    assert max_backoff_time is not None
+                    backoff_time = (
+                        params.planning_time * request.exp_backoff_factor
+                    )
+                    params.planning_time = min(backoff_time, max_backoff_time)
+
+        raise MaxPlanningAttemptsReachedError(
+            excs, group_name=request.group_name
+        )
 
     def _plan_impl(
         self,
@@ -626,13 +645,22 @@ class PlanAndExecuteInterface(BaseInterface):
         """Retrieve trajectory from cache or plan a trajectory"""
         self.log("Planning single trajectory", severity="DEBUG")
 
-        request = deepcopy(request)
+        # Flag to disbale if the plan request contains parameters unsupported
+        # by the trajectory cache
+        cache_supported = True
+
+        # Set to default group name if not provided
+        if request.group_name is None:
+            request.group_name = self.group_name
+        elif request.group_name != self.group_name:
+            raise ValueError(
+                f"Provided group_name does not match self.group_name. "
+                f"Expected '{self.group_name}', got '{request.group_name}'"
+            )
 
         # Set start state to current state if None
         if request.start_state is None:
             request.start_state = self._moveit.get_current_state()
-
-        constraints_goal = _is_constraints_goal(request.goal)
 
         # Transform goal to world frame or valid robot state
         if isinstance(request.goal, PoseStamped):
@@ -644,7 +672,7 @@ class PlanAndExecuteInterface(BaseInterface):
                 )
         elif isinstance(request.goal, str):
             request.goal = self._moveit.get_target_state(
-                request.goal, self.group_name
+                request.goal, request.group_name
             )
         elif isinstance(request.goal, (JointStateDict, JointStateDeltaDict)):
             # Resolve partial joint goals to a concrete RobotState: unprovided
@@ -654,14 +682,16 @@ class PlanAndExecuteInterface(BaseInterface):
             # plans, caches, and validates the same way.
             request.goal = self._moveit.get_joint_state_target(
                 request.goal,
-                self.group_name,
+                request.group_name,
                 relative=isinstance(request.goal, JointStateDeltaDict),
                 base_state=request.start_state,
             )
         elif isinstance(request.goal, RobotState):
             pass
         else:
-            assert constraints_goal
+            assert _is_constraints_goal(request.goal)
+            # Constraints goals are not currently supported by cache
+            cache_supported = False
             for constraints in request.goal:
                 for pc in constraints.position_constraints:
                     if not pc.header.frame_id:
@@ -671,40 +701,29 @@ class PlanAndExecuteInterface(BaseInterface):
                     if not oc.header.frame_id:
                         oc.header.frame_id = self._moveit.planning_frame
 
-        #     # Fill joint constraints with the start positions of any joints
-        #     # that were not provided as constraints, if requested.
-        #     for constraints in request.goal:  # type: ignore
-        #         jcs: list[JointConstraint] = constraints.joint_constraints
-        #         if request.fill_goal_joint_constraints and len(jcs) > 0:
-        #             provided_joints = set((x.joint_name for x in jcs))
-        #             joint_positions = get_joint_group_positions(
-        #                 request.start_state, self.group_name
-        #             )
-        #             for joint, pos in joint_positions.items():
-        #                 if joint not in provided_joints:
-        #                     jcs.append(
-        #                         joint_constraint_msg(
-        #                             joint_name=joint, position=pos
-        #                         )
-        #                     )
-
         # Set pose link to default if not provided, but only for Cartesian
         # goals — RobotState and Constraints goals must have pose_link=None
         # per the cache's request-validation contract.
-        if request.pose_link is None and isinstance(request.goal, PoseStamped):
-            request.pose_link = self.default_pose_link
+        if request.pose_link is None:
+            if isinstance(request.goal, PoseStamped):
+                request.pose_link = self.default_pose_link
+        else:
+            if not isinstance(request.goal, PoseStamped):
+                raise ValueError(
+                    "'pose_link' cannot be provided if 'goal' is not PoseStamped"
+                )
+            if request.pose_link != self.default_pose_link:
+                # Plan requests for pose links other than the default are
+                # not yet supported by the cache
+                cache_supported = False
 
-        # Set to default group name
-        if request.group_name is None:
-            request.group_name = self.group_name
-
-        # Attempt to retrieve cached trajectories if use_cache is True
-        # and if the goal is not a Constraints goal, since Constraints
-        # goals are not supported by the trajectory cache,
+        # Attempt to retrieve cached trajectories if use_cache is True,
+        # if the goal is not a Constraints goal, and if the pose link
+        # is the same as the default pose link
         if (
             self.param("trajectory_cache.use_cached_trajectories")
             and request.use_cache
-            and not constraints_goal
+            and cache_supported
         ):
             trajectory = self._get_cached_trajectory(request, cancel_event)
             if trajectory is not None:
@@ -715,66 +734,72 @@ class PlanAndExecuteInterface(BaseInterface):
                 severity="DEBUG",
             )
 
-        pipelines: list[str] = []
-        attempts: list[int] = []
+        if request.max_attempts is None:
+            if request.planning_pipeline in ("linear", "ptp"):
+                request.max_attempts = 1
+            else:
+                request.max_attempts = self.param(
+                    "planning.default_max_attempts"
+                )
+
+        if request.exp_backoff_factor is None:
+            request.exp_backoff_factor = self.param(
+                "planning.default_exp_backoff_factor"
+            )
+
+        fast_request: PlanRequest | None = None
         if request.planning_pipeline is None:
             fast_pipeline: str = self.param("planning.fast_pipeline")
             fallback_pipeline: str = self.param("planning.fallback_pipeline")
 
+            # The fallback pipeline should not be 'linear' or 'ptp'
             if fallback_pipeline in ("linear", "ptp"):
                 raise ValueError(
                     "'planning.fallback_pipeline' must not be 'linear' or 'ptp'"
                 )
+            request.planning_pipeline = fallback_pipeline
 
             # The linear and ptp pipelines do not support Constraints goals
-            if fast_pipeline not in ("linear", "ptp") or not constraints_goal:
-                pipelines.append(fast_pipeline)
-                attempts.append(1)
+            if fast_pipeline not in ("linear", "ptp") or isinstance(
+                request.goal, (PoseStamped, RobotState)
+            ):
+                fast_request = copy(request)
+                fast_request.planning_pipeline = fast_pipeline
+                fast_request.max_attempts = 1
 
-            pipelines.append(fallback_pipeline)
-            attempts.append(request.max_attempts)
-        elif (
-            request.planning_pipeline in ("linear", "ptp") and constraints_goal
+        elif request.planning_pipeline in ("linear", "ptp") and not isinstance(
+            request.goal, (PoseStamped, RobotState)
         ):
             raise ValueError(
                 f"The '{request.planning_pipeline}' planning pipeline "
                 f"cannot be used with Constraints goals"
             )
-        else:
-            pipelines.append(request.planning_pipeline)
-            attempts.append(request.max_attempts)
 
-        trajectory = None
-        for i, (pipeline, attempt) in enumerate(zip(pipelines, attempts)):
-            request.planning_pipeline = pipeline
-            request.max_attempts = attempt
+        trajectory: RobotTrajectory | None = None
+        successful_request: PlanRequest | None = None
+        if fast_request is not None:
             try:
-                trajectory = self._plan_pipeline(request, cancel_event)
-                break
+                trajectory = self._plan_pipeline(fast_request, cancel_event)
+                successful_request = fast_request
             except PlanningError as e:
-                if i < len(pipelines) - 1:
-                    self.log(
-                        f"Could not plan with pipeline {pipeline}, falling back to {pipelines[i + 1]}"
-                    )
-                else:
-                    raise e
+                self.log(
+                    f"Could not plan with fast pipeline "
+                    f"'{fast_request.planning_pipeline}': {e!r}. "
+                    f"Falling back to {request.planning_pipeline}"
+                )
 
-        if cancel_event is not None and cancel_event.is_set():
-            raise asyncio.CancelledError("Plan cancelled")
+        if successful_request is None:
+            trajectory = self._plan_pipeline(request, cancel_event)
+            successful_request = request
 
         assert trajectory is not None
-        trajectory = self._post_process_trajectory(trajectory, request)
-        # TODO: Maybe revalidate
-        # self._validate_trajectory(trajectory)
 
-        # Constraints goals can't be cached (no canonical end-state to
-        # key on; the cache's _validate_request rejects them).
-        if constraints_goal:
+        if not cache_supported:
             return trajectory, None
 
         cache_kwargs: TrajectoryCacheKwargs = {
             "trajectory": trajectory,
-            "request": request,
+            "request": successful_request,
         }
 
         return trajectory, [cache_kwargs]
@@ -787,8 +812,6 @@ class PlanAndExecuteInterface(BaseInterface):
     ) -> PlanResponseT:
         """Plan a series of trajectories and concatenate them"""
         self.log("Planning concat trajectory", severity="DEBUG")
-
-        request = deepcopy(request)
 
         # Validate request
         if len(request.goals) < 1:
@@ -925,6 +948,7 @@ class PlanAndExecuteInterface(BaseInterface):
                 raise ValueError(
                     "None of 'goal', 'goals', or additional kwargs may be provided if 'request' is provided"
                 )
+            request = deepcopy(request)
         elif goal is not None:
             if goals is not None:
                 raise ValueError("Both 'goal' and 'goals' cannot be provided")
@@ -974,20 +998,20 @@ class PlanAndExecuteInterface(BaseInterface):
         if not self._safe_to_execute_condition():
             raise NotSafeToExecuteError(
                 "Not safe to execute before motion started.",
-                group_name=self.group_name,
+                group_name=trajectory.joint_model_group_name,
             )
 
         # Check if trajectory start state is within the allowed start tolerance
         if not all_close_robot_states(
             self._moveit.get_current_state(),
             trajectory[0],
-            group_name=self.group_name,
+            group_name=trajectory.joint_model_group_name,
             position_tolerance=allowed_start_tolerance,
         ):
             raise ExecutionPreventedError(
                 f"Trajectory start state deviates from current robot state by more "
                 f"than {allowed_start_tolerance}",
-                group_name=self.group_name,
+                group_name=trajectory.joint_model_group_name,
             )
 
         allowed_duration = (
@@ -1007,7 +1031,7 @@ class PlanAndExecuteInterface(BaseInterface):
         except ActionGoalNotAcceptedError:
             raise ExecutionRejectedError(
                 "FollowJointTrajectory Action goal not accepted",
-                group_name=self.group_name,
+                group_name=trajectory.joint_model_group_name,
             )
 
         with self._goal_handle_lock:
@@ -1022,14 +1046,14 @@ class PlanAndExecuteInterface(BaseInterface):
         except TimeoutError:
             raise ExecutionInterruptedError(
                 f"Allowed execution duration ({allowed_duration}) exceeded",
-                group_name=self.group_name,
+                group_name=trajectory.joint_model_group_name,
             )
         except ActionResultUnsuccessfulError as e:
             result = e.response.result
             if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
                 raise ExecutionInterruptedError(
                     "FollowJointTrajectory Action result failed",
-                    group_name=self.group_name,
+                    group_name=trajectory.joint_model_group_name,
                 ) from e
         finally:
             with self._goal_handle_lock:
@@ -1037,7 +1061,8 @@ class PlanAndExecuteInterface(BaseInterface):
 
         if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
             raise ExecutionInterruptedError(
-                result.error_string, group_name=self.group_name
+                result.error_string,
+                group_name=trajectory.joint_model_group_name,
             )
 
         await asyncio.sleep(0.1)
@@ -1047,13 +1072,13 @@ class PlanAndExecuteInterface(BaseInterface):
         if not all_close_robot_states(
             self._moveit.get_current_state(),
             trajectory[len(trajectory) - 1],
-            group_name=self.group_name,
+            group_name=trajectory.joint_model_group_name,
             position_tolerance=allowed_end_tolerance,
         ):
             raise ExecutionInterruptedError(
                 f"Current robot state deviates from trajectory end state "
                 f"by more than {allowed_end_tolerance}",
-                group_name=self.group_name,
+                group_name=trajectory.joint_model_group_name,
             )
 
     async def execute(
@@ -1075,13 +1100,13 @@ class PlanAndExecuteInterface(BaseInterface):
         else:
             trajectories = trajectory
 
-        group_names = set(x.joint_model_group_name for x in trajectories)
+        group_names = (x.joint_model_group_name for x in trajectories)
 
-        if len(group_names - set([self.group_name])) > 0:
+        if any(x != self.group_name for x in group_names):
             raise ValueError(
                 f"joint_model_group_name for one or more provided "
                 f"trajectories does not match self.group_name. "
-                f"Expected {self.group_name}, got {group_names}"
+                f"Expected '{self.group_name}', got '{group_names}'"
             )
 
         with self._execution_status_lock:
@@ -1118,7 +1143,7 @@ class PlanAndExecuteInterface(BaseInterface):
                     if self._execution_stopped:
                         raise ExecutionStoppedError(
                             "'stop_execution' called",
-                            group_name=self.group_name,
+                            group_name=trajectory.joint_model_group_name,
                         )
 
         finally:

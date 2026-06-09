@@ -104,7 +104,7 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         scene_hash: str,
         planning_frame: str,
         group_name: str,
-        pose_link: Optional[str] = None,
+        pose_link: str,
         sample_state: RobotState,
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
@@ -220,6 +220,8 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         assert isinstance(request.goal, PoseStamped)
         start = self._joints_to_array(request.start_state)
         pos, ori = arrays_from_pose_msg(request.goal.pose, euler=False)
+        if ori[0] < 0:
+            ori = -ori
         return np.concatenate(
             [start, np.asarray(pos, dtype=float), np.asarray(ori, dtype=float)]
         )

@@ -68,7 +68,7 @@ class LMDBTrajectoryCache(TrajectoryCache):
         scene_hash: str,
         planning_frame: str,
         group_name: str,
-        pose_link: Optional[str] = None,
+        pose_link: str,
         robot_state_tolerance: RobotStateToleranceT,
         position_tolerance: PositionToleranceT,
         orientation_tolerance: OrientationToleranceT,
@@ -289,6 +289,8 @@ class LMDBTrajectoryCache(TrajectoryCache):
             goal_position, goal_orientation = arrays_from_pose_msg(
                 goal.pose, euler=False
             )
+            if goal_orientation[0] < 0:
+                goal_orientation = -goal_orientation
             fuzzy["goal_pose"] = {
                 "position": self._fuzz_iterable(
                     goal_position, self._position_tolerance

@@ -138,7 +138,7 @@ def handle_interruptions(coro_fn):
         max_attempts = self.param("interruptions.max_attempts")
         if max_attempts < 1:
             raise ValueError(
-                "'safe_execution.max_attempts' parameter must be at least 1"
+                "'interruptions.max_attempts' parameter must be at least 1"
             )
         remaining = max_attempts
 

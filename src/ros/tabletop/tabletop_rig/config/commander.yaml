@@ -105,6 +105,9 @@
       planning:
         fast_pipeline: ptp
         fallback_pipeline: aps_rrt_star
+        default_max_attempts: 3
+        default_exp_backoff_factor: 2.0
+        max_backoff_time: 1.0
       trajectory_cache:
         base_dir: $TABLETOP_CACHE_DIR/trajectory_cache
         use_cached_trajectories: true
@@ -551,7 +554,7 @@
                 position: [0.2822, 1.2054, 1.1766]
                 rpy: [0.0, 0.0, -1.5707]
             0,2:
-              object_id: big_object_3
+              object_id: small_object_2
               color: [0.0, 0.0, 1.0, 0.5] # blue
               pose_stamped:
                 position: [0.2803, 1.4096, 0.98]
@@ -569,7 +572,7 @@
                 position: [0.4329, 1.2038, 1.1772]
                 rpy: [0.0, 0.0, -1.5707]
             1,2:
-              object_id: small_object_5
+              object_id: big_object_3
               color: [0.0, 1.0, 1.0, 0.5] # cyan
               pose_stamped:
                 position: [0.4289, 1.4077, 0.9807]
