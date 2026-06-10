@@ -31,6 +31,7 @@ import random
 
 import debugpy
 import rclpy
+from action_msgs.msg import GoalStatus
 from rclpy.action.server import (
     ActionServer,
     CancelResponse,
@@ -43,15 +44,12 @@ from std_msgs.msg import Header
 from tabletop_interfaces.action import FlicResponseTime
 
 import tabletop_py.flic.client
-from tabletop_py.flic.client import (
-    BluetoothControllerState,
-    ButtonConnectionChannel,
-    ClickType,
-    FlicClient,
-    LatencyMode,
-)
+from tabletop_py.flic.scapy_client import ButtonPressInfo, FlicClient
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.ros import seconds_from_ros_time
+
+CancelGoalRequest = FlicResponseTime.Impl.CancelGoalService.Request
 
 
 class Flic(BaseNode):
@@ -71,14 +69,8 @@ class Flic(BaseNode):
         "simulate": False,
         "simulate_min_delay": 1.0,
         "simulate_max_delay": 3.0,
-        "server_ip": "0.0.0.0",
-        # "server_ip": "172.17.0.1",
-        "server_port": 5551,
-        "max_connection_channels": 64,
-        "latency_mode": "LowLatency",
-        "auto_disconnect_time": 0,
-        "ignore_queued": False,
-        "connect_timeout": 1,
+        "device_id": 0,
+        "active_scan": False,
     }
 
     def __init__(self):
@@ -96,8 +88,7 @@ class Flic(BaseNode):
             self,
             FlicResponseTime,
             "~/response_time",
-            execute_callback=self.flic_response_time_button_event_callback,
-            # execute_callback=self.flic_response_time_adv_packet_callback,
+            execute_callback=self.flic_response_time_callback,
             cancel_callback=self.flic_response_time_cancel_callback,
             goal_callback=self.flic_response_time_goal_callback,
             callback_group=MutuallyExclusiveCallbackGroup(),
@@ -106,7 +97,7 @@ class Flic(BaseNode):
             Header, "~/button_pressed_time", 10
         )
 
-        self.goal_lock = asyncio.Lock()
+        self.cancel_events: dict[bytes, asyncio.Event] = {}
 
         self.log(f"Flic initialized, simulate: {self.simulate}")
 
@@ -127,55 +118,21 @@ class Flic(BaseNode):
             self.log("Simulating flic client, no client started")
         else:
             self.log("Initializing flic client")
-            max_connection_channels = self.param("max_connection_channels")
-            host = self.param("server_ip")
-            port = self.param("server_port")
             loop = asyncio.get_running_loop()
-            _, self.flic_client = await loop.create_connection(
-                lambda: FlicClient(
-                    max_connection_channels=max_connection_channels,
-                    time_fn=lambda: self.get_clock().now(),
-                ),
-                host,
-                port,
+            device_id = self.param("device_id")
+            active_scan = self.param("active_scan")
+            self.flic_client = await FlicClient.create(
+                loop=loop,
+                device_id=device_id,
+                active_scan=active_scan,
+                kill_on_press=True,
+                event_time_fn=lambda: self.get_clock().now(),
             )
-
-            await self.flic_client.disconnect_all()
-
-            info = await self.flic_client.get_info()
-
-            if (
-                info.bluetooth_controller_state
-                != BluetoothControllerState.Attached
-            ):
-                raise RuntimeError("Bluetooth controller not attached")
-
-            if len(info.bd_addr_of_verified_buttons) == 0:
-                raise RuntimeError("No buttons found")
-
-            if len(info.bd_addr_of_verified_buttons) > max_connection_channels:
-                bd_addrs = info.bd_addr_of_verified_buttons[
-                    :max_connection_channels
-                ]
-            else:
-                bd_addrs = info.bd_addr_of_verified_buttons
-
-            self.log(f"Connecting to {len(bd_addrs)} buttons")
-
-            for bd_addr in bd_addrs:
-                cc = ButtonConnectionChannel(
-                    bd_addr,
-                    latency_mode=LatencyMode[self.param("latency_mode")],
-                    auto_disconnect_time=self.param("auto_disconnect_time"),
-                    ignore_queued=self.param("ignore_queued"),
-                )
-
-                await self.flic_client.connect(cc)
 
             self.log("Flic client initialized!")
 
-    async def flic_response_time_goal_callback(
-        self, goal_request: FlicResponseTime.Goal
+    def flic_response_time_goal_callback(
+        self, request: FlicResponseTime.Goal
     ) -> GoalResponse:
         """Handle incoming action goal requests.
 
@@ -189,55 +146,47 @@ class Flic(BaseNode):
             GoalResponse.ACCEPT if the goal can be processed,
             GoalResponse.REJECT otherwise.
         """
-        async with self.goal_lock:
-            if hasattr(self, "cancel_event"):
-                self.log(
-                    "Cannot accept new goal, previous goal not finished",
-                    severity="WARN",
-                )
-                return GoalResponse.REJECT
+        # Clean up inactive goals that are still running
+        for uuid, event in self.cancel_events.items():
+            goal_handle: ServerGoalHandle | None = (
+                self.response_time_server._goal_handles.get(uuid, None)
+            )
+            if (
+                goal_handle is None
+                or not goal_handle.is_active
+                or goal_handle.status != GoalStatus.STATUS_EXECUTING
+            ):
+                event.set()
 
-            if self.simulate:
-                self.log("Accepting goal for simulated button")
-                self.cancel_event = asyncio.Event()
-                return GoalResponse.ACCEPT
+        self.log(f"Accepting goal for button {request.bd_addr}")
+        return GoalResponse.ACCEPT
 
-            info = await self.flic_client.get_info()
-            if goal_request.bd_addr not in info.bd_addr_of_verified_buttons:
-                self.log(
-                    f"Button {goal_request.bd_addr} not found",
-                    severity="WARN",
-                )
-                return GoalResponse.REJECT
-            else:
-                self.log(f"Accepting goal for button {goal_request.bd_addr}")
-                self.cancel_event = asyncio.Event()
-                return GoalResponse.ACCEPT
-
-    async def flic_response_time_cancel_callback(self, _) -> CancelResponse:
+    def flic_response_time_cancel_callback(
+        self, goal_handle: ServerGoalHandle
+    ) -> CancelResponse:
         """Handle action cancellation requests.
 
         Sets the cancel event if a goal is in progress.
 
         Args:
-            _: Unused cancel request.
+            goal_handle: The action goal handle to cancel.
 
         Returns:
             CancelResponse.ACCEPT if cancellation is possible,
             CancelResponse.REJECT if no goal is in progress.
         """
-        async with self.goal_lock:
-            if hasattr(self, "cancel_event"):
-                self.cancel_event.set()
-                return CancelResponse.ACCEPT
-            else:
-                self.log(
-                    "Cannot cancel goal, no goal in progress",
-                    severity="WARN",
-                )
-                return CancelResponse.REJECT
+        uuid = bytes(goal_handle.goal_id.uuid)
+        if uuid in self.cancel_events:
+            self.cancel_events[uuid].set()
+        else:
+            self.log(
+                f"Cancel requested for '{uuid}', but goal callback "
+                f"has not yet started or is already finished",
+                severity="WARN",
+            )
+        return CancelResponse.ACCEPT
 
-    async def flic_response_time_button_event_callback(
+    async def flic_response_time_callback(
         self, goal_handle: ServerGoalHandle
     ) -> FlicResponseTime.Result:
         """Execute the response time measurement action.
@@ -247,16 +196,31 @@ class Flic(BaseNode):
         elapsed time.
 
         Args:
-            goal_handle: The active action goal handle.
+            goal_handle: The action goal handle.
 
         Returns:
             FlicResponseTime.Result containing the measured response time,
             or empty result if cancelled.
         """
-        try:
-            self.log("Flic response time action started")
+        if (
+            not goal_handle.is_active
+            or goal_handle.status != GoalStatus.STATUS_EXECUTING
+        ):
+            self.log(
+                "Goal handle inactive or not executing, not executing callback",
+                severity="WARN",
+            )
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+            return FlicResponseTime.Result()
 
-            bd_addr: str = goal_handle.request.bd_addr
+        self.log("Flic response time action started")
+
+        uuid = bytes(goal_handle.goal_id.uuid)
+        cancel_event = asyncio.Event()
+        self.cancel_events[uuid] = cancel_event
+        try:
+            addr: str = goal_handle.request.bd_addr
 
             # Button task to wait for the (potentially simulated) button to be pressed
             async with asyncio.TaskGroup() as tg:
@@ -268,52 +232,39 @@ class Flic(BaseNode):
                     )
                 else:
                     # Connect to the button
-                    cc = await self.flic_client.get_cc_existing(bd_addr)
-                    if cc is None:
-                        cc = ButtonConnectionChannel(
-                            bd_addr,
-                            latency_mode=LatencyMode[
-                                self.param("latency_mode")
-                            ],
-                            auto_disconnect_time=self.param(
-                                "auto_disconnect_time"
-                            ),
-                            ignore_queued=self.param("ignore_queued"),
-                        )
-
-                        connect_timeout = self.param("connect_timeout")
-                        async with asyncio.timeout(connect_timeout):
-                            await self.flic_client.connect(cc)
-
                     button_task = tg.create_task(
-                        cc.wait_for_button_event(ClickType.ButtonDown)
+                        self.flic_client.wait_for_button(addr)
                     )
 
                 # Cancel event task to terminate early
-                cancel_task = tg.create_task(self.cancel_event.wait())
+                cancel_task = tg.create_task(cancel_event.wait())
 
                 # Wait for the button to be pressed or the cancel event to be set
-                await asyncio.wait(
-                    [button_task, cancel_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if cancel_task.done():
+                try:
+                    await asyncio.wait(
+                        [button_task, cancel_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
                     button_task.cancel()
+                    cancel_task.cancel()
+
+                if cancel_task.done():
                     self.log("Flic response time action cancelled")
-                    goal_handle.canceled()
+                    if goal_handle.is_cancel_requested:
+                        goal_handle.canceled()
                     return FlicResponseTime.Result()
                 else:
-                    cancel_task.cancel()
                     assert button_task.done()
                     if self.simulate:
                         response_time = self.get_clock().now()
                         self.last_simulated_button_time = response_time
-                        self.last_simulated_button_addr = (
-                            goal_handle.request.bd_addr
-                        )
+                        self.last_simulated_button_addr = addr
                         self.simulate_button_event.set()
                     else:
-                        response_time = button_task.result()
+                        info: ButtonPressInfo = button_task.result()  # pyright: ignore[reportAssignmentType]
+                        response_time = info.time
+
                     assert isinstance(response_time, Time)
                     result = FlicResponseTime.Result(
                         response_time=response_time.to_msg()
@@ -322,79 +273,8 @@ class Flic(BaseNode):
                     goal_handle.succeed()
                     return result
         finally:
-            async with self.goal_lock:
-                del self.cancel_event
+            del self.cancel_events[uuid]
 
-    # async def flic_response_time_adv_packet_callback(
-    #     self, goal_handle: ServerGoalHandle
-    # ) -> FlicResponseTime.Result:
-    #     """Execute the response time measurement action.
-    #
-    #     Connects to the specified Flic button (or simulates a delay),
-    #     waits for a button press or cancellation, and returns the
-    #     elapsed time.
-    #
-    #     Args:
-    #         goal_handle: The active action goal handle.
-    #
-    #     Returns:
-    #         FlicResponseTime.Result containing the measured response time,
-    #         or empty result if cancelled.
-    #     """
-    #     try:
-    #         self.log("Flic response time action started")
-    #
-    #         bd_addr: str = goal_handle.request.bd_addr
-    #
-    #         # Button task to wait for the (potentially simulated) button to be pressed
-    #         async with asyncio.TaskGroup() as tg:
-    #             if self.simulate:
-    #                 min_delay = self.param("simulate_min_delay")
-    #                 max_delay = self.param("simulate_max_delay")
-    #                 button_task = tg.create_task(
-    #                     asyncio.sleep(random.uniform(min_delay, max_delay))
-    #                 )
-    #             else:
-    #                 # Connect to the button
-    #                 button_task = tg.create_task(
-    #                     self.scanner.wait_for_advertisement_packet(bd_addr)
-    #                 )
-    #
-    #             # Cancel event task to terminate early
-    #             cancel_task = tg.create_task(self.cancel_event.wait())
-    #
-    #             # Wait for the button to be pressed or the cancel event to be set
-    #             await asyncio.wait(
-    #                 [button_task, cancel_task],
-    #                 return_when=asyncio.FIRST_COMPLETED,
-    #             )
-    #             if cancel_task.done():
-    #                 button_task.cancel()
-    #                 self.log("Flic response time action cancelled")
-    #                 goal_handle.canceled()
-    #                 return FlicResponseTime.Result()
-    #             else:
-    #                 cancel_task.cancel()
-    #                 assert button_task.done()
-    #                 if self.simulate:
-    #                     response_time = self.get_clock().now()
-    #                     self.last_simulated_button_time = response_time
-    #                     self.last_simulated_button_addr = bd_addr
-    #                     self.simulate_button_event.set()
-    #                 else:
-    #                     response_time = button_task.result()
-    #
-    #                 assert isinstance(response_time, Time)
-    #                 result = FlicResponseTime.Result(
-    #                     response_time=response_time.to_msg()
-    #                 )
-    #                 self.log(f"Flic response time: {response_time}")
-    #                 goal_handle.succeed()
-    #                 return result
-    #     finally:
-    #         async with self.goal_lock:
-    #             del self.cancel_event
-    #
     async def wait_for_closed(self):
         """Wait for the Flic client connection to close.
 
@@ -406,7 +286,7 @@ class Flic(BaseNode):
         else:
             await self.flic_client.wait_for_closed()
 
-    async def spin_button_publisher_button_event(self):
+    async def spin_button_publisher(self):
         while True:
             if self.simulate:
                 await self.simulate_button_event.wait()
@@ -415,53 +295,28 @@ class Flic(BaseNode):
                     and self.last_simulated_button_time is not None
                 )
                 time = self.last_simulated_button_time
-                bd_addr = self.last_simulated_button_addr
+                addr = self.last_simulated_button_addr
                 self.last_simulated_button_time = None
                 self.last_simulated_button_addr = None
                 self.simulate_button_event.clear()
             else:
-                bd_addr, time = await self.flic_client.wait_for_button_event(
-                    ClickType.ButtonDown
-                )
+                info = await self.flic_client.wait_for_any_button()
+                addr = info.addr
+                time = info.time
             assert isinstance(time, Time)
-            self.button_pressed_publisher.publish(
-                Header(
-                    stamp=time.to_msg(), frame_id=bd_addr
-                )  # TODO: Change to custom message
+            self.log(
+                f"Button '{addr}' pressed at time {seconds_from_ros_time(time)}"
             )
-
-    async def spin_button_publisher_adv_packet(self):
-        while True:
-            if self.simulate:
-                await self.simulate_button_event.wait()
-                assert (
-                    self.last_simulated_button_addr is not None
-                    and self.last_simulated_button_time is not None
-                )
-                time = self.last_simulated_button_time
-                bd_addr = self.last_simulated_button_addr
-                self.last_simulated_button_time = None
-                self.last_simulated_button_addr = None
-                self.simulate_button_event.clear()
-            else:
-                (
-                    bd_addr,
-                    time,
-                ) = await self.flic_client.wait_for_advertisement_packet()
-            assert isinstance(time, Time)
             self.button_pressed_publisher.publish(
                 Header(
-                    stamp=time.to_msg(), frame_id=bd_addr
+                    stamp=time.to_msg(), frame_id=addr
                 )  # TODO: Change to custom message
             )
 
     async def spin(self):
         await self.init_flic_client()
         async with asyncio.TaskGroup() as tg:
-            publisher_task = tg.create_task(
-                self.spin_button_publisher_button_event()
-                # self.spin_button_publisher_adv_packet()
-            )
+            publisher_task = tg.create_task(self.spin_button_publisher())
             try:
                 await self.wait_for_closed()
             finally:

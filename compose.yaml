@@ -204,7 +204,7 @@ services:
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
-    command: tt-launch teensy simulate:=false
+    command: tt-launch teensy simulate:=false micro_ros_device:=$TEENSY_DEV
 
   teensy-sim:
     extends: ros-base
@@ -213,34 +213,20 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
-  flic-client:
-    container_name: tabletop-flic-client
-    extends: ros-base
-    profiles: !override [ deprecated ]
-    depends_on:
-      flicd:
-        condition: service_healthy
-        # condition: service_started
-        restart: true
-    restart: unless-stopped
-    command: tt-launch flic simulate:=false use_scapy:=false
-
-  flic-micro:
-    extends: ros-base
-    container_name: tabletop-flic-micro
-    profiles: !override [ deprecated ]
-    devices:
-      - /dev/ttyUSB0
-    restart: unless-stopped
-    command: tt-launch sniffer simulate:=false
-
   flic:
     extends: ros-base
     container_name: tabletop-flic
     profiles: !override [ real ]
     cap_add:
       - NET_ADMIN
-    command: tt-launch flic_scapy use_scapy:=true
+    # flicd no longer needed after scapy implementation
+    # depends_on:
+    #   flicd:
+    #     condition: service_healthy
+    #     # condition: service_started
+    #     restart: true
+    restart: unless-stopped
+    command: tt-launch flic simulate:=false
 
   flic-sim:
     container_name: tabletop-flic-sim

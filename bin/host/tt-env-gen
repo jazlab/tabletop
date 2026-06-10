@@ -93,6 +93,8 @@ dotenv_get_required USER_GID
 dotenv_get_required NOVNC_DISPLAY
 dotenv_get_required CUDA_VERSION
 dotenv_get_required BIND_CONSISTENCY
+dotenv_get_required TEENSY_DEV
+dotenv_get_required FLIC_MICRO_DEV
 dotenv_get_required FLIR_MAX_DEVS
 
 # Get optional variables (may be unset or empty)
@@ -154,11 +156,11 @@ done
 
 
 # Set Teensy device path if available
-if [ -e /dev/ttyACM0 ]; then
-    dotenv_set TEENSY_DEV /dev/ttyACM0
-else
-    dotenv_set TEENSY_DEV /dev/null
-fi
+# if [ -e /dev/ttyACM0 ]; then
+#     dotenv_set TEENSY_DEV /dev/ttyACM0
+# else
+#     dotenv_set TEENSY_DEV /dev/null
+# fi
 
 # Mount pulse audio socket if available
 if command -v pactl >/dev/null 2>&1; then

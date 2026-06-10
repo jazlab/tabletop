@@ -59,10 +59,6 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/dual_ur"
         LAUNCH="tabletop_rig dual_ur.launch.py"
         ;;
-    multi_ur)
-        export ROS_LOG_DIR="$ROS_LOG_DIR/multi_ur"
-        LAUNCH="tabletop_rig multi_ur.launch.py"
-        ;;
     optitrack)
         export ROS_LOG_DIR="$ROS_LOG_DIR/optitrack"
         LAUNCH="tabletop_rig optitrack.launch.py"
@@ -71,15 +67,7 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/teensy"
         LAUNCH="tabletop_rig teensy.launch.py"
         ;;
-    sniffer)
-        export ROS_LOG_DIR="$ROS_LOG_DIR/flic_sniffer"
-        LAUNCH="tabletop_rig teensy.launch.py micro_ros_device:=/dev/ttyUSB0"
-        ;;
     flic)
-        export ROS_LOG_DIR="$ROS_LOG_DIR/flic"
-        LAUNCH="tabletop_rig flic.launch.py"
-        ;;
-    flic_scapy)
         # sudo touch /etc/ld.so.conf.d/ros.conf
         # IFS=':' read -ra ADDR <<< "$LD_LIBRARY_PATH"
         # for i in "${ADDR[@]}"; do

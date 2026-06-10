@@ -51,7 +51,6 @@ setup(
             "mock_robot_state_helper = tabletop_rig.nodes.mock_robot_state_helper:main",
             "eyelink = tabletop_rig.nodes.eyelink:main",
             "flic = tabletop_rig.nodes.flic:main",
-            "flic_scapy = tabletop_rig.nodes.flic_scapy:main",
             "rosbag_to_csv = tabletop_rig.utils.rosbag:main",
         ],
     },
