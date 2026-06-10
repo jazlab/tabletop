@@ -8,7 +8,7 @@ source $bin_dir/../utils.sh
 
 
 print_usage() {
-    echo "Usage: $0 [-t|--target teensy(default)|sniffer|all] [--clean] [--no-upload] [--compiledb]"
+    echo "Usage: $0 [-t|--target teensy(default)|flic_micro|all] [--clean] [--no-upload] [--compiledb]"
 }
 
 target_arg="--target upload"
@@ -35,13 +35,13 @@ while [[ $# -gt 0 ]]; do
                 teensy)
                     project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy")
                     ;;
-                sniffer)
-                    project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer")
+                flic_micro)
+                    project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro")
                     ;;
                 all)
                     project_dirs=(
                         "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
-                        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer"
+                        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro"
                     )
                     ;;
                 *)

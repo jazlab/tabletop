@@ -70,7 +70,7 @@
 #define MAX_MEASUREMENTS 10
 
 // micro-ROS topology
-#define NODE_NAME "ble_sniffer"
+#define NODE_NAME "flic"
 #define NODE_NS ""
 #define BLE_PRESS_TOPIC "~/button_pressed_time"
 #define HW_PRESS_TOPIC "~/hw_sync_pressed_time"
