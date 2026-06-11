@@ -459,6 +459,11 @@ def visualize_calibration(
 
 
 def main(args=None):
+    """Entry point for visualizing gaze calibration results.
+
+    CLI for generating plots and animations of raw data, preprocessed
+    data, and model predictions from a calibration session.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(

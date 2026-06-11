@@ -1,3 +1,27 @@
+"""Interactive visualization tool for ROI selection using pixel coordinates.
+
+This module displays images or video frames with grid overlay to help
+identify pixel coordinates for regions of interest (ROI). The grid is
+drawn every 50 pixels by default and can be used for manual ROI
+boundary specification for image processing tasks.
+
+Functions:
+    show_image_with_grid: Display image/video with coordinate grid.
+
+Typical Usage:
+    # View image with grid
+    show_image_with_grid("frame.jpg")
+
+    # View random frames from video with grid (useful for LED detection ROI)
+    show_image_with_grid("video.mp4", num_frames=10)
+
+Grid spacing can be adjusted by modifying the xticks/yticks range
+parameters in the function.
+
+Dependencies:
+    Requires OpenCV, Matplotlib, NumPy.
+"""
+
 import random
 
 import cv2
@@ -5,22 +29,23 @@ import matplotlib.pyplot as plt
 
 
 def show_image_with_grid(file_path, num_frames=5):
-    """
-    Display an image or random frames from a video with a grid overlay for easier visual analysis of pixel coordinates.
+    """Display image or video frames with pixel coordinate grid overlay.
 
-    This function reads an image or video from a specified path. If it's an image, it converts it from BGR to RGB format
-    for correct color display and shows the image with a grid overlay. If it's a video, it extracts a specified number
-    of random frames from the video and displays each frame with a grid overlay.
-
-    The grid helps in visually determining the pixel coordinates within the image or video frames, which can be crucial
-    for tasks like ROI selection.
+    Loads image or video, converts from OpenCV BGR to matplotlib RGB,
+    and displays with grid every 50 pixels (adjustable) for visual ROI
+    coordinate identification.
 
     Args:
-        file_path (str): The path to the image or video file to be displayed.
-        num_frames (int, optional): The number of random frames to extract from the video. Default is 5.
+        file_path: Path to image (.png, .jpg, .jpeg, .bmp, .tiff) or
+            video (.avi, .mp4, .mov) file.
+        num_frames: For videos, number of random frames to extract and
+            display (default 5).
 
-    Returns:
-        None: The function displays the image or video frames with matplotlib but does not return any value.
+    Notes:
+        - Grid spacing (50 pixels) can be modified by changing the
+            arange() values in xticks/yticks range() calls
+        - Use axis labels to identify pixel coordinates for ROI bounds
+        - ROI bounds format: (x_start, x_end, y_start, y_end)
     """
     # Check if the file is an image or a video
     if file_path.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):

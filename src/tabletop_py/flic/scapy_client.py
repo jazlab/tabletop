@@ -126,6 +126,13 @@ def _hci_dev_up(adapter_idx: int = 0):
 
 
 class ButtonPressInfo(NamedTuple):
+    """Information about a button press event.
+
+    Attributes:
+        addr: Bluetooth address of the button (e.g., "aa:bb:cc:dd:ee:ff").
+        time: Timestamp of the button press event.
+    """
+
     addr: str
     time: Any
 
@@ -133,6 +140,18 @@ class ButtonPressInfo(NamedTuple):
 def default_advertisement_event_filter(
     report: HCI_LE_Meta_Advertising_Report, event_time: Any
 ) -> bool:
+    """Filter BLE advertisements to only Flic button MAC address prefixes.
+
+    Accepts advertisement reports from Flic buttons (identifiable by their
+    manufacturer-specific MAC address prefixes).
+
+    Args:
+        report: HCI LE advertising report from the BLE controller.
+        event_time: Timestamp of the advertisement event.
+
+    Returns:
+        True if the report is from a known Flic button, False otherwise.
+    """
     addr = str(report.addr).lower()
     prefix = addr[:8]
     return prefix in ("80:e4:da", "90:88:a9")
@@ -185,6 +204,17 @@ class _HCISocketTransport(asyncio.BaseTransport):
         self._protocol.data_received(data)
 
     def write(self, data: bytes) -> int:
+        """Write data to the HCI socket.
+
+        Args:
+            data: Bytes to write to the socket.
+
+        Returns:
+            Number of bytes written.
+
+        Raises:
+            RuntimeError: If transport is closing or send fails.
+        """
         if self._closing:
             raise RuntimeError("transport is closing, cannot write")
         n = self._sock.ins.send(data)
@@ -193,6 +223,11 @@ class _HCISocketTransport(asyncio.BaseTransport):
         return n
 
     def close(self):
+        """Close the transport and underlying socket.
+
+        Safely closes the HCI socket and schedules the protocol's
+        connection_lost callback. Safe to call multiple times.
+        """
         if self._closing:
             return
         self._closing = True
@@ -207,6 +242,11 @@ class _HCISocketTransport(asyncio.BaseTransport):
         self._loop.call_soon(self._protocol.connection_lost, None)
 
     def is_closing(self) -> bool:
+        """Check if the transport is closing.
+
+        Returns:
+            True if close() has been called, False otherwise.
+        """
         return self._closing
 
 
@@ -768,6 +808,11 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     def close(self):
+        """Close the Flic client and underlying HCI socket.
+
+        Cancels all pending kill tasks, disables LE scanning (if using
+        user socket), and closes the transport. Safe to call multiple times.
+        """
         # Set the closed flag *first* so the connection_lost callback
         # scheduled by transport.close() short-circuits cleanly.
         if self._closed_event.is_set():
@@ -829,6 +874,15 @@ async def main_async(
 
 
 def main(args=None):
+    """Command-line entry point for raw BLE Flic button sniffer.
+
+    Parses command-line arguments and launches the async client to detect
+    Flic button presses via direct BLE advertisement sniffing (bypassing
+    the flicd daemon).
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(

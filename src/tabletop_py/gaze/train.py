@@ -58,18 +58,26 @@ def train(
     patience_epochs: int,
     device: torch.device,
 ) -> dict[str, float | torch.Tensor]:
-    """
-    Trains the eye tracking model using cross-validation.
+    """Train model with early stopping on validation loss.
+
+    Iterates through epochs, computing training loss and validation
+    metrics. Stops early if validation loss doesn't improve for
+    patience_epochs consecutive epochs.
 
     Args:
-        X_train: Training input features.
-        y_train: Training target variables.
-        device: Device to run the model on (CPU or GPU).
-        y_scaler: Scaler for the target variables.
-        model_type: Type of model to use for gaze estimation.
+        model: Neural network model to train.
+        optimizer: Optimization algorithm (e.g., Adam).
+        criterion: Loss function.
+        train_loader: DataLoader for training batches.
+        val_loader: DataLoader for validation batches.
+        num_epochs: Maximum number of training epochs.
+        patience_epochs: Early stopping patience (epochs without
+            improvement before stopping).
+        device: Torch device for computation (CPU/GPU).
 
     Returns:
-        tuple: A tuple containing the trained model and cross-validation scores.
+        Validation metrics dict from last epoch with keys: loss, mse,
+        rmse, mae, r2 (and raw_* variants).
     """
 
     best_val_loss = float("inf")
@@ -133,8 +141,31 @@ def train_and_evaluate(
     config: Mapping[str, Any] | os.PathLike | str,
     visualize: bool = False,
 ) -> dict[str, Any]:
-    """
-    Trains and evaluates the gaze estimation model.
+    """Full training pipeline with K-fold cross-validation.
+
+    Loads preprocessed data, trains models on multiple CV folds,
+    selects the best model based on validation loss, and evaluates
+    on held-out test set. Saves model weights and predictions.
+
+    Args:
+        session_dir: Path to session directory containing preprocessed
+            data CSV and where outputs will be saved.
+        config: Path to YAML config file or config dict containing
+            model, optimizer, training, and dataloader parameters.
+        visualize: If True, creates 3D animation of test predictions
+            vs targets and saves as MP4.
+
+    Returns:
+        Dictionary with keys:
+        - "best_model": Trained model from best validation fold
+        - "best_val_results": Validation metrics for best fold
+        - "test_results": Test set evaluation metrics
+
+    Side Effects:
+        - Saves model weights to path in config["weights_path"]
+        - Saves test predictions CSV to path in
+            config["predictions"]["filename"]
+        - Optionally saves test_predictions.mp4 visualization
     """
     # Configure PyTorch
     seed_everything(50)

@@ -1,3 +1,33 @@
+"""GUI application for synchronizing and logging serial device input.
+
+This module provides a Tkinter-based GUI for connecting to serial devices
+(e.g., Arduino, Teensy), logging timestamped input events to CSV files,
+and monitoring connection status.
+
+Features:
+    - Auto-detect available serial ports
+    - Real-time connection status monitoring
+    - CSV logging with timestamp and input columns
+    - Connection timeout detection (5 second threshold)
+    - Configurable output directory and filename
+
+Functions:
+    connect_to_arduino: Establish serial connection and start logging.
+    log_data: Background thread function to read and log serial data.
+    monitor_connection: Background thread to detect connection loss.
+    update_gui: Update GUI display with status.
+    update_clock: Refresh connection time display.
+    browse_directory: Directory selection dialog.
+    create_gui: Initialize Tkinter UI components.
+    main: Application entry point.
+
+Example:
+    python -m tabletop_py.gaze.syncer
+
+Dependencies:
+    Requires pyserial, Pillow (PIL), and tkinter.
+"""
+
 import csv
 import os
 import sys
@@ -20,8 +50,10 @@ import serial
 from PIL import Image, ImageTk
 from serial.tools.list_ports import comports
 
-# Set image size parameters
+#: Image display width in pixels
 IMAGE_WIDTH = 250
+
+#: Image display height in pixels
 IMAGE_HEIGHT = 250
 
 
@@ -313,9 +345,7 @@ def create_gui():
 
 
 def main():
-    """
-    The main function that starts the application.
-    """
+    """Initialize GUI and start application event loop."""
     root, gui_labels, last_data_time = create_gui()
     root.mainloop()
     sys.exit()

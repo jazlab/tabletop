@@ -244,6 +244,25 @@ def without_keys(d, keys: Hashable | Iterable[Hashable]):
 
 
 def dict_update_recursive(d: MutableMapping, u: Mapping):
+    """Recursively update a dictionary with values from another mapping.
+
+    Performs a deep merge of the update mapping into the target mapping,
+    preserving nested structures. Non-dict values in the update mapping
+    overwrite values in the target.
+
+    Args:
+        d: The target dictionary to update (modified in-place).
+        u: The source mapping to merge from.
+
+    Returns:
+        The updated target dictionary d.
+
+    Example:
+        >>> d = {"a": 1, "b": {"c": 2}}
+        >>> u = {"b": {"d": 3}, "e": 4}
+        >>> dict_update_recursive(d, u)
+        {'a': 1, 'b': {'c': 2, 'd': 3}, 'e': 4}
+    """
     for k, v in u.items():
         if isinstance(v, Mapping):
             d[k] = dict_update_recursive(d.get(k, {}), v)

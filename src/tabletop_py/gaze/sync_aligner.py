@@ -41,6 +41,22 @@ CONSECUTIVE_MATCHES = 80
 
 
 def find_streak_intervals(df):
+    """Extract pulse intervals from trigger signal dataframe.
+
+    Identifies contiguous high (input=1) and low (input=0) regions,
+    extracts time intervals between consecutive pulses, and returns
+    the timing data.
+
+    Args:
+        df: DataFrame with "time" and "input" columns where input
+            indicates pulse state (1=high, 0=low).
+
+    Returns:
+        Tuple of:
+        - intervals: List of time gaps between consecutive pulses.
+        - start_times: List of pulse start times (excluding first and
+            last pulses if > 2 exist).
+    """
     streaks = []
     current_streak = False
     for _, row in df.iterrows():
@@ -97,19 +113,30 @@ def find_matching_index_and_start_time(
 
 
 def calculate_time_intervals_and_correlation(primary_csv, secondary_csv):
-    """
-    Calculates time intervals and correlation between primary and secondary CSV files.
+    """Compute synchronization parameters between two data streams.
+
+    Extracts pulse timing intervals from both streams, finds matching
+    pulse sequences, fits a linear regression between timestamps, and
+    detects outliers. Visualizes results with matplotlib.
 
     Args:
-        primary_csv (str): Path to the primary CSV file.
-        secondary_csv (str): Path to the secondary CSV file.
+        primary_csv: Path to primary CSV (reference timeline) with
+            "time" and "input" columns.
+        secondary_csv: Path to secondary CSV (to be aligned) with same
+            column structure.
 
     Returns:
-        tuple: A tuple containing:
-            - slope: Slope of the regression line.
-            - intercept: Intercept of the regression line.
-            - rms_error: Root mean squared error of the regression.
-            - num_outliers: Number of outliers detected.
+        Tuple of:
+        - slope: Linear fit slope (temporal scaling factor).
+        - intercept: Linear fit intercept (time offset in seconds).
+        - rms_error: Root mean squared error of regression.
+        - num_outliers: Count of detected outliers (2-sigma from mean).
+
+    Notes:
+        - Displays scatter plot with regression line and outliers
+        - Returns (None, None, None, None) if no matching sequences
+            found between streams
+        - Outliers computed via residual analysis
     """
     # Load CSV files
     primary_df = pd.read_csv(primary_csv)
@@ -188,13 +215,16 @@ def calculate_time_intervals_and_correlation(primary_csv, secondary_csv):
 
 
 def align_secondary_csv(secondary_file, aligned_secondary_file, y_intercept):
-    """
-    Aligns the secondary CSV file by adding the y-intercept to the timestamps and saves the aligned file.
+    """Apply time offset to secondary CSV timestamps.
+
+    Adds the computed intercept (offset) to all timestamps and saves
+    the result with time values rounded to 3 decimal places.
 
     Args:
-        secondary_file (str): Path to the secondary CSV file.
-        aligned_secondary_file (str): Path to save the aligned secondary CSV file.
-        y_intercept (float): Y-intercept value to be added to the timestamps.
+        secondary_file: Input CSV path with "time" column.
+        aligned_secondary_file: Output CSV path for aligned data.
+        y_intercept: Time offset (seconds) from regression intercept
+            to add to all timestamps.
     """
     secondary_df = pd.read_csv(secondary_file)
     secondary_df["time"] += y_intercept
