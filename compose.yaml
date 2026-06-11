@@ -174,11 +174,10 @@ services:
     restart: unless-stopped
     command: tt-launch optitrack
 
-  flir:
+  flir-no-sync:
     extends: ros-base
-    container_name: tabletop-flir
-    # TODO: Change to real profile
-    profiles: !override [ flir ]
+    container_name: tabletop-flir-no-sync
+    profiles: !override [ deprecated ]
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -197,7 +196,7 @@ services:
     restart: unless-stopped
     command: tt-launch flir
 
-  flir-sync:
+  flir:
     extends: ros-base
     container_name: tabletop-flir
     # TODO: Change to real profile
