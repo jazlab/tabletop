@@ -5,19 +5,24 @@ interface. It implements the same services as the real dashboard_client
 node, allowing testing of the Commander node without a physical robot.
 
 Services provided:
-    /dashboard_client/close_popup: Close UI popups
-    /dashboard_client/close_safety_popup: Close safety-related popups
-    /dashboard_client/unlock_protective_stop: Unlock after protective stop
-    /dashboard_client/load_program: Load a URScript program
-    /dashboard_client/load_installation: Load an installation file
-    /dashboard_client/brake_release: Release robot brakes
-    /dashboard_client/play: Start program execution
-    /dashboard_client/get_safety_mode: Get current safety mode
-    /dashboard_client/get_robot_mode: Get current robot mode
-    /dashboard_client/is_in_remote_control: Check if robot is in remote control
+    ~/close_popup: Close UI popups.
+    ~/close_safety_popup: Close safety-related popups.
+    ~/unlock_protective_stop: Unlock after protective stop.
+    ~/load_program: Load a URScript program.
+    ~/load_installation: Load an installation file.
+    ~/brake_release: Release robot brakes.
+    ~/play: Start program execution.
+    ~/stop: Stop program execution.
+    ~/pause: Pause program execution.
+    ~/connect: Connect to the robot.
+    ~/quit: Disconnect from the robot.
+    ~/get_safety_mode: Get current safety mode.
+    ~/get_robot_mode: Get current robot mode.
+    ~/program_state: Get current program state.
+    ~/is_in_remote_control: Check if robot is in remote control.
 
 Example:
-    ros2 run tabletop_rig mock_dashboard
+    ros2 run tabletop_rig mock_dashboard_client
 """
 
 import rclpy
@@ -50,6 +55,19 @@ class MockDashboardClient(BaseNode):
     - Testing Commander node logic without hardware
     - Running simulations in RViz
     - Debugging motion planning workflows
+
+    Attributes:
+        close_popup_srv: Service for closing UI popups.
+        close_safety_popup_srv: Service for closing safety popups.
+        unlock_protective_stop_srv: Service for unlocking protective stop.
+        load_program_srv: Service for loading URScript programs.
+        load_installation_srv: Service for loading installation files.
+        brake_release_srv: Service for releasing robot brakes.
+        play_srv: Service for starting program execution.
+        get_safety_mode_srv: Service for querying current safety mode.
+        get_robot_mode_srv: Service for querying current robot mode.
+        get_program_state_srv: Service for querying program state.
+        is_in_remote_control_srv: Service for checking remote control mode.
     """
 
     def __init__(self):
@@ -284,16 +302,16 @@ class MockDashboardClient(BaseNode):
         request: GetProgramState.Request,
         response: GetProgramState.Response,
     ) -> GetProgramState.Response:
-        """Return the simulated robot mode.
+        """Return the simulated program state.
 
-        Always returns RUNNING robot mode.
+        Always returns PLAYING program state.
 
         Args:
             request: The service request (empty).
             response: The response to populate.
 
         Returns:
-            Response with robot_mode set to RUNNING.
+            Response with state set to PLAYING.
         """
         self.log("Received GetRobotMode request")
         response.state.state = ProgramState.PLAYING

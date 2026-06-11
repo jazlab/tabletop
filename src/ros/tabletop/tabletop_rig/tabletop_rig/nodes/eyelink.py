@@ -14,19 +14,23 @@ The node can operate in two modes:
 - Simulation mode: Generates synthetic gaze data for testing
 
 Actions provided:
-    ~/smooth_pursuit: Monitor smooth pursuit eye movements
+    ~/smooth_pursuit: Monitor and report smooth pursuit eye movements.
 
 Topics published:
-    /predicted_markers: Gaze estimation predictions (if enabled)
+    ~/sample: Individual Eyelink sample messages (if not batched).
+    ~/sample_array: Batched array of Eyelink samples (if batched mode).
+    /predicted_markers: Gaze estimation predictions (if model enabled).
 
 Parameters:
     tracker_address: IP address of the Eyelink host PC.
     do_tracker_setup: Whether to run calibration on startup.
-    sample_rate: Sampling rate in Hz (typically 1000).
+    sample_rate: Sampling rate in Hz (default: 1000).
     session_bag_dir: Directory for saving recorded data.
-    smooth_pursuit.*: Parameters for smooth pursuit detection.
-    gaze_estimation_config: Path to gaze model configuration.
-    simulate: Run in simulation mode without hardware.
+    smooth_pursuit.window: Time window for pursuit detection (seconds).
+    smooth_pursuit.min_samples: Minimum samples for valid pursuit detection.
+    gaze_estimation.enable: Enable neural network gaze estimation.
+    gaze_estimation.config: Path to gaze model configuration YAML.
+    simulate: Run in simulation mode without hardware (default: false).
 
 Example:
     ros2 run tabletop_rig eyelink --ros-args -p simulate:=true
@@ -509,6 +513,10 @@ class Eyelink(BaseNode):
             raise
 
     def _close_bag_writer(self) -> None:
+        """Close the rosbag writer.
+
+        Flushes and closes the rosbag2 writer if one exists.
+        """
         self.log("Closing bag writer")
         if hasattr(self, "bag_writer"):
             self.bag_writer.close()
@@ -646,7 +654,16 @@ class Eyelink(BaseNode):
                 del self.sample_retrieval_future
 
     def start_retrieval(self) -> None:
-        """TODO"""
+        """Start recording eye-gaze samples from the Eyelink tracker.
+
+        Opens the EDF data file, begins the sample retrieval loop,
+        and starts hardware recording. Initializes gaze estimation
+        timer if model is available.
+
+        Raises:
+            RuntimeError: If recording fails to start or eye availability
+                is not binocular.
+        """
         with self._retrieval_lock:
             self.log("Starting sample retrieval")
 
@@ -709,7 +726,16 @@ class Eyelink(BaseNode):
             self._retrieving = True
 
     def stop_retrieval(self, force: bool = False) -> None:
-        """TODO"""
+        """Stop recording eye-gaze samples and close the data file.
+
+        Halts the sample retrieval loop and closes the EDF file on the
+        Eyelink PC, transferring it to local storage if successful.
+        Can be forced to stop even if goals or subscribers are active.
+
+        Args:
+            force: If True, stop retrieval even if goals or subscribers
+                are active. If False, skip stopping if still needed.
+        """
         with self._retrieval_lock:
             self.log("Stopping sample retrieval")
             if not self._retrieving:
@@ -1101,6 +1127,14 @@ class Eyelink(BaseNode):
     ###########################################################################
 
     def sample_publisher_matched_callback(self, info: QoSPublisherMatchedInfo):
+        """Handle sample publisher subscription changes.
+
+        Automatically starts sample retrieval when subscribers appear
+        and stops when the last subscriber disconnects.
+
+        Args:
+            info: QoS event containing subscriber count.
+        """
         if info.current_count != 0:
             self.log(f"Sample publisher has {info.current_count} subscribers")
             with self._subscribers_lock:

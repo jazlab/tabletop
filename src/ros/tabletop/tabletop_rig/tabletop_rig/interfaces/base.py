@@ -60,7 +60,10 @@ class BaseInterface(LoggerMixin):
             node: The parent ROS2 node that owns this interface. The interface
                 will use the node's resources for ROS communication.
             name: Name of this interface. Used to set the logger name and
-                retrieve parameters with the name as prefix
+                retrieve parameters with the name as prefix (via param()).
+            parameter_fallback_prefix: Optional prefix for parameter fallback
+                lookup. If a parameter is not found under the interface name,
+                the fallback prefix is tried (e.g., 'common_<kind>_interface').
         """
         self._node = node
         self._name = name
@@ -91,8 +94,11 @@ class BaseInterface(LoggerMixin):
     def param(self, name: str) -> Any:
         """Get a parameter value from the node, prefixed by the interface name.
 
-        If name is an emptry string, all parameters for this interface will be
-        returned
+        Resolves parameters by trying the interface-specific name first
+        (e.g., '<interface_name>.<param_name>'), then falling back to
+        the optional fallback prefix if available (e.g.,
+        'common_<interface_kind>_interface.<param_name>'). If name is an
+        empty string, all parameters for this interface are returned as a dict.
 
         Args:
             name: Parameter name (may be dot-separated for nested access).
@@ -100,6 +106,12 @@ class BaseInterface(LoggerMixin):
         Returns:
             Parameter value, or nested dict if name is a prefix.
             Returns None for parameters set to "null" string.
+
+        Raises:
+            ParameterNotDeclaredException: If the parameter is not found in
+                either the interface-specific or fallback namespace.
+            ValueError: If the interface-specific and fallback parameters
+                have mismatched types (one is a dict, the other is not).
         """
         if name != "":
             name = f".{name}"
@@ -141,5 +153,10 @@ class BaseInterface(LoggerMixin):
             return param
 
     def destroy_interface(self):
-        """Placeholder method to clean up resources"""
+        """Clean up interface resources.
+
+        Subclasses should override this to destroy ROS clients, subscribers,
+        publishers, and other resources. Always call super().destroy_interface()
+        at the end to maintain the inheritance chain.
+        """
         pass

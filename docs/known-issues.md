@@ -28,6 +28,20 @@ while building the architecture docs (2026-06). **No code was changed**
    completes. `nodes/system_check.py` works around it with a local
    `except*`; other future callers will hit the same trap.
 
+## Code smells / API warts
+
+8. **Typo'd public API method: `Commander.manually_atatch_object`**
+   (`nodes/commander.py`). Renaming it is NOT doc-safe: it is called
+   under the typo'd spelling by `tabletop_tasks/tasks/smooth_pursuit.py:335`
+   and `tabletop_tasks/tasks/dummy.py:380`. Fix requires renaming the
+   method and both call sites together (or adding an alias).
+
+9. **`interfaces/ur.py` `stop_program()`** fires `call_async` and
+   never awaits or checks the returned future — failures are silent.
+
+10. **`executors.py` `_queue_producer`** reports exceptions via bare
+    `print` instead of the node/ROS logger.
+
 ## Outdated documentation (fixed where doc-only; listed for awareness)
 
 4. **`CLAUDE.md` architecture section is stale.** It lists
