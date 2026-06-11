@@ -1,45 +1,36 @@
 import os
 from collections.abc import Sequence
 from copy import deepcopy
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from launch import Condition, LaunchDescription
+from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     OpaqueFunction,
     Shutdown,
 )
-from launch.conditions import IfCondition
 from launch.substitutions import (
-    EqualsSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
-    OrSubstitution,
     PathJoinSubstitution,
 )
 from launch_ros.actions import ComposableNodeContainer, Node, SetROSLogDir
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
 
+NODE_NAME = "cam_sync"
+
 
 def declare_arguments():
     return [
         DeclareLaunchArgument(
-            "camera",
-            default_value="all",
-            description=(
-                "Camera to run (e.g. left_front_top_cam), or 'all'. "
-                "Because the synchronized driver instantiates every camera "
-                "inside a single node, selecting one will simply omit the "
-                "others from the driver's camera list."
+            "camera_param_dir",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("tabletop_rig"), "config"]
             ),
-        ),
-        DeclareLaunchArgument(
-            "camera_type",
-            default_value="blackfly_s",
-            description="Camera type (e.g. blackfly_s)",
+            description="Directory to look for the camera parameter files",
         ),
         DeclareLaunchArgument(
             "log_level",
@@ -73,7 +64,6 @@ def make_tf_publisher(
     name: str,
     position: Sequence[float] = (0.0, 0.0, 0.0),
     rpy: Sequence[float] = (0.0, 0.0, 0.0),
-    condition: Optional[Condition] = None,
 ):
     return Node(
         name=f"{name}_static_transform_publisher",
@@ -103,35 +93,15 @@ def make_tf_publisher(
             LaunchConfiguration("log_level"),
         ],
         on_exit=[Shutdown()],
-        condition=condition,
     )
 
 
-def build_camera_params(
-    name: str,
-    serial: str,
-    cam_cfg: dict,
-    parameter_file,
-) -> dict:
-    """Flatten one camera's parameters under the `{name}.` prefix.
-
-    The synchronized driver expects every per-camera setting to be passed as
-    `{name}.{key}` (and nested keys are dotted further, e.g.
-    `{name}.image_raw.compressed.jpeg_quality`).
-    """
-    cam_cfg = deepcopy(cam_cfg)
-    # Image-transport plugin options are addressed by the publisher topic
-    # (image_raw) rather than as plain camera params.
-    if "image_transport_plugins" in cam_cfg:
-        cam_cfg["image_raw"] = cam_cfg.pop("image_transport_plugins")
-    cam_cfg["serial_number"] = serial
-    cam_cfg["frame_id"] = name
-    cam_cfg["parameter_file"] = parameter_file
-    cam_cfg["exposure_controller_name"] = f"{name}.exposure_controller"
-    return flatten_dict(cam_cfg, prefix=name)
-
-
 def launch_setup(context, *args, **kwargs):
+    # Get launch configurations
+    camera_param_dir = LaunchConfiguration("camera_param_dir").perform(context)
+    log_level = LaunchConfiguration("log_level").perform(context)
+    use_sim_time = bool(LaunchConfiguration("use_sim_time").perform(context))
+
     # Load the synchronized FLIR config.
     cfg_path = os.path.join(
         get_package_share_directory("tabletop_rig"),
@@ -139,70 +109,89 @@ def launch_setup(context, *args, **kwargs):
         "flir_synchronized.yaml",
     )
     with open(cfg_path, "r") as f:
-        flir_config: dict = yaml.safe_load(f)
+        config: dict = yaml.safe_load(f)
 
-    all_cameras = [c["name"] for c in flir_config["cameras"]]
-    camera_arg = LaunchConfiguration("camera").perform(context)
-    if camera_arg != "all" and camera_arg not in all_cameras:
-        raise ValueError(
-            f"Camera {camera_arg!r} not found in flir_synchronized.yaml "
-            f"(known: {all_cameras})"
-        )
-    selected = [
-        c
-        for c in flir_config["cameras"]
-        if camera_arg == "all" or c["name"] == camera_arg
-    ]
+    # Required keys in config file
+    cameras = config["cameras"]
+    camera_types = config["camera_types"]
+    camera_params = config["camera_params"]
+    enable_exposure_controllers = config["enable_exposure_controllers"]
 
-    # Path to the per-camera-type tuning yaml shipped with
-    # spinnaker_camera_driver (e.g. blackfly_s.yaml).
-    parameter_file = PathJoinSubstitution(
-        [
-            FindPackageShare("spinnaker_camera_driver"),
-            "config",
-            [LaunchConfiguration("camera_type"), ".yaml"],
-        ]
+    # Optional keys in config file
+    camera_params_common = config.get("camera_params_common", {})
+    image_transport_plugins = config.get("image_transport_plugins", None)
+    exp_ctrl_params_common = config.get(
+        "exposure_controller_params_common", {}
     )
-
-    cam_names = [c["name"] for c in selected]
-    exp_ctrl_names = [f"{n}.exposure_controller" for n in cam_names]
+    exp_ctrl_params = config.get("exposure_controller_params", {})
+    exp_ctrl_camera_param_overrides = config.get(
+        "exposure_controller_camera_param_overrides", {}
+    )
+    camera_poses = config.get("camera_poses", {})
 
     # Top-level driver parameters: which sub-objects to instantiate, plus any
     # driver-wide options from the yaml's `driver:` block.
-    driver_params: dict = {
-        "cameras": cam_names,
-        "exposure_controllers": exp_ctrl_names,
-    }
-    driver_params.update(flatten_dict(flir_config.get("driver", {})))
-
-    # Replicate the exposure_controller template once per camera.
-    exp_template = flir_config.get("exposure_controller", {})
-    for ctrl_name in exp_ctrl_names:
-        driver_params.update(flatten_dict(exp_template, prefix=ctrl_name))
+    driver_params: dict = {"cameras": cameras, "use_sim_time": use_sim_time}
 
     # Per-camera params (common merged with per-camera override).
-    common = flir_config.get("common", {})
     tf_nodes: list[Node] = []
-    for entry in selected:
-        entry = deepcopy(entry)
-        name = entry.pop("name")
-        serial = entry.pop("serial_number")
-        pose = entry.pop("pose", None)
-        cam_cfg = deepcopy(common) | entry
-        driver_params.update(
-            build_camera_params(name, serial, cam_cfg, parameter_file)
+    for name in cameras:
+        params = camera_params[name]
+        assert "serial_number" in params
+        params = flatten_dict(camera_params_common) | flatten_dict(params)
+        params = deepcopy(params)
+
+        params["frame_id"] = name
+        params["parameter_file"] = os.path.join(
+            camera_param_dir,
+            f"{camera_types[name]}.yaml",
         )
 
-        if pose is not None:
-            condition = IfCondition(
-                OrSubstitution(
-                    EqualsSubstitution(LaunchConfiguration("camera"), "all"),
-                    EqualsSubstitution(LaunchConfiguration("camera"), name),
+        if enable_exposure_controllers:
+            exp_name = f"{name}.exposure_controller"
+            driver_params.setdefault("exposure_controllers", []).append(
+                exp_name
+            )
+
+            params["exposure_controller_name"] = exp_name
+            params.update(flatten_dict(exp_ctrl_camera_param_overrides))
+
+            exp_params = exp_ctrl_params.get(exp_name, {})
+            exp_params = flatten_dict(exp_ctrl_params_common) | flatten_dict(
+                exp_params
+            )
+            assert "type" in exp_params
+            driver_params.update(flatten_dict(exp_params, prefix=exp_name))
+
+        driver_params.update(flatten_dict(params, prefix=name))
+
+        # Need to set image transport plugins to '<full.topic.name>.<param>'
+        if image_transport_plugins is not None:
+            driver_params.update(
+                flatten_dict(
+                    image_transport_plugins,
+                    prefix=f"{NODE_NAME}.{name}.image_raw",
                 )
             )
-            tf_nodes.append(
-                make_tf_publisher(name, condition=condition, **pose)
-            )
+
+        if name in camera_poses:
+            pose_kwargs = camera_poses[name]
+            tf_nodes.append(make_tf_publisher(name, **pose_kwargs))
+
+    # Exposure controller params
+    # if enable_exposure_controllers:
+    #     exp_controllers = [f"{n}.exposure_controller" for n in cameras]
+    #     driver_params["exposure_controllers"] = exp_controllers
+    #     for name in exp_controllers:
+    #         params = exp_ctrl_params.get(name, {})
+    #         params = flatten_dict(exp_ctrl_params_common) | flatten_dict(
+    #             params
+    #         )
+    #         assert "type" in params
+    #         driver_params.update(flatten_dict(params, prefix=name))
+
+    for k, v in driver_params.items():
+        print(f"{k}: {v}")
 
     container = ComposableNodeContainer(
         name="flir_camera_container",
@@ -217,15 +206,12 @@ def launch_setup(context, *args, **kwargs):
                     "spinnaker_synchronized_camera_driver::"
                     "SynchronizedCameraDriver"
                 ),
-                name="cam_sync",
+                name=NODE_NAME,
                 parameters=[driver_params],
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),
         ],
-        ros_arguments=[
-            "--log-level",
-            LaunchConfiguration("log_level"),
-        ],
+        ros_arguments=["--log-level", log_level],
         on_exit=[Shutdown()],
     )
 

@@ -36,6 +36,7 @@
 #define REWARD_CONTROL_PIN 26
 #define SYNC_PULSE_CONTROL_PIN 9
 #define SOLENOID_CONTROL_PIN 12
+#define CAMERA_TRIGGER_CONTROL_PIN 33
 #define SAFETY_LASER_STATE_PIN 25
 #define LEFT_ARM_LOCK_STATE_PIN 38  // TODO: change back to 36
 #define RIGHT_ARM_LOCK_STATE_PIN 39
@@ -88,6 +89,9 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define ARM_BUZZER_DURATION_MS 1000
 #define DEBOUNCE_DELAY_MS 1
 #define DEBOUNCE_DELAY_NS RCL_MS_TO_NS(DEBOUNCE_DELAY_MS)
+#define CAMERA_TRIGGER_FPS 120
+#define CAMERA_TRIGGER_TOGGLE_PERIOD_US (1000000.0f / (2 * CAMERA_TRIGGER_FPS))
+#define CAMERA_TRIGGER_ISR_PRIORITY 64
 
 // Builtin LED agent state indicator
 //    Steady on:    WAITING_AGENT
@@ -108,6 +112,11 @@ rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
 rcl_service_t set_solenoid_service;
+
+// Hardware (PIT) timer for the camera exposure trigger. This is
+// intentionally not an rcl timer: it must stay immune to micro-ROS
+// session/time synchronization delays.
+IntervalTimer camera_trigger_timer;
 
 rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
@@ -249,6 +258,15 @@ volatile uint8_t button_state_stable;
     int64_t now_ns = rmw_uros_epoch_nanos();                                                                           \
     NS_TO_ROS_TIME(time_msg, now_ns);                                                                                  \
   }
+
+// ISR toggling the camera trigger pin at 2 * CAMERA_TRIGGER_FPS, producing
+// a 50% duty square wave with rising edges at CAMERA_TRIGGER_FPS
+static void camera_trigger_toggle_isr()
+{
+  static bool state = false;
+  state = !state;
+  digitalWriteFast(CAMERA_TRIGGER_CONTROL_PIN, state ? HIGH : LOW);
+}
 
 static void safety_laser_broken_isr()
 {
@@ -810,6 +828,8 @@ void setup()
   pinMode(REWARD_CONTROL_PIN, OUTPUT);
   pinMode(SYNC_PULSE_CONTROL_PIN, OUTPUT);
   pinMode(SOLENOID_CONTROL_PIN, OUTPUT);
+  pinMode(CAMERA_TRIGGER_CONTROL_PIN, OUTPUT);
+  digitalWriteFast(CAMERA_TRIGGER_CONTROL_PIN, LOW);
 
   // Initialize input pins
   pinMode(SAFETY_LASER_STATE_PIN, INPUT_PULLUP);
@@ -845,6 +865,12 @@ void setup()
                                                        memory_conf);
 
   agent_state = success ? WAITING_AGENT : UNCRECOVERABLE_ERROR;
+
+  // Start the free-running camera exposure trigger. This runs for the
+  // lifetime of the program, independent of the agent connection state.
+  camera_trigger_timer.begin(camera_trigger_toggle_isr, CAMERA_TRIGGER_TOGGLE_PERIOD_US);
+  camera_trigger_timer.priority(CAMERA_TRIGGER_ISR_PRIORITY);
+  printf("Camera trigger started at %d fps\n", CAMERA_TRIGGER_FPS);
 
   delay(1000);
 }

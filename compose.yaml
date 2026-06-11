@@ -197,6 +197,29 @@ services:
     restart: unless-stopped
     command: tt-launch flir
 
+  flir-sync:
+    extends: ros-base
+    container_name: tabletop-flir
+    # TODO: Change to real profile
+    profiles: !override [ flir ]
+    devices:
+      - $FLIR_DEV_0
+      - $FLIR_DEV_1
+      - $FLIR_DEV_2
+      - $FLIR_DEV_3
+      - $FLIR_DEV_4
+      - $FLIR_DEV_5
+    # volumes:
+    #   - /dev:/dev
+    # privileged: true
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
+    #   - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
+    # cpus: 8 # Limit cpu usage
+    # runtime: $COMMANDER_RUNTIME
+    restart: unless-stopped
+    command: tt-launch flir_synchronized
+
   teensy:
     extends: ros-base
     container_name: tabletop-teensy

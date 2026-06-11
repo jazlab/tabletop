@@ -47,6 +47,10 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
         LAUNCH="tabletop_rig flir.launch.py"
         ;;
+    flir_synchronized)
+        export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
+        LAUNCH="tabletop_rig flir_synchronized.launch.py"
+        ;;
     flir_calibrate)
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir_calibrate"
         LAUNCH="tabletop_rig flir_calibrate.launch.py"

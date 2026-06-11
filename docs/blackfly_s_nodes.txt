@@ -1,0 +1,5072 @@
+Application build date: Jun 25 2025 15:37:58
+
+Spinnaker library version: 4.2.0.88
+
+Number of cameras detected: 6
+
+
+Running example for camera 0...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_01629EC9
+      Device Serial Number: 23240393
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_01629EC9
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 12.5986
+      Gain: 12.5986
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.08765
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.5061
+      Balance Ratio: 1.08765
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 23240393
+      Device ID: 23240393
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 54.5
+      Device Temperature: 54.5
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.00415
+            Power Supply Current: 0.524658
+      Power Supply Voltage: 4.00415
+      Power Supply Current: 0.495117
+      Device Uptime: 358
+      Link Uptime: 0
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 1
+      Link Recovery Count: 1
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 15
+      Defect Table Index: 0
+      Defect X Coordinate: 465
+      Defect Y Coordinate: 947
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xc
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 0
+      Transfer Queue Overflow Count: 0
+
+
+Camera 0 example complete...
+
+
+Running example for camera 1...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_0156732C
+      Device Serial Number: 22442796
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_0156732C
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 14.7983
+      Gain: 14.7983
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.08313
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.41797
+      Balance Ratio: 1.08313
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 22442796
+      Device ID: 22442796
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 54.375
+      Device Temperature: 54.375
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.33032
+            Power Supply Current: 0.562256
+      Power Supply Voltage: 4.33032
+      Power Supply Current: 0.547363
+      Device Uptime: 360
+      Link Uptime: 1
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 1
+      Link Recovery Count: 1
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 17
+      Defect Table Index: 0
+      Defect X Coordinate: 19
+      Defect Y Coordinate: 1137
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xc
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 23
+      Transfer Queue Overflow Count: 67
+
+
+Camera 1 example complete...
+
+
+Running example for camera 2...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_015216DC
+      Device Serial Number: 22157020
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_015216DC
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 13.8984
+      Gain: 13.8984
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.06506
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.44189
+      Balance Ratio: 1.06506
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 22157020
+      Device ID: 22157020
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 52.625
+      Device Temperature: 52.625
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.33032
+            Power Supply Current: 0.535889
+      Power Supply Voltage: 4.33032
+      Power Supply Current: 0.535889
+      Device Uptime: 360
+      Link Uptime: 1
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 1
+      Link Recovery Count: 1
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 11
+      Defect Table Index: 0
+      Defect X Coordinate: 144
+      Defect Y Coordinate: 1044
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xc
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 23
+      Transfer Queue Overflow Count: 67
+
+
+Camera 2 example complete...
+
+
+Running example for camera 3...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_01629ECB
+      Device Serial Number: 23240395
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_01629ECB
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 11.1986
+      Gain: 11.1986
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.10657
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.55664
+      Balance Ratio: 1.10657
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 23240395
+      Device ID: 23240395
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 51.25
+      Device Temperature: 51.25
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.81958
+            Power Supply Current: 0.506836
+      Power Supply Voltage: 4.87402
+      Power Supply Current: 0.506836
+      Device Uptime: 361
+      Link Uptime: 0
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 2
+      Link Recovery Count: 2
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 16
+      Defect Table Index: 0
+      Defect X Coordinate: 103
+      Defect Y Coordinate: 186
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xc
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 23
+      Transfer Queue Overflow Count: 61
+
+
+Camera 3 example complete...
+
+
+Running example for camera 4...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_01629ECD
+      Device Serial Number: 23240397
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_01629ECD
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 16.5982
+      Gain: 16.5982
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.08716
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.49646
+      Balance Ratio: 1.08716
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 23240397
+      Device ID: 23240397
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 50.75
+      Device Temperature: 50.75
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.60229
+            Power Supply Current: 0.512695
+      Power Supply Voltage: 4.60229
+      Power Supply Current: 0.499756
+      Device Uptime: 362
+      Link Uptime: 0
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 1
+      Link Recovery Count: 1
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 21
+      Defect Table Index: 0
+      Defect X Coordinate: 146
+      Defect Y Coordinate: 587
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xe
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 23
+      Transfer Queue Overflow Count: 62
+
+
+Camera 4 example complete...
+
+
+Running example for camera 5...
+
+*** PRINTING TRANSPORT LAYER DEVICE NODEMAP ***
+
+Root
+   Device Information
+      Device ID: USB\VID_1E10&SRL_0156732D
+      Device Serial Number: 22442797
+      Device User ID:
+      Device Vendor Name  : FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Device Version: 1809.2.8.0
+      Device Type: USB3Vision
+      Device Display Name: FLIR
+      Device Access Status: OpenReadWrite
+      Device Driver Version: Unknown : 0.0.0.0
+      Device Is Updater Mode: 0
+      Device Instance Id: USB\VID_1E10&SRL_0156732D
+      Device Location:
+      Device Current Speed: SuperSpeed
+      Device Is In U3V Protocol: 1
+      Device Port ID:
+      GenICam XML Source: Device
+      GenICam XML Path:
+      GUI XML Source: Device
+      GUI XML Path: Input.xml
+
+   Device Control
+      Device Endianness Mechanism: Standard
+      Device Reset: 0
+
+   Stream Enumeration
+      Stream Selector: 0
+      Stream ID: 0
+
+
+*** PRINTING TL STREAM NODEMAP ***
+
+Root
+   Stream Information
+      Stream ID: 0
+      Stream Type: USB3Vision
+
+   Buffer Handling Control
+      Manual Stream Buffer Count: 9
+      Resulting Stream Buffer Count: 9
+      Stream Buffer Count Max: 9
+      Stream Buffer Count Mode: Manual
+      Stream Buffer Handling Mode: OldestFirst
+      Stream Announce Buffer Minimum: 1
+      Stream Announced Buffer Count: 0
+      Stream Started Frame Count: 0
+      Stream Delivered Frame Count: 0
+      Failed Buffer Count: 0
+      Stream Lost Frame Count: 0
+      Stream Input Buffer Count: 0
+      Stream Output Buffer Count: 0
+      Stream Block Transfer Size: 1048576
+      CRC Check Enable: 0
+      Stream Is Grabbing: 0
+      Stream Chunk Count Maximum: 50
+      Stream Buffer Alignment: 1
+      Stream Dropped Frame Count: 0
+
+
+*** PRINTING GENICAM NODEMAP ***
+
+Root
+   Acquisition Control
+      Acquisition Mode: Continuous
+      Acquisition Frame Count: 2
+      Acquisition Burst Frame Count: 1
+      Exposure Mode: Timed
+      Exposure Time: 4004
+      Exposure Auto: Off
+      Acquisition Frame Rate: 119.976
+      Resulting Frame Rate: 119.976
+      Acquisition Frame Rate Enable: 1
+      Acquisition Line Rate: 255427
+      Trigger Selector: FrameStart
+         Trigger Selector: AcquisitionStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+         Trigger Selector: FrameStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: Off
+            Trigger Delay: 11
+         Trigger Selector: FrameBurstStart
+            Trigger Mode: Off
+            Trigger Source: Software
+            Trigger Overlap: ReadOut
+            Trigger Delay: 11
+      Trigger Mode: Off
+      Trigger Source: Software
+      Trigger Overlap: Off
+      Trigger Delay: 11
+      Sensor Shutter Mode: Global
+
+   Analog Control
+      Gain Selector: All
+         Gain Selector: All
+            Gain: 11.8986
+      Gain: 11.8986
+      Gain Auto: Continuous
+      Black Level Selector: All
+         Black Level Selector: All
+            Black Level: 0
+         Black Level Selector: Analog
+            Black Level Raw: 0
+            Black Level: 0
+         Black Level Selector: Digital
+            Black Level Raw: 0
+            Black Level: 0
+      Black Level: 0
+      Black Level Clamping Enable: 1
+      Balance Ratio Selector: Red
+         Balance Ratio Selector: Red
+            Balance Ratio: 1.07568
+         Balance Ratio Selector: Blue
+            Balance Ratio: 3.52197
+      Balance Ratio: 1.07568
+      Balance White Auto: Continuous
+      Gamma: 0.800049
+      Gamma Enable: 1
+
+   Image Format Control
+      Sensor Width: 1920
+      Sensor Height: 1200
+      Width Max: 960
+      Height Max: 600
+      Width: 960
+      Height: 600
+      Offset X: 0
+      Offset Y: 0
+      Pixel Format: BayerRG8
+      Pixel Size: Bpp8
+      Pixel Color Filter: BayerRG
+      Pixel Dynamic Range Min: 0
+      Pixel Dynamic Range Max: 255
+      ISP Enable: 0
+      Binning Selector: All
+         Binning Selector: All
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: Sensor
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+         Binning Selector: ISP
+            Binning Horizontal Mode: Sum
+            Binning Vertical Mode: Sum
+            Binning Horizontal: 1
+            Binning Vertical: 1
+      Binning Horizontal Mode: Sum
+      Binning Vertical Mode: Sum
+      Binning Horizontal: 1
+      Binning Vertical: 1
+      Decimation Selector: All
+         Decimation Selector: All
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+         Decimation Selector: Sensor
+            Decimation Horizontal Mode: Discard
+            Decimation Vertical Mode: Discard
+            Decimation Horizontal: 2
+            Decimation Vertical: 2
+      Decimation Horizontal Mode: Discard
+      Decimation Vertical Mode: Discard
+      Decimation Horizontal: 2
+      Decimation Vertical: 2
+      Reverse X: 0
+      Reverse Y: 0
+      Test Pattern Generator Selector: Sensor
+         Test Pattern Generator Selector: Sensor
+            Test Pattern: Off
+         Test Pattern Generator Selector: PipelineStart
+            Test Pattern: Off
+      Test Pattern: Off
+      ADC Bit Depth: Bit10
+
+   Device Control
+      Device Scan Type: Areascan
+      Device Sensor Chroma: RGB
+      Device Vendor Name: FLIR
+      Device Model Name: Blackfly S BFS-U3-23S3C
+      Sensor Description: Sony IMX392 (1/2.3" Color CMOS)
+      Device Manufacturer Info: Oct  2 2018 17:26:12
+      Device Version: 1809.2.8.0
+      Device Firmware Version: 1809.2.8.0
+      Device Serial Number: 22442797
+      Device ID: 22442797
+      Device User ID:
+      Device TL Type: USB3Vision
+      Device Gen CP Version Major: 1
+      Device Gen CP Version Minor: 0
+      Device Max Throughput: 115235200
+      Device Link Speed: 500000000
+      Device Link Throughput Limit: 380000000
+      Device Link Bandwidth Reserve: 0
+      Device Link Current Throughput: 69127004
+      Device Indicator Mode: Active
+      Device Temperature Selector: Sensor
+         Device Temperature Selector: Sensor
+            Device Temperature: 51.375
+      Device Temperature: 51.375
+      Timestamp Latch Value: 0
+      Timestamp Increment: 1000
+      Device Power Supply Selector: External
+         Device Power Supply Selector: External
+            Power Supply Voltage: 4.27612
+            Power Supply Current: 0.540527
+      Power Supply Voltage: 4.33032
+      Power Supply Current: 0.540527
+      Device Uptime: 362
+      Link Uptime: 1
+      Enumeration Count: 3
+      Max Device Reset Time: 30000
+
+   Transport Layer Control
+      Payload Size: 576088
+      TLParamsLocked: 0
+      USB3 Vision
+         Max Response Time: 200
+         Message Channel: 0
+         Access Privilege: 0
+         U3V Version Major: 1
+         U3V Version Minor: 0
+         U3V Capability: 0
+         U3V SIRM Available: 1
+         U3V EIRM Available: 1
+         U3V IIDC2 Available: 0
+         Max Command Transfer Length: 1024
+         Max Ack Transfer Length: 1024
+         Number of Stream Channels: 1
+         Current Speed: SuperSpeed
+
+      Link Error Count: 2
+      Link Recovery Count: 2
+
+   Sequencer Control
+      Sequencer Mode: Off
+      Sequencer Configuration Mode: Off
+      Sequencer Configuration Valid: No
+      Sequencer Configuration Reset: 0
+      Sequencer Feature Selector: ExposureTime
+         Sequencer Feature Selector: ExposureTime
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Gain
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetX
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: OffsetY
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Width
+            Sequencer Feature Enable: 1
+         Sequencer Feature Selector: Height
+            Sequencer Feature Enable: 1
+      Sequencer Feature Enable: 1
+      Sequencer Set Start: 0
+      Sequencer Set Selector: 0
+      Sequencer Set Valid: No
+      Sequencer Set Save: 0
+      Sequencer Set Load: 0
+      Sequencer Path Selector: 0
+      Sequencer Trigger Source: Off
+
+   Color Transformation Control
+      RGB Transform Light Source: General
+
+   Auto Algorithm Control
+      ROI Selector: Awb
+         ROI Selector: Awb
+            ROI Enable: 0
+         ROI Selector: Ae
+            ROI Enable: 0
+      ROI Enable: 0
+      White Balance Auto Profile: Indoor
+      White Balance Auto Lower Limit: 0.5
+      White Balance Auto Upper Limit: 4
+      White Balance Auto Damping: 0.25
+      Target Grey Value Auto: Continuous
+      Lighting Mode: Normal
+      Metering Mode: Average
+      Exposure Time Lower Limit: 100
+      Exposure Time Upper Limit: 15000
+      Gain Lower Limit: 0
+      Gain Upper Limit: 18.0001
+      Target Grey Value Lower Limit: 3.91007
+      Target Grey Value Upper Limit: 93.8416
+      EV Compensation: 0
+      Auto Exposure Damping: 0.5
+
+   Flat Field Correction Control
+      Flat Field User Table Control
+
+
+   Defective Pixel Correction
+      Defect Table Pixel Count: 18
+      Defect Table Index: 0
+      Defect X Coordinate: 426
+      Defect Y Coordinate: 756
+      Defect Table Apply: 0
+      Defect Table Factory Restore: 0
+
+   User Set Control
+      User Set Selector: Default
+         User Set Selector: Default
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet0
+            User Set Load: 0
+            User Set Save: 0
+         User Set Selector: UserSet1
+            User Set Load: 0
+            User Set Save: 0
+      User Set Load: 0
+      User Set Save: 0
+      User Set Default: Default
+      User Set Feature Selector: AasRoiEnableAe
+      User Set Feature Enable: 1
+
+   Chunk Data Control
+      Chunk Mode Active: 1
+      Chunk Selector: ExposureEndLineStatusAll
+         Chunk Selector: Image
+            Chunk Enable: 1
+         Chunk Selector: CRC
+            Chunk Enable: 1
+         Chunk Selector: FrameID
+            Chunk Enable: 1
+         Chunk Selector: OffsetX
+            Chunk Enable: 0
+         Chunk Selector: OffsetY
+            Chunk Enable: 0
+         Chunk Selector: Width
+            Chunk Enable: 0
+         Chunk Selector: Height
+            Chunk Enable: 0
+         Chunk Selector: ExposureTime
+            Chunk Enable: 1
+         Chunk Selector: Gain
+            Chunk Enable: 1
+         Chunk Selector: BlackLevel
+            Chunk Enable: 0
+         Chunk Selector: PixelFormat
+            Chunk Enable: 0
+         Chunk Selector: Timestamp
+            Chunk Enable: 1
+         Chunk Selector: SequencerSetActive
+            Chunk Enable: 0
+         Chunk Selector: SerialData
+            Chunk Enable: 0
+         Chunk Selector: ExposureEndLineStatusAll
+            Chunk Enable: 1
+      Chunk Enable: 1
+      Chunk Gain Selector: All
+         Chunk Gain Selector: All
+         Chunk Gain Selector: Red
+         Chunk Gain Selector: Green
+         Chunk Gain Selector: Blue
+      Chunk Black Level Selector: All
+         Chunk Black Level Selector: All
+
+   LUT Control
+      LUT Selector: LUT1
+         LUT Selector: LUT1
+            LUT Enable: 0
+            LUT Index: 0
+            LUT Value: 0
+            LUT Value All: 0x000000000000000000000000000000000...
+      LUT Enable: 0
+      LUT Index: 0
+      LUT Value: 0
+      LUT Value All: 0x000000000000000000000000000000000...
+
+   Event Control
+      Event Selector: Error
+         Event Selector: Error
+            Event Notification: Off
+         Event Selector: ExposureEnd
+            Event Notification: Off
+         Event Selector: SerialPortReceive
+            Event Notification: Off
+      Event Notification: Off
+      Event Exposure End Data
+         Event Exposure End: 40003
+
+      Event Error Data
+         Event Error: 40000
+
+      Event Serial Port Receive Data
+         Event Serial Port Receive: 40005
+
+      Event Test Data
+         Event Test: 20479
+
+
+   Counter And Timer Control
+      Counter Selector: Counter0
+         Counter Selector: Counter0
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+         Counter Selector: Counter1
+            Counter Event Source: MHzTick
+            Counter Duration: 1
+            Counter Delay: 0
+            Counter Value: 1
+            Counter Trigger Source: ExposureStart
+            Counter Trigger Activation: RisingEdge
+            Counter Status: CounterTriggerWait
+      Counter Event Source: MHzTick
+      Counter Duration: 1
+      Counter Value: 1
+      Counter Trigger Source: ExposureStart
+      Counter Trigger Activation: RisingEdge
+      Counter Status: CounterTriggerWait
+      Counter Delay: 0
+
+   Test Control
+      Test Pending Ack: 0
+      Test 0001: 0
+      GUI XML Manifest Address: 0xf0001020
+
+   Logic Block Control
+      Logic Block Selector: LogicBlock0
+         Logic Block Selector: LogicBlock0
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+         Logic Block Selector: LogicBlock1
+            Logic Block LUT Selector: Value
+               Logic Block LUT Selector: Value
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Selector: Enable
+                  Logic Block LUT Output Value All: 0xff
+                  Logic Block LUT Input Selector: Input0
+                     Logic Block LUT Input Selector: Input0
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input1
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                     Logic Block LUT Input Selector: Input2
+                        Logic Block LUT Input Source: Zero
+                        Logic Block LUT Input Activation: LevelHigh
+                  Logic Block LUT Row Index: 0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Output Value: 1
+      Logic Block LUT Selector: Value
+         Logic Block LUT Selector: Value
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Selector: Enable
+            Logic Block LUT Output Value All: 0xff
+            Logic Block LUT Input Selector: Input0
+               Logic Block LUT Input Selector: Input0
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input1
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+               Logic Block LUT Input Selector: Input2
+                  Logic Block LUT Input Source: Zero
+                  Logic Block LUT Input Activation: LevelHigh
+            Logic Block LUT Row Index: 0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Selector: Input0
+         Logic Block LUT Input Selector: Input0
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input1
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+         Logic Block LUT Input Selector: Input2
+            Logic Block LUT Input Source: Zero
+            Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Input Source: Zero
+      Logic Block LUT Input Activation: LevelHigh
+      Logic Block LUT Output Value All: 0xff
+      Logic Block LUT Row Index: 0
+      Logic Block LUT Output Value: 1
+
+   Digital IO Control
+      Line Selector: Line0
+         Line Selector: Line0
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 0
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: OptoCoupled
+            Line Filter Width: 0
+         Line Selector: Line1
+            Line Mode: Output
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+               Input filter Selector: Debounce
+            Line Source: ExposureActive
+            Line Format: OptoCoupled
+         Line Selector: Line2
+            Line Mode: Input
+            3.3V Enable: 0
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: ExposureActive
+            Line Format: TriState
+            Line Filter Width: 0
+         Line Selector: Line3
+            Line Mode: Input
+            Line Inverter: 0
+            Line Status: 1
+            Input filter Selector: Deglitch
+               Input filter Selector: Deglitch
+                  Line Filter Width: 0
+               Input filter Selector: Debounce
+                  Line Filter Width: 0
+            Line Source: Off
+            Line Format: TriState
+            Line Filter Width: 0
+      Line Mode: Input
+      Line Inverter: 0
+      Line Status: 0
+      Line Status All: 0xc
+      Input filter Selector: Deglitch
+         Input filter Selector: Deglitch
+            Line Filter Width: 0
+         Input filter Selector: Debounce
+            Line Filter Width: 0
+      Line Filter Width: 0
+      Line Source: Off
+      Line Format: OptoCoupled
+      User Output Selector: UserOutput0
+         User Output Selector: UserOutput0
+            User Output Value: 0
+         User Output Selector: UserOutput1
+            User Output Value: 0
+         User Output Selector: UserOutput2
+            User Output Value: 0
+         User Output Selector: UserOutput3
+            User Output Value: 0
+      User Output Value: 0
+      User Output Value All: 0
+
+   Serial Port Control
+      Serial Port Selector: SerialPort0
+         Serial Port Selector: SerialPort0
+            Serial Port Source: Off
+            Serial Port Baud Rate: Baud57600
+            Serial Port Data Bits: 8
+            Serial Port Stop Bits: Bits1
+            Serial Port Parity: None
+            Transmit Queue Max Character Count: 4096
+            Transmit Queue Current Character Count: 0
+            Receive Queue Max Character Count: 4096
+            Receive Queue Current Character Count: 0
+            Receive Framing Error Count: 0
+            Receive Parity Error Count: 0
+      Serial Port Source: Off
+      Serial Port Baud Rate: Baud57600
+      Serial Port Data Bits: 8
+      Serial Port Stop Bits: Bits1
+      Serial Port Parity: None
+      Transmit Queue Max Character Count: 4096
+      Transmit Queue Current Character Count: 0
+      Receive Queue Max Character Count: 4096
+      Receive Queue Current Character Count: 0
+      Receive Framing Error Count: 0
+      Receive Parity Error Count: 0
+
+   File Access
+      File Selector: UserSetDefault
+         File Selector: UserSetDefault
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserSet1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 1376
+         File Selector: UserFile1
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+         File Selector: SerialPort0
+            File Operation Selector: Open
+               File Operation Selector: Open
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Close
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Read
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Write
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+               File Operation Selector: Delete
+                  File Access Offset: 0
+                  File Access Length: 1
+                  File Operation Status: Success
+                  File Operation Result: 0
+            File Open Mode: Read
+            File Size: 0
+      File Operation Selector: Open
+         File Operation Selector: Open
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Close
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Read
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Write
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+         File Operation Selector: Delete
+            File Access Offset: 0
+            File Access Length: 1
+            File Operation Status: Success
+            File Operation Result: 0
+      File Open Mode: Read
+      File Access Buffer: 0x000000000000000000000000000000000...
+      File Access Offset: 0
+      File Access Length: 1
+      File Operation Status: Success
+      File Operation Result: 0
+      File Size: 1376
+
+   Transfer Control
+      Transfer Control Mode: Basic
+      Transfer Queue Max Block Count: 24
+      Transfer Queue Current Block Count: 23
+      Transfer Queue Overflow Count: 34000
+
+
+Camera 5 example complete...
+
+
+Done! Press Enter to exit...
