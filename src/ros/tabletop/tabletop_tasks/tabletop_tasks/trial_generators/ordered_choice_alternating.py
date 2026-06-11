@@ -32,11 +32,12 @@ from tabletop_tasks.trial_generators.base import (
 
 
 class OrderedChoiceAlternating(BaseTrialGenerator):
-    """Trial generator with deterministic ordered cycling.
+    """Trial generator with ordered cycling alternating across robot groups.
 
-    Generates trials by cycling through all combinations of parameters
-    in a fixed order. Creates a full factorial design using itertools.product
-    and iterates through combinations, wrapping when necessary.
+    Generates trials by alternating between robot groups, cycling through
+    ordered parameter combinations for each group. Creates a full factorial
+    design for each group and iterates through combinations, wrapping when
+    necessary.
 
     Parameter order in the product (fastest to slowest varying):
     occlude -> pose -> arm -> object_id
@@ -44,13 +45,13 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
     This generator does not adapt based on feedback.
 
     Attributes:
-        _object_ids: List of object identifiers.
+        _grouped_object_ids: Dict mapping group names to object lists.
         _poses: List of PoseStamped objects.
         _arms: List of arm assignments.
         _occlude: List of occlusion states.
         _num_trials: Total number of trials to generate.
         _trial_counter: Current trial count.
-        _parameter_grid: Precomputed list of all parameter combinations.
+        _iterators: Dict of iterators per group for parameter cycling.
     """
 
     def __init__(
@@ -63,18 +64,22 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         num_trials: int,
         skip_failed: bool = True,
     ):
-        """Initialize the ordered choice generator.
+        """Initialize the ordered choice alternating generator.
 
         Args:
             commander: Commander instance for robot interaction.
-            object_ids: List of object IDs to cycle through.
+            grouped_object_ids: Dict mapping robot group names to lists
+                of object IDs for each group.
             poses: List of pose dictionaries (passed to pose_stamped_msg).
             arms: List of arm assignments to cycle through.
             occlude: List of occlusion states to cycle through.
             num_trials: Total number of trials to generate.
+            skip_failed: If True, retries failed trials; if False, skips
+                them (default True).
 
         Raises:
-            ValueError: If num_trials is less than 1.
+            ValueError: If num_trials < 1 or objects not reachable by
+                their assigned robots.
         """
         super().__init__(
             "ordered_choice_alternating_trial_generator", commander
@@ -114,7 +119,18 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         self._iterators = {x: self.init_iterator(x) for x in self._group_names}
 
     def init_iterator(self, group_name: str) -> Iterator[TrialSpec]:
-        """TODO"""
+        """Create an infinite iterator for a specific robot group.
+
+        Cycles through all parameter combinations for the group in order:
+        occlude -> pose -> arm -> object_id. Automatically loops when
+        exhausted.
+
+        Args:
+            group_name: Name of the robot group for which to create iterator.
+
+        Yields:
+            TrialSpec with ordered parameter combinations for the group.
+        """
         while True:
             for occlude in self._occlude:
                 for pose in self._poses:
@@ -132,11 +148,13 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
 
-        Cycles through the parameter grid, wrapping to the beginning
-        when all combinations have been used.
+        Alternates between robot groups, cycling through ordered parameter
+        combinations for each group. Returns pending retries before
+        generating new trials.
 
         Returns:
-            TrialSpec with the next parameter combination.
+            TrialSpec with the next ordered parameter combination for
+            the current group.
 
         Raises:
             StopIteration: When num_trials have been generated.
@@ -168,13 +186,15 @@ class OrderedChoiceAlternating(BaseTrialGenerator):
         return trial_spec
 
     def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
-        """Process trial feedback.
+        """Process trial feedback from a completed trial.
 
-        This generator does not adapt based on feedback.
+        Clears the last trial spec for the group on successful feedback.
+        If skip_failed is False and feedback is None, retains trial for
+        retry. Marks the group as the next candidate for new trials.
 
         Args:
-            trial_spec: Unused original trial spec.
-            feedback: Unused trial feedback.
+            trial_spec: Original trial spec from the completed trial.
+            feedback: Trial feedback (None indicates failure).
         """
         if trial_spec is not None:
             last_trial_spec = self._last_trial_spec[trial_spec.group_name]

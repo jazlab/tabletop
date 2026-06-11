@@ -100,8 +100,8 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         """Initialize the trial generator.
 
         Args:
+            name: Name for the ROS logger.
             commander: Commander instance for robot interaction.
-            logger_name: Name for the ROS logger.
         """
         self._commander = commander
         self._logger = commander.get_logger().get_child(name)

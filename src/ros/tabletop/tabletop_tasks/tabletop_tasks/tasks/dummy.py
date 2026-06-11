@@ -49,6 +49,16 @@ class DummyTask(BaseTask):
         super().__init__("dummy_task", commander)
 
     async def test_ping_latency(self, srv_name: str):
+        """Measure ROS service call latency to hardware interface.
+
+        Sends 1000 ping requests to the specified service and collects
+        round-trip latency statistics. Distinguishes between forward
+        (client to hardware) and backward (hardware to client) latency.
+
+        Args:
+            srv_name: Name of the Ping service to test
+                (e.g., "teensy/ping", "ble_sniffer/ping").
+        """
         client = self.commander.create_client(
             Ping, srv_name, enable_introspection=False
         )
@@ -102,16 +112,15 @@ class DummyTask(BaseTask):
         )
 
     async def test_flic_latency_pre_pressed(self) -> None:
-        """Test Flic button latency across multiple objects (deprecated)
+        """Measure Flic button latency across multiple objects (deprecated).
 
-        Don't use this test anymore now that auto-disconnect time has
-        been set to 0 on Flic node, which I believe prevents pre-pressing
-        the buttons from correctly queuing them.
+        DEPRECATED: Do not use - auto-disconnect time set to 0 on Flic node
+        prevents pre-pressing buttons from correctly queuing responses.
 
-        Iterates through small objects 0-29 and measures Flic button
-        latencies, computing average and standard deviation.
-        Assumes all buttons have been "pre-pressed" after the first one.
-        This should trigger the button press immediately upon connect.
+        Original design: Iterates through small objects 0-29 and measures
+        Flic button latencies, computing average and standard deviation.
+        Assumed all buttons have been "pre-pressed" after the first one,
+        which would trigger the button press immediately upon connect.
         """
         reported_latencies = []
         total_latencies = []
@@ -157,11 +166,14 @@ class DummyTask(BaseTask):
         )
 
     async def test_flic_latency_human(self) -> None:
-        """Test Flic button latency using human response time as ground truth
+        """Measure Flic button latency using human reaction time as reference.
 
-        Tests the full trial sequence with smartglass occlusion and
-        reveal, measuring corrected response times that account for
-        the occlusion period.
+        Executes 30 trials with smartglass occlusion and reveal, measuring
+        corrected response times that account for the occlusion delay period.
+        Results saved to /tabletop/rts.npy for further analysis.
+
+        Human reaction time from https://humanbenchmark.com/tests/reactiontime
+        minus the average latency here gives the Flic button latency.
         """
         rts = []
         try:
@@ -206,7 +218,12 @@ class DummyTask(BaseTask):
             )
 
     async def test_flic_latency_button(self) -> None:
-        """Test Flic button latency using the teensy button as ground truth"""
+        """Measure Flic button latency using teensy button as ground truth.
+
+        Loops indefinitely, comparing Flic button press timestamps with
+        teensy button timestamps. Requires pressing both buttons
+        simultaneously for accurate measurement.
+        """
         latencies = []
         try:
             while True:
@@ -241,8 +258,15 @@ class DummyTask(BaseTask):
             )
 
     async def test_flic_latency_button_new(self) -> None:
-        """Test Flic button latency using the teensy button as ground truth"""
+        """Measure Flic button latency using teensy button ground truth.
 
+        Subscribes to Flic button press messages and compares timestamps
+        with the last teensy button press. Runs until interrupted,
+        continuously logging latencies.
+
+        Requires pressing Flic button and teensy button simultaneously
+        for accurate measurement.
+        """
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Header] = asyncio.Queue()
 
@@ -293,7 +317,11 @@ class DummyTask(BaseTask):
             sub.destroy()
 
     async def test_optitrack_latency_solenoid(self):
-        """Test using a solenoid to press the button"""
+        """Test solenoid-based button press (not implemented).
+
+        Placeholder for testing button press latency using a solenoid
+        actuator. Currently just sleeps indefinitely.
+        """
         await asyncio.sleep(1000)
         # client = self.commander.create_client(
         #     SetSolenoid, "teensy/set_solenoid"
@@ -312,12 +340,19 @@ class DummyTask(BaseTask):
         #     )
 
     async def test_smooth_pursuit(self):
-        """Test the smooth pursuit action client."""
+        """Test smooth pursuit and eye tracking reward system.
+
+        Reveals smartglass and activates smooth pursuit with reward delivery.
+        """
         self.log("Starting smooth pursuit task")
         await self.commander.reveal_smartglass()
         await self.commander.smooth_pursuit_and_reward()
 
     async def test_sound(self):
+        """Test audio output by repeatedly playing sound.
+
+        Plays sound in 1-second intervals indefinitely.
+        """
         while True:
             await self.commander.play_sound()
             await asyncio.sleep(1)
@@ -345,6 +380,12 @@ class DummyTask(BaseTask):
             await asyncio.sleep(5.0)
 
     async def test_object_fetch_return(self):
+        """Test object fetch and return cycle across grid positions.
+
+        Cycles through grid positions (skipping positions 6 and 9),
+        fetching each object and returning it immediately. Useful for
+        verifying object manipulation state transitions work correctly.
+        """
         robot_name = "left_manipulator"
         i = 0
         while i < 15:
@@ -373,6 +414,18 @@ class DummyTask(BaseTask):
         object_id: str,
         allow_start_goal_collisions: bool,
     ):
+        """Test robot movement from current position to reset pose.
+
+        Manually attaches an object and moves the robot to its reset
+        configuration, with optional collision allowances during
+        start-goal transition.
+
+        Args:
+            robot_name: Name of the robot group to move.
+            object_id: ID of the object to attach.
+            allow_start_goal_collisions: If False, validates collision-free
+                start-to-goal path; if True, skips intermediate check.
+        """
         async with self.commander.manipulation_context(robot_name) as ctx:
             manipulator = ctx._manipulator
             moveit = manipulator._moveit
@@ -426,6 +479,11 @@ class DummyTask(BaseTask):
                     moveit.disallow_collision(*zip(*modified_collisions))
 
     async def test_move_to_reset(self):
+        """Test concurrent reset movement for both manipulators.
+
+        Moves left and right manipulators to their reset positions
+        concurrently, allowing start-to-goal collisions.
+        """
         allow_start_goal_collisions = True
         async with asyncio.TaskGroup() as tg:
             tg.create_task(
@@ -444,7 +502,21 @@ class DummyTask(BaseTask):
             )
 
     async def run(self) -> None:
-        """Run one or more of the tests"""
+        """Run one or more of the diagnostic tests.
+
+        Uncomment the desired test method(s) below to run latency
+        measurements, hardware tests, or other diagnostics. Most tests are
+        disabled by default and should only be run during debugging or
+        system calibration.
+
+        Available tests:
+        - test_ping_latency: ROS service call latency to hardware
+        - test_flic_latency_*: Flic button response time measurement
+        - test_link_position: End-effector pose monitoring
+        - test_object_fetch_return: Object manipulation cycle test
+        - test_smooth_pursuit: Smooth pursuit trajectory test
+        - test_sound: Audio output test
+        """
         # await self.test_ping_latency("teensy/ping")
         # await self.test_ping_latency("ble_sniffer/ping")
         # await self.test_flic_latency_pre_pressed()

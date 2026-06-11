@@ -135,10 +135,12 @@ class RandomChoice(BaseTrialGenerator):
     def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
         """Process trial feedback.
 
-        This generator does not adapt based on feedback.
+        This generator does not adapt based on feedback. Clears the last
+        trial spec on successful feedback. If skip_failed is False and
+        feedback is None, retains the trial for retry.
 
         Args:
-            trial_spec: Unused original trial spec.
-            feedback: Unused trial feedback.
+            trial_spec: Original trial spec (unused).
+            feedback: Trial feedback (unused - only status checked).
         """
         pass

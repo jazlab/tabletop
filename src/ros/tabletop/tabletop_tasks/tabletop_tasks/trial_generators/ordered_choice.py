@@ -97,7 +97,14 @@ class OrderedChoice(BaseTrialGenerator):
         self._iterator = self.init_iterator()
 
     def init_iterator(self) -> Iterator[TrialSpec]:
-        """TODO"""
+        """Create an infinite iterator over all parameter combinations.
+
+        Uses itertools.product to create a full factorial design and yields
+        TrialSpec objects in order. Automatically loops when exhausted.
+
+        Yields:
+            TrialSpec with cycled parameter combinations.
+        """
         while True:
             generator = itertools.product(
                 self._occlude, self._poses, self._arms, self._object_ids
@@ -136,10 +143,11 @@ class OrderedChoice(BaseTrialGenerator):
     def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
         """Process feedback from a completed trial.
 
-        Any feedback clears the last trial spec.
+        Clears the last trial spec on successful feedback. If skip_failed
+        is False and feedback is None, retains the trial for retry.
 
         Args:
-            spec: Unused original trial spec.
-            feedback: Unused trial feedback.
+            trial_spec: Original trial spec (unused).
+            feedback: Trial feedback (unused - only status checked).
         """
         self._last_trial_spec = None

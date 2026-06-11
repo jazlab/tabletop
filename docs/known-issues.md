@@ -28,6 +28,30 @@ while building the architecture docs (2026-06). **No code was changed**
    completes. `nodes/system_check.py` works around it with a local
    `except*`; other future callers will hit the same trap.
 
+## Likely bugs (continued)
+
+11. **Copy-paste parameter bug in
+    `interfaces/moveit/plan_and_execute.py:1031`.**
+    `allowed_duration_margin = self.param("execution.allowed_duration_scaling")`
+    reads the *scaling* parameter for the *margin* variable (the
+    validation error message right below names the correct
+    `allowed_duration_margin` key). The configured margin is ignored.
+
+12. **Dropped `use_cache=False` in
+    `interfaces/moveit/object_manipulation.py:1175-1178`.** A copy of
+    `config.reset_request` is made and `use_cache` set to False, but
+    `plan_and_execute` is then called with the *original*
+    `config.reset_request` — the no-cache intent is silently lost.
+
+13. **Inverted "correct" counter in
+    `trial_generators/blocked_cup_drawer.py:133`.** `_num_correct` is
+    incremented when `feedback.timeout` is True, but in the tasks that
+    produce feedback (`tasks/foraging.py:177-181`) `timeout=True`
+    means the subject did NOT respond. Blocks therefore switch after N
+    *failed* trials, contradicting the `correct_trials_per_block`
+    name. Docstrings now describe the implemented behavior; the logic
+    needs review.
+
 ## Code smells / API warts
 
 8. **Typo'd public API method: `Commander.manually_atatch_object`**
