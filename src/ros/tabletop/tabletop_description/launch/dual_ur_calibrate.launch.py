@@ -1,3 +1,18 @@
+"""Launch file for dual UR robot kinematics calibration.
+
+Launches per-arm calibration correction processes for both left and right
+UR robots. Runs the ur_calibration package's calibration correction to
+refine the robot kinematics parameters based on measured data.
+
+Included Launch Files:
+    - ur_calibration.launch.py (ur_calibration): Per-arm calibration
+        (PushROSNamespace scoped to left/right)
+
+Example:
+    ros2 launch tabletop_description dual_ur_calibrate.launch.py \
+        robot_mode:=real
+"""
+
 # Copyright (c) 2021 PickNik, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +43,6 @@
 
 #
 # Author: Denis Stogl
-
 
 from launch import LaunchDescription
 from launch.actions import (

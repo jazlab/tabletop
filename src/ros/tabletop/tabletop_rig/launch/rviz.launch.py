@@ -1,3 +1,21 @@
+"""Launch file for RViz visualization with MoveIt planning.
+
+Launches RViz with MoveIt plugin and warehouse database connection for
+visualization and interactive motion planning of the dual-arm robot.
+
+Nodes Launched:
+    wait_for_robot_description (ur_robot_driver): Blocks until robot
+        description is available
+    rviz2: RViz visualization with MoveIt plugin
+
+Config Files Loaded:
+    - rig.rviz: RViz configuration with MoveIt displays
+    - moveit_cpp.yaml: MoveIt C++ configuration (via MoveItConfigsBuilder)
+
+Example:
+    ros2 launch tabletop_rig rviz.launch.py robot_name:=tabletop
+"""
+
 import os
 
 from launch import (

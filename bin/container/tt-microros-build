@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Build and optionally upload MicroROS firmware for Teensy and Flic Micro devices (runs in container)
+# Usage: tt-microros-build [-t|--target teensy|flic_micro|all] [--clean] [--no-upload] [--compiledb]
+# Wraps: pio (PlatformIO) commands for building/uploading microcontroller firmware
+# Runs on: container
+# Environment: TABLETOP_DIR
+# Logic: Parses target selection, iterates over project directories, runs pio with retries for uploads
 
 set -eo pipefail
 
@@ -11,6 +17,7 @@ print_usage() {
     echo "Usage: $0 [-t|--target teensy(default)|flic_micro|all] [--clean] [--no-upload] [--compiledb]"
 }
 
+# Default: build and upload teensy firmware with 2 retries on failure
 target_arg="--target upload"
 retries=2
 project_dirs=(
@@ -22,14 +29,17 @@ while [[ $# -gt 0 ]]; do
             clean=true
             ;;
         --no-upload)
+            # Build only (no upload); 1 retry
             unset target_arg
             retries=1
             ;;
         --compiledb)
+            # Generate compile_commands.json for IDE integration; 1 retry
             target_arg="--target compiledb"
             retries=1
             ;;
         -t|--target)
+            # Select which microcontroller projects to build
             shift
             case $1 in
                 teensy)
@@ -60,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+# Build each selected project with retries on upload failures
 for project_dir in "${project_dirs[@]}"; do
     builtin cd $project_dir
 
@@ -71,6 +82,7 @@ for project_dir in "${project_dirs[@]}"; do
 
     print_status "Building MicroROS at $project_dir"
     i=0
+    # Retry loop: attempt build/upload up to $retries times on failure
     while (( i < retries )) && ! pio run $target_arg; do
         (( i+=1 ))
         if (( i >= retries )); then

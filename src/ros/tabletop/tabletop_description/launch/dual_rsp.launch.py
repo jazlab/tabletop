@@ -146,7 +146,7 @@ def declare_arguments():
             "save_urdf",
             default_value="true",
             choices=["true", "false"],
-            description="Save parsed URDF to urdf_save_file.",
+            description="Save parsed URDF to file.",
         ),
         DeclareLaunchArgument(
             "urdf_save_file",

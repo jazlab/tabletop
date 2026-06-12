@@ -1,3 +1,15 @@
+"""Launch file for the Eyelink eye tracker.
+
+Launches the Eyelink eye tracking node, which interfaces with the Eyelink
+eye tracking system for gaze measurement in TableTop experiments.
+
+Nodes Launched:
+    eyelink (tabletop_rig): Eye gaze tracking interface
+
+Example:
+    ros2 launch tabletop_rig eyelink.launch.py simulate:=false
+"""
+
 from launch import (
     LaunchDescription,
 )

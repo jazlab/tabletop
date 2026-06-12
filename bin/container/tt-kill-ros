@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
+# Kill all running ROS-related processes
+# Usage: tt-kill-ros [pkill_options...]
+# Wraps: pgrep, pkill
+# Runs on: container
+# Notes: Kills all processes matching pattern "ros" by name or command line
 
-# Find all running ROS nodes and kill them
+# Find and display all running ROS nodes
 pgrep -fa ros
+# Kill them (accepts optional pkill flags)
 pkill "$@" -f ros

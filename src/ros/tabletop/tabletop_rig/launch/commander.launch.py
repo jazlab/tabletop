@@ -1,3 +1,23 @@
+"""Launch file for the Commander node.
+
+Launches the main commander orchestration node which coordinates all robot
+interfaces (MoveIt, Teensy, Flic, Eyelink, Dashboard, Sound) for TableTop
+experiments.
+
+Nodes Launched:
+    wait_for_robot_description (ur_robot_driver): Blocks until robot
+        description is available
+    commander (tabletop_rig): Main orchestration and experiment control
+
+Config Files Loaded:
+    - dual_tabletop.srdf.xacro: Robot semantic description (SRDF)
+    - commander.yaml: Commander node parameters and overrides
+    - moveit_cpp.yaml: MoveIt C++ interface configuration
+
+Example:
+    ros2 launch tabletop_rig commander.launch.py robot_mode:=mock
+"""
+
 import os
 
 import yaml

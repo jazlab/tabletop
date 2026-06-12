@@ -1,3 +1,32 @@
+"""Launch file for UR robot driver and control (upstream UR driver).
+
+Launches the complete UR robot control stack including robot state
+publisher, controller manager, spawner, and per-arm helper nodes from
+upstream ur_robot_driver package. This is a customizable wrapper around
+the standard UR driver launch file.
+
+Nodes Launched (via launch_setup OpaqueFunction):
+    robot_state_publisher (robot_state_publisher): URDF publisher
+    controller_manager (controller_manager): ros2_control node
+    spawner (controller_manager): Active/inactive controller spawners
+    dashboard_client (ur_robot_driver): Dashboard communication (real only)
+    robot_state_helper (ur_robot_driver): Robot state monitoring (real)
+    tool_communication (ur_robot_driver): Tool serial bridge (optional)
+    urscript_interface (ur_robot_driver): URScript execution (real)
+    controller_stopper (ur_robot_driver): Safety management (real)
+    rviz2: Visualization (optional)
+    trajectory_until_node (ur_robot_driver): Trajectory monitoring
+
+Config Files Loaded:
+    - ur_controllers.yaml: Controller definitions
+    - ur_type_update_rate.yaml: Control loop timing
+    - kinematics_params_file: Robot calibration
+
+Example:
+    ros2 launch tabletop_rig ur_control.launch.py robot_mode:=mock \
+        ur_type:=ur5e controller_spawner_timeout:=120
+"""
+
 # Copyright (c) 2021 PickNik, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -182,7 +211,7 @@ def launch_setup(context):
         ],
     )
 
-    # Spawn controllers
+    # Factory for controller spawner nodes (active or inactive)
     def controller_spawner(controllers, active=True):
         inactive_flags = ["--inactive"] if not active else []
         return Node(
@@ -534,6 +563,7 @@ def generate_launch_description():
                 LaunchConfiguration("ur_type"),
                 "_update_rate.yaml",
             ],
+            description="Update rate configuration file.",
         )
     )
     return LaunchDescription(

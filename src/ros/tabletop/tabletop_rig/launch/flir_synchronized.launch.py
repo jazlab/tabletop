@@ -1,3 +1,22 @@
+"""Launch file for synchronized FLIR camera system.
+
+Launches FLIR cameras with synchronized triggering via the
+spinnaker_synchronized_camera_driver. Supports exposure control and
+image transport plugin configuration.
+
+Nodes Launched:
+    flir_camera_container (rclcpp_components): Component container
+        SynchronizedCameraDriver (composable): Synchronized camera driver
+    tf publishers (tf2_ros): Static transforms for camera poses
+
+Config Files Loaded:
+    - flir_synchronized.yaml: Synchronized camera configuration
+    - camera_type.yaml: Per-camera manufacturer parameters (Spinnaker)
+
+Example:
+    ros2 launch tabletop_rig flir_synchronized.launch.py
+"""
+
 import os
 from collections.abc import Sequence
 from copy import deepcopy
@@ -97,7 +116,8 @@ def make_tf_publisher(
 
 
 def launch_setup(context, *args, **kwargs):
-    # Get launch configurations
+    # Load and parse synchronized camera configuration
+    # and build driver parameters for all cameras
     camera_param_dir = LaunchConfiguration("camera_param_dir").perform(context)
     log_level = LaunchConfiguration("log_level").perform(context)
     use_sim_time = bool(LaunchConfiguration("use_sim_time").perform(context))

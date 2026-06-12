@@ -1,3 +1,15 @@
+"""Launch file for the Flic button response time measurement.
+
+Launches the Flic button interface node for measuring response times to
+button presses during TableTop experiments.
+
+Nodes Launched:
+    flic (tabletop_rig): Flic button response time measurement interface
+
+Example:
+    ros2 launch tabletop_rig flic.launch.py simulate:=false
+"""
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,

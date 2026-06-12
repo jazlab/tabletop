@@ -1,3 +1,36 @@
+"""Launch file for multi-robot UR control system (experimental).
+
+Launches per-arm robot control stacks independently with separate
+controller managers and state helpers. Supports left/right arms with
+individual configuration but shared robot state publisher.
+
+Nodes Launched:
+    robot_state_publisher (robot_state_publisher): via dual_rsp.launch.py
+    (per-arm, left/right):
+        controller_manager (controller_manager): Per-arm ros2_control
+        spawner (controller_manager): Controller spawners
+        dashboard_client (ur_robot_driver): Dashboard communication
+        mock_dashboard_client (tabletop_rig): Mock hardware only
+        robot_state_helper (ur_robot_driver): Real hardware only
+        tool_communication (ur_robot_driver): Tool serial bridge (optional)
+        urscript_interface (ur_robot_driver): URScript execution
+        controller_stopper (ur_robot_driver): Safety management
+        trajectory_until_node (ur_robot_driver): Trajectory monitoring
+    rviz2: Visualization (optional)
+
+Config Files Loaded:
+    - multi_controllers.yaml: Per-controller definitions
+    - update_rate.yaml: Control loop update rates
+    - dual_rsp.launch.py: Robot state publisher
+
+Included Launch Files:
+    - dual_rsp.launch.py (tabletop_description): Robot state publisher
+
+Example:
+    ros2 launch tabletop_rig multi_ur.launch.py robot_mode:=ursim \
+        ur_type:=ur5e
+"""
+
 # Copyright (c) 2021 PickNik, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +61,6 @@
 
 #
 # Author: Denis Stogl
-
 
 from copy import copy
 
@@ -319,6 +351,8 @@ def controller_spawner(controllers, active):
 
 
 def setup_controller_spawners(context):
+    # Build lists of active/inactive controllers based on robot mode
+    # and joint controller activation settings
     use_mock_hardware = EqualsSubstitution(
         LaunchConfiguration("robot_mode"), "mock"
     )

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Clean build artifacts, caches, and logs with granular options
+# Usage: tt-clean [-t|--tabletop-colcon] [-l|--logs] [-c|--tabletop-cache] [--all-colcon] [--ccache] [--everything]
+# Runs on: host or container (accessible from both via PATH)
+# Environment: TABLETOP_DIR, COLCON_WS, COLCON_LOG_DIR, ROS_LOG_DIR, CCACHE_DIR
+# Logic: Parses flags to select which artifacts to remove (colcon, logs, caches); accumulates paths and deletes
 
 set -eo pipefail
 
@@ -16,7 +21,7 @@ if [[ "$#" < 1 ]]; then
     exit 1
 fi
 
-# Parse arguments
+# Parse arguments to select what to clean
 tabletop_colcon=false
 tabletop_cache=false
 logs=false
@@ -26,22 +31,28 @@ all=false
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -t|--tabletop-colcon)
+            # Remove only tabletop package build/install directories
             tabletop_colcon=true
             ;;
         -c|--tabletop-cache)
+            # Remove tabletop cache directory
             tabletop_cache=true
             ;;
         -l|--logs)
+            # Remove colcon and ROS log directories
             logs=true
             ;;
         --ccache)
+            # Remove C compiler cache
             ccache=true
             ;;
         --all-colcon)
+            # Remove all colcon build/install + logs + ccache
             all_colcon=true
             ccache=true
             ;;
         --everything)
+            # Remove all caches, build artifacts, and logs
             all=true
             ;;
         *)
@@ -53,6 +64,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Accumulate paths to clean based on flags
 if [[ "$all" == true || "$all_colcon" == true ]]; then
     to_clean+=("$COLCON_WS/build" "$COLCON_WS/install")
 elif [[ "$tabletop_colcon" == true ]]; then

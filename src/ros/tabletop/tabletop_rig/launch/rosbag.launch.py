@@ -1,3 +1,20 @@
+"""Launch file for ROS 2 bag recording.
+
+Launches the ros2 bag record command with configuration from rosbag.yaml.
+Creates dated session directories and maintains a "latest" symlink. Supports
+image transport plugin selection and topic/service filtering.
+
+Executables Launched:
+    ros2 bag record: ROS 2 data recording with configurable topics/services
+
+Config Files Loaded:
+    - rosbag.yaml: Recording configuration (topics, services, size limits)
+
+Example:
+    ros2 launch tabletop_rig rosbag.launch.py \
+        image_transport:=compressed use_sim_time:=false
+"""
+
 import os
 from datetime import datetime
 
@@ -50,6 +67,8 @@ def declare_arguments():
 
 
 def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
+    # Set up session directory with timestamp and latest symlink,
+    # then build rosbag recorder command with topics/services from config
     set_ros_log_dir = SetROSLogDir(LaunchLogDir().perform(context))
 
     # Create a new bag directory for the session and symlink to it

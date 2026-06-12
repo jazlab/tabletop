@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Generate ROS 2 computation graph visualization (requires running ROS nodes)
+# Usage: tt-create-graph [output_file] (default: graph.md in TABLETOP_DIR/docs)
+# Wraps: ros2 node list, ros2_graph
+# Runs on: container
+# Environment: TABLETOP_DIR
+# Note: Must be run while ROS 2 nodes are active (after tt-launch)
 
 set -eo pipefail
 
@@ -14,6 +20,7 @@ fi
 
 pushd $TABLETOP_DIR/docs
 
+# List of nodes to exclude from graph (currently empty; examples shown as comments)
 nodes_to_ignore=""
 # /rosbag2_recorder
 # /rviz2
@@ -25,6 +32,7 @@ nodes_to_ignore=""
 # /joint_trajectory_controller
 # /passthrough_trajectory_controller"
 
+# Query active ROS nodes and filter out excluded nodes (currently no filtering since nodes_to_ignore is empty)
 nodes=$(ros2 node list | grep -vE "$nodes_to_ignore" | tr '\n' ' ')
 echo Nodes: $nodes
 

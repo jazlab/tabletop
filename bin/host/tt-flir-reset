@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Factory reset FLIR cameras and reinitialize their udev symlinks
+# Usage: tt-flir-reset
+# Wraps: tt-compose, tt-env-gen, udevadm, tt-launch
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Logic: Stops flir container, resets udev, factory-resets cameras, regenerates device paths, restarts container
 
 set -eo pipefail
 
@@ -10,14 +16,14 @@ source $bin_dir/../utils.sh
 print_status "Bringing down flir container (if running)"
 tt-compose down flir
 
-# Reload and trigger udev rules
+# Reload and trigger udev rules to refresh device state
 print_status "Reloading udev rules"
 sudo udevadm control --reload
 sudo udevadm trigger
 
 sleep 2
 
-# Regenerate env files
+# Regenerate env files to detect updated Flir camera paths
 print_status "Regenerating .env file to update Flir camera paths"
 tt-env-gen
 
@@ -29,14 +35,14 @@ echo
 sleep 1
 tt-compose run --rm flir tt-launch flir factory_reset:=true || true
 
-# Reload and trigger udev rules again
+# Reload and trigger udev rules again to pick up reinitialized cameras
 print_status "Reloading udev rules again"
 sudo udevadm control --reload
 sudo udevadm trigger
 
 sleep 2
 
-# Regenerate env files
+# Regenerate env files with updated device paths
 print_status "Regenerating .env file once more"
 tt-env-gen
 

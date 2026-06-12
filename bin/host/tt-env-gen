@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Generate and validate .env file from .env.example with device auto-detection
+# Usage: tt-env-gen [-c|--clean]
+# Wraps: dotenv (via embedded helper functions)
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Logic: Detects FLIR cameras via udev symlinks, NVIDIA GPU/CUDA, PulseAudio socket; validates required vars
 
 QUOTE_STYLE=never
 
@@ -101,7 +107,7 @@ dotenv_get_optional ROS_BAG_DIR_HOST
 dotenv_set HOST_UID "$(id -u)"
 dotenv_set HOST_GID "$(id -g)"
 
-# Set the ROS bag directory mount
+# Set the ROS bag directory mount point (or /dev/null if not configured)
 if [[ -z "$ROS_BAG_DIR_HOST" ]]; then
     dotenv_set ROS_BAG_DIR_MNT /dev/null:/dev/null
     dotenv_set ROS_BAG_DIR_CONTAINER ""
@@ -110,7 +116,7 @@ else
     dotenv_set ROS_BAG_DIR_CONTAINER /bags
 fi
 
-# Set NVIDIA build args and runtime variables if available
+# Detect NVIDIA GPU and set runtime/CUDA configuration
 if command -v nvidia-smi >/dev/null 2>&1; then
     dotenv_set COMMANDER_RUNTIME nvidia
     dotenv_set UV_EXTRA "--extra cu$CUDA_VERSION"
@@ -125,9 +131,9 @@ else
     # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
 fi
 
-# Dynamically locate Flir device absolute paths
-# Set $FLIR_DEV_<i> to this path for all i in [0, n),
-# where n is the number of available flir devices
+# Auto-detect FLIR cameras via /dev/flir symlinks created by udev rules
+# Loops through all symlinks in /dev/flir, resolves to actual device paths,
+# and sets FLIR_DEV_0, FLIR_DEV_1, ... for each found camera (up to FLIR_MAX_DEVS limit)
 i=0
 if [ -d /dev/flir ]; then
     while IFS= read -r -d '' LINK; do
@@ -141,8 +147,8 @@ if [ -d /dev/flir ]; then
     done < <(find /dev/flir -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
 fi
 
-# Check if FLIR_MAX_DEVS constant was exceed. If so, the constant must be
-# increased and the compose.yaml file must be modified to allow for more devices
+# Check if the number of detected FLIR devices exceeds the configured maximum
+# If so, the user must increase FLIR_MAX_DEVS in .env and add device entries in compose.yaml
 if (( i > FLIR_MAX_DEVS )); then
     print_error "You have more cameras connected than FLIR_MAX_DEVS"
     print_error "To remedy, increase the number of FLIR_DEV_* devices in the compose.yaml file"
@@ -150,6 +156,7 @@ if (( i > FLIR_MAX_DEVS )); then
     exit 1
 fi
 
+# Set remaining FLIR device slots to /dev/null (no-op mounts)
 while (( i < FLIR_MAX_DEVS )); do
     dotenv_set "FLIR_DEV_$i" /dev/null
     (( i+=1 ))
@@ -163,7 +170,8 @@ done
 #     dotenv_set TEENSY_DEV /dev/null
 # fi
 
-# Mount pulse audio socket if available
+# Auto-detect PulseAudio socket for audio passthrough to containers
+# Checks pactl first, then falls back to XDG_RUNTIME_DIR if available
 if command -v pactl >/dev/null 2>&1; then
     PULSE_SERVER_HOST=$(pactl --format=json info | jq -r '.server_string')
     if [[ ! -S "$PULSE_SERVER_HOST" ]]; then
@@ -173,6 +181,7 @@ elif [ -S "$XDG_RUNTIME_DIR/pulse/native" ]; then
     PULSE_SERVER_HOST="$XDG_RUNTIME_DIR/pulse/native"
 fi
 
+# Mount PulseAudio socket if found, otherwise use /dev/null
 if [[ -n "$PULSE_SERVER_HOST" && -f "$HOME/.config/pulse/cookie" ]]; then
     dotenv_set PULSE_SERVER_MNT "$PULSE_SERVER_HOST:/tmp/pulseaudio.socket"
     dotenv_set PULSE_COOKIE_MNT "$HOME/.config/pulse/cookie:/tmp/pulseaudio.cookie"

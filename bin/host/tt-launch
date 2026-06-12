@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Launch ROS 2 nodes/tasks from the host (delegates to container tt-launch)
+# Usage: tt-launch [<launch_type>] [<launch_options>...]
+# Wraps: tt-compose run --rm commander tt-launch
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Notes: Supported launch_types: commander, rig, flir, tasks, rviz, moveit, etc. (see container/tt-launch)
 
 set -eo pipefail
 

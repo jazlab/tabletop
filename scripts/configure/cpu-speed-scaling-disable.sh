@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Disable CPU frequency scaling for deterministic real-time performance
+# Usage: cpu-speed-scaling-disable.sh
+# Runs on: host (requires sudo and systemctl)
+# Environment: None
+# Notes: Installs cpufrequtils, sets CPU governor to 'performance', requires reboot for permanent effect
 
 set -eo pipefail
 

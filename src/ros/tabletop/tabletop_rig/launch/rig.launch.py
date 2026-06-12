@@ -1,3 +1,28 @@
+"""Main launch file for the TableTop robotics rig.
+
+Central launch orchestrator that selectively includes launch files for
+all rig subsystems (commander, UR driver, peripherals) based on launch
+arguments. Supports task running and full experiment control.
+
+Included Launch Files:
+    - commander.launch.py: Main control orchestrator
+    - ur.launch.py: UR robot driver and control
+    - teensy.launch.py: Teensy microcontroller interface
+    - flic.launch.py: Flic button interface
+    - optitrack.launch.py: OptiTrack motion capture
+    - eyelink.launch.py: Eyelink eye tracker
+    - flir.launch.py: FLIR camera system
+    - rviz.launch.py: RViz visualization
+    - rosbag.launch.py: Data recording
+
+Launch Arguments control which subsystems are enabled:
+    commander_launch, ur_launch, teensy_launch, flic_launch, etc.
+
+Example:
+    ros2 launch tabletop_rig rig.launch.py robot_mode:=mock \
+        commander_launch:=true ur_launch:=true
+"""
+
 from launch import (
     LaunchDescription,
 )

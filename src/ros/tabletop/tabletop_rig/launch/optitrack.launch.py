@@ -1,3 +1,24 @@
+"""Launch file for OptiTrack motion capture system.
+
+Launches the OptiTrack motion capture driver with lifecycle management
+and marker visualization. Configures the OptiTrack to ROS coordinate
+frame transformation.
+
+Nodes Launched:
+    mocap4r2_optitrack_driver (mocap4r2_optitrack_driver): Motion capture
+        driver node (lifecycle node)
+    optitrack_static_transform_publisher (tf2_ros): Static TF from world
+        to optitrack frame
+    mocap4r2_marker_viz (mocap4r2_marker_viz): RViz visualization of
+        captured markers
+
+Config Files Loaded:
+    - optitrack.yaml: OptiTrack system configuration and marker setup
+
+Example:
+    ros2 launch tabletop_rig optitrack.launch.py
+"""
+
 import math
 
 import launch
@@ -66,7 +87,9 @@ def generate_launch_description():
         ],
     )
 
-    # Make the driver node take the 'configure' transition
+    # Lifecycle state machine: configure -> activate
+    # Emit configure and activate events to transition from Unconfigured
+    # to Active state for the OptiTrack driver
     configure_event = EmitEvent(
         event=ChangeState(
             lifecycle_node_matcher=launch.events.matchers.matches_action(

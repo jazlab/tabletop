@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Attach an interactive shell to a dev or custom container
+# Usage: tt-dev-attach [<service_name>] (default: dev)
+# Wraps: docker compose exec and devcontainer up
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Logic: Starts the specified container if not running, then attaches to its shell
 
 set -eo pipefail
 
@@ -18,7 +24,7 @@ SERVICE="${1:-dev}"
 export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
 
-# Check if dev container is already running
+# Check if the specified container is already running; if not, start it
 if [[ ! "$(docker compose ps -q --status=running $SERVICE)" ]]; then
     if [[ "$SERVICE" = dev ]]; then
         devcontainer up

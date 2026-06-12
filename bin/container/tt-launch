@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Route and launch ROS 2 nodes/services in container (wraps ros2 launch, ros2 run, and raw commands)
+# Usage: tt-launch [<launch_type>] [<launch_options>...]
+# Runs on: container
+# Environment: ROS_LOG_DIR, FOXGLOVE_PORT
+# Logic: Case statement routes launch_type to appropriate ros2 launch/run/exec command; sets per-launch log directories
 
 set -eo pipefail
 
@@ -11,11 +16,13 @@ print_usage() {
     echo "launch_type can be one of commander, rig, flir, or tasks"
 }
 
+# Case statement routes to one of three execution modes: EXEC (raw command), RUN (ros2 run), or LAUNCH (ros2 launch)
 EXEC=
 RUN=
 LAUNCH=
 case $1 in
     discovery)
+        # FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var formatted as host:port)
         if [[ -z "$ROS_DISCOVERY_SERVER" ]]; then
             print_warning "ROS_DISCOVERY_SERVER environment variable not set"
             print_warning "Not launching discovery server"
@@ -32,46 +39,57 @@ case $1 in
         fi
         ;;
     foxglove)
+        # Foxglove bridge for visualization
         export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
         LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
         ;;
     moveit)
+        # MoveIt motion planning framework
         export ROS_LOG_DIR="$ROS_LOG_DIR/moveit"
         LAUNCH="tabletop_moveit_config moveit.launch.py"
         ;;
     rviz)
+        # RViz visualization
         export ROS_LOG_DIR="$ROS_LOG_DIR/rviz"
         LAUNCH="tabletop_rig rviz.launch.py"
         ;;
     flir)
+        # FLIR camera drivers
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
         LAUNCH="tabletop_rig flir.launch.py"
         ;;
     flir_synchronized)
+        # FLIR cameras with synchronized acquisition
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
         LAUNCH="tabletop_rig flir_synchronized.launch.py"
         ;;
     flir_calibrate)
+        # FLIR camera calibration
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir_calibrate"
         LAUNCH="tabletop_rig flir_calibrate.launch.py"
         ;;
     ur)
+        # Universal Robots UR5e arm driver
         export ROS_LOG_DIR="$ROS_LOG_DIR/ur"
         LAUNCH="tabletop_rig ur.launch.py"
         ;;
     dual_ur)
+        # Two UR5e arms driver
         export ROS_LOG_DIR="$ROS_LOG_DIR/dual_ur"
         LAUNCH="tabletop_rig dual_ur.launch.py"
         ;;
     optitrack)
+        # OptiTrack motion capture system
         export ROS_LOG_DIR="$ROS_LOG_DIR/optitrack"
         LAUNCH="tabletop_rig optitrack.launch.py"
         ;;
     teensy)
+        # Teensy microcontroller (arm locks, safety laser, reward)
         export ROS_LOG_DIR="$ROS_LOG_DIR/teensy"
         LAUNCH="tabletop_rig teensy.launch.py"
         ;;
     flic)
+        # Flic button response time measurement (requires elevated capabilities for packet capture)
         # sudo touch /etc/ld.so.conf.d/ros.conf
         # IFS=':' read -ra ADDR <<< "$LD_LIBRARY_PATH"
         # for i in "${ADDR[@]}"; do
@@ -82,26 +100,32 @@ case $1 in
         LAUNCH="tabletop_rig flic.launch.py"
         ;;
     eyelink)
+        # EyeLink eye tracker
         export ROS_LOG_DIR="$ROS_LOG_DIR/eyelink"
         LAUNCH="tabletop_rig eyelink.launch.py"
         ;;
     rig)
+        # Full rig (all hardware interfaces)
         export ROS_LOG_DIR="$ROS_LOG_DIR/rig"
         LAUNCH="tabletop_rig rig.launch.py"
         ;;
     commander)
+        # Commander orchestrator node (high-level rig control)
         export ROS_LOG_DIR="$ROS_LOG_DIR/commander"
         LAUNCH="tabletop_rig commander.launch.py"
         ;;
     task|tasks)
+        # Experiment task nodes
         export ROS_LOG_DIR="$ROS_LOG_DIR/tasks"
         LAUNCH="tabletop_tasks tasks.launch.py"
         ;;
     rosbag)
+        # ROS bag recorder
         export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag"
         LAUNCH="tabletop_rig rosbag.launch.py"
         ;;
     rosbag_convert|rosbag_to_csv)
+        # Rosbag conversion tool
         export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag_convert"
         RUN="tabletop_rig rosbag_to_csv"
         ;;
@@ -114,6 +138,7 @@ esac
 
 shift
 
+# Execute based on which mode was set by the case statement
 if [[ -n "$EXEC" ]]; then
     exec $EXEC "$@"
 elif [[ -n "$RUN" ]]; then

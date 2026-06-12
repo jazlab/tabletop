@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Wrapper for docker compose with TableTop environment generation
+# Usage: tt-compose [SUBCOMMAND] [OPTIONS...]
+# Wraps: docker compose (with automatic tt-env-gen and custom formatting for ps)
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Side effects: Calls tt-env-gen before executing docker compose; enriches ps output with custom format
 
 set -eo pipefail
 
@@ -12,6 +18,7 @@ tt-env-gen 1>/dev/null
 
 export COMPOSE_REMOVE_ORPHANS=true
 
+# Customize output format for 'ps' subcommand (name, image, command, service, status)
 ps_format="table {{.Name}}\
 \t{{truncate .Image 15}}\
 \t{{.Command}}\

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Copy UR robot program files to robot via SCP
+# Usage: tt-robot-scp
+# Wraps: scp
+# Runs on: host or container (accessible from both via PATH)
+# Environment: TABLETOP_DIR, ROBOT_IP
+# Notes: Requires SSH access to robot as root; copies .urcap files from ur_robot/programs/
 
 set -e
 
