@@ -251,9 +251,11 @@ services:
     command: tt-launch flic simulate:=false
 
   flic-sim:
-    container_name: tabletop-flic-sim
     extends: ros-base
+    container_name: tabletop-flic-sim
     profiles: !override [ sim ]
+    cap_add:
+      - NET_ADMIN
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
