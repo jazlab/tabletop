@@ -44,14 +44,6 @@ if [ -f "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
     source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 fi
 
-# Source colcon cd and argcomplete if it exists
-if [ -f "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh" ]; then
-    source "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh"
-fi
-if [ -f "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash" ]; then
-    source "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash"
-fi
-
 # Add Spinnaker bin directory to PATH
 # export PATH="/opt/spinnaker/bin:$PATH
 # export SPINNAKER_GENTL64_CTI=/opt/ros/$ROS_DISTRO/lib/spinnaker-gentl/Spinnaker_GenTL.cti
@@ -78,4 +70,12 @@ if [ "$TABLETOP_CONTAINER" = "true" ]; then
     export PATH="$TABLETOP_DIR/bin/container:$PATH"
 else
     export PATH="$TABLETOP_DIR/bin/host:$PATH"
+fi
+
+# Source colcon cd and argcomplete if it exists
+if [ -f "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh" ]; then
+    source "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh"
+fi
+if [ -f "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash" ]; then
+    source "$VIRTUAL_ENV/share/colcon_argcomplete/hook/colcon-argcomplete.bash"
 fi

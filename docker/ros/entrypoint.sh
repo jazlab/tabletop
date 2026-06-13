@@ -2,12 +2,11 @@
 
 set -eo pipefail
 
-# Setup project workspace or ROS2 environment
-if [ -s /tabletop/setup.bash ]; then
-    source /tabletop/setup.bash
-else
-    source "/opt/ros/$ROS_DISTRO/setup.bash" --
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Entrypoint must be run as root"
+    exit 1
 fi
 
-# Execute provided command
-exec "$@"
+/fix-uid-gid.sh
+
+exec gosu mules /user-entrypoint.sh "$@"

@@ -45,9 +45,7 @@ __start_tabletop()
 _completion_loader docker
 
 if [[ $(type -t compopt) = "builtin" ]]; then
-    complete -o default -F __start_docker tt-docker
     complete -o default -F __start_tabletop tt-compose
 else
-    complete -o default -o nospace -F __start_docker tt-docker
     complete -o default -o nospace -F __start_tabletop tt-compose
 fi

@@ -15,6 +15,11 @@
       "resolved": "ghcr.io/devcontainers/features/git-lfs@sha256:71c2b371cf12ab7fcec47cf17369c6f59156100dad9abf9e4c593049d789de72",
       "integrity": "sha256:71c2b371cf12ab7fcec47cf17369c6f59156100dad9abf9e4c593049d789de72"
     },
+    "ghcr.io/EliiseS/devcontainer-features/bash-profile:1": {
+      "version": "1.0.1",
+      "resolved": "ghcr.io/eliises/devcontainer-features/bash-profile@sha256:8249c64ffdda36763713561b557fec39e305895a027714a1717a37a660106813",
+      "integrity": "sha256:8249c64ffdda36763713561b557fec39e305895a027714a1717a37a660106813"
+    },
     "ghcr.io/schlich/devcontainer-features/starship:0": {
       "version": "0.1.6",
       "resolved": "ghcr.io/schlich/devcontainer-features/starship@sha256:30884896e8254ca61fed0180cfa03c7c9c7bd6b9cc07aa493bd034651d4ec026",

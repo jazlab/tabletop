@@ -191,9 +191,7 @@ print_status "Building ROS 2 packages with command: $command"
 $command
 print_status "Successfully built ROS 2 packages!"
 
-source install/setup.bash
-
 if [[ "$foxglove" == true ]]; then
-    builtin cd src/ros/modules/foxglove_moveit_msg_converter
+    builtin cd "$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
     npm run package
 fi

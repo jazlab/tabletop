@@ -87,9 +87,6 @@ if [[ $clean || ! -s .env ]]; then
 fi
 
 # Verify that all required variables are set and non-empty
-dotenv_get_required USER_NAME
-dotenv_get_required USER_UID
-dotenv_get_required USER_GID
 dotenv_get_required NOVNC_DISPLAY
 dotenv_get_required CUDA_VERSION
 dotenv_get_required BIND_CONSISTENCY
@@ -99,6 +96,10 @@ dotenv_get_required FLIR_MAX_DEVS
 
 # Get optional variables (may be unset or empty)
 dotenv_get_optional ROS_BAG_DIR_HOST
+
+# Set host uid and gid
+dotenv_set HOST_UID "$(id -u)"
+dotenv_set HOST_GID "$(id -g)"
 
 # Set the ROS bag directory mount
 if [[ -z "$ROS_BAG_DIR_HOST" ]]; then
@@ -165,19 +166,21 @@ done
 # Mount pulse audio socket if available
 if command -v pactl >/dev/null 2>&1; then
     PULSE_SERVER_HOST=$(pactl --format=json info | jq -r '.server_string')
-    if [[ ! -S $PULSE_SERVER_HOST ]]; then
+    if [[ ! -S "$PULSE_SERVER_HOST" ]]; then
         unset PULSE_SERVER_HOST
     fi
 elif [ -S "$XDG_RUNTIME_DIR/pulse/native" ]; then
-    PULSE_SERVER_HOST=$XDG_RUNTIME_DIR/pulse/native
+    PULSE_SERVER_HOST="$XDG_RUNTIME_DIR/pulse/native"
 fi
 
-if [[ -n $PULSE_SERVER_HOST ]]; then
+if [[ -n "$PULSE_SERVER_HOST" && -f "$HOME/.config/pulse/cookie" ]]; then
     dotenv_set PULSE_SERVER_MNT "$PULSE_SERVER_HOST:/tmp/pulseaudio.socket"
-    dotenv_set PULSE_COOKIE_MNT "~/.config/pulse/cookie:/home/$USER_NAME/.config/pulse/cookie"
+    dotenv_set PULSE_COOKIE_MNT "$HOME/.config/pulse/cookie:/tmp/pulseaudio.cookie"
     dotenv_set PULSE_SERVER_CONTAINER unix:/tmp/pulseaudio.socket
+    dotenv_set PULSE_COOKIE_CONTAINER /tmp/pulseaudio.cookie
 else
     dotenv_set PULSE_SERVER_MNT /dev/null:/dev/null
     dotenv_set PULSE_COOKIE_MNT /dev/null:/dev/null
-    dotenv_set PULSE_SERVER_CONTAINER /dev/null:/dev/null
+    dotenv_set PULSE_SERVER_CONTAINER ""
+    dotenv_set PULSE_COOKIE_CONTAINER ""
 fi

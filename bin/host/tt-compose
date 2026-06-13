@@ -10,7 +10,6 @@ builtin cd $TABLETOP_DIR
 
 tt-env-gen 1>/dev/null
 
-export COMPOSE_BAKE=true
 export COMPOSE_REMOVE_ORPHANS=true
 
 ps_format="table {{.Name}}\
