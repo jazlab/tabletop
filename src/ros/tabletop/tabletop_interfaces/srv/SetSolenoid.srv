@@ -1,4 +1,11 @@
-bool activate
+# Enable or disable sync-pulse-coupled solenoid firing (SOLENOID_CONTROL_PIN).
+# When enabled, the solenoid fires in sync with each Teensy sync pulse.
+# Served by: teensy node (firmware, service ~/set_solenoid) / mock_teensy node.
+# Called by: TeensyInterface.set_sync_pulse_solenoid() (interfaces/teensy.py).
+
+# --- Request ---
+bool activate  # True to arm the solenoid so it fires with each sync pulse; False to disarm (solenoid pin driven LOW immediately)
 ---
-bool success
-string message
+# --- Response ---
+bool success    # Always True from the firmware (no failure mode defined)
+string message  # Human-readable confirmation (e.g. "Solenoid activated" or "Solenoid deactivated")

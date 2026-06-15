@@ -1,3 +1,14 @@
+# MoveIt planning pipeline configuration for the Pilz Industrial Motion Planner.
+# Pilz provides deterministic, time-parameterized motion types: PTP (point-to-point),
+# LIN (Cartesian linear), CIRC (Cartesian arc), and blended sequences.
+# This is the PRIMARY planner used by tabletop (set as default in moveit_cpp.yaml).
+# Loaded automatically by MoveItConfigsBuilder.planning_pipelines() when
+# "pilz_industrial_motion_planner" is in the pipeline list (matches *_planning.yaml convention).
+# Active in both commander.launch.py and moveit.launch.py.
+# Cartesian velocity/acceleration limits are set separately in pilz_cartesian_limits.yaml.
+# Note: AddTimeOptimalParameterization is commented out — Pilz generates its own time-optimal
+# trajectories and does not need post-hoc re-parameterization.
+# See: https://moveit.picknik.ai/main/doc/how_to_guides/pilz_industrial_motion_planner/pilz_industrial_motion_planner.html
 planning_plugins:
   - pilz_industrial_motion_planner/CommandPlanner
 default_planner_config: LIN

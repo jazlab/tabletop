@@ -1,3 +1,10 @@
+# Cartesian velocity and acceleration limits for the Pilz Industrial Motion Planner (LIN/CIRC).
+# Loaded automatically by MoveItConfigsBuilder.pilz_cartesian_limits() (called inside
+# to_moveit_configs() when "pilz_industrial_motion_planner" is in the pipeline list).
+# Active in both commander.launch.py and moveit.launch.py.
+# Values here are intentionally conservative (0.1 m/s, 0.1 m/s²) for safety in the monkey rig.
+# The commented-out block shows standard Pilz defaults for reference.
+# See: https://moveit.picknik.ai/main/doc/how_to_guides/pilz_industrial_motion_planner/pilz_industrial_motion_planner.html
 # Limits for the Pilz planner
 # cartesian_limits:
 #   max_trans_vel: 1.0

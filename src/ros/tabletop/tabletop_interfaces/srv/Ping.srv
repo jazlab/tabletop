@@ -1,3 +1,9 @@
+# Latency probe service for measuring round-trip communication delay to the Teensy.
+# Served by: teensy node (firmware, service ~/ping) / mock_teensy node.
+# Called by: TeensyInterface or any caller needing to verify Teensy connectivity.
+
+# --- Request (no fields; sending the request itself is the probe) ---
 ---
-bool success
-builtin_interfaces/Time received_time
+# --- Response ---
+bool success                              # True if the Teensy clock is synchronized (received_time is non-zero)
+builtin_interfaces/Time received_time     # ROS timestamp recorded on the Teensy at the moment the request was received (rmw_uros_epoch_nanos)

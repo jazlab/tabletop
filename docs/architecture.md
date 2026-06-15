@@ -140,8 +140,9 @@ graph LR
 Key edges:
 
 - **Safety loop**: Teensy firmware publishes `teensy/sensor` at 100 Hz;
-  `TeensyInterface` (inside Commander) watches arm-lock + safety-laser
-  fields and gates every robot motion through `safe_to_execute`.
+  `TeensyInterface` (inside Commander) gates every robot motion through
+  `safe_to_execute`. Note: only the safety-laser field is currently
+  enforced — the arm-lock check is commented out (see `known-issues.md`).
 - **Hardware sync**: the Teensy emits a hardware trigger pulse wired to
   the FLIR cameras' Line0, so all cameras expose simultaneously; the
   synchronized driver stamps grouped frames identically.

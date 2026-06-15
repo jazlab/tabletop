@@ -197,11 +197,16 @@ class TeensyInterface(BaseInterface):
     def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
         """Check if a sensor message indicates safe conditions.
 
+        NOTE: only the safety-laser condition is currently enforced. The
+        arm-lock check (both arms locked) is commented out below and is
+        NOT applied (see docs/known-issues.md). Motion is therefore gated
+        solely on the safety laser being unbroken.
+
         Args:
             msg: The sensor message to evaluate.
 
         Returns:
-            True if both arms are locked and safety laser is unbroken.
+            True if the safety laser is unbroken (arm-lock state ignored).
         """
         # return (
         #     msg.is_left_arm_locked

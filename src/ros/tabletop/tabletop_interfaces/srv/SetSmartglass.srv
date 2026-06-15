@@ -1,4 +1,10 @@
-bool reveal
+# Control LCD shutter goggles (smartglass) worn by the subject.
+# Served by: teensy node (firmware, service ~/set_smartglass) / mock_teensy node.
+# Called by: TeensyInterface.set_smartglass() (interfaces/teensy.py).
+
+# --- Request ---
+bool reveal  # True to make goggles transparent (subject can see); False to make them opaque (occlude vision)
 ---
-bool success
-string message
+# --- Response ---
+bool success    # Always True from the firmware (no failure mode defined)
+string message  # Human-readable confirmation (e.g. "Smartglass revealed" or "Smartglass occluded")

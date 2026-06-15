@@ -52,6 +52,16 @@ while building the architecture docs (2026-06). **No code was changed**
     name. Docstrings now describe the implemented behavior; the logic
     needs review.
 
+17. **Arm-lock safety check disabled in `interfaces/teensy.py`.**
+    `_msg_safe_to_execute` (line ~206) has the arm-lock condition
+    (`is_left_arm_locked and is_right_arm_locked`) commented out and
+    returns only `not msg.is_safety_laser_broken`. So robot motion is
+    gated solely on the safety laser; the subject's arms being seated in
+    the restraints is published by the firmware (`TeensySensor`) but NOT
+    enforced. The method's docstring previously claimed both arms were
+    checked — corrected to match the implementation. Confirm whether the
+    arm-lock gate should be re-enabled (safety-relevant).
+
 ## Config review (config documentation pass)
 
 14. **Typo'd joint name in `commander.yaml` `test_object_attached`.**
@@ -75,6 +85,24 @@ while building the architecture docs (2026-06). **No code was changed**
     `90:88:a9:50:5f:b6` (`commander.yaml:40,44,45`). If these are meant
     to be distinct physical buttons this is a copy-paste error; if
     intentional (spare/unassigned), ignore.
+
+18. **Right-arm calibration looks un-regenerated.**
+    `tabletop_description/config/right_ur5e_calibration.yaml` has the same
+    `hash` (`calib_5543142529115310427`) as the single-arm
+    `ur5e_calibration.yaml`, suggesting it was copied and never
+    regenerated from the physical right controller (`ur_calibration`).
+    Re-run the UR calibration extraction for the right arm to confirm.
+
+19. **`EyelinkStartRecording.srv` has no discoverable call site.** The
+    service is defined but `nodes/eyelink.py` exposes a `start_retrieval`
+    method rather than serving this srv; no server/client registration
+    was found. Confirm whether it is wired up elsewhere or is dead.
+
+20. **Unused keys in `config/gaze_estimation_geometric.yaml`.**
+    `eyelink_filter_window`, `markers_filter_window`, `max_marker_gap`
+    (only in a commented-out block in `gaze/preprocess.py`) and the
+    `eyelink_range`/`markers_range` visualize wrappers have no active
+    consumer. Likely stale config.
 
 ## Code smells / API warts
 

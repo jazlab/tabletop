@@ -1,70 +1,147 @@
+# Gaze estimation configuration for the physics-based GEOMETRIC model.
+# Unlike gaze_estimation.yaml (which uses an MLP trained end-to-end), this config drives
+# GazeEstimationModelGeometric — a ray-sphere intersection model that requires explicit camera
+# calibration and eye-anatomy parameters.  The geometric model has fewer free parameters and
+# can be initialized without large training datasets.
+#
+# The preprocess section here uses a flat structure (not the nested eyelink/marker sub-sections
+# of gaze_estimation.yaml); the geometric pipeline has its own preprocessing conventions.
+#
+# No Python file currently hard-codes this filename.  Pass it via the -c/--config argument to
+# tabletop_py/gaze/calibrate.py or tabletop_py/gaze/train.py.
+
 preprocess:
+  # Output CSV filename written to the session directory after preprocessing.
   filename: preprocessed.csv
+  # Sampling frequency of the EyeLink eye tracker (Hz).
   eyelink_freq: 1000
+  # Sampling frequency of the OptiTrack marker system (Hz).
   markers_freq: 120
   format_columns:
     eyelink:
+      # If true, verify EyeLink timestamps against eyelink_freq.
       verify: true
+      # Relative tolerance for mean inter-sample interval vs 1/eyelink_freq.
       freq_rtol: 0.1
     markers:
+      # If true, verify OptiTrack timestamps against markers_freq.
       verify: true
+      # Relative tolerance for mean marker inter-sample interval.
       freq_rtol: 0.01
+      # Maximum allowed time correction (seconds) when aligning marker to EyeLink clock.
       max_marker_time_correction: 0.05
+  # Duplicate of format_columns.markers.max_marker_time_correction kept at the top preprocess
+  # level for backward-compatible code paths that read it directly.
   max_marker_time_correction: 0.05
+  # EyeLink raw pupil-position values below this threshold are treated as invalid (raw units).
   min_eye_pos: -20000
+  # EyeLink raw pupil-position values above this threshold are treated as invalid (raw units).
   max_eye_pos: 20000
+  # Z-score threshold for outlier removal across both EyeLink and marker data; null = disabled.
   max_zscore: 3.0
+  # Half-width of the smoothing window (seconds) applied to EyeLink data before merging;
+  # null = no smoothing.  (eyelink_filter_window / markers_filter_window are not currently
+  # consumed by any Python file — reserved for future flat-preprocess code paths.)
   eyelink_filter_window: 0.005
+  # Half-width of the smoothing window (seconds) applied to marker data; null = disabled.
   markers_filter_window: null
+  # Maximum allowed gap (seconds) in marker data before the interpolated region is masked;
+  # referenced in preprocess.py but currently commented out in the active code path.
   max_marker_gap: 0.05
+
+# Train/validation/test split and batch sizes.
 data:
+  # Fraction of the dataset held out as the test set.
   test_size: 0.2
+  # Number of K-fold cross-validation folds.
   val_folds: 5
+  # Whether to shuffle before train/test split.
   shuffle_test_split: false
+  # Whether to shuffle before train/val split.
   shuffle_val_split: false
+  # Mini-batch size for training.
   train_batch_size: 512
+  # Mini-batch size for validation.
   val_batch_size: 8192
+  # Mini-batch size for test evaluation.
   test_batch_size: 8192
+  # DataLoader worker processes.
   num_workers: 8
+
+# Geometric model specification (GazeEstimationModelGeometric in models.py).
 model:
+  # Model class name; selects GazeEstimationModelGeometric.
   name: GazeEstimationModelGeometric
+  # 4x4 homogeneous transformation matrix (world → camera frame).
+  # Identity here; update with actual extrinsic calibration from calibrate_camera.py.
   camera_tf:
     - [1, 0, 0, 0]
     - [0, 1, 0, 0]
     - [0, 0, 1, 0]
     - [0, 0, 0, 1]
+  # 3x3 camera intrinsic matrix [[fx, 0, cx], [0, fy, cy], [0, 0, 1]].
+  # Focal lengths fx=fy=500 px; principal point (cx=320, cy=240) for a 640x480 sensor.
+  # Update from calibrate_camera.py output (.npz camera_matrix).
   camera_intrinsic:
     - [500, 0, 320]
     - [0, 500, 240]
     - [0, 0, 1]
+  # 3D position of the left eye center in world coordinates (meters).
+  # Approximate anatomical estimate; refined by model training.
   eye_left_center: [-0.65, 0.5, 0.44]
+  # 3D position of the right eye center in world coordinates (meters).
   eye_right_center: [-0.65, 0.5, 0.48]
+  # Radius of the eyeball sphere (meters); ~12 mm is standard human anatomy.
   eye_radius: 0.012
+
+# Optimizer settings.
 optimizer:
+  # Optimizer class from torch.optim.
   name: AdamW
+  # Learning rate for fine-tuning the learnable geometric corrections.
   lr: 0.001
   # momentum: 0.9
   # weight_decay: 0.1
+
+# Loss function settings.
 criterion:
+  # Loss class from torch.nn.
   name: MSELoss
+  # Reduction method.
   reduction: mean
+
+# Training loop settings.
 train:
+  # Maximum training epochs (more folds=1 means single train/val split).
   num_epochs: 100
+  # Early stopping patience in epochs.
   patience_epochs: 10
+  # Number of CV folds; 1 = single split (no cross-validation).
   max_folds: 1
+
+# Path to save/load model weights (.pt file).
 weights_path: saved_weights/model.pt
+
+# Output filename for test-set predictions.
 predictions:
   filename: predictions.csv
+
+# Visualization axis ranges.
 visualize:
   eyelink_range:
+    # X-axis range for 2D EyeLink pupil-position animation (raw units).
     min_x: -30000
     max_x: 30000
+    # Y-axis range for 2D EyeLink animation (raw units).
     min_y: -30000
     max_y: 30000
   markers_range:
+    # X-axis range for 3D marker/gaze-point animation (meters, world frame).
     min_x: 0.0
     max_x: 1.0
+    # Y-axis range (meters).
     min_y: -0.5
     max_y: 0.5
+    # Z-axis range (meters).
     min_z: 0.0
     max_z: 1.0

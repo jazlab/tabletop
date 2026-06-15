@@ -1,5 +1,11 @@
-bool activate
-builtin_interfaces/Duration duration
+# Start or stop juice/liquid reward delivery via solenoid valve.
+# Served by: teensy node (firmware, service ~/set_reward) / mock_teensy node.
+# Called by: TeensyInterface.set_reward() (interfaces/teensy.py).
+
+# --- Request ---
+bool activate                        # True to open the reward solenoid; False to close it immediately
+builtin_interfaces/Duration duration # Required when activate=True: how long the solenoid stays open (seconds); must be > 0; ignored when activate=False
 ---
-bool success
-string message
+# --- Response ---
+bool success    # True if the command succeeded; False if duration is missing on activate or non-zero on deactivate
+string message  # Human-readable confirmation or error (e.g. "Reward started for 0.300 s")

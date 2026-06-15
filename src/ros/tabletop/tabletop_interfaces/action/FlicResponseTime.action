@@ -1,4 +1,11 @@
-string bd_addr
+# Wait for a Flic Bluetooth button press and return the precise press timestamp.
+# Action server: flic node (nodes/flic.py, action ~/response_time).
+# Action client: FlicInterface.response_time() (interfaces/flic.py).
+
+# --- Goal ---
+string bd_addr  # Bluetooth device address of the Flic button to monitor (e.g. "80:e4:da:71:xx:xx")
 ---
-builtin_interfaces/Time response_time
+# --- Result ---
+builtin_interfaces/Time response_time  # ROS timestamp recorded at the exact moment the button was pressed (from Flic server event time)
 ---
+# --- Feedback (none) ---
