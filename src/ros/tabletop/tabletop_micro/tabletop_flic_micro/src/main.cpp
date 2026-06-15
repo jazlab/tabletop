@@ -20,13 +20,15 @@
 //     publishers up/down as the agent comes/goes. BLE events that
 //     arrive while the agent is down are silently dropped because the
 //     queue is bounded — we don't want to publish stale timestamps.
-//   - The .ino's resetButtonAds() reconnect was intentionally dropped.
-//     It blocks the main loop for >1 s, which stalls executor spin and
-//     time-sync and causes the agent to disconnect. Instead we use a
-//     longer per-button cooldown (~2 s) to absorb the Flic's ~3 s
-//     post-press advertisement burst. If you need active silencing
-//     later, run it from a dedicated FreeRTOS task fed by a separate
-//     queue so the main loop stays responsive.
+//   - To absorb the Flic's ~3 s post-press advertisement burst, two
+//     mechanisms are used: a per-button cooldown (lastOctet hash key)
+//     and resetButtonAds(), which pump_publish_queue() calls after each
+//     press to connect-then-immediately-disconnect the button.
+//     WARNING: that sync runs on the main loop and can block for up to
+//     AGENT_SYNC_TIMEOUT_MS, which may stall executor spin and time-sync
+//     and cause the micro-ROS agent to disconnect (see docs/known-issues.md).
+//     Moving resetButtonAds() to a dedicated FreeRTOS task fed by a separate
+//     queue would keep the main loop responsive.
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
@@ -202,12 +204,16 @@ enum agent_states
   }
 
 // ── BLE helpers (carried over from main.ino) ───────────────────────────
+// Returns true if addr matches a known Flic button OUI prefix
+// (80:e4:da for older hardware, 90:88:a9 for newer).
 static bool isFlicAddress(const NimBLEAddress& addr)
 {
   std::string s = addr.toString();
   return (s.find("80:e4:da") == 0 || s.find("90:88:a9") == 0);
 }
 
+// Extracts the final byte of a BLE MAC address as an 8-bit index into
+// lastPressMs[]. Acts as a cheap per-button hash key.
 static uint8_t lastOctet(const NimBLEAddress& addr)
 {
   std::string s = addr.toString();
@@ -228,6 +234,11 @@ static uint8_t lastOctet(const NimBLEAddress& addr)
 // }
 
 // ── BLE scan callback (runs on the NimBLE host task) ───────────────────
+// NimBLE calls onResult() for every advertisement packet seen during the
+// continuous passive scan. The callback filters to Flic addresses, enforces
+// the per-button cooldown, and pushes qualifying events to blePressQueue for
+// the main loop to publish. All heavy work (micro-ROS, string formatting)
+// is deferred to the main loop to keep this callback fast and ISR-safe.
 class ScanCallbacks : public NimBLEScanCallbacks
 {
   void onResult(const NimBLEAdvertisedDevice* device) override
@@ -272,6 +283,9 @@ static int64_t local_us_to_epoch_ns(uint32_t local_us)
   return now_ns - age_ns;
 }
 
+// Converts a queued BLE press event to a std_msgs/Header and publishes it.
+// The Header stamp is computed via local_us_to_epoch_ns() so it reflects the
+// BLE detection time rather than the publish time.
 static void publish_ble_press(const BlePressEvent& ev)
 {
   int64_t epoch_ns = local_us_to_epoch_ns(ev.local_us);
@@ -280,6 +294,8 @@ static void publish_ble_press(const BlePressEvent& ev)
   RCSOFTCHECK(rcl_publish(&ble_press_publisher, &ble_press_msg, NULL));
 }
 
+// micro-ROS service handler for ~/ping. Returns the current ROS epoch time
+// and sets success=true if the time sync is live (non-zero timestamp).
 void ping_callback(const void* req, void* res)
 {
   RCLC_UNUSED(req);
@@ -321,6 +337,12 @@ void ping_callback(const void* req, void* res)
 // }
 
 // ── Connect & disconnect ───────────────────────────────────────────────
+// Briefly connects to a Flic button and immediately disconnects to silence
+// its post-press advertisement burst. Called from pump_publish_queue() after
+// each BLE press event.
+// NOTE: this runs on the main loop (not a timer), so it stalls executor
+// spin while it connects — this may cause timing jitter or agent
+// disconnects if the connect takes >~1 s (see docs/known-issues.md).
 static void resetButtonAds(const NimBLEAddress& addr)
 {
   // delay(CONNECT_DELAY_MS);
@@ -340,6 +362,9 @@ static void resetButtonAds(const NimBLEAddress& addr)
   }
 }
 
+// Drains blePressQueue and publishes each event. For each event, stops the
+// scan, calls resetButtonAds() to silence the button's advertisement burst,
+// then restarts the scan after draining all pending events.
 static void pump_publish_queue()
 {
   // Drain BLE events. For each one, also check if there's a pending HW
@@ -383,6 +408,11 @@ static void pump_publish_queue()
 }
 
 // ── BLE init (called once at boot) ─────────────────────────────────────
+// Initializes NimBLE with device name "FlicSniffer", configures a passive
+// continuous scan at 100% duty cycle (interval==window==16 * 0.625 ms = 10 ms),
+// disables duplicate filtering so every advertisement is delivered to the
+// callback, and creates a NimBLEClient used by resetButtonAds(). Returns false
+// on any NimBLE initialization failure.
 static bool init_ble()
 {
   BOOLCHECK(NimBLEDevice::init("FlicSniffer"));
@@ -402,6 +432,10 @@ static bool init_ble()
 }
 
 // ── micro-ROS client lifecycle ────────────────────────────────────────
+// Creates the micro-ROS node, publishers (BLE press, HW sync, log), the ping
+// service, and the rclc executor. Performs an initial time sync, resets the
+// BLE press queue to discard any stale events accumulated while disconnected,
+// and starts the BLE scan. Returns false on any rcl/rclc failure.
 bool init_client()
 {
   allocator = rcl_get_default_allocator();
@@ -434,6 +468,10 @@ bool init_client()
   return true;
 }
 
+// Tears down the micro-ROS node, publishers, service, executor, and support.
+// Stops the BLE scan first; sets the rmw destroy timeout to 0 for a fast
+// teardown. Returns false on any rcl failure. Called on agent disconnect
+// before re-entering WAITING_AGENT.
 bool deinit_client()
 {
   pScan->stop();
@@ -454,6 +492,11 @@ bool deinit_client()
 }
 
 // ── Arduino entry points ──────────────────────────────────────────────
+// Initializes serial (115 200 baud, handed to micro-ROS transport), disables
+// Wi-Fi to avoid RF interference with BLE, allocates message memory for the
+// three published message types, creates blePressQueue, and brings up BLE.
+// Sets agent_state to WAITING_AGENT on success or UNRECOVERABLE_ERROR if
+// any allocation/initialization step fails.
 void setup()
 {
   Serial.begin(115200);
@@ -486,6 +529,16 @@ void setup()
   delay(500);
 }
 
+// Main state machine. States:
+//   WAITING_AGENT      — polls for the micro-ROS agent every AGENT_RECONNECT_PERIOD_MS.
+//   AGENT_AVAILABLE    — agent detected; calls init_client() to create ROS entities.
+//   AGENT_CONNECTED    — normal operation: re-syncs clock every AGENT_SYNC_PERIOD_MS,
+//                        spins the rclc executor, and drains the BLE press queue via
+//                        pump_publish_queue(). Falls to AGENT_DISCONNECTED if time-sync
+//                        fails AGENT_SYNC_MAX_RETRIES consecutive times.
+//   AGENT_DISCONNECTED — tears down ROS entities via deinit_client(), then re-enters
+//                        WAITING_AGENT.
+//   UNRECOVERABLE_ERROR — spins indefinitely with a 100 ms delay; requires reboot.
 void loop()
 {
   switch (agent_state)

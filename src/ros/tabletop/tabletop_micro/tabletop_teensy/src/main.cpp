@@ -1,3 +1,28 @@
+// =============================================================================
+// tabletop_teensy/src/main.cpp
+// Teensy 4.1 micro-ROS firmware for the TableTop monkey electrophysiology rig.
+//
+// Built with PlatformIO (tt-microros-build).  Serial transport only
+// (MICRO_ROS_TRANSPORT_ARDUINO_SERIAL).
+//
+// ROS entities exposed (all under the "teensy" namespace):
+//   Publisher : teensy/sensor  -- tabletop_interfaces/msg/TeensySensor, BEST_EFFORT, ~100 Hz
+//   Publisher : teensy/log     -- std_msgs/msg/String, RELIABLE, human-readable diagnostics
+//   Service   : teensy/ping              -- tabletop_interfaces/srv/Ping
+//   Service   : teensy/set_arm_lock      -- tabletop_interfaces/srv/SetArmLock
+//   Service   : teensy/set_smartglass    -- tabletop_interfaces/srv/SetSmartglass
+//   Service   : teensy/set_reward        -- tabletop_interfaces/srv/SetReward
+//   Service   : teensy/set_solenoid      -- tabletop_interfaces/srv/SetSolenoid
+//
+// Main-loop cadence:
+//   loop() drives an rclc_executor handling timers and service callbacks.
+//   sensor_timer fires every SENSOR_PERIOD_MS (10 ms) for 100 Hz sensor publishes.
+//   sync_pulse_base_timer fires every SYNC_PULSE_BASE_PERIOD_MS (~1 s) and schedules
+//   a randomly jittered sync pulse via two one-shot timers.
+//   camera_trigger_timer is a hardware PIT IntervalTimer that toggles
+//   CAMERA_TRIGGER_CONTROL_PIN at 2x120 Hz (120 fps square wave), running
+//   independently of the micro-ROS session lifecycle.
+// =============================================================================
 #include <Arduino.h>
 #include <builtin_interfaces/msg/duration.h>
 #include <builtin_interfaces/msg/time.h>
@@ -20,77 +45,138 @@
 #include "rmw/qos_profiles.h"
 #include "rmw_microros/time_sync.h"
 
+// Guard: this firmware is only built with Arduino serial transport.
 #ifndef MICRO_ROS_TRANSPORT_ARDUINO_SERIAL
 #error This code only supports serial transport.
 #endif
 
 // #define DEBUG_LOGGING
 
+// =============================================================================
+// Pin definitions
+// =============================================================================
 // Define pin mappings
 // NOTE: Pin 37 does not work
+// --- Output control pins ---
+// LEFT_ARM_LOCK_CONTROL_PIN: drives the left arm restraint solenoid (HIGH = engaged)
 #define LEFT_ARM_LOCK_CONTROL_PIN 4
+// RIGHT_ARM_LOCK_CONTROL_PIN: drives the right arm restraint solenoid (HIGH = engaged)
 #define RIGHT_ARM_LOCK_CONTROL_PIN 5
+// LEFT_ARM_BUZZER_CONTROL_PIN: buzzes left arm buzzer on unlock (HIGH = buzzing)
 #define LEFT_ARM_BUZZER_CONTROL_PIN 41
+// RIGHT_ARM_BUZZER_CONTROL_PIN: buzzes right arm buzzer on unlock (HIGH = buzzing)
 #define RIGHT_ARM_BUZZER_CONTROL_PIN 40
+// SMARTGLASS_CONTROL_PIN: controls LCD shutter goggles (HIGH = transparent/revealed)
 #define SMARTGLASS_CONTROL_PIN 3
+// REWARD_CONTROL_PIN: opens the juice reward solenoid (HIGH = dispensing)
 #define REWARD_CONTROL_PIN 26
+// SYNC_PULSE_CONTROL_PIN: sync pulse to recording equipment (HIGH during pulse)
 #define SYNC_PULSE_CONTROL_PIN 9
+// SOLENOID_CONTROL_PIN: auxiliary solenoid; mirrors sync pulse when is_solenoid_active
 #define SOLENOID_CONTROL_PIN 12
+// CAMERA_TRIGGER_CONTROL_PIN: 50% duty square wave at CAMERA_TRIGGER_FPS to FLIR cameras
 #define CAMERA_TRIGGER_CONTROL_PIN 33
+// --- Input sense pins ---
+// SAFETY_LASER_STATE_PIN: safety laser photodetector (HIGH = beam broken, danger state)
 #define SAFETY_LASER_STATE_PIN 25
+// LEFT_ARM_LOCK_STATE_PIN: left arm restraint feedback (LOW = arm seated/locked)
 #define LEFT_ARM_LOCK_STATE_PIN 38  // TODO: change back to 36
+// RIGHT_ARM_LOCK_STATE_PIN: right arm restraint feedback (LOW = arm seated/locked)
 #define RIGHT_ARM_LOCK_STATE_PIN 39
+// BUTTON_STATE_PIN: subject response button (LOW = pressed, active-low with INPUT_PULLUP)
+// Note: pin 36 currently used here because pin 38 is occupied by left arm lock (see TODO above)
 #define BUTTON_STATE_PIN 36
+// LEFT_GLOVE_STATE_PINS: 10-bit ADC inputs for left-hand glove pressure sensors (A0-A4)
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
+// RIGHT_GLOVE_STATE_PINS: 10-bit ADC inputs for right-hand glove pressure sensors (A5-A9)
 static const uint8_t RIGHT_GLOVE_STATE_PINS[] = { A5, A6, A7, A8, A9 };
 
 // Define pin states
+// The digital level that signals the active/triggered condition.
+// SAFETY_LASER_BROKEN_STATE: HIGH = beam interrupted (open-collector / pull-up topology)
 #define SAFETY_LASER_BROKEN_STATE HIGH
+// LEFT_ARM_LOCKED_STATE: LOW = arm seated in restraint (active-low switch)
 #define LEFT_ARM_LOCKED_STATE LOW
+// RIGHT_ARM_LOCKED_STATE: LOW = arm seated in restraint (active-low switch)
 #define RIGHT_ARM_LOCKED_STATE LOW
+// BUTTON_PRESSED_STATE: LOW = button depressed (INPUT_PULLUP, active-low)
 #define BUTTON_PRESSED_STATE LOW
 
 // Define interrupt trigger conditions
+// All ISRs fire on CHANGE so timestamps are captured for both edges
+// (assertion and de-assertion), enabling edge-latched event timestamps.
 #define SAFETY_LASER_ISR_TRIGGER CHANGE
 #define LEFT_ARM_ISR_TRIGGER CHANGE
 #define RIGHT_ARM_ISR_TRIGGER CHANGE
 #define BUTTON_ISR_TRIGGER CHANGE
 
 // Message memory configuration
+// Used by micro_ros_utilities_create_message_memory.
+// Allocates 100 bytes of string capacity and limits sequences to 5 elements.
 static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 0, NULL };
 
+// =============================================================================
+// ROS 2 node identity and entity names
+// =============================================================================
 // ROS2 node name
 #define NODE_NAME "teensy"
 #define NODE_NS ""
 
 // ROS2 topics
+// "~/" expands to "/<NODE_NS>/<NODE_NAME>/" at runtime.
+// SENSOR_TOPIC: tabletop_interfaces/msg/TeensySensor, BEST_EFFORT QoS
 #define SENSOR_TOPIC "~/sensor"
+// LOG_TOPIC: std_msgs/msg/String, RELIABLE QoS; used for human-readable diagnostics
 #define LOG_TOPIC "~/log"
 
 // ROS2 services
+// PING_SRV_NAME: connectivity check; responds with the current synchronized ROS time
 #define PING_SRV_NAME "~/ping"
+// SET_ARM_LOCK_SRV_NAME: lock/release arm restraints and trigger buzzer on unlock
 #define SET_ARM_LOCK_SRV_NAME "~/set_arm_lock"
+// SET_SMARTGLASS_SRV_NAME: reveal (transparent) or occlude LCD shutter goggles
 #define SET_SMARTGLASS_SRV_NAME "~/set_smartglass"
+// SET_REWARD_SRV_NAME: open juice solenoid for a caller-specified duration
 #define SET_REWARD_SRV_NAME "~/set_reward"
+// SET_SOLENOID_SRV_NAME: arm/disarm auxiliary solenoid (follows sync pulse when armed)
 #define SET_SOLENOID_SRV_NAME "~/set_solenoid"
 
+// =============================================================================
+// Timing and execution parameters
+// =============================================================================
 // Execution parameters
+// AGENT_RECONNECT_PERIOD_MS: how often loop() pings for the micro-ROS agent while disconnected
 #define AGENT_RECONNECT_PERIOD_MS 100
+// AGENT_RECONNECT_TIMEOUT_MS: per-ping timeout used by rmw_uros_ping_agent()
 #define AGENT_RECONNECT_TIMEOUT_MS 20
+// EXECUTOR_SPIN_TIMEOUT_MS: max time rclc_executor_spin_some() may block per loop iteration
 #define EXECUTOR_SPIN_TIMEOUT_MS 50
+// AGENT_SYNC_PERIOD_MS: how often ROS time is re-synchronized in AGENT_CONNECTED state
 #define AGENT_SYNC_PERIOD_MS 200
+// AGENT_SYNC_TIMEOUT_MS: per-call timeout for rmw_uros_sync_session()
 #define AGENT_SYNC_TIMEOUT_MS 1
+// AGENT_SYNC_MAX_RETRIES: consecutive sync failures before triggering disconnection
 #define AGENT_SYNC_MAX_RETRIES 3
+// SENSOR_PERIOD_MS: sensor_timer period; sets publish rate to ~100 Hz
 #define SENSOR_PERIOD_MS 10
+// SYNC_PULSE_BASE_PERIOD_MS: nominal inter-pulse interval (~1 s)
 #define SYNC_PULSE_BASE_PERIOD_MS 1000
+// SYNC_PULSE_DELAY_MIN_MS / MAX_MS: random jitter range added before each pulse onset
 #define SYNC_PULSE_DELAY_MIN_MS 50
 #define SYNC_PULSE_DELAY_MAX_MS 200
+// SYNC_PULSE_DURATION_MS: how long SYNC_PULSE_CONTROL_PIN stays HIGH each cycle
 #define SYNC_PULSE_DURATION_MS 100
+// ARM_BUZZER_DURATION_MS: how long the unlock buzzer sounds after a release command
 #define ARM_BUZZER_DURATION_MS 1000
+// DEBOUNCE_DELAY_MS: minimum quiet time before a pin transition is considered stable
 #define DEBOUNCE_DELAY_MS 1
+// DEBOUNCE_DELAY_NS: DEBOUNCE_DELAY_MS expressed in nanoseconds for epoch comparisons
 #define DEBOUNCE_DELAY_NS RCL_MS_TO_NS(DEBOUNCE_DELAY_MS)
+// CAMERA_TRIGGER_FPS: target frame rate for the FLIR cameras
 #define CAMERA_TRIGGER_FPS 120
+// CAMERA_TRIGGER_TOGGLE_PERIOD_US: IntervalTimer period for a 50% duty square wave at CAMERA_TRIGGER_FPS
 #define CAMERA_TRIGGER_TOGGLE_PERIOD_US (1000000.0f / (2 * CAMERA_TRIGGER_FPS))
+// CAMERA_TRIGGER_ISR_PRIORITY: Teensy interrupt priority (lower = higher priority)
 #define CAMERA_TRIGGER_ISR_PRIORITY 64
 
 // Builtin LED agent state indicator
@@ -103,10 +189,17 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define BLINK_CONNECTED_PERIOD_MS 500
 #define BLINK_ERROR_PERIOD_MS 100
 
+// =============================================================================
+// Global micro-ROS entities and state variables
+// =============================================================================
 // Global variables
+// --- Publishers ---
+// sensor_publisher: publishes TeensySensor on ~/sensor (~100 Hz, BEST_EFFORT)
 rcl_publisher_t sensor_publisher;
+// log_publisher: publishes diagnostic strings on ~/log (RELIABLE)
 rcl_publisher_t log_publisher;
 
+// --- Services ---
 rcl_service_t ping_service;
 rcl_service_t set_arm_lock_service;
 rcl_service_t set_smartglass_service;
@@ -118,19 +211,34 @@ rcl_service_t set_solenoid_service;
 // session/time synchronization delays.
 IntervalTimer camera_trigger_timer;
 
+// --- rcl timers (managed by the executor) ---
+// sync_pulse_base_timer: repeating ~1 s; triggers each sync-pulse cycle
 rcl_timer_t sync_pulse_base_timer;
+// sync_pulse_start_timer: one-shot; raises pulse after random jitter delay
 rcl_timer_t sync_pulse_start_timer;
+// sync_pulse_end_timer: one-shot; lowers pulse after SYNC_PULSE_DURATION_MS
 rcl_timer_t sync_pulse_end_timer;
+// sensor_timer: repeating 10 ms; drives the 100 Hz TeensySensor publish loop
 rcl_timer_t sensor_timer;
+// reward_timer: one-shot; closes the reward solenoid after the requested duration
 rcl_timer_t reward_timer;
+// arm_buzzer_timer: one-shot; silences the unlock buzzer after ARM_BUZZER_DURATION_MS
 rcl_timer_t arm_buzzer_timer;
 
+// --- micro-ROS runtime context ---
+// allocator: default heap allocator used for all rcl/rclc init calls
 rcl_allocator_t allocator;
+// support: wraps rcl init options and context for rclc convenience API
 rclc_support_t support;
+// node: the "teensy" ROS 2 node
 rcl_node_t node;
+// executor: single-threaded executor spinning all timers and service callbacks
 rclc_executor_t executor;
 
+// --- Message buffers (statically allocated; reused on every publish/service call) ---
+// sensor_msg: reused every sensor_timer tick (100 Hz)
 tabletop_interfaces__msg__TeensySensor sensor_msg;
+// log_msg: reused for every LOG() call; string capacity pre-allocated via memory_conf
 std_msgs__msg__String log_msg;
 
 tabletop_interfaces__srv__Ping_Request ping_request;
@@ -145,8 +253,15 @@ tabletop_interfaces__srv__SetSolenoid_Request set_solenoid_request;
 tabletop_interfaces__srv__SetSolenoid_Response set_solenoid_response;
 
 // State tracking
+// agent_sync_retries: counts consecutive failed rmw_uros_sync_session() calls
 uint8_t agent_sync_retries;
 
+// agent_state machine used by loop():
+//   WAITING_AGENT      -- probing for micro-ROS agent; builtin LED steady ON
+//   AGENT_AVAILABLE    -- agent found; about to call init_client()
+//   AGENT_CONNECTED    -- session active, executor spinning; LED slow-blink
+//   AGENT_DISCONNECTED -- session lost; about to call deinit_client()
+//   UNCRECOVERABLE_ERROR -- fatal init failure; LED fast-blink; requires reboot
 enum agent_states
 {
   WAITING_AGENT,
@@ -156,31 +271,54 @@ enum agent_states
   UNCRECOVERABLE_ERROR,
 } agent_state;
 
+// --- Output state mirrors (kept in sync by the set_* helpers) ---
+// is_reward_active: true while REWARD_CONTROL_PIN is HIGH (solenoid open)
 bool is_reward_active;
+// is_smartglass_revealed: true while SMARTGLASS_CONTROL_PIN is HIGH (goggles transparent)
 bool is_smartglass_revealed;
+// is_solenoid_active: true when SOLENOID_CONTROL_PIN should follow the sync pulse
 bool is_solenoid_active;
 
+// --- Sync pulse bookkeeping ---
+// sync_pulse_state: current output level of SYNC_PULSE_CONTROL_PIN
 bool sync_pulse_state;
+// sync_pulse_last_time_on/off: ROS timestamps of the most recent rising/falling edges
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
 
+// --- ISR-shared debounce variables (volatile; access guarded by noInterrupts/interrupts) ---
+// Safety laser (SAFETY_LASER_STATE_PIN)
+// safety_laser_last_time_broken_ns: epoch ns when the beam was last newly broken
 volatile int64_t safety_laser_last_time_broken_ns;
+// safety_laser_last_time_bounced_ns: epoch ns of the most recent ISR call (any edge)
 volatile int64_t safety_laser_last_time_bounced_ns;
+// safety_laser_state_stable: debounced pin level after DEBOUNCE_DELAY_NS quiet time
 volatile uint8_t safety_laser_state_stable;
 
+// Left arm restraint (LEFT_ARM_LOCK_STATE_PIN)
+// left_arm_last_time_locked_ns: epoch ns when arm was last newly seated
 volatile int64_t left_arm_last_time_locked_ns;
 volatile int64_t left_arm_last_time_bounced_ns;
 volatile uint8_t left_arm_state_stable;
 
+// Right arm restraint (RIGHT_ARM_LOCK_STATE_PIN)
+// right_arm_last_time_locked_ns: epoch ns when arm was last newly seated
 volatile int64_t right_arm_last_time_locked_ns;
 volatile int64_t right_arm_last_time_bounced_ns;
 volatile uint8_t right_arm_state_stable;
 
+// Response button (BUTTON_STATE_PIN)
+// button_last_time_pressed_ns: epoch ns when button was last newly pressed
 volatile int64_t button_last_time_pressed_ns;
 volatile int64_t button_last_time_bounced_ns;
 volatile uint8_t button_state_stable;
 
+// =============================================================================
+// Utility macros
+// =============================================================================
 // Macro definitions
+// RCCHECK: evaluates fn; on rcl failure prints the error string and returns false.
+// Used inside bool-returning init/deinit functions.
 #define RCCHECK(fn)                                                                                                    \
   {                                                                                                                    \
     rcl_ret_t temp_rc = fn;                                                                                            \
@@ -190,6 +328,7 @@ volatile uint8_t button_state_stable;
       return false;                                                                                                    \
     }                                                                                                                  \
   }
+// RCSOFTCHECK: like RCCHECK but does not return; logs the error and continues.
 #define RCSOFTCHECK(fn)                                                                                                \
   {                                                                                                                    \
     rcl_ret_t temp_rc = fn;                                                                                            \
@@ -198,21 +337,26 @@ volatile uint8_t button_state_stable;
       printf("Error: %s\n", rcl_get_error_string().str);                                                               \
     }                                                                                                                  \
   }
+// STRING_SET: snprintf into a rosidl string struct, then updates its size field.
 #define STRING_SET(str_ptr, fmt, ...)                                                                                  \
   {                                                                                                                    \
     snprintf((str_ptr)->data, (str_ptr)->capacity, fmt, ##__VA_ARGS__);                                                \
     (str_ptr)->size = strlen((str_ptr)->data);                                                                         \
   }
+// LOG: format and publish a diagnostic string on ~/log. Always active.
 #define LOG(fmt, ...)                                                                                                  \
   {                                                                                                                    \
     STRING_SET(&log_msg.data, fmt, ##__VA_ARGS__);                                                                     \
     RCSOFTCHECK(rcl_publish(&log_publisher, &log_msg, NULL));                                                          \
   }
+// DEBUG: same as LOG when DEBUG_LOGGING is defined; otherwise a no-op.
 #ifdef DEBUG_LOGGING
 #define DEBUG LOG
 #else
 #define DEBUG(...)
 #endif
+// RCASSERT: evaluates fn; on failure publishes the rcl error and a custom message
+// to ~/log. Does not halt execution -- use for non-fatal runtime assertions.
 #define RCASSERT(fn, fmt, ...)                                                                                         \
   {                                                                                                                    \
     rcl_ret_t temp_rc = fn;                                                                                            \
@@ -223,6 +367,7 @@ volatile uint8_t button_state_stable;
       LOG(fmt, ##__VA_ARGS__);                                                                                         \
     }                                                                                                                  \
   }
+// ASSERT: like RCASSERT but for plain bool conditions (not rcl return codes).
 #define ASSERT(fn, fmt, ...)                                                                                           \
   {                                                                                                                    \
     bool temp_success = fn;                                                                                            \
@@ -232,6 +377,8 @@ volatile uint8_t button_state_stable;
       LOG(fmt, ##__VA_ARGS__);                                                                                         \
     }                                                                                                                  \
   }
+// EXECUTE_EVERY_N_MS: runs statement X at most once per MS milliseconds.
+// Uses a per-call-site static variable so each usage site has its own timer.
 #define EXECUTE_EVERY_N_MS(MS, X)                                                                                      \
   {                                                                                                                    \
     static int64_t init = -1;                                                                                          \
@@ -245,22 +392,31 @@ volatile uint8_t button_state_stable;
       init = uxr_millis();                                                                                             \
     }                                                                                                                  \
   }
+// Time conversion helpers between epoch nanoseconds and builtin_interfaces/Time.
 #define RCL_S_TO_MS(sec) (sec * 1000LL)
 #define ROS_TIME_TO_MS(time_msg) (RCL_S_TO_MS(time_msg.sec) + RCL_NS_TO_MS(time_msg.nanosec))
 #define ROS_TIME_TO_NS(time_msg) (RCL_S_TO_NS(time_msg.sec) + time_msg.nanosec)
+// NS_TO_ROS_TIME: splits a 64-bit nanosecond epoch value into (sec, nanosec) fields.
 #define NS_TO_ROS_TIME(time_msg, ns)                                                                                   \
   {                                                                                                                    \
     time_msg.sec = ns / (1000LL * 1000LL * 1000LL);                                                                    \
     time_msg.nanosec = ns % (1000LL * 1000LL * 1000LL);                                                                \
   }
+// GET_CURRENT_ROS_TIME: reads the synchronized ROS epoch via rmw_uros_epoch_nanos()
+// and stores it into a builtin_interfaces/Time struct using NS_TO_ROS_TIME.
 #define GET_CURRENT_ROS_TIME(time_msg)                                                                                 \
   {                                                                                                                    \
     int64_t now_ns = rmw_uros_epoch_nanos();                                                                           \
     NS_TO_ROS_TIME(time_msg, now_ns);                                                                                  \
   }
 
+// =============================================================================
+// Interrupt Service Routines (ISRs)
+// =============================================================================
+// camera_trigger_toggle_isr: hardware PIT ISR called every CAMERA_TRIGGER_TOGGLE_PERIOD_US.
 // ISR toggling the camera trigger pin at 2 * CAMERA_TRIGGER_FPS, producing
 // a 50% duty square wave with rising edges at CAMERA_TRIGGER_FPS
+// Runs at CAMERA_TRIGGER_ISR_PRIORITY, independent of the micro-ROS session.
 static void camera_trigger_toggle_isr()
 {
   static bool state = false;
@@ -268,6 +424,9 @@ static void camera_trigger_toggle_isr()
   digitalWriteFast(CAMERA_TRIGGER_CONTROL_PIN, state ? HIGH : LOW);
 }
 
+// safety_laser_broken_isr: CHANGE ISR for SAFETY_LASER_STATE_PIN.
+// Records the synchronized ROS epoch time of any edge; updates
+// safety_laser_last_time_broken_ns only on the first transition into the broken state.
 static void safety_laser_broken_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
@@ -277,6 +436,9 @@ static void safety_laser_broken_isr()
   }
   safety_laser_last_time_bounced_ns = now_ns;
 }
+// left_arm_locked_isr: CHANGE ISR for LEFT_ARM_LOCK_STATE_PIN.
+// Records the epoch time of every edge; also latches left_arm_last_time_locked_ns
+// on the first transition into the locked (LOW) state.
 static void left_arm_locked_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
@@ -286,6 +448,7 @@ static void left_arm_locked_isr()
   }
   left_arm_last_time_bounced_ns = now_ns;
 }
+// right_arm_locked_isr: CHANGE ISR for RIGHT_ARM_LOCK_STATE_PIN. Same pattern as left_arm_locked_isr.
 static void right_arm_locked_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
@@ -295,6 +458,9 @@ static void right_arm_locked_isr()
   }
   right_arm_last_time_bounced_ns = now_ns;
 }
+// button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN.
+// Records the epoch time of every edge; also latches button_last_time_pressed_ns
+// on the first transition into the pressed (LOW) state.
 static void button_pressed_isr()
 {
   int64_t now_ns = rmw_uros_epoch_nanos();
@@ -305,25 +471,37 @@ static void button_pressed_isr()
   button_last_time_bounced_ns = now_ns;
 }
 
+// =============================================================================
+// Output control helpers
+// =============================================================================
+// set_left_arm_lock: drive LEFT_ARM_LOCK_CONTROL_PIN (true = HIGH = restraint engaged).
 static inline void set_left_arm_lock(bool lock)
 {
   digitalWriteFast(LEFT_ARM_LOCK_CONTROL_PIN, lock ? HIGH : LOW);
 }
+// set_right_arm_lock: drive RIGHT_ARM_LOCK_CONTROL_PIN (true = HIGH = restraint engaged).
 static inline void set_right_arm_lock(bool lock)
 {
   digitalWriteFast(RIGHT_ARM_LOCK_CONTROL_PIN, lock ? HIGH : LOW);
 }
 
+// set_smartglass: drive SMARTGLASS_CONTROL_PIN and mirror state to is_smartglass_revealed.
+// true (HIGH) = goggles transparent; false (LOW) = opaque.
 static inline void set_smartglass(bool reveal)
 {
   digitalWriteFast(SMARTGLASS_CONTROL_PIN, reveal ? HIGH : LOW);
   is_smartglass_revealed = reveal;
 }
+// set_reward: drive REWARD_CONTROL_PIN and mirror state to is_reward_active.
+// true (HIGH) = juice solenoid open/dispensing; false (LOW) = closed.
 static inline void set_reward(bool activate)
 {
   digitalWriteFast(REWARD_CONTROL_PIN, activate ? HIGH : LOW);
   is_reward_active = activate;
 }
+// set_sync_pulse: drive SYNC_PULSE_CONTROL_PIN and, when is_solenoid_active, also
+// SOLENOID_CONTROL_PIN. Updates sync_pulse_state mirror.
+// Called by sync_pulse_start/end_timer_callback.
 static inline void set_sync_pulse(bool activate)
 {
   digitalWriteFast(SYNC_PULSE_CONTROL_PIN, activate ? HIGH : LOW);
@@ -333,6 +511,9 @@ static inline void set_sync_pulse(bool activate)
   }
   sync_pulse_state = activate;
 }
+// set_solenoid: arm or disarm the auxiliary solenoid.
+// On deactivation, immediately drives SOLENOID_CONTROL_PIN LOW.
+// On activation, the pin will follow the next sync pulse via set_sync_pulse().
 static inline void set_solenoid(bool activate)
 {
   if (!activate)
@@ -342,7 +523,15 @@ static inline void set_solenoid(bool activate)
   is_solenoid_active = activate;
 }
 
+// =============================================================================
+// rcl Timer callbacks
+// =============================================================================
+// sensor_timer_callback: fires every SENSOR_PERIOD_MS (10 ms); ~100 Hz.
 // Timer callback for publishing the sensor message
+// Reads and debounces all sensor inputs (with interrupts disabled for ISR-shared
+// variables), populates sensor_msg, and publishes it on ~/sensor.
+// last_call_time is used to widen the "is_X_broken/locked" window to catch
+// transitions that resolve between timer ticks.
 void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   if (timer != NULL)
@@ -411,7 +600,9 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// sync_pulse_end_timer_callback: one-shot; fires SYNC_PULSE_DURATION_MS after pulse onset.
 // Timer callback to stop the sync pulse
+// Lowers SYNC_PULSE_CONTROL_PIN, records the falling-edge timestamp, and cancels itself.
 void sync_pulse_end_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   RCLC_UNUSED(last_call_time);
@@ -427,7 +618,11 @@ void sync_pulse_end_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// sync_pulse_start_timer_callback: one-shot; fires after the random jitter delay set by
+// sync_pulse_base_timer_callback.
 // Timer callback to start the sync pulse
+// Raises SYNC_PULSE_CONTROL_PIN, records the rising-edge timestamp, cancels itself,
+// and arms sync_pulse_end_timer.
 void sync_pulse_start_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   RCLC_UNUSED(last_call_time);
@@ -443,7 +638,10 @@ void sync_pulse_start_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// sync_pulse_base_timer_callback: repeating, fires every SYNC_PULSE_BASE_PERIOD_MS (~1 s).
 // Timer callback to start the sync pulse delay timer
+// Picks a random jitter in [DELAY_MIN, DELAY_MAX], sets it as sync_pulse_start_timer's
+// period, and resets that timer (arms the one-shot).
 void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   RCLC_UNUSED(last_call_time);
@@ -461,7 +659,13 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// =============================================================================
+// Service callbacks
+// =============================================================================
+// ping_callback: backs ~/ping (tabletop_interfaces/srv/Ping).
 // Service callback for ping
+// Returns the current synchronized ROS time as received_time.
+// success is false only when time synchronization has not yet occurred (both fields zero).
 void ping_callback(const void* req, void* res)
 {
   RCLC_UNUSED(req);
@@ -471,7 +675,9 @@ void ping_callback(const void* req, void* res)
   response->success = (response->received_time.sec != 0) || (response->received_time.nanosec != 0);
 }
 
+// reward_timer_callback: one-shot; fires after the duration requested in SetReward.
 // Timer callback to stop the reward control
+// Closes the reward solenoid (set_reward(false)) and cancels itself.
 void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   RCLC_UNUSED(last_call_time);
@@ -483,7 +689,11 @@ void reward_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// set_reward_callback: backs ~/set_reward (tabletop_interfaces/srv/SetReward).
 // Service callback for controlling the reward
+// activate=true: opens the juice solenoid for request.duration, arms reward_timer.
+// activate=false: closes solenoid immediately and cancels reward_timer.
+// Returns success=false when duration is inconsistently provided or omitted.
 void set_reward_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetReward_Request* request =
@@ -558,7 +768,9 @@ void set_reward_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// arm_buzzer_callback: one-shot; fires ARM_BUZZER_DURATION_MS after an unlock command.
 // Timer callback to stop the arm buzzer control
+// Drives both arm buzzer pins LOW and cancels itself.
 void arm_buzzer_callback(rcl_timer_t* timer, int64_t last_call_time)
 {
   RCLC_UNUSED(last_call_time);
@@ -571,7 +783,11 @@ void arm_buzzer_callback(rcl_timer_t* timer, int64_t last_call_time)
   }
 }
 
+// set_arm_lock_callback: backs ~/set_arm_lock (tabletop_interfaces/srv/SetArmLock).
 // Service callback for controlling the arm lock
+// Locks or releases the specified arm(s). On unlock, buzzes the corresponding
+// buzzer(s) and arms arm_buzzer_timer for ARM_BUZZER_DURATION_MS.
+// Returns success=false when neither arm is specified in the request.
 void set_arm_lock_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetArmLock_Request* request =
@@ -627,7 +843,9 @@ void set_arm_lock_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// set_smartglass_callback: backs ~/set_smartglass (tabletop_interfaces/srv/SetSmartglass).
 // Service callback for controlling the smartglass
+// Reveals (transparent) or occludes the LCD shutter goggles via set_smartglass().
 void set_smartglass_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetSmartglass_Request* request =
@@ -642,7 +860,10 @@ void set_smartglass_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// set_solenoid_callback: backs ~/set_solenoid (tabletop_interfaces/srv/SetSolenoid).
 // Service callback for controlling the solenoid
+// Arms or disarms the auxiliary solenoid via set_solenoid().
+// When armed, SOLENOID_CONTROL_PIN follows the next sync pulse; when disarmed, goes LOW.
 void set_solenoid_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetSolenoid_Request* request =
@@ -657,6 +878,12 @@ void set_solenoid_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// =============================================================================
+// Session lifecycle helpers
+// =============================================================================
+// reset_state: drives all outputs to their safe defaults and clears all timestamp
+// and debounce state variables. Called at session init, deinit, and from setup().
+// Safe defaults: both arm locks engaged, smartglass revealed, reward/sync/solenoid off.
 void reset_state()
 {
   set_left_arm_lock(true);
@@ -688,6 +915,10 @@ void reset_state()
   interrupts();
 }
 
+// init_client: creates all micro-ROS entities for one agent session.
+// Order: reset_state -> allocator -> support -> node -> publishers -> services ->
+//        timers -> executor (11 handles) -> time sync -> attach ISRs.
+// Returns true on success; RCCHECK() returns false on any rcl failure.
 bool init_client()
 {
   // Reset output pins
@@ -774,6 +1005,10 @@ bool init_client()
   return true;
 }
 
+// deinit_client: tears down all micro-ROS entities after a session ends.
+// Order: detach ISRs -> reset_state -> set destroy timeout to 0 ->
+//        fini publishers, timers, services, executor, node, support.
+// Returns true on success; transition target is WAITING_AGENT or UNCRECOVERABLE_ERROR.
 bool deinit_client()
 {
   // Detach interrupt service routines
@@ -812,6 +1047,16 @@ bool deinit_client()
   return true;
 }
 
+// =============================================================================
+// Arduino entry points
+// =============================================================================
+// setup: runs once at power-on or reset.
+// Initialises serial transport (115200 baud), configures all GPIO pin modes,
+// pre-allocates micro-ROS message memory for string-bearing service responses
+// and the log message, calls reset_state(), starts the free-running
+// camera_trigger_timer, and sets initial agent_state.
+// agent_state is WAITING_AGENT on success or UNCRECOVERABLE_ERROR if memory
+// allocation fails for any message type.
 void setup()
 {
   Serial.begin(115200);
@@ -875,6 +1120,13 @@ void setup()
   delay(1000);
 }
 
+// loop: runs continuously after setup(); drives the agent_state machine.
+//   WAITING_AGENT      -- polls rmw_uros_ping_agent() every AGENT_RECONNECT_PERIOD_MS.
+//   AGENT_AVAILABLE    -- calls init_client(); transitions to CONNECTED or DISCONNECTED.
+//   AGENT_CONNECTED    -- slow-blinks LED, re-syncs ROS time every AGENT_SYNC_PERIOD_MS,
+//                         spins executor; disconnects on sync failure or executor error.
+//   AGENT_DISCONNECTED -- calls deinit_client(); transitions to WAITING_AGENT or ERROR.
+//   UNCRECOVERABLE_ERROR -- fast-blinks LED; Teensy reboot required.
 void loop()
 {
   switch (agent_state)
