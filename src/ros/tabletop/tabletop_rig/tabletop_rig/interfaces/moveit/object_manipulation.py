@@ -211,6 +211,21 @@ _STATE_GOAL_NAME_MAP = {
 
 
 class PersistentState(NamedTuple):
+    """Serializable snapshot of manipulation state for cross-session recovery.
+
+    Written to disk on shutdown and loaded on the next startup to restore
+    in-progress manipulation (e.g., an object that was fetched but not
+    returned before the process exited).
+
+    Attributes:
+        manipulation_state: ManipulationState at the time of serialization.
+        manipulation_id: Grid object ID being manipulated, or None if idle.
+        saved_return_state_positions: Per-object joint positions for return
+            waypoints, keyed by object ID. Values are (ManipulationState,
+            joint_name → position) pairs corresponding to the saved robot
+            states at POST_ATTACH and POST_FETCH.
+    """
+
     manipulation_state: ManipulationState
     manipulation_id: str | None
     saved_return_state_positions: dict[
@@ -219,7 +234,21 @@ class PersistentState(NamedTuple):
 
 
 class ResetLoader(KwargYamlLoader):
+    """YAML loader for object reset configuration files.
+
+    Registers custom constructors for all types that may appear in
+    per-object reset YAML files (PoseStamped, Constraints, plan request
+    types, and joint state types). Used by ``_init_reset_configs`` to
+    parse ``ObjectResetConfig`` documents.
+    """
+
     def get_kwarg_constructors(self) -> dict[str, Callable]:
+        """Return tag-to-constructor mapping for reset config YAML types.
+
+        Returns:
+            Mapping of YAML tag strings to callables that accept keyword
+            arguments, covering all types used in object reset config files.
+        """
         return {
             "!PoseStamped": pose_stamped_msg,
             "!Constraints": constraints_msg,
@@ -231,12 +260,36 @@ class ResetLoader(KwargYamlLoader):
 
 
 def validate_and_lock(coro_fn):
+    """Decorator that serializes coroutine execution under a manipulation lock.
+
+    Wraps an ``async`` method so that it:
+
+    1. Raises ``ObjectManipulationError`` immediately if the lock is already
+       held (no waiting — only one manipulation can be in flight at a time).
+    2. Acquires ``self._manipulation_lock`` for the duration of the call.
+    3. Validates ``_manipulation_state`` consistency both before and after
+       the wrapped coroutine (via ``_validate_manipulation_state``), even
+       if the coroutine raises.
+
+    Only coroutine functions are wrapped; non-coroutines pass through
+    unmodified (currently the decorator is applied only to ``async def``
+    methods, so the non-coroutine branch is unused).
+
+    Args:
+        coro_fn: The async method to wrap. Must be a method of
+            ``ObjectManipulationInterface`` (i.e. ``self`` is the first arg).
+
+    Returns:
+        Wrapped async function, or the original function unchanged if it is
+        not a coroutine function.
+    """
     if inspect.iscoroutinefunction(coro_fn):
 
         @functools.wraps(coro_fn)
         async def async_wrapper(
             self: "ObjectManipulationInterface", *args, **kwargs
         ):
+            """Acquire lock, validate state, run wrapped coroutine, re-validate."""
             if self._manipulation_lock.locked():
                 raise ObjectManipulationError(
                     "Robot cannot cannot acquire manipulation "
@@ -490,6 +543,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @property
     def attach_link(self) -> str:
+        """Get the robot link to which objects are attached/detached."""
         return self.default_pose_link
 
     @property
@@ -1437,6 +1491,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         joint_efforts: dict[str, list[float]] = {}
 
         def joint_state_callback(msg: JointState):
+            """Accumulate joint effort samples and signal when enough are collected."""
             try:
                 nonlocal joint_efforts
                 nonlocal num_samples
@@ -1540,6 +1595,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         torques: list[list[float]] = []
 
         def wrench_callback(msg: WrenchStamped):
+            """Accumulate wrench force/torque samples and signal when enough are collected."""
             try:
                 nonlocal forces
                 nonlocal torques
@@ -1801,6 +1857,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @property
     def current_manipulation_id(self) -> str | None:
+        """Get the ID of the object currently being manipulated, or None."""
         return self._current_manipulation_id
 
     @validate_and_lock

@@ -398,11 +398,13 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     def connection_made(self, transport: asyncio.BaseTransport):
+        """Store the transport reference once the HCI socket is wired up."""
         logger.debug(f"Connection made to {type(transport)}: {transport}")
         assert isinstance(transport, _HCISocketTransport)
         self._transport = transport
 
     def data_received(self, data: bytes):
+        """Parse a raw HCI frame and dispatch it to the appropriate handler."""
         event_time = self._event_time_fn()
         try:
             if self._socket_type == "monitor":
@@ -415,10 +417,12 @@ class FlicClient(asyncio.Protocol):
         self._dispatch_event(pkt, event_time)
 
     def eof_received(self):
+        """Close the client when the underlying HCI socket signals EOF."""
         logger.info("EOF received on HCI socket")
         self.close()
 
     def connection_lost(self, exc: Exception | None):
+        """Close the client when the transport reports the connection is gone."""
         if exc is not None:
             logger.warning(f"Connection lost: {exc}")
         else:
@@ -778,6 +782,14 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     async def wait_for_any_button(self) -> ButtonPressInfo:
+        """Await the next advertisement from any verified Flic button.
+
+        Reuses an existing pending future if one is already registered,
+        so multiple callers all wake up on the same press event.
+
+        Returns:
+            ButtonPressInfo for the first button press detected.
+        """
         if (
             self._any_button_press_future is not None
             and not self._any_button_press_future.done()
@@ -790,6 +802,18 @@ class FlicClient(asyncio.Protocol):
         return await future
 
     async def wait_for_button(self, addr: str) -> ButtonPressInfo:
+        """Await the next advertisement from a specific Flic button.
+
+        Reuses an existing pending future for the address if one is
+        already registered.
+
+        Args:
+            addr: Bluetooth address of the button to wait for
+                (e.g., ``"80:e4:da:xx:xx:xx"``).
+
+        Returns:
+            ButtonPressInfo for the press from the specified button.
+        """
         if (
             addr in self._button_press_futures
             and not self._button_press_futures[addr].done()
@@ -842,9 +866,11 @@ class FlicClient(asyncio.Protocol):
 
     @property
     def closed(self) -> bool:
+        """Return True if the client has been closed."""
         return self._closed_event.is_set()
 
     async def wait_for_closed(self):
+        """Await until the client is closed (i.e., ``close()`` has been called)."""
         await self._closed_event.wait()
 
 
@@ -854,6 +880,18 @@ async def main_async(
     active_scan: bool,
     kill_on_press: bool,
 ):
+    """Run the Flic sniffer loop: create client, print each button press.
+
+    Opens a ``FlicClient`` on the specified HCI adapter and loops
+    indefinitely, logging each ``ButtonPressInfo`` received from any
+    verified Flic button. Closes the client on exit (e.g., KeyboardInterrupt).
+
+    Args:
+        device_id: HCI controller index (``hciN``).
+        active_scan: If True, send SCAN_REQ packets to advertisers.
+        kill_on_press: If True, silence the button after each press via a
+            brief connect+disconnect.
+    """
     loop = asyncio.get_running_loop()
     client = await FlicClient.create(
         loop=loop,
