@@ -104,6 +104,29 @@ while building the architecture docs (2026-06). **No code was changed**
     `eyelink_range`/`markers_range` visualize wrappers have no active
     consumer. Likely stale config.
 
+## Firmware review (firmware documentation pass)
+
+21. **`resetButtonAds()` blocks the Flic firmware main loop.**
+    `tabletop_micro/tabletop_flic_micro/src/main.cpp`: `pump_publish_queue()`
+    calls `resetButtonAds()` after every detected press, which connects to
+    the button and immediately disconnects to silence its ~3 s post-press
+    advertisement burst. The connect runs on the main loop and can block
+    long enough to stall executor spin / time-sync and drop the micro-ROS
+    agent. A pre-existing header comment wrongly claimed this was "dropped"
+    (corrected to match the code). Consider moving it to a dedicated
+    FreeRTOS task fed by a separate queue.
+
+22. **Potential pin conflict in Teensy firmware.**
+    `tabletop_micro/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
+    is `38` with a `// TODO: change back to 36`, but `BUTTON_STATE_PIN` is
+    already `36`. Acting on the TODO without relocating the button pin would
+    map both to pin 36.
+
+23. **Misspelled enum `UNCRECOVERABLE_ERROR` in Teensy firmware.**
+    The `agent_states` member is spelled `UNCRECOVERABLE_ERROR` (used
+    consistently, so functionally harmless) while a nearby LED blink-pattern
+    comment refers to `UNRECOVERABLE_ERROR`. Cosmetic; rename for clarity.
+
 ## Code smells / API warts
 
 8. **Typo'd public API method: `Commander.manually_atatch_object`**
