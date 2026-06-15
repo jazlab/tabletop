@@ -1,9 +1,26 @@
+# PresentTask — passive object presentation task (random trial order).
+# Presents objects at specified poses without collecting a behavioral response
+# or delivering a reward. Useful for familiarisation phases and passive viewing.
+# Uses RandomChoiceAlternating (vs OrderedChoiceAlternating in present_ordered.yaml):
+# object ID, pose, and arm are sampled independently at random each trial.
+# See: tabletop_tasks/tasks/present.py :: PresentTask
+#      tabletop_tasks/trial_generators/random_choice_alternating.py :: RandomChoiceAlternating
 tasks:
   - class: PresentTask
     kwargs:
+      # trial_generator: specifies the trial sequence generator.
       trial_generator:
+        # RandomChoiceAlternating alternates between robot groups (left/right)
+        # and for each group independently samples object_id, pose, arm, and
+        # occlusion from the configured lists on every trial.
         class: RandomChoiceAlternating
         kwargs:
+          # grouped_object_ids: maps each MoveIt planning-group name to the list
+          # of collision-object IDs that group's arm may fetch and present.
+          # Commented-out IDs (small_object_6, _9, _21, _24) are excluded —
+          # likely physically absent or not yet calibrated.
+          # Note: right_manipulator list includes smooth_pursuit_object, which is
+          # absent from foraging_random.yaml — likely for combined-task sessions.
           grouped_object_ids:
             left_manipulator:
               - small_object_0
@@ -37,13 +54,28 @@ tasks:
               - small_object_27
               - small_object_28
               - smooth_pursuit_object
+          # poses: list of candidate presentation poses sampled uniformly at
+          # random for each trial (single pose active here).
+          #   position: [x, y, z] in meters (robot base frame).
+          #   rpy: [roll, pitch, yaw] in radians.
           poses:
             - position: [0.9525, 0.4, 0.6]
               rpy: [0.0, 0.0, -1.5707]
+          # arms: candidate arm-release assignments sampled randomly per trial.
+          # "left" / "right" = release one arm; "both" = release both arms.
           arms:
             - left
             - right
             - both
+          # occlude_prob: probability (0.0–1.0) that the smartglass is occluded
+          # during the inter-trial interval.
+          # 1.0 = always occluded between presentations.
           occlude_prob: 1.0
+          # num_trials: total number of presentations before the task terminates.
+          # 100000 is effectively unlimited for a session.
           num_trials: 100000
+          # skip_failed: if false, a trial whose manipulation context exits
+          # unexpectedly (e.g., e-stop) is retried rather than skipped.
+          # Differs from foraging_random.yaml (skip_failed: true) — here failed
+          # presentations should be reattempted so every object gets shown.
           skip_failed: false

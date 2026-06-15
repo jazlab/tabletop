@@ -179,6 +179,7 @@ moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug
 | `tabletop_rig/config/flir_synchronized.yaml` | flir_synchronized.launch.py | camera list, serials, trigger/chunk settings, poses |
 | `tabletop_rig/config/flir.yaml`, `blackfly_s.yaml` | flir.launch.py | unsynchronized per-camera params |
 | `tabletop_rig/config/dual_controllers.yaml` | dual_ur.launch.py → controller_manager | left/right controller definitions |
+| `tabletop_rig/config/update_rate.yaml` | ur_control/dual_ur/multi_ur launch → controller_manager | ros2_control update rate (Hz) |
 | `tabletop_rig/config/optitrack.yaml` | optitrack.launch.py | server address, ports, QoS |
 | `tabletop_rig/config/rosbag.yaml` | rosbag.launch.py | recorded topics/services, bag size |
 | `tabletop_rig/config/object_reset/*.yaml` | Commander reset_object requests | reset motion parameters |

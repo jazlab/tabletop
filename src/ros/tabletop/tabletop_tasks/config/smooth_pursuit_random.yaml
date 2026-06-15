@@ -1,19 +1,47 @@
+# SmoothPursuitTask — random-waypoint motion type.
+# Moves an attached object through randomly sampled waypoints within a 3-D
+# bounding box. The robot plans through each waypoint using the linear
+# planning pipeline, visiting num_waypoints positions per repetition.
+# See: tabletop_tasks/tasks/smooth_pursuit.py :: SmoothPursuitTask
 tasks:
   - class: SmoothPursuitTask
     kwargs:
+      # motion_type selects the trajectory generator function.
+      # "random" samples num_waypoints positions uniformly inside the bounding
+      # box defined by [min_x,max_x] × [min_y,max_y] × [min_z,max_z].
       motion_type: random
+      # motion_kwargs are forwarded verbatim to SmoothPursuitTask.generate_random().
       motion_kwargs:
+        # start_pose: initial end-effector pose before random waypoints begin.
+        #   position: [x, y, z] in meters (robot base frame).
+        #   rpy: [roll, pitch, yaw] in radians. Orientation is held constant
+        #        for all waypoints. [π/2, π/2, 0] ≈ tool pointing forward/down.
         start_pose:
           position: [0.9525, 0.4, 0.5]
           rpy: [1.5707, 1.5707, 0.0]
+        # Bounding-box limits for random position sampling (meters).
+        # X axis: forward/back relative to robot base.
         min_x: 0.7525
         max_x: 1.1525
+        # Y axis: left/right relative to robot base.
         min_y: 0.3
         max_y: 0.5
+        # Z axis: vertical.
         min_z: 0.4
         max_z: 0.6
+        # num_waypoints: number of random positions generated per repetition
+        # (excluding the start_pose, which is always visited first).
         num_waypoints: 100
+      # robot_name: MoveIt planning group that executes the trajectory.
+      # Corresponds to a group defined in the MoveIt config (e.g., SRDF).
       robot_name: right_manipulator
+      # num_repetitions: how many times the full waypoint sequence is
+      # executed before the task ends.
       num_repetitions: 3
+      # object_id: collision-object ID of the stimulus to attach to the
+      # end effector before motion begins. Must exist in the planning scene.
       object_id: smooth_pursuit_object
+      # velocity_scaling_factor: fraction of the joint-speed limits applied
+      # during trajectory time-parameterisation (range 0.0–1.0).
+      # 0.05 = 5 % of maximum speed — very slow, suitable for eye tracking.
       velocity_scaling_factor: 0.05

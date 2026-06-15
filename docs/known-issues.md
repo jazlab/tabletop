@@ -52,6 +52,30 @@ while building the architecture docs (2026-06). **No code was changed**
     name. Docstrings now describe the implemented behavior; the logic
     needs review.
 
+## Config review (config documentation pass)
+
+14. **Typo'd joint name in `commander.yaml` `test_object_attached`.**
+    `left_manipulation_interface.test_object_attached.joint_name` is
+    `left_eblow_joint` and the right arm is `right_eblow_joint`
+    (`commander.yaml:369`, `:444`). The correct UR joint is
+    `*_elbow_joint` (cf. `tabletop_description` initial-position configs
+    and `dual_view_robot.launch.py`). `object_manipulation.py:1422`
+    reads this `test_object_attached` config, so the attach self-test
+    would reference a non-existent joint. The config now carries an
+    inline NOTE; the value itself was left unchanged.
+
+15. **Unread config parameters in `commander.yaml`.**
+    `*_manipulation_interface.trajectory_cache.base_link_name` and
+    `common_manipulation_interface.execution.moved_tolerance` are never
+    read in `tabletop_rig` (no matching `self.param(...)`). Either dead
+    config or a missing code read — confirm intent.
+
+16. **Duplicate Flic button MAC in `commander.yaml`.** `flic.bd_addrs`
+    maps `big_object_3`, `big_object_7`, and `small_object_0` all to
+    `90:88:a9:50:5f:b6` (`commander.yaml:40,44,45`). If these are meant
+    to be distinct physical buttons this is a copy-paste error; if
+    intentional (spare/unassigned), ignore.
+
 ## Code smells / API warts
 
 8. **Typo'd public API method: `Commander.manually_atatch_object`**

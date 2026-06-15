@@ -1,53 +1,69 @@
+# OptiTrack motion capture system configuration.
+#
+# Consumed by: tabletop_rig/launch/optitrack.launch.py
+#   - optitrack_driver node  (mocap4r2_optitrack_driver_main lifecycle node)
+#   - optitrack_marker_viz node (mocap4r2_marker_viz — RViz visualization)
+#
+# The launch file auto-transitions the driver through configure → activate.
+# A static TF publisher (world → optitrack frame) is also spawned by the
+# launch file but is not parameterized here.
+
+# ---------------------------------------------------------------------------
+# mocap4r2_optitrack_driver node parameters
+# ---------------------------------------------------------------------------
 /**/optitrack_driver:
   ros__parameters:
-    connection_type: "Unicast" # Unicast / Multicast
-    server_address: "192.168.13.40"
-    local_address: "0.0.0.0"
-    multicast_address: "239.255.42.99"
-    server_command_port: 1510
-    server_data_port: 1511
-    rigid_body_name: "ground"
-    lastFrameNumber: 0
-    frameCount: 0
-    droppedFrameCount: 0
-    n_markers: 0
-    n_unlabeled_markers: 0
-    qos_history_policy: "keep_last" # keep_all / keep_last
-    qos_reliability_policy: "best_effort" # best_effort / reliable
-    qos_depth: 10 # 10 / 100 / 1000
+    connection_type: "Unicast" # Unicast / Multicast — network transport mode
+    server_address: "192.168.13.40" # IP address of the Motive/NatNet server
+    local_address: "0.0.0.0" # Local NIC to bind; 0.0.0.0 = all interfaces
+    multicast_address: "239.255.42.99" # Multicast group (only used when connection_type is Multicast)
+    server_command_port: 1510 # NatNet command port on the Motive server
+    server_data_port: 1511 # NatNet data port on the Motive server
+    rigid_body_name: "ground" # Name of the rigid-body asset to track in Motive
+    lastFrameNumber: 0 # Driver-internal counter (initialized to 0; updated at runtime)
+    frameCount: 0 # Driver-internal counter (initialized to 0; updated at runtime)
+    droppedFrameCount: 0 # Driver-internal counter (initialized to 0; updated at runtime)
+    n_markers: 0 # Driver-internal counter (initialized to 0; updated at runtime)
+    n_unlabeled_markers: 0 # Driver-internal counter (initialized to 0; updated at runtime)
+    qos_history_policy: "keep_last" # keep_all / keep_last — ROS 2 QoS history policy for published topics
+    qos_reliability_policy: "best_effort" # best_effort / reliable — ROS 2 QoS reliability; best_effort suits high-rate motion-capture data
+    qos_depth: 10 # 10 / 100 / 1000 — history depth (number of messages kept); only relevant when qos_history_policy is keep_last
 
+# ---------------------------------------------------------------------------
+# mocap4r2_marker_viz node parameters
+# ---------------------------------------------------------------------------
 /**/optitrack_marker_viz:
   ros__parameters:
-    mocap4r2_system: "optitrack"
-    marker_topics: ["markers", "predicted_markers"]
-    rb_topics: ["rigid_bodies"]
-    marker_scale_x: 0.05
-    marker_scale_y: 0.05
-    marker_scale_z: 0.05
-    marker_lifetime: 0.1
-    rb_scale_x: 0.1
-    rb_scale_y: 0.014
-    rb_scale_z: 0.014
-    rb_lifetime: 0.05
-    rb_require_markers: true
+    mocap4r2_system: "optitrack" # Motion-capture backend identifier; must match the driver
+    marker_topics: ["markers", "predicted_markers"] # ROS topics to subscribe to for individual marker poses
+    rb_topics: ["rigid_bodies"] # ROS topics to subscribe to for rigid-body poses
+    marker_scale_x: 0.05 # RViz marker sphere diameter X (meters, REP-103)
+    marker_scale_y: 0.05 # RViz marker sphere diameter Y (meters, REP-103)
+    marker_scale_z: 0.05 # RViz marker sphere diameter Z (meters, REP-103)
+    marker_lifetime: 0.1 # How long each marker visualization persists in RViz (seconds, REP-103)
+    rb_scale_x: 0.1 # RViz rigid-body arrow scale X (meters, REP-103)
+    rb_scale_y: 0.014 # RViz rigid-body arrow scale Y (meters, REP-103)
+    rb_scale_z: 0.014 # RViz rigid-body arrow scale Z (meters, REP-103)
+    rb_lifetime: 0.05 # How long each rigid-body visualization persists in RViz (seconds, REP-103)
+    rb_require_markers: true # If true, only visualize a rigid body when its constituent markers are also visible
     marker_colors:
-      markers:
+      markers: # RGBA color for labeled marker spheres
         r: 0.0
         g: 1.0
         b: 0.0
         a: 0.8
-      predicted_markers:
+      predicted_markers: # RGBA color for predicted (extrapolated) marker spheres
         r: 1.0
         g: 0.0
         b: 0.0
         a: 0.8
-      rigid_bodies:
+      rigid_bodies: # RGBA color for rigid-body markers sub-topic visualization
         r: 1.0
         g: 0.0
         b: 1.0
         a: 0.8
     rb_colors:
-      rigid_bodies:
+      rigid_bodies: # RGBA color for the rigid-body arrow visualization
         r: 0.0
         g: 0.0
         b: 1.0

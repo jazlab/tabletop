@@ -1,16 +1,48 @@
+# SmoothPursuitTask — helical spiral motion type (reduced-scale test config).
+# Identical structure to smooth_pursuit_spiral.yaml but uses smaller radius,
+# fewer revolutions, and a different center position for quick verification
+# without risk of hitting workspace limits.
+# See: tabletop_tasks/tasks/smooth_pursuit.py :: SmoothPursuitTask.generate_spiral
 tasks:
   - class: SmoothPursuitTask
     kwargs:
+      # motion_type selects the trajectory generator function.
+      # "spiral" generates a helical (spring-like) trajectory.
       motion_type: spiral
+      # motion_kwargs are forwarded verbatim to SmoothPursuitTask.generate_spiral().
       motion_kwargs:
+        # center_pose: geometric centre of the spiral.
+        #   position: [x, y, z] in meters (robot base frame).
+        #   rpy: [roll, pitch, yaw] in radians. Orientation is held constant
+        #        throughout. [π/2, π/2, 0] ≈ tool pointing forward/down.
+        #   NOTE: x=1.0525 is shifted +0.1 m forward and z=0.45 is 0.05 m lower
+        #   compared to the production spiral config — keeps the reduced-radius
+        #   path well inside the reachable workspace during testing.
         center_pose:
           position: [1.0525, 0.45, 0.45]
           rpy: [1.5707, 1.5707, 0.0]
+        # radius: radius of the circular XZ component of the helix (meters).
+        # 0.05 m (half the production value) reduces workspace excursion for
+        # safe bench testing.
         radius: 0.05
+        # length: total peak-to-peak Y-axis travel of the helix (meters).
+        # Same as production (0.2 m = ±0.1 m from center).
         length: 0.2
+        # num_revolutions: number of full XZ-plane rotations in one pass.
+        # Halved from production (5 vs 10) to shorten test duration.
         num_revolutions: 5
+        # num_segments: total number of waypoints generated. Kept at 800
+        # (same as production) to maintain trajectory smoothness.
         num_segments: 800
+      # robot_name: MoveIt planning group that executes the trajectory.
       robot_name: right_manipulator
+      # num_repetitions: how many times the full spiral trajectory is
+      # executed. 3 repetitions for a quick end-to-end check.
       num_repetitions: 3
+      # object_id: collision-object ID of the stimulus to attach to the
+      # end effector. Must exist in the planning scene.
       object_id: smooth_pursuit_object
+      # velocity_scaling_factor: fraction of joint-speed limits applied during
+      # trajectory time-parameterisation (range 0.0–1.0).
+      # 0.1 = 10 % of maximum speed (same as production).
       velocity_scaling_factor: 0.1

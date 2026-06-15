@@ -1,17 +1,54 @@
+# SmoothPursuitTask — sinusoidal (Lissajous-like) motion type.
+# Moves an attached object along independent sinusoidal oscillations on the
+# X, Y, and Z axes simultaneously. Each axis has its own amplitude and period,
+# producing Lissajous-style 3-D figures. num_revolutions controls how many
+# full cycles occur along the slowest (longest-period) axis before the
+# trajectory ends.
+# See: tabletop_tasks/tasks/smooth_pursuit.py :: SmoothPursuitTask.generate_sin
 tasks:
   - class: SmoothPursuitTask
     kwargs:
+      # motion_type selects the trajectory generator function.
+      # "sin" generates independent sinusoidal oscillations on X, Y, Z.
       motion_type: sin
+      # motion_kwargs are forwarded verbatim to SmoothPursuitTask.generate_sin().
       motion_kwargs:
+        # center_pose: rest/equilibrium pose around which the oscillations occur.
+        #   position: [x, y, z] in meters (robot base frame).
+        #   rpy: [roll, pitch, yaw] in radians. Orientation is held constant
+        #        throughout. [π/2, π/2, 0] ≈ tool pointing forward/down.
         center_pose:
           position: [0.9525, 0.6, 0.53]
           rpy: [1.5707, 1.5707, 0.0]
+        # amplitudes: [Ax, Ay, Az] — peak displacement from center_pose on
+        # each axis in meters. All three set to 0.1 m → ±10 cm per axis.
         amplitudes: [0.1, 0.1, 0.1]
+        # periods: [Px, Py, Pz] — sinusoidal period for each axis in seconds
+        # (or normalised time units — see generate_sin for the exact formula).
+        # Different values produce non-repeating Lissajous-like paths.
+        # [4.3, 6.2, 10.0] are incommensurable, giving a quasi-periodic figure.
         periods: [4.3, 6.2, 10.0]
+        # num_revolutions: number of complete cycles along the axis with the
+        # longest period (10.0 s here) before the trajectory finishes.
+        # 10 revolutions × 10 s/rev = 100 s of motion per repetition.
         num_revolutions: 10
+        # num_segments: total number of waypoints generated for the trajectory
+        # (higher values produce a smoother path at the cost of planning time).
         num_segments: 800
+      # robot_name: MoveIt planning group that executes the trajectory.
       robot_name: right_manipulator
+      # num_repetitions: how many times the full sinusoidal trajectory is
+      # executed before the task ends.
       num_repetitions: 100
+      # object_id: collision-object ID of the stimulus to attach to the
+      # end effector. Must exist in the planning scene.
       object_id: smooth_pursuit_object
+      # velocity_scaling_factor: fraction of joint-speed limits applied during
+      # trajectory time-parameterisation (range 0.0–1.0).
+      # 0.075 = 7.5 % of maximum speed.
       velocity_scaling_factor: 0.075
+      # max_motion_generation_attempts: maximum number of times the planner
+      # will retry trajectory generation before raising a RuntimeError.
+      # Increased from the default (5) to 20 to accommodate the more complex
+      # sinusoidal path that may occasionally fail IK or collision checks.
       max_motion_generation_attempts: 20
