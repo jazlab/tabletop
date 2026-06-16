@@ -18,6 +18,9 @@ __pycache__/
 # Build artifacts
 /build/
 /install/
+
+# mkdocs documentation site build output
+/site/
 compile_commands.json
 
 # VSCode

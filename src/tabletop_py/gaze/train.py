@@ -162,9 +162,9 @@ def train_and_evaluate(
         - "test_results": Test set evaluation metrics
 
     Side Effects:
-        - Saves model weights to path in config["weights_path"]
+        - Saves model weights to path in `config["weights_path"]`
         - Saves test predictions CSV to path in
-            config["predictions"]["filename"]
+            `config["predictions"]["filename"]`
         - Optionally saves test_predictions.mp4 visualization
     """
     # Configure PyTorch
