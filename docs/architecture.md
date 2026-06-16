@@ -89,13 +89,13 @@ live in `scripts/configure/`; one-time installers in `scripts/install/`.
 |---|---|---|---|
 | `ros-base` | builder | `tt-build --all` | bind-mounts repo at `/tabletop`; parent of all ROS services |
 | `commander` | commander | `tt-launch commander` | GPU runtime if available, PulseAudio, bags mount |
-| `ur` / `ur-mock` | real / sim | `tt-launch dual_ur robot_mode:=real|mock` | rtprio ulimits |
-| `teensy` / `teensy-sim` | real / sim | `tt-launch teensy simulate:=false|true` | `$TEENSY_DEV` serial |
-| `flic` / `flic-sim` | real / sim | `tt-launch flic simulate:=false|true` | `NET_ADMIN` (BLE sniffing) |
+| `ur` / `ur-mock` | real / sim | `tt-launch dual_ur robot_mode:=real\|mock` | rtprio ulimits |
+| `teensy` / `teensy-sim` | real / sim | `tt-launch teensy simulate:=false\|true` | `$TEENSY_DEV` serial |
+| `flic` / `flic-sim` | real / sim | `tt-launch flic simulate:=false\|true` | `NET_ADMIN` (BLE sniffing) |
 | `eyelink` / `eyelink-sim` | real / sim | `tt-launch eyelink simulate:=…` | bags mount |
 | `flir` | flir | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
 | `optitrack` | real | `tt-launch optitrack` | |
-| `rviz`, `foxglove` | real, sim | `tt-launch rviz|foxglove` | rviz renders to noVNC display |
+| `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
 | `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:8080/vnc.html` |
 | `ursim` | ursim | UR simulator image | shares noVNC display |
 | `autoheal` | real, sim, ursim | restarts unhealthy labeled containers | |
