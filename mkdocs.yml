@@ -4,6 +4,9 @@ site_description: >-
   electrophysiology research rig.
 repo_url: https://github.com/jazlab/tabletop
 repo_name: jazlab/tabletop
+# Public URL of the deployed site (GitHub Pages project site). Used for the
+# sitemap, canonical link tags, and social/SEO metadata.
+site_url: https://jazlab.github.io/tabletop/
 docs_dir: docs
 # Build artifacts go to ./site (git-ignore this directory).
 site_dir: site
