@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the ROS 2 workspace from host
-# Usage: tt-build [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num>] [--clang] [--linker <linker>] [-p|--packages <name>...] [--all] [--only-modules]
+# Usage: tt-build [<options>]  — thin host wrapper; see bin/container/tt-build for the full option list
 # Wraps: tt-compose run --rm ros-base tt-build
 # Runs on: host
 # Environment: TABLETOP_DIR

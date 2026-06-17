@@ -2,7 +2,8 @@
 
 This module provides an interface to communicate with a Teensy microcontroller
 that manages experimental apparatus including arm restraints, safety sensors,
-smartglass goggles, and reward delivery systems.
+the smartglass (a switchable glass pane in front of the subject), and reward
+delivery systems.
 
 The Teensy acts as a bridge between the ROS2 system and physical hardware,
 providing safety interlocks and subject interface mechanisms.
@@ -45,7 +46,7 @@ def noop(msg: TeensySensor) -> None:
 class TeensyInterface(BaseInterface):
     """Interface for controlling experimental apparatus via Teensy microcontroller.
 
-    Provides methods to control arm restraints, smartglass goggles, and reward
+    Provides methods to control arm restraints, the smartglass pane, and reward
     delivery, as well as monitoring safety sensors to determine if it's safe
     to execute robot movements.
 
@@ -315,11 +316,13 @@ class TeensyInterface(BaseInterface):
     async def set_smartglass(self, reveal: bool) -> None:
         """Control the smartglass transparency.
 
-        Smartglass can switch between opaque and transparent states
-        to control what the subject can see during trials.
+        The smartglass is a switchable glass pane in front of the subject;
+        it toggles between transparent and translucent/opaque states to
+        control what the subject can see during trials.
 
         Args:
-            reveal: True to make goggles transparent, False to make opaque.
+            reveal: True makes the pane transparent (subject can see),
+                False makes it translucent/opaque (occludes the view).
         """
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
         await self.node.service_call_async(

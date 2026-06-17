@@ -11,9 +11,10 @@
 #
 # Motion sequence (poses in the left_reset_station/spike TF frame):
 #   1. start_goal — constrained approach pose: EEF link must reach
-#      [0.15, 0.0, 0.074] AND wrist_3 must be near -π (±π tolerance,
-#      i.e. any wrist_3 value is accepted).  Planned with the default
-#      pipeline (no collision allowances active yet).
+#      [0.15, 0.0, 0.074] AND wrist_3 must lie in [-2π, 0] (center -π with
+#      ±π tolerance), i.e. wrist_3 must be ≤ 0 so the subsequent +2π (360° CW)
+#      spin stays within the joint limit.  Planned with the default pipeline
+#      (no collision allowances active yet).
 #   2. goals[0]   — push onto spike: advance 75 mm to [0.075, 0, 0.074].
 #   3. goals[1–4] — 360° CW spin in four 90° (π/2 rad) wrist_3 delta steps
 #                   (linear planner cannot handle a single 360° step because
@@ -37,10 +38,10 @@ start_goal:
         rpy: [1.5707, 2.5307, -1.5707] # EEF orientation for spike approach (radians; ~90°/145°/-90°)
         frame_id: left_reset_station/spike # TF frame: the left reset station spike/spindle
     joint_constraints:
-      - joint_name: left_wrist_3_joint # Constrain wrist_3 so spin always starts from a known position
-        position: -3.1415 # Target wrist_3 joint angle: -π rad (radians, REP-103)
-        tolerance_above: 3.1415 # ±π tolerance effectively accepts any wrist_3 value (radians)
-        tolerance_below: 3.1415 # ±π tolerance effectively accepts any wrist_3 value (radians)
+      - joint_name: left_wrist_3_joint # Constrain wrist_3 to [-2π, 0] so a full +2π spin stays within the joint limit
+        position: -3.1415 # Center of the allowed wrist_3 range: -π rad (radians, REP-103)
+        tolerance_above: 3.1415 # +π → upper bound 0; wrist_3 must be ≤ 0 (radians)
+        tolerance_below: 3.1415 # -π → lower bound -2π; wrist_3 must be ≥ -2π (radians)
 
 reset_request: !ConcatPlanRequest
   goals:

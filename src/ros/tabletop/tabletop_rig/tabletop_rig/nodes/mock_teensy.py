@@ -5,7 +5,7 @@ used in the tabletop experimental rig. It emulates:
 
 - Arm lock solenoid control and state sensing
 - Safety laser broken state
-- Smartglass (LCD shutter) control
+- Smartglass control
 - Reward solenoid control
 - Sync pulse generation
 - Tactile glove analog inputs

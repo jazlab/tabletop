@@ -40,7 +40,7 @@ Other useful flags: `-w/--workers N` (low-memory systems), `--build-debug`,
 ### Running
 
 `tt-launch <target> [ros2 launch args…]`. Common targets: `commander`, `rig`,
-`tasks`, `ur`, `dual_ur`, `teensy`, `flic`, `eyelink`, `flir`,
+`tasks`, `ur`, `dual_ur`, `teensy`, `flic`, `eyelink`, `flir_no_sync`,
 `flir_synchronized`, `optitrack`, `rosbag`, `rviz`, `foxglove`, `moveit`.
 
 ```bash
@@ -84,11 +84,11 @@ tt-compose --profile=sim down
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
-The user-facing profiles are `sim`, `ursim`, and `real`. Other profiles exist
-for narrower jobs: `builder` (`ros-base`, used by `tt-build`), `commander`
-(temporary container spun up by `tt-launch`), `flir` (cameras only), and `dev`
-(the Dev Container). `tt-env-gen` regenerates `.env` (from `.env.example`)
-whenever hardware changes — device paths are baked into it.
+The user-facing profiles are `sim`, `ursim`, and `real` (the `real` profile
+includes the FLIR cameras). Other profiles exist for narrower jobs: `builder`
+(`ros-base`, used by `tt-build`), `commander` (temporary container spun up by
+`tt-launch`), and `dev` (the Dev Container). `tt-env-gen` regenerates `.env`
+(from `.env.example`) whenever hardware changes — device paths are baked into it.
 
 ### Testing
 
@@ -158,7 +158,7 @@ implements `tabletop_interfaces` services (`SetArmLock`, `SetReward`,
 The main control package follows a layered interface pattern:
 
 ```text
-nodes/                       # lazy-imported via PEP 562 (__getattr__)
+nodes/                       # ROS 2 node classes (exported from nodes/__init__.py)
 ├── base.py          # BaseNode: parameter handling, service calls, logging
 ├── commander.py     # Commander: main orchestrator, coordinates all interfaces
 ├── eyelink.py       # Eyelink eye tracker node
@@ -249,7 +249,7 @@ driver must run in a separate process from the Commander.
 - `ruff.toml` - Python linting configuration
 - `.pre-commit-config.yaml` - Pre-commit hooks
 - `bin/` - the `tt-*` commands (`common/`, `host/`, `container/`)
-- `scripts/configure/`, `scripts/install/` - host-side udev/USB/CPU/network setup
+- `scripts/configure/` - host-side udev/USB/CPU/network setup
 - ROS parameter files live in each package's `config/`; see
   `docs/guide/configuration.md` for the config → consumer map
 

@@ -9,7 +9,7 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 ## Host commands (`bin/host`)
 
 | Command | Description |
-|---|---|
+| --- | --- |
 | `tt-compose` | Wrapper for `docker compose` with TableTop defaults (generates `.env` if missing) |
 | `tt-build` | Build the ROS 2 workspace via the `ros-base` container |
 | `tt-launch` | Launch ROS 2 nodes via a temporary `commander` container |
@@ -26,23 +26,23 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 ## Container commands (`bin/container`)
 
 | Command | Description |
-|---|---|
+| --- | --- |
 | `tt-build` | Build ROS 2 packages with colcon |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, …) |
-| `tt-create-graph` | Generate the ROS 2 node/topic graph (`docs/graph.md`) |
+| `tt-create-graph` | Generate the ROS 2 node/topic graph |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
 | `tt-microros-build` | Build/upload firmware via PlatformIO |
 
 ## Common commands (`bin/common`)
 
 | Command | Description |
-|---|---|
+| --- | --- |
 | `tt-clean` | Clean build artifacts, logs, caches, etc. (by flag) |
 | `tt-robot-scp` | Copy URCaps (`ur_robot/programs/*.urcap`) to the physical robot |
 
 ## `tt-build` options
 
-```
+```text
 -c, --clean-tabletop   Clean tabletop packages before building
 --clean-all            Clean the entire workspace before building
 --clean-cmake          Clear CMake caches before building
@@ -60,7 +60,7 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 ## `tt-launch` targets
 
 `tt-launch <target> [ros2 launch args…]`. Targets: `commander`, `rig`, `tasks`,
-`ur`, `dual_ur`, `teensy`, `flic`, `eyelink`, `flir`, `flir_synchronized`,
+`ur`, `dual_ur`, `teensy`, `flic`, `eyelink`, `flir_no_sync`, `flir_synchronized`,
 `flir_calibrate`, `optitrack`, `rosbag`, `rosbag_convert`, `rviz`, `foxglove`,
 `moveit`, `discovery`.
 
@@ -75,7 +75,7 @@ tt-launch commander robot_mode:=real
 Installed as entry points (available after sourcing `setup.bash`):
 
 | Command | Description |
-|---|---|
+| --- | --- |
 | `tt-gaze-calibrate` | Full gaze calibration pipeline |
 | `tt-gaze-preprocess` | Preprocess eye-tracking + marker data |
 | `tt-gaze-train` | Train the gaze estimation model |

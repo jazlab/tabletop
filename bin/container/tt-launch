@@ -13,7 +13,7 @@ source $bin_dir/../utils.sh
 
 print_usage() {
     echo "Usage: $0 [<launch_type>] [<launch_options>...]"
-    echo "launch_type can be one of commander, rig, flir, or tasks"
+    echo "launch_type: commander, rig, tasks, ur, dual_ur, teensy, flic, eyelink, flir_no_sync, flir_synchronized, flir_calibrate, optitrack, rosbag, rosbag_convert, rviz, foxglove, moveit, discovery"
 }
 
 # Case statement routes to one of three execution modes: EXEC (raw command), RUN (ros2 run), or LAUNCH (ros2 launch)
@@ -23,6 +23,8 @@ LAUNCH=
 case $1 in
     discovery)
         # FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var formatted as host:port)
+        # This feature is deprecated, see ROS2 docs for details if desired
+        # https://docs.ros.org/en/jazzy/Tutorials/Advanced/Discovery-Server/Discovery-Server.html
         if [[ -z "$ROS_DISCOVERY_SERVER" ]]; then
             print_warning "ROS_DISCOVERY_SERVER environment variable not set"
             print_warning "Not launching discovery server"
@@ -44,7 +46,7 @@ case $1 in
         LAUNCH="foxglove_bridge foxglove_bridge_launch.xml port:=$FOXGLOVE_PORT"
         ;;
     moveit)
-        # MoveIt motion planning framework
+        # MoveIt interactive planning (standalone move_group + RViz)
         export ROS_LOG_DIR="$ROS_LOG_DIR/moveit"
         LAUNCH="tabletop_moveit_config moveit.launch.py"
         ;;

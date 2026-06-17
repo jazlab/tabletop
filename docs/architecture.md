@@ -12,7 +12,7 @@ Intended for new users, developers, and agents navigating the codebase.
 
 The system is layered. Each layer only reaches *down*:
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────┐
 │ EXPERIMENTS   tabletop_tasks: ForagingTask, SmoothPursuitTask, … │
 │               (YAML task configs → trial generators → trials)   │
@@ -43,7 +43,7 @@ node sees every other node regardless of which container it runs in.
 
 ### 2.1 Environment flow
 
-```
+```text
 setup.bash ──(sourced by every script & container entrypoint)──▶ env vars
     │            TABLETOP_DIR, COLCON_WS, ROS_LOG_DIR, ROBOT_IP…
     ▼
@@ -64,36 +64,36 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 ### 2.2 `bin/` scripts — what each one actually runs
 
 | Script | Where | Under the hood |
-|---|---|---|
+| --- | --- | --- |
 | `host/tt-compose` | host | `tt-env-gen` (if no `.env`) then `docker compose "$@"` |
 | `host/tt-env-gen` | host | regenerates `.env` from `.env.example`; scans `/dev/flir/`, `nvidia-smi`, PulseAudio |
 | `host/tt-build` | host | `tt-compose run --rm ros-base tt-build "$@"` |
 | `host/tt-launch` | host | `tt-compose run --rm commander tt-launch "$@"` |
 | `host/tt-microros-build` | host | `tt-compose run --rm microros-builder tt-microros-build "$@"` |
 | `host/tt-dev-attach` | host | start service if needed, `docker compose exec <svc> /entrypoint.sh bash` |
-| `host/tt-flir-reset` | host | stop flir svc → reload udev → `tt-launch flir factory_reset:=true` → restart |
+| `host/tt-flir-reset` | host | stop flir svc → reload udev → `tt-launch flir_no_sync factory_reset:=true` → restart |
 | `container/tt-build` | container | `uv sync $UV_EXTRA` then `colcon build` (mixins: release/ccache/mold) |
 | `container/tt-launch` | container | case-routes to `ros2 launch <pkg> <name>.launch.py`, sets per-target `ROS_LOG_DIR` |
 | `container/tt-microros-build` | container | PlatformIO `pio run` in `tabletop_micro/tabletop_{teensy,flic_micro}` |
-| `container/tt-create-graph` | container | `ros2_graph` → `docs/graph.md` |
+| `container/tt-create-graph` | container | `ros2_graph` → `graph.md` |
 | `container/tt-kill-ros` | container | `pkill -f ros` |
 | `common/tt-clean` | both | `rm -rf` of build/install/log/cache dirs by flag |
 | `common/tt-robot-scp` | both | `scp ur_robot/programs/*.urcap root@$ROBOT_IP:/programs` |
 
 Host setup scripts (udev rules, usbfs size, CPU scaling, robot network)
-live in `scripts/configure/`; one-time installers in `scripts/install/`.
+live in `scripts/configure/`.
 
 ### 2.3 Compose services × profiles
 
 | Service | Profile(s) | Command | Devices / special |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ros-base` | builder | `tt-build --all` | bind-mounts repo at `/tabletop`; parent of all ROS services |
 | `commander` | commander | `tt-launch commander` | GPU runtime if available, PulseAudio, bags mount |
 | `ur` / `ur-mock` | real / sim | `tt-launch dual_ur robot_mode:=real\|mock` | rtprio ulimits |
 | `teensy` / `teensy-sim` | real / sim | `tt-launch teensy simulate:=false\|true` | `$TEENSY_DEV` serial |
 | `flic` / `flic-sim` | real / sim | `tt-launch flic simulate:=false\|true` | `NET_ADMIN` (BLE sniffing) |
 | `eyelink` / `eyelink-sim` | real / sim | `tt-launch eyelink simulate:=…` | bags mount |
-| `flir` | flir | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
+| `flir` | real | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
 | `optitrack` | real | `tt-launch optitrack` | |
 | `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
 | `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
@@ -103,7 +103,7 @@ live in `scripts/configure/`; one-time installers in `scripts/install/`.
 | `dev` | dev | `sleep infinity` | the Dev Container; everything mounted |
 
 A typical real-hardware session: `tt-compose --profile=real up` starts
-ur + teensy + flic + eyelink + optitrack + rviz + novnc, then
+ur + teensy + flic + eyelink + optitrack + flir + rviz + novnc, then
 `tt-launch tasks task:=…` runs a commander container on top.
 
 ## 3. ROS Runtime Graph
@@ -154,7 +154,7 @@ Key edges:
 
 ### 4.1 Launch hierarchy
 
-```
+```text
 tasks.launch.py (tabletop_tasks)         task:=<name> ⇒ coro_config=config/<name>.yaml
 └── rig.launch.py (tabletop_rig)         per-subsystem *_launch:=true|false toggles
     ├── commander.launch.py              → commander node (+ moveit_cpp config)
@@ -175,7 +175,7 @@ moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug
 ### 4.2 Config file → consumer map
 
 | Config | Consumed by | Drives |
-|---|---|---|
+| --- | --- | --- |
 | `tabletop_rig/config/commander.yaml` | commander.launch.py → Commander node | all interface parameters (see §5.3) |
 | `tabletop_rig/config/flir_synchronized.yaml` | flir_synchronized.launch.py | camera list, serials, trigger/chunk settings, poses |
 | `tabletop_rig/config/flir.yaml`, `blackfly_s.yaml` | flir.launch.py | unsynchronized per-camera params |
@@ -190,7 +190,7 @@ moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug
 
 ### 4.3 Parameter flow (config → code)
 
-```
+```text
 config/commander.yaml
   └─ launch ParameterFile ─▶ Commander node parameters (flat, dot-separated)
        └─ BaseNode.param("x.y.z") / get_nested_parameters(prefix)
@@ -226,13 +226,18 @@ graph TD
 - `tabletop_micro/` is `COLCON_IGNORE`d — firmware is built by
   PlatformIO (`tt-microros-build`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
+- The **Teensy** firmware (`tabletop_micro/tabletop_teensy`) is the supported
+  micro-controller, launched via `teensy.launch.py` (micro-ROS agent). The
+  **Flic Micro** firmware (`tabletop_micro/tabletop_flic_micro`) is
+  **incomplete** and has no launch file; a working one would be nearly
+  identical to `teensy.launch.py` with a different micro-ROS agent node name.
 
 ### 5.2 tabletop_rig internals
 
-Nodes (`tabletop_rig/nodes/`, lazy-imported via PEP 562):
+Nodes (`tabletop_rig/nodes/`):
 
 | Node | Entry point | Role |
-|---|---|---|
+| --- | --- | --- |
 | `Commander` | `commander` | orchestrator; owns all interfaces; runs task coroutine |
 | `Flic` | `flic` | BLE button → `flic/response_time` action |
 | `Eyelink` | `eyelink` | eye tracker samples + `eyelink/smooth_pursuit` action |
@@ -281,7 +286,7 @@ BaseInterface
 
 ### 5.3 tabletop_tasks internals
 
-```
+```text
 run.py: run_tasks(commander, config_file)     ← coroutine injected via
   loads tasks: [{class, kwargs}] from YAML       commander.launch.py
     └─ tasks/base.py
@@ -297,7 +302,7 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 ### 5.4 tabletop_py usage map
 
 | Module | Used by |
-|---|---|
+| --- | --- |
 | `utils/common.py` (yaml/dict helpers) | rig `nodes/base`, `utils/logging`, `utils/ros`, interfaces, tasks `run.py` |
 | `utils/mesh.py` | rig `interfaces/moveit/object_manipulation.py` (collision meshes) |
 | `flic/scapy_client.py` | rig `nodes/flic.py` |
@@ -306,7 +311,7 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 ## 6. Where to Look When Something Breaks
 
 | Symptom | Start here | Then |
-|---|---|---|
+| --- | --- | --- |
 | `tt-*` command not found | `source setup.bash` | `bin/` PATH logic in setup.bash |
 | Container can't see camera/Teensy | `tt-env-gen` then `tt-compose ps` | `.env` `FLIR_DEV_*`/`TEENSY_DEV`, `compose.yaml` devices |
 | Robot won't move, no error | Teensy safety loop | `interfaces/teensy.py: safe_to_execute`, arm-lock hardware |
@@ -323,5 +328,4 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 
 - `README.md` — setup and quick start
 - `musings.md` — battle-tested troubleshooting notes
-- `docs/graph.md` — auto-generated runtime node graph (`tt-create-graph`)
 - `docs/known-issues.md` — discrepancies found during documentation review

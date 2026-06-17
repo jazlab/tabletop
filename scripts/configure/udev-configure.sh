@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Install udev rules for Teensy, PlatformIO, and FLIR camera device access
+# Install udev rules for Teensy, Flic Micro, and FLIR camera device access
 # Usage: udev-configure.sh
-# Runs on: host (requires sudo and internet for downloading PlatformIO rules)
+# Runs on: host (requires sudo)
 # Environment: None
-# Notes: Creates device symlinks in /dev/flir/*, sets permissions for hidraw/ttyACM devices
+# Notes: Creates device symlinks in /dev/flir/*, sets permissions for hidraw/ttyACM devices.
+#        PlatformIO's generic rules are disabled by default (see below).
 
 set -eo pipefail
 
@@ -11,8 +12,14 @@ PLATFORMIO_FILENAME=98-platformio.rules
 TEENSY_FILNAME=00-teensy.rules
 FLIR_FILENAME=40-flir.rules
 
-# PlatformIO rules (disabled in lieu of custom teensy rule below)
-sudo curl -fsSL -o /etc/udev/rules.d/$PLATFORMIO_FILENAME https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
+# PlatformIO rules: disabled in lieu of the custom teensy rule below.
+# Re-enable the curl below if you experience issues with the custom teensy
+# rule or need PlatformIO's generic board rules (e.g. if you want to flash
+# a different board with the tabletop_teensy firmware or want to use the
+# Flic Micro implementation for ESP-32 boards; note that Flic Micro is no
+# longer maintained, and the preferred Flic node implemenation is the
+# scapy-based variant, which is default)
+# sudo curl -fsSL -o /etc/udev/rules.d/$PLATFORMIO_FILENAME https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules
 
 # Teensy microcontroller udev rules (vendor ID 16c0, product ID 04xx; also covers Flic Micro)
 sudo tee /etc/udev/rules.d/$TEENSY_FILNAME > /dev/null <<EOF

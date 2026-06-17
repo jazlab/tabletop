@@ -1,8 +1,9 @@
 # Known Issues Found During Documentation Review
 
 Discrepancies between code, configuration, and documentation found
-while building the architecture docs (2026-06). **No code was changed**
-— these are flagged for maintainer review.
+while building the architecture docs (2026-06), flagged for maintainer
+review. Items that have since been fixed in this branch have been removed;
+the remaining ones are open.
 
 ## Likely bugs
 
@@ -79,23 +80,16 @@ while building the architecture docs (2026-06). **No code was changed**
     to be distinct physical buttons this is a copy-paste error; if
     intentional (spare/unassigned), ignore.
 
-4. **Right-arm calibration looks un-regenerated.**
-    `tabletop_description/config/right_ur5e_calibration.yaml` has the same
-    `hash` (`calib_5543142529115310427`) as the single-arm
-    `ur5e_calibration.yaml`, suggesting it was copied and never
-    regenerated from the physical right controller (`ur_calibration`).
-    Re-run the UR calibration extraction for the right arm to confirm.
-
-5. **`EyelinkStartRecording.srv` has no discoverable call site.** The
-    service is defined but `nodes/eyelink.py` exposes a `start_retrieval`
-    method rather than serving this srv; no server/client registration
-    was found. Confirm whether it is wired up elsewhere or is dead.
-
-6. **Unused keys in `config/gaze_estimation_geometric.yaml`.**
-    `eyelink_filter_window`, `markers_filter_window`, `max_marker_gap`
-    (only in a commented-out block in `gaze/preprocess.py`) and the
-    `eyelink_range`/`markers_range` visualize wrappers have no active
-    consumer. Likely stale config.
+4. **`config/gaze_estimation_geometric.yaml` visualize keys don't match
+    `visualize.py`.** The file uses `visualize.eyelink_range` /
+    `visualize.markers_range`, but `gaze/visualize.py` reads
+    `visualize.animate_2d_dots` / `visualize.animate_3d_dots` (as in
+    `gaze_estimation.yaml`). The preprocess section was realigned to the
+    nested structure in this branch, but the visualize wrappers are still
+    stale. The same file also uses a `data:` block where the shared pipeline
+    (`gaze/utils.py::init_dataloaders`) reads `dataloaders:` (as in
+    `gaze_estimation.yaml`) — realign if this config is ever fed to the MLP
+    training pipeline.
 
 ## Firmware review (firmware documentation pass)
 
@@ -136,12 +130,13 @@ while building the architecture docs (2026-06). **No code was changed**
 
 ## Outdated documentation (fixed where doc-only; listed for awareness)
 
-1. **`CLAUDE.md` architecture section is stale.** It lists
-   `interfaces/dashboard.py` (actual file: `interfaces/ur.py`) and
-   places `tabletop_teensy` under `src/ros/tabletop/` (actual:
+1. **`CLAUDE.md` architecture section (corrected).** It previously listed
+   `interfaces/dashboard.py` (actual file: `interfaces/ur.py`), placed
+   `tabletop_teensy` directly under `src/ros/tabletop/` (actual:
    `src/ros/tabletop/tabletop_micro/tabletop_teensy`, COLCON_IGNOREd
-   PlatformIO firmware). It also omits `interfaces/moveit/requests.py`
-   siblings `trajectory_cache_kdtree.py` / `trajectory_cache_lmdb.py`.
+   PlatformIO firmware), and omitted the `interfaces/moveit/` cache siblings
+   (`trajectory_cache_kdtree.py` / `trajectory_cache_lmdb.py`) and
+   `requests.py`. These have since been corrected.
 
 2. **`musings.md` references commands that no longer exist** (or never
    did under these names): `tt-display-set`, `tt-usbfs-configure`,
@@ -156,14 +151,10 @@ while building the architecture docs (2026-06). **No code was changed**
 
 ## Minor
 
-1. **`bin/container/tt-create-graph` is broken.** The
-   `nodes_to_ignore` list is fully commented out, leaving
-   `nodes_to_ignore=""`. An empty pattern in `grep -vE ""` matches
-   every line, so the inverted grep outputs *nothing* — zero nodes are
-   passed to `ros2_graph` (and `set -o pipefail` + grep's exit 1 may
-   abort the script outright). Guard the grep behind a non-empty
-   check, or restore at least one pattern.
-
-2. **`commander_pretty.yaml`** appears to be an unconsumed alternate of
+1. **`commander_pretty.yaml`** appears to be an unconsumed alternate of
    `commander.yaml` (no launch file references it). Confirm whether it
    is still needed.
+
+> Resolved in this branch: `bin/container/tt-create-graph` (it referenced a
+> non-existent style-config path and dropped all nodes when the ignore-list
+> was empty — both fixed).

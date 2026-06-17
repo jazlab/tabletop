@@ -104,11 +104,11 @@ This package requires the following software to be installed on your system
 before building and running the project:
 
 | Requirement | Install | Notes |
-|-------------|---------|-------|
+| --- | --- | --- |
 | [Docker](https://docs.docker.com/get-docker/) | [official docs](https://docs.docker.com/engine/install/) | Required. Enable log rotation and boot startup |
 | [Visual Studio Code](https://code.visualstudio.com/) | — | Optional. For Dev Container development |
 | [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | [official docs](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | Optional. For GPU access in containers |
-| [PipeWire/PulseAudio](https://pipewire.org/) | `scripts/install/pulse.sh` | Optional. For audio playback (reward sounds) |
+| [PipeWire/PulseAudio](https://pipewire.org/) | see 'Audio' section in `docs/getting-started/setup.md` | Optional. For audio playback (reward sounds) |
 | [PlatformIO](https://platformio.org/install/) | preinstalled in container | Optional. For Teensy/Flic firmware; only needed on the host if building firmware outside the container |
 
 **Note (macOS on Apple Silicon)**: Enable **Use Rosetta for x86/amd64
@@ -294,12 +294,12 @@ environment generation, project defaults, and passes arguments through to
     | ------- | ---------------- | -------- |
     | `sim` | autoheal, novnc, ur-mock, teensy-sim, flic-sim, eyelink-sim, foxglove, rviz | Simulation with mock hardware |
     | `ursim` | autoheal, novnc, ursim | UR Simulator (virtual teach pendant) |
-    | `real` | autoheal, novnc, ur, teensy, flic, eyelink, optitrack, foxglove, rviz | Real hardware |
+    | `real` | autoheal, novnc, ur, teensy, flic, eyelink, optitrack, flir, foxglove, rviz | Real hardware |
 
     Other profiles target specific tasks: `commander` (commander node only),
-    `flir` (FLIR camera driver), `builder` (`ros-base` workspace builder),
-    `dev` (Dev Container), and `deprecated` (retired `flicd`/`flir-no-sync`
-    services). These are usually started indirectly by `tt-launch`/`tt-build`.
+    `builder` (`ros-base` workspace builder), `dev` (Dev Container), and
+    `deprecated` (retired `flicd`/`flir-no-sync` services). These are usually
+    started indirectly by `tt-launch`/`tt-build`.
 
     For simulation (most common for development):
 
@@ -475,7 +475,6 @@ tabletop/
 │           └── ...
 ├── scripts/                      # Host setup scripts (run by path, not on PATH)
 │   ├── configure/                # udev, usbfs, CPU scaling, robot network
-│   └── install/                  # one-time installers (e.g. pulse.sh)
 ├── ur_robot/                     # URCaps and programs for the UR5e
 ├── config/                       # Top-level configs (e.g. gaze estimation)
 ├── env_files/                    # Environment variable files
@@ -517,7 +516,7 @@ These commands are available inside Docker containers (rig, devcontainer):
 | ------- | ----------- |
 | `tt-build` | Build ROS 2 packages with colcon |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, etc.) |
-| `tt-create-graph` | Generate ROS 2 node/topic graph (`docs/graph.md`) |
+| `tt-create-graph` | Generate ROS 2 node/topic graph |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
 | `tt-microros-build` | Build/upload Teensy & Flic firmware via PlatformIO |
 
@@ -587,7 +586,7 @@ Types:
   teensy             Launch the Teensy interface (or mock)
   flic               Launch the Flic button interface
   eyelink            Launch the Eyelink eye tracker
-  flir               Launch the FLIR camera driver (unsynchronized)
+  flir_no_sync       Launch the FLIR camera driver (unsynchronized)
   flir_synchronized  Launch the hardware-synchronized FLIR camera driver
   flir_calibrate     Launch FLIR camera calibration
   optitrack          Launch OptiTrack motion capture

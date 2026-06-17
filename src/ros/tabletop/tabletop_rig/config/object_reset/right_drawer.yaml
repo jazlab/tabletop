@@ -3,8 +3,8 @@
 # Consumed by: ObjectManipulationInterface._init_reset_configs()
 #   in tabletop_rig/interfaces/moveit/object_manipulation.py, via the
 #   reset_config_map ROS parameter that maps grid object IDs to these files.
-#   Called at runtime by reset_object() / _reset_object_impl() to return a
-#   manipulated object to the right reset station drawer.
+#   Called at runtime by reset_object() / _reset_object_impl() to reset a
+#   drawer-type object to its "closed" state at the right reset station.
 #
 # Mirror of left_drawer.yaml for the right arm.  The right reset station
 # frame origin is on the opposite side, so X coordinates are negated
@@ -14,7 +14,7 @@
 # Motion sequence (all poses in the right_reset_station/drawer TF frame):
 #   1. start_goal  — approach (retracted) pose the arm reaches BEFORE
 #                    collision allowances are enabled.
-#   2. reset_request.goals[0] — push forward into the drawer (insert object).
+#   2. reset_request.goals[0] — push forward to close the drawer (reset object).
 #   3. reset_request.goals[1] — retract back to the approach position.
 #
 # All positions are [x, y, z] in meters (REP-103); rpy is [roll, pitch, yaw]

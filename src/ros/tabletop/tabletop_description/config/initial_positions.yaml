@@ -3,9 +3,9 @@
 # rsp.launch.py as the initial_positions_file argument.  Values set the joint starting state when
 # running with mock hardware (use_mock_hardware:=true).
 # All values are in RADIANS (REP-103).
-shoulder_pan_joint: 0        # Rotation about the base vertical axis; 0 = arm pointing forward
-shoulder_lift_joint: -2.618  # Shoulder pitch; -2.618 rad (~-150 deg) = arm swept back and down
-elbow_joint: 2.0944          # Elbow bend; 2.0944 rad (~120 deg) = elbow flexed
-wrist_1_joint: -1.0472       # Wrist pitch; -1.0472 rad (~-60 deg)
-wrist_2_joint: 1.5707        # Wrist yaw;   1.5707 rad (~90 deg, pi/2)
-wrist_3_joint: 3.1416        # Tool rotation; 3.1416 rad (~180 deg, pi) = gripper flipped
+shoulder_pan_joint: 0
+shoulder_lift_joint: -2.618
+elbow_joint: 2.0944
+wrist_1_joint: -1.0472
+wrist_2_joint: 1.5707
+wrist_3_joint: 3.1416

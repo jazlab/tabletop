@@ -313,7 +313,7 @@ class MockDashboardClient(BaseNode):
         Returns:
             Response with state set to PLAYING.
         """
-        self.log("Received GetRobotMode request")
+        self.log("Received GetProgramState request")
         response.state.state = ProgramState.PLAYING
         response.answer = "Program state is PLAYING"
         response.success = True

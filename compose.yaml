@@ -4,7 +4,7 @@
 # `tt-compose --profile=<sim|ursim|real> up` (see README / docs/architecture.md
 # section 2.3). Most ROS services `extends: ros-base` (shared image + repo bind
 # mount) and differ only in their profile, devices, and `tt-launch` command.
-# Profiles: real / sim / ursim (full sessions); flir, commander, builder, dev
+# Profiles: real / sim / ursim (full sessions); commander, builder, dev
 # (single-purpose, usually started indirectly by tt-launch/tt-build);
 # deprecated (retired services kept for reference). .env (from tt-env-gen)
 # supplies the $VARS below (device paths, GPU runtime, PulseAudio mounts).
@@ -214,8 +214,7 @@ services:
   flir:
     extends: ros-base
     container_name: tabletop-flir
-    # TODO: Change to real profile
-    profiles: !override [ flir ]
+    profiles: !override [ real ]
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1

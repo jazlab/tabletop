@@ -120,17 +120,23 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         return trial_spec
 
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback) -> None:
+    def send(
+        self, trial_spec: TrialSpec, feedback: TrialFeedback | None
+    ) -> None:
         """Update generator state based on trial feedback.
 
         Increments the correct trial counter when timeout is True.
-        Switches to the next block when the criterion is reached.
+        Switches to the next block when the criterion is reached. Failed
+        trials (feedback is None) are skipped.
 
         Args:
             trial_spec: Original trial spec (unused).
-            feedback: Feedback from the completed trial, containing timeout
-                status.
+            feedback: Feedback from the completed trial (containing timeout
+                status), or None if the trial failed.
         """
+        if feedback is None:
+            return
+
         # Increment counter based on timeout flag
         if feedback.timeout:
             self._num_correct += 1

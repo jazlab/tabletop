@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the ROS 2 workspace with colcon (runs in container)
-# Usage: tt-build [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num>] [--clang] [--linker <linker>] [-p|--packages <name>...] [--all] [--only-modules]
+# Usage: tt-build [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num>] [--clang] [--linker <linker>] [-p|--packages <name>...] [--all] [--only-modules] [--foxglove]
 # Runs on: container
 # Environment: TABLETOP_DIR, COLCON_WS, UV_PROJECT_ENVIRONMENT
 # Logic: Parses args to select package scope (tabletop/all/modules/specific), configures CMake mixins (ccache/linker/compiler), runs colcon build
@@ -12,7 +12,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
+    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules] [--foxglove]"
 }
 
 builtin cd $COLCON_WS

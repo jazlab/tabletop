@@ -1,12 +1,15 @@
-"""Dummy task for testing and placeholder purposes.
+"""Dummy task: a developer diagnostic scratchpad.
 
-This module provides a minimal task implementation that does nothing
-but keep the commander context alive. Useful for testing the task
-infrastructure or as a placeholder during development.
+This module provides a task used to exercise individual rig components in
+isolation for diagnostics and bring-up: service/ping latency, Flic latency,
+end-effector pose, object fetch/return, linear motion, smooth pursuit, and
+sound. Enable the checks you need by editing run() (most are commented out).
+It also serves as a template for new tasks and a way to keep the commander
+context alive during debugging.
 
 Example:
     task = DummyTask(commander)
-    await task.run()  # Runs indefinitely, sleeping each second
+    await task.run()  # runs whichever diagnostic checks are enabled in run()
 """
 
 import asyncio
@@ -28,16 +31,19 @@ from tabletop_tasks.tasks.base import BaseTask
 
 
 class DummyTask(BaseTask):
-    """Minimal placeholder task that runs indefinitely.
+    """Developer diagnostic scratchpad task.
 
-    This task maintains an active commander context while doing no
-    actual work. It's useful for:
+    DummyTask maintains an active commander context and bundles a menu of
+    component checks (see run()): ping/Flic latency, end-effector pose,
+    object fetch/return, linear motion, smooth pursuit, sound, etc. It's
+    useful for:
+    - Testing individual rig components (latency, motion, smooth pursuit, …)
     - Testing the task infrastructure
     - Keeping robot connections alive during debugging
     - Serving as a template for new task implementations
 
-    Unlike other tasks, DummyTask does not use a trial generator
-    and overrides run() to provide its own infinite loop.
+    Unlike other tasks, DummyTask does not use a trial generator and
+    overrides run() to provide its own loop; enable the desired checks there.
     """
 
     def __init__(self, commander: Commander) -> None:

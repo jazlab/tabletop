@@ -66,7 +66,7 @@
 #define LEFT_ARM_BUZZER_CONTROL_PIN 41
 // RIGHT_ARM_BUZZER_CONTROL_PIN: buzzes right arm buzzer on unlock (HIGH = buzzing)
 #define RIGHT_ARM_BUZZER_CONTROL_PIN 40
-// SMARTGLASS_CONTROL_PIN: controls LCD shutter goggles (HIGH = transparent/revealed)
+// SMARTGLASS_CONTROL_PIN: controls the smartglass pane (HIGH = transparent/revealed)
 #define SMARTGLASS_CONTROL_PIN 3
 // REWARD_CONTROL_PIN: opens the juice reward solenoid (HIGH = dispensing)
 #define REWARD_CONTROL_PIN 26
@@ -134,7 +134,7 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define PING_SRV_NAME "~/ping"
 // SET_ARM_LOCK_SRV_NAME: lock/release arm restraints and trigger buzzer on unlock
 #define SET_ARM_LOCK_SRV_NAME "~/set_arm_lock"
-// SET_SMARTGLASS_SRV_NAME: reveal (transparent) or occlude LCD shutter goggles
+// SET_SMARTGLASS_SRV_NAME: reveal (transparent) or occlude the smartglass pane
 #define SET_SMARTGLASS_SRV_NAME "~/set_smartglass"
 // SET_REWARD_SRV_NAME: open juice solenoid for a caller-specified duration
 #define SET_REWARD_SRV_NAME "~/set_reward"
@@ -274,7 +274,7 @@ enum agent_states
 // --- Output state mirrors (kept in sync by the set_* helpers) ---
 // is_reward_active: true while REWARD_CONTROL_PIN is HIGH (solenoid open)
 bool is_reward_active;
-// is_smartglass_revealed: true while SMARTGLASS_CONTROL_PIN is HIGH (goggles transparent)
+// is_smartglass_revealed: true while SMARTGLASS_CONTROL_PIN is HIGH (pane transparent)
 bool is_smartglass_revealed;
 // is_solenoid_active: true when SOLENOID_CONTROL_PIN should follow the sync pulse
 bool is_solenoid_active;
@@ -486,7 +486,7 @@ static inline void set_right_arm_lock(bool lock)
 }
 
 // set_smartglass: drive SMARTGLASS_CONTROL_PIN and mirror state to is_smartglass_revealed.
-// true (HIGH) = goggles transparent; false (LOW) = opaque.
+// true (HIGH) = pane transparent; false (LOW) = translucent/opaque.
 static inline void set_smartglass(bool reveal)
 {
   digitalWriteFast(SMARTGLASS_CONTROL_PIN, reveal ? HIGH : LOW);
@@ -845,7 +845,7 @@ void set_arm_lock_callback(const void* req, void* res)
 
 // set_smartglass_callback: backs ~/set_smartglass (tabletop_interfaces/srv/SetSmartglass).
 // Service callback for controlling the smartglass
-// Reveals (transparent) or occludes the LCD shutter goggles via set_smartglass().
+// Reveals (transparent) or occludes the smartglass pane via set_smartglass().
 void set_smartglass_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetSmartglass_Request* request =

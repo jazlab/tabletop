@@ -7,9 +7,9 @@ containers share the host network and IPC, they form a single ROS graph. See
 ## Devices
 
 | Device | Node / driver | Role |
-|---|---|---|
+| --- | --- | --- |
 | UR5e arm(s) | `ur_robot_driver` + `controller_manager` | motion execution (left/right) |
-| Teensy 4.1 | micro-ROS agent ⇄ firmware | arm locks, safety laser, reward, sync pulse, gloves |
+| Teensy 4.1 | micro-ROS agent ⇄ firmware | arm locks, safety laser, reward, smartglass pane, sync pulse, gloves |
 | Flic buttons | `flic` node (scapy BLE sniffer) | subject response device |
 | EyeLink | `eyelink` node | eye-gaze samples + smooth-pursuit action |
 | FLIR cameras | `cam_sync` (SynchronizedCameraDriver) | hardware-synchronized video |

@@ -20,7 +20,7 @@ Example:
         def __next__(self) -> TrialSpec:
             return TrialSpec(...)
 
-        def send(self, feedback: TrialFeedback):
+        def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
             # Adapt based on feedback
             pass
 """
@@ -93,7 +93,7 @@ class BaseTrialGenerator(LoggerMixin, metaclass=ABCMeta):
         generator = MyTrialGenerator(commander, num_trials=100)
         for trial_spec in generator:
             feedback = await task.run_trial(trial_spec)
-            generator.send(feedback)
+            generator.send(trial_spec, feedback)
     """
 
     def __init__(self, name: str, commander: Commander):

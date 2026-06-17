@@ -19,7 +19,7 @@ Example:
     generator = RandomChoice(commander, object_ids=["cup_1"], ...)
     for trial_spec in generator:
         feedback = await task.run_trial(trial_spec)
-        generator.send(feedback)
+        generator.send(trial_spec, feedback)
 """
 
 from .base import BaseTrialGenerator, TrialFeedback, TrialSpec

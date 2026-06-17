@@ -1,7 +1,9 @@
-# DummyTask — minimal placeholder task that runs indefinitely.
-# Maintains an active Commander context while performing no robot motion.
-# Used for diagnostics, latency testing, and keeping connections alive.
-# See: tabletop_tasks/tasks/dummy.py :: DummyTask
+# DummyTask — developer diagnostic scratchpad task (not a real experiment).
+# Maintains an active Commander context and runs whichever component checks
+# are enabled in DummyTask.run() (see tabletop_tasks/tasks/dummy.py): e.g.
+# service/ping latency, Flic latency, end-effector pose, object fetch/return,
+# linear motion, smooth pursuit, and sound. Used for diagnostics, latency and
+# motion testing, and keeping connections alive during bring-up/debugging.
 #
 # DummyTask.__init__ takes no kwargs beyond the implicit commander, so the
 # kwargs mapping is intentionally empty.

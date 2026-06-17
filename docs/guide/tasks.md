@@ -5,7 +5,7 @@ the rig through the `Commander`; they never touch devices directly.
 
 ## How a task runs
 
-```
+```text
 tasks.launch.py  (task:=<name>  ⇒  coro_config = config/<name>.yaml)
   └─ run.py: run_tasks(commander, config_file)
        loads tasks: [{class, kwargs}, …] from the YAML
@@ -23,15 +23,15 @@ on the subject's last response (e.g. alternating or blocked designs).
 ## Task paradigms
 
 | Task class | Config prefix | Behavior |
-|---|---|---|
+| --- | --- | --- |
 | `ForagingTask` | `foraging_*` | Subject selects among presented objects |
 | `PresentTask` | `present_*` | Passive object presentation |
 | `SmoothPursuitTask` | `smooth_pursuit_*` | Object follows a trajectory for the subject to track |
-| `DummyTask` | `dummy` | Minimal no-op task (smoke test / diagnostics) |
+| `DummyTask` | `dummy` | Diagnostic scratchpad (latency / motion / component checks) |
 
 ## Trial generators
 
-Generators implement an iterator + `send(feedback)` protocol:
+Generators implement an iterator + `send(trial_spec, feedback)` protocol:
 `BaseTrialGenerator` and the `{ordered,random}_choice[_alternating]` and
 `blocked_cup_drawer` variants. The config's `trial_generator` key selects one
 and supplies its kwargs (object groups, poses, occlusion probability, block
@@ -44,13 +44,13 @@ Task configs are YAML files in `tabletop_tasks/config/`. Each lists one or more
 constructor. Available configs:
 
 | Config | Task | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `foraging_ordered.yaml` / `foraging_random.yaml` | ForagingTask | ordered / randomized trials |
 | `present_ordered.yaml` / `present_random.yaml` | PresentTask | ordered / randomized presentation |
 | `smooth_pursuit_random.yaml` | SmoothPursuitTask | random waypoints |
 | `smooth_pursuit_spiral{,_test}.yaml` | SmoothPursuitTask | helical trajectory |
 | `smooth_pursuit_sin.yaml` | SmoothPursuitTask | sinusoidal trajectory |
-| `dummy.yaml` | DummyTask | smoke test |
+| `dummy.yaml` | DummyTask | diagnostic scratchpad |
 
 To create a new task, copy an existing config and adjust the kwargs. Every
 config is commented inline; the class definitions in

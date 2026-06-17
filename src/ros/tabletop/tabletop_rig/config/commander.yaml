@@ -9,8 +9,16 @@
   ros__parameters:
     # Commander parameters
 
-    # If true, skip real-hardware waits (UR dashboard, teensy, flic, eyelink).
-    # Set false when launching against real or simulated hardware.
+    # Selects mock vs. real UR hardware behaviour. Set automatically from
+    # robot_mode at launch (true only when robot_mode:=mock; false for ursim
+    # and real). Consumed ONLY by the per-arm manipulation stack — passed from
+    # Commander to each URInterface and ObjectManipulationInterface:
+    #   - URInterface: asserts each UR driver node is running in the matching
+    #     mode (mock when true, real when false) and raises on mismatch; it
+    #     does NOT skip any waits.
+    #   - ObjectManipulationInterface: when true, skips the post-grasp
+    #     effort-based object-attachment check (the object is assumed attached).
+    # Does NOT affect the Teensy, Flic, or Eyelink interfaces
     simulate: true
 
     # Maximum seconds to wait for all interfaces to shut down cleanly.
@@ -108,7 +116,7 @@
       default_duration: 0.5
 
     # --- TeensyInterface (interfaces/teensy.py) ---
-    # Controls arm locks, safety laser, reward solenoid, and smartglass goggles.
+    # Controls arm locks, safety laser, reward solenoid, and the smartglass pane.
     teensy_interface:
       safe_to_execute:
         # Seconds the safety conditions must be continuously met before

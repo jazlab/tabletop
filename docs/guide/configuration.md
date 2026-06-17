@@ -23,7 +23,7 @@ variables and **auto-detects** a few:
 ## Parameter files (config → consumer)
 
 | Config | Consumed by | Drives |
-|---|---|---|
+| --- | --- | --- |
 | `tabletop_rig/config/commander.yaml` | `commander.launch.py` → Commander | all interface parameters |
 | `tabletop_rig/config/flir_synchronized.yaml` | `flir_synchronized.launch.py` | camera serials, trigger/chunk settings, poses |
 | `tabletop_rig/config/dual_controllers.yaml` | `dual_ur.launch.py` → controller_manager | left/right controller definitions |

@@ -27,19 +27,19 @@ and robot-state data for offline analysis.
 
 The platform is layered; each layer only reaches *down*:
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────┐
-│ EXPERIMENTS   tabletop_tasks: ForagingTask, SmoothPursuitTask, …  │
+│ EXPERIMENTS   tabletop_tasks: ForagingTask, SmoothPursuitTask, … │
 ├──────────────────────────────────────────────────────────────────┤
-│ ORCHESTRATION tabletop_rig Commander node (aggregates interfaces) │
+│ ORCHESTRATION tabletop_rig Commander node (aggregates interfaces)│
 ├──────────────────────────────────────────────────────────────────┤
-│ DEVICE NODES  ur driver, teensy, flic, eyelink, flir, optitrack   │
+│ DEVICE NODES  ur driver, teensy, flic, eyelink, flir, optitrack  │
 ├──────────────────────────────────────────────────────────────────┤
-│ ROS PLUMBING  tabletop_interfaces, tabletop_description, moveit    │
+│ ROS PLUMBING  tabletop_interfaces, tabletop_description, moveit  │
 ├──────────────────────────────────────────────────────────────────┤
-│ PURE PYTHON   tabletop_py: gaze ML, flic protocol, utils          │
+│ PURE PYTHON   tabletop_py: gaze ML, flic protocol, utils         │
 ├──────────────────────────────────────────────────────────────────┤
-│ INFRA         bin/ scripts → compose.yaml services → Docker       │
+│ INFRA         bin/ scripts → compose.yaml services → Docker      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 

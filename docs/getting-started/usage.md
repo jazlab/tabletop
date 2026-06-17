@@ -20,10 +20,10 @@ Services are grouped by Compose **profiles**. Bring up a whole session with
 `tt-compose --profile=<name> up`:
 
 | Profile | Brings up | Use case |
-|---|---|---|
+| --- | --- | --- |
 | `sim` | mock UR, teensy-sim, flic-sim, eyelink-sim, rviz, foxglove, novnc | development with mock hardware |
 | `ursim` | UR simulator + novnc | virtual teach pendant |
-| `real` | ur, teensy, flic, eyelink, optitrack, rviz, foxglove, novnc | real hardware |
+| `real` | ur, teensy, flic, eyelink, optitrack, flir, rviz, foxglove, novnc | real hardware |
 
 ```bash
 # Simulation (most common for development)
