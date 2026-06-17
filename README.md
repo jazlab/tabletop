@@ -207,7 +207,7 @@ machine (or in our case, the docker container).
 To copy it to the robot, call the following command:
 
 ```bash
-tt-robot-scp
+./scripts/configure/scp-urcaps.sh
 ```
 
 This will copy any `*.urcap` files in the `ur_robot/programs/` directory to the robot.
@@ -474,7 +474,7 @@ tabletop/
 │           ├── moveit2/          # Custom MoveIt fork
 │           └── ...
 ├── scripts/                      # Host setup scripts (run by path, not on PATH)
-│   ├── configure/                # udev, usbfs, CPU scaling, robot network
+│   ├── configure/                # udev, usbfs, CPU scaling, robot network, scp urcaps
 ├── ur_robot/                     # URCaps and programs for the UR5e
 ├── config/                       # Top-level configs (e.g. gaze estimation)
 ├── env_files/                    # Environment variable files
@@ -504,7 +504,7 @@ These commands are available on the host machine (outside Docker containers):
 
 > Host machine setup tasks that were previously `tt-*` commands are now plain
 > scripts under `scripts/configure/` (`udev-configure.sh`, `usbfs-configure.sh`,
-> `cpu-speed-scaling-disable.sh`, `robot-network.sh`), run directly by path.
+> `cpu-speed-scaling-disable.sh`, `robot-network.sh`, `scp-urcaps.sh`), run directly by path.
 > They are intentionally **not** on `PATH`, since they make persistent,
 > privileged changes to the host.
 
@@ -527,7 +527,6 @@ These commands work on both host and container:
 | Command | Description |
 | ------- | ----------- |
 | `tt-clean` | Clean build artifacts, logs, caches, etc. (by flag) |
-| `tt-robot-scp` | Copy URCap files (`ur_robot/programs/*.urcap`) to the physical robot |
 
 ### Build Command Options
 

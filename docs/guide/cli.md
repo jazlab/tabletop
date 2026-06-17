@@ -38,7 +38,6 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | Command | Description |
 | --- | --- |
 | `tt-clean` | Clean build artifacts, logs, caches, etc. (by flag) |
-| `tt-robot-scp` | Copy URCaps (`ur_robot/programs/*.urcap`) to the physical robot |
 
 ## `tt-build` options
 

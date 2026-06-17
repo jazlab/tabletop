@@ -7,7 +7,7 @@
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
 source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+source $bin_dir/../../bin/utils.sh
 
 # Validate that ROBOT_IP and REVERSE_IP are in the same subnet (first 3 octets)
 if [ "${ROBOT_IP%.*}" != "${REVERSE_IP%.*}" ]; then

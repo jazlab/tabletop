@@ -8,7 +8,7 @@
 set -eo pipefail
 
 bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../utils.sh
+source $bin_dir/../../bin/utils.sh
 
 if [[ $# -gt 1 ]]; then
     print_error "Usage: $0 [<usbfs_memory_mb>(default 1000)]"

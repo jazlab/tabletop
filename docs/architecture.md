@@ -78,9 +78,8 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 | `container/tt-create-graph` | container | `ros2_graph` → `graph.md` |
 | `container/tt-kill-ros` | container | `pkill -f ros` |
 | `common/tt-clean` | both | `rm -rf` of build/install/log/cache dirs by flag |
-| `common/tt-robot-scp` | both | `scp ur_robot/programs/*.urcap root@$ROBOT_IP:/programs` |
 
-Host setup scripts (udev rules, usbfs size, CPU scaling, robot network)
+Host setup scripts (udev rules, usbfs size, CPU scaling, robot network, scp urcaps)
 live in `scripts/configure/`.
 
 ### 2.3 Compose services × profiles
