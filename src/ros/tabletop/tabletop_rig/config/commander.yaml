@@ -93,17 +93,17 @@
     sound_interface:
       # Set false to silence all audio output (useful when debugging without speakers).
       enable: true
-      # Absolute path to a SoundFont (.sf2) file; $(find-pkg-share ...) expanded at launch.
+      # Absolute path to a SoundFont (.sf2) file; expanded at launch.
       soundfont_path: $(find-pkg-share tabletop_rig)/soundfonts/moog.sf2
       # General MIDI instrument number (0-127) assigned to the default MIDI channel.
       # 62 = Synth Brass 1.
       instrument: 62
       # Default note played by SoundInterface.play() / start_note() when no note is given.
       default_note:
-        name: C       # Note name (mingus format: A-G, optionally with # or b).
-        octave: 6     # Octave number.
+        name: C # Note name (mingus format: A-G, optionally with # or b).
+        octave: 6 # Octave number.
         velocity: 127 # MIDI velocity (0-127); 127 = maximum loudness.
-        channel: 0    # MIDI channel (0-15).
+        channel: 0 # MIDI channel (0-15).
       # Default playback duration in seconds for SoundInterface.play().
       default_duration: 0.5
 

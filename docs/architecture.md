@@ -96,7 +96,7 @@ live in `scripts/configure/`; one-time installers in `scripts/install/`.
 | `flir` | flir | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
 | `optitrack` | real | `tt-launch optitrack` | |
 | `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
-| `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:8080/vnc.html` |
+| `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
 | `ursim` | ursim | UR simulator image | shares noVNC display |
 | `autoheal` | real, sim, ursim | restarts unhealthy labeled containers | |
 | `microros-builder` | — | `tt-microros-build` | privileged, `/dev`, platformio cache volume |
@@ -242,17 +242,30 @@ Nodes (`tabletop_rig/nodes/`, lazy-imported via PEP 562):
 
 Interface composition inside the Commander:
 
-```
+```text
 Commander (BaseNode)
- ├── TeensyInterface        teensy srv clients + sensor subscription
- ├── FlicInterface          flic action client
- ├── EyelinkInterface       eyelink action client
- ├── URInterface ×2         left/right dashboard + recovery state machine
- ├── SoundInterface         fluidsynth audio feedback
- └── MoveItInterface ×N     one per planning group
-       ▲ inheritance chain:
-       BaseInterface → PlanningSceneInterface → PlanAndExecuteInterface
-                     → ObjectManipulationInterface → MoveItInterface
+ ├── TeensyInterface         teensy srv clients + sensor subscription
+ ├── FlicInterface           flic action client
+ ├── EyelinkInterface        eyelink action client
+ ├── SoundInterface          fluidsynth audio feedback
+ ├── MoveItInterface         one shared instance (MoveItPy + planning scene)
+ └── ManipulationContextManager ×N   one per arm (from robot_interface_names)
+       ├── URInterface              dashboard + recovery state machine
+       └── ObjectManipulationInterface  pick/present/return state machine,
+              holds a reference to the shared MoveItInterface
+```
+
+Every interface extends `BaseInterface`; the relationship is **composition,
+not a single linear inheritance chain**:
+
+```text
+BaseInterface
+ ├── MoveItInterface              MoveItPy, planning scene, collision objects, ACM
+ ├── PlanAndExecuteInterface      plan/execute + trajectory cache
+ │     └── ObjectManipulationInterface   (composes a MoveItInterface by reference)
+ ├── URInterface
+ ├── TeensyInterface / FlicInterface / EyelinkInterface / SoundInterface
+ └── ManipulationContextManager   (bundles a URInterface + ObjectManipulationInterface)
 ```
 
 - `ObjectManipulationInterface` is a pick/present/return state machine

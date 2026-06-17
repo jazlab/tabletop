@@ -33,7 +33,7 @@ print_status "Factory resetting Flir cameras"
 print_warning "You'll have to ctrl+c when it's done (TODO)"
 echo
 sleep 1
-tt-compose run --rm flir tt-launch flir factory_reset:=true || true
+tt-compose run --rm flir tt-launch flir_no_sync factory_reset:=true || true
 
 # Reload and trigger udev rules again to pick up reinitialized cameras
 print_status "Reloading udev rules again"

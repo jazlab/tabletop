@@ -506,7 +506,7 @@ def generate_launch_description():
                             [
                                 FindPackageShare("tabletop_rig"),
                                 "launch",
-                                "flir.launch.py",
+                                "flir_synchronized.launch.py",
                             ]
                         )
                     ]

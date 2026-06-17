@@ -1,8 +1,10 @@
 """Top-level MoveIt planning scene management interface.
 
-This module provides the MoveItInterface, the top of the planning scene
-management hierarchy (BaseInterface → PlanningSceneInterface →
-PlanAndExecuteInterface → ObjectManipulationInterface → MoveItInterface).
+This module provides the MoveItInterface, which extends BaseInterface
+directly and owns the MoveItPy instance plus all planning scene state. It is
+a single shared instance held by the Commander; ObjectManipulationInterface
+(itself a subclass of PlanAndExecuteInterface) composes it by reference
+rather than inheriting from it.
 
 Key Capabilities:
 - Loading/initializing collision objects from YAML configuration

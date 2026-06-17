@@ -85,7 +85,7 @@ else
     export PATH="$TABLETOP_DIR/bin/host:$PATH"
 fi
 
-# Source colcon cd and argcomplete if it exists
+# # Source colcon cd and argcomplete if it exists
 if [ -f "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh" ]; then
     source "$VIRTUAL_ENV/share/colcon_cd/function/colcon_cd.sh"
 fi

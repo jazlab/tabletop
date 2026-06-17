@@ -53,7 +53,7 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/rviz"
         LAUNCH="tabletop_rig rviz.launch.py"
         ;;
-    flir)
+    flir_no_sync)
         # FLIR camera drivers
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir"
         LAUNCH="tabletop_rig flir.launch.py"

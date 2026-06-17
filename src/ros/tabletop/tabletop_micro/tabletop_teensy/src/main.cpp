@@ -71,7 +71,7 @@
 // REWARD_CONTROL_PIN: opens the juice reward solenoid (HIGH = dispensing)
 #define REWARD_CONTROL_PIN 26
 // SYNC_PULSE_CONTROL_PIN: sync pulse to recording equipment (HIGH during pulse)
-#define SYNC_PULSE_CONTROL_PIN 9
+#define SYNC_PULSE_CONTROL_PIN 0
 // SOLENOID_CONTROL_PIN: auxiliary solenoid; mirrors sync pulse when is_solenoid_active
 #define SOLENOID_CONTROL_PIN 12
 // CAMERA_TRIGGER_CONTROL_PIN: 50% duty square wave at CAMERA_TRIGGER_FPS to FLIR cameras

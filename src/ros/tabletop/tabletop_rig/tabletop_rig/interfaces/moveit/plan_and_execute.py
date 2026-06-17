@@ -1,8 +1,10 @@
 """Motion planning and trajectory execution interface.
 
-This module extends PlanningSceneInterface with capabilities for planning
-robot trajectories and executing them on the real robot. It integrates
-with MoveIt's planning pipeline and trajectory execution manager.
+This module defines PlanAndExecuteInterface (a direct subclass of
+BaseInterface) with capabilities for planning robot trajectories and
+executing them on the real robot. It integrates with MoveIt's planning
+pipeline and trajectory execution manager, and is the base class of
+ObjectManipulationInterface.
 
 Key Capabilities:
 - Single and multi-waypoint trajectory planning

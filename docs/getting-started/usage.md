@@ -39,7 +39,9 @@ tt-compose --profile=sim down
 ```
 
 Open the noVNC desktop (RViz, UR sim teach pendant) at
-<http://localhost:8080/vnc.html>, or connect Foxglove to `ws://localhost:8765`.
+<http://localhost:8080/vnc.html> (replacing 8080 with
+whatever port is set by `NOVNC_PORT` in `.env`) or
+connect Foxglove to `ws://localhost:8765`.
 
 ## Dev Container (VS Code)
 

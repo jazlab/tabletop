@@ -30,7 +30,7 @@ services:
       - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
     restart: unless-stopped
 
-  # Browser-accessible X11 desktop (noVNC at localhost:8080/vnc.html) that hosts
+  # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
   # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
   novnc:
     <<: *common
@@ -38,10 +38,10 @@ services:
     profiles: [ real, sim, ursim ]
     image: jazlabtabletop/novnc
     environment:
-      - PORT=8080
+      - PORT=$NOVNC_PORT
       - DISPLAY=$NOVNC_DISPLAY
-      - DISPLAY_WIDTH=1920
-      - DISPLAY_HEIGHT=1080
+      - DISPLAY_WIDTH=$NOVNC_WIDTH
+      - DISPLAY_HEIGHT=$NOVNC_HEIGHT
       - WINDOW_MANAGER=dwm
     labels:
       autoheal-tabletop: true
@@ -206,19 +206,11 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
-    # volumes:
-    #   - /dev:/dev
-    # privileged: true
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
-    #   - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
-    # cpus: 8 # Limit cpu usage
-    # runtime: $COMMANDER_RUNTIME
     restart: unless-stopped
-    command: tt-launch flir
+    command: tt-launch flir_no_sync
 
   # Hardware-synchronized FLIR camera driver (Teensy trigger pulse). One USB
-  # device per $FLIR_DEV_* (up to FLIR_MAX_DEVS). Own `flir` profile.
+  # device per $FLIR_DEV_* (up to FLIR_MAX_DEVS).
   flir:
     extends: ros-base
     container_name: tabletop-flir

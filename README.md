@@ -337,9 +337,10 @@ environment generation, project defaults, and passes arguments through to
 
     ```
 
-4. Access the noVNC web interface at `http://localhost:8080/vnc.html` to
-    interact with GUIs (RViz, UR Simulator, etc.). To scale the display
-    correctly, click the drawer icon on the left, then the gear icon, and
+4. Access the noVNC web interface at `http://localhost:<NOVNC_PORT>/vnc.html` to
+    interact with GUIs (RViz, UR Simulator, etc.), where NOVNC_PORT is set in
+    the `.env` file and can be changed to any available local port. To scale the
+    display correctly, click the drawer icon on the left, then the gear icon, and
     set **Scaling Mode** to **Local Scaling**.
 
 5. Access the Foxglove web interface by nav `https://app.foxglove.dev`, logging in,
@@ -679,10 +680,9 @@ tt-env-gen          # Regenerate only "auto-generated" variables
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-| `USER_NAME` | Container username (useful to match host) | `mules` |
-| `USER_UID` | Container user ID (useful to match host) | `1000` |
-| `USER_GID` | Container group ID (useful to match host) | `1000` |
 | `NOVNC_DISPLAY` | X11 display number for noVNC server | `:20.0` |
+| `NOVNC_WIDTH`/`NOVNC_HEIGHT` | X11 display width/height (in pixels) | `1920`/`1080` |
+| `NOVNC_PORT` | Localhost port to serve the novnc interface. | `8080` |
 | `CUDA_VERSION` | CUDA version suffix for PyTorch (must be compatible with your GPU driver version) | `130` |
 | `BIND_CONSISTENCY` | Docker bind mount consistency mode | `cached` |
 | `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |

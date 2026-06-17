@@ -94,6 +94,9 @@ fi
 
 # Verify that all required variables are set and non-empty
 dotenv_get_required NOVNC_DISPLAY
+dotenv_get_required NOVNC_WIDTH
+dotenv_get_required NOVNC_HEIGHT
+dotenv_get_required NOVNC_PORT
 dotenv_get_required CUDA_VERSION
 dotenv_get_required BIND_CONSISTENCY
 dotenv_get_required TEENSY_DEV

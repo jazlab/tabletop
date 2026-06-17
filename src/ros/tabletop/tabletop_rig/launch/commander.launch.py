@@ -251,7 +251,9 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    use_sim_time = LaunchConfiguration("use_sim_time").perform(context)
+    use_sim_time = (
+        LaunchConfiguration("use_sim_time").perform(context) == "true"
+    )
 
     param_file = LaunchConfiguration("commander_param_file").perform(context)
 
@@ -354,7 +356,7 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
             ParameterFile(overrides_file, allow_substs=True),
             {
                 "publish_robot_description_semantic": True,
-                "use_sim_time": use_sim_time == "true",
+                "use_sim_time": use_sim_time,
             },
         ],
         ros_arguments=[*ros_args],

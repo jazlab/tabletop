@@ -40,6 +40,7 @@ from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
 
 NODE_NAME = "cam_sync"
+USE_COMPOSABLE_NODES = False
 
 
 def declare_arguments():
@@ -80,7 +81,9 @@ def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
 
 
 def make_tf_publisher(
+    *,
     name: str,
+    log_level: str,
     position: Sequence[float] = (0.0, 0.0, 0.0),
     rpy: Sequence[float] = (0.0, 0.0, 0.0),
 ):
@@ -107,10 +110,7 @@ def make_tf_publisher(
             "--child-frame-id",
             name,
         ],
-        ros_arguments=[
-            "--log-level",
-            LaunchConfiguration("log_level"),
-        ],
+        ros_arguments=["--log-level", log_level],
         on_exit=[Shutdown()],
     )
 
@@ -120,7 +120,9 @@ def launch_setup(context, *args, **kwargs):
     # and build driver parameters for all cameras
     camera_param_dir = LaunchConfiguration("camera_param_dir").perform(context)
     log_level = LaunchConfiguration("log_level").perform(context)
-    use_sim_time = bool(LaunchConfiguration("use_sim_time").perform(context))
+    use_sim_time = (
+        LaunchConfiguration("use_sim_time").perform(context).lower() == "true"
+    )
 
     # Load the synchronized FLIR config.
     cfg_path = os.path.join(
@@ -196,46 +198,48 @@ def launch_setup(context, *args, **kwargs):
 
         if name in camera_poses:
             pose_kwargs = camera_poses[name]
-            tf_nodes.append(make_tf_publisher(name, **pose_kwargs))
-
-    # Exposure controller params
-    # if enable_exposure_controllers:
-    #     exp_controllers = [f"{n}.exposure_controller" for n in cameras]
-    #     driver_params["exposure_controllers"] = exp_controllers
-    #     for name in exp_controllers:
-    #         params = exp_ctrl_params.get(name, {})
-    #         params = flatten_dict(exp_ctrl_params_common) | flatten_dict(
-    #             params
-    #         )
-    #         assert "type" in params
-    #         driver_params.update(flatten_dict(params, prefix=name))
+            tf_nodes.append(
+                make_tf_publisher(
+                    name=name, log_level=log_level, **pose_kwargs
+                )
+            )
 
     for k, v in driver_params.items():
         print(f"{k}: {v}")
 
-    container = ComposableNodeContainer(
-        name="flir_camera_container",
-        namespace="",
-        package="rclcpp_components",
-        executable="component_container",
-        output="both",
-        composable_node_descriptions=[
-            ComposableNode(
-                package="spinnaker_synchronized_camera_driver",
-                plugin=(
-                    "spinnaker_synchronized_camera_driver::"
-                    "SynchronizedCameraDriver"
+    if USE_COMPOSABLE_NODES:
+        driver = ComposableNodeContainer(
+            name="flir_camera_container",
+            namespace="",
+            package="rclcpp_components",
+            executable="component_container",
+            output="both",
+            composable_node_descriptions=[
+                ComposableNode(
+                    package="spinnaker_synchronized_camera_driver",
+                    plugin=(
+                        "spinnaker_synchronized_camera_driver::"
+                        "SynchronizedCameraDriver"
+                    ),
+                    name=NODE_NAME,
+                    parameters=[driver_params],
+                    extra_arguments=[{"use_intra_process_comms": True}],
                 ),
-                name=NODE_NAME,
-                parameters=[driver_params],
-                extra_arguments=[{"use_intra_process_comms": True}],
-            ),
-        ],
-        ros_arguments=["--log-level", log_level],
-        on_exit=[Shutdown()],
-    )
+            ],
+            ros_arguments=["--log-level", log_level],
+            on_exit=[Shutdown()],
+        )
+    else:
+        driver = Node(
+            package="spinnaker_synchronized_camera_driver",
+            executable="synchronized_camera_driver_node",
+            name=NODE_NAME,
+            parameters=[driver_params],
+            ros_arguments=["--log-level", log_level],
+            output="both",
+        )
 
-    return [*tf_nodes, container]
+    return [*tf_nodes, driver]
 
 
 def generate_launch_description():
