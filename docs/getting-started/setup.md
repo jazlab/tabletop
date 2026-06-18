@@ -75,7 +75,7 @@ source setup.bash
 #    calibration pipeline on the host machine and need support for a
 #    different CUDA version than the default one available through PyPI.
 #    Otherwise you can run it in the Devcontainer or using the commander
-#    container, both of which user the NVIDIA Container Runtime if available.
+#    container, both of which use the NVIDIA Container Runtime if available.
 uv sync            # or: uv sync --extra cu130
 
 # 4. Generate the .env file (detects GPU / FLIR cameras / PulseAudio)

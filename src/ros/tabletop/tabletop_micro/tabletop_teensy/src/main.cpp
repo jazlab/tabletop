@@ -2,7 +2,7 @@
 // tabletop_teensy/src/main.cpp
 // Teensy 4.1 micro-ROS firmware for the TableTop monkey electrophysiology rig.
 //
-// Built with PlatformIO (tt-microros-build).  Serial transport only
+// Built with PlatformIO (tt-build microros).  Serial transport only
 // (MICRO_ROS_TRANSPORT_ARDUINO_SERIAL).
 //
 // ROS entities exposed (all under the "teensy" namespace):

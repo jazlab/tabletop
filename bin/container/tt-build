@@ -359,6 +359,9 @@ build_foxglove() {
         dest_dir="$output"
     fi
     mkdir -p "$dest_dir"
+    # Resolve to an absolute path now, before we cd into the module directory, so
+    # a relative -o path stays relative to the caller's directory.
+    dest_dir=$(cd "$dest_dir" && pwd)
 
     local module_dir="$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
     builtin cd "$module_dir"
