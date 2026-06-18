@@ -5,9 +5,10 @@
 # section 2.3). Most ROS services `extends: ros-base` (shared image + repo bind
 # mount) and differ only in their profile, devices, and `tt-launch` command.
 # Profiles: real / sim / ursim (full sessions); commander, builder, dev
-# (single-purpose, usually started indirectly by tt-launch/tt-build);
-# deprecated (retired services kept for reference). .env (from tt-env-gen)
-# supplies the $VARS below (device paths, GPU runtime, PulseAudio mounts).
+# (single-purpose, usually started indirectly by tt-launch/tt-build); template
+# (the ros-base extends-only template, never run directly); deprecated (retired
+# services kept for reference). .env (from tt-env-gen) supplies the $VARS below
+# (device paths, GPU runtime, PulseAudio mounts).
 name: tabletop
 
 # Shared settings merged into most services: host IPC + networking so every
@@ -102,13 +103,15 @@ services:
     # stop_signal: SIGINT
     command: /app/entrypoint.sh
 
-  # Base image + workspace bind mount that every ROS service extends. On its own
-  # (profile `builder`) it builds the full workspace (`tt-build --all`).
+  # Base image + workspace bind mount that every ROS service extends. This is an
+  # extends-only template (profile `template`); it is never run directly — the
+  # `builder` service below performs builds, and each real service overrides the
+  # command.
   ros-base:
     <<: *common
     image: jazlabtabletop/ros-base
     container_name: tabletop-ros-base
-    profiles: [ builder ]
+    profiles: [ template ]
     volumes:
       - type: bind
         source: .
@@ -124,18 +127,20 @@ services:
     user: root
     stop_signal: SIGINT
     working_dir: /tabletop
-    command: tt-build colcon --all
 
-  # Builds/uploads the Teensy & Flic micro-controller firmware via PlatformIO.
-  # Privileged with /dev mounted for USB serial flashing (target of tt-microros-build).
-  microros-builder:
+  # General-purpose build container used by the host tt-build wrapper. Privileged
+  # with /dev mounted and the platformio-core cache so the same service can build
+  # the colcon workspace, package the Foxglove plugin, AND build/flash the
+  # Teensy/Flic firmware. The build component is supplied at run time via
+  # `tt-compose run --rm builder tt-build <component>`.
+  builder:
     extends: ros-base
-    container_name: tabletop-microros-builder
+    container_name: tabletop-builder
+    profiles: !override [ builder ]
     volumes:
       - /dev:/dev
       - platformio-core:/platformio
     privileged: true
-    command: tt-build microros
 
   # Foxglove bridge: exposes a WebSocket (ws://localhost:8765) for the Foxglove app.
   foxglove:
