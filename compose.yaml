@@ -124,7 +124,7 @@ services:
     user: root
     stop_signal: SIGINT
     working_dir: /tabletop
-    command: tt-build --all
+    command: tt-build colcon --all
 
   # Builds/uploads the Teensy & Flic micro-controller firmware via PlatformIO.
   # Privileged with /dev mounted for USB serial flashing (target of tt-microros-build).
@@ -135,7 +135,7 @@ services:
       - /dev:/dev
       - platformio-core:/platformio
     privileged: true
-    command: tt-microros-build
+    command: tt-build microros
 
   # Foxglove bridge: exposes a WebSocket (ws://localhost:8765) for the Foxglove app.
   foxglove:

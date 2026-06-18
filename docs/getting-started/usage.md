@@ -43,6 +43,31 @@ Open the noVNC desktop (RViz, UR sim teach pendant) at
 whatever port is set by `NOVNC_PORT` in `.env`) or
 connect Foxglove to `ws://localhost:8765`.
 
+## Foxglove visualization
+
+The `foxglove` service exposes a [Foxglove](https://foxglove.dev/) WebSocket
+bridge at `ws://localhost:8765`. Open the Foxglove app (web or desktop), choose
+**Open connection → Foxglove WebSocket**, and enter that URL (replace the port
+if you changed `FOXGLOVE_PORT` in `setup.bash`). See the
+[Foxglove documentation](https://docs.foxglove.dev/docs) for the full
+visualization workflow.
+
+### MoveIt converter plugin (`.foxe`)
+
+To visualize MoveIt planning scenes, install the bundled Foxglove extension.
+Build and package it with:
+
+```bash
+tt-build foxglove
+```
+
+This packages the `foxglove_moveit_msg_converter` extension and writes the
+resulting `.foxe` file to `$TABLETOP_DIR` (the repository root). Install it into
+the Foxglove app by opening the extensions settings and adding the local
+`.foxe`; see the
+[Foxglove extensions guide](https://docs.foxglove.dev/docs/visualization/extensions/introduction)
+for the exact steps for your Foxglove version.
+
 ## Dev Container (VS Code)
 
 Install the **Dev Containers** extension, run `tt-env-gen`, open the folder, and
