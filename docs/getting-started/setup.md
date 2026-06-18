@@ -28,6 +28,25 @@ walkthrough (robot network, URCaps, remote control), see
     Enable **Use Rosetta for x86/amd64 emulation** in Docker Desktop to run the
     `ursim` container.
 
+!!! important "Docker permissions and Docker Hub login"
+    Two one-time Docker prerequisites, without which the steps below will fail:
+
+    - **Add your user to the `docker` group** so the `tt-*` and `docker`
+      commands work without `sudo`:
+
+        ```bash
+        sudo usermod -aG docker $USER
+        ```
+
+        Group-membership changes only take effect after you **log out and log
+        back in** (or reboot) — your current shell will not see the new group.
+
+    - **Log in to Docker Hub** so you can pull the prebuilt TableTop images:
+
+        ```bash
+        docker login
+        ```
+
 ## Minimal install
 
 ```bash
