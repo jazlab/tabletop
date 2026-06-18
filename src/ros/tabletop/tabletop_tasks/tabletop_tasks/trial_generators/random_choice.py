@@ -4,8 +4,9 @@ This module provides a trial generator that randomly samples trial
 parameters from specified distributions. Each trial independently
 samples object ID, pose, arm assignment, and occlusion.
 
-This generator is non-adaptive - feedback is ignored and does not
-influence subsequent trial generation.
+Sampling is non-adaptive: the sampling distribution does not change in
+response to feedback. Feedback only governs whether a failed trial is
+retried (see the skip_failed flag and send()).
 
 Example:
     generator = RandomChoice(
@@ -41,7 +42,8 @@ class RandomChoice(BaseTrialGenerator):
     - Arm: uniform random from provided list
     - Occlude: Bernoulli with specified probability
 
-    This generator does not adapt based on feedback.
+    The sampling distribution does not adapt to feedback; feedback only
+    controls failed-trial retries via skip_failed (see send()).
 
     Attributes:
         _object_ids: List of object identifiers to sample from.
@@ -132,13 +134,17 @@ class RandomChoice(BaseTrialGenerator):
         self._trial_counter += 1
         return self._last_trial_spec
 
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback):
+    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
         """Process trial feedback.
 
-        This generator does not adapt based on feedback.
+        Sampling does not adapt to feedback. Clears the stored trial spec
+        on successful feedback so __next__ samples a fresh trial. If
+        skip_failed is False and the trial failed (feedback is None), the
+        spec is retained so __next__ repeats it.
 
         Args:
-            trial_spec: Unused original trial spec.
-            feedback: Unused trial feedback.
+            trial_spec: Original trial spec (unused; only feedback checked).
+            feedback: Trial feedback, or None if the trial failed.
         """
-        pass
+        if feedback is not None or self._skip_failed:
+            self._last_trial_spec = None

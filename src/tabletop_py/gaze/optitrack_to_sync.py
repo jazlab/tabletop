@@ -1,3 +1,32 @@
+"""OptiTrack motion capture data processing and LED status extraction.
+
+This module processes OptiTrack marker data and video to extract LED
+(light-emitting diode) synchronization signals and merge with motion
+capture positions. It uses brightness analysis on a region of interest
+(ROI) to detect LED on/off states and correlate with marker positions.
+
+Functions:
+    is_led_on: Detect LED state from ROI brightness.
+    extract_frame_number: Parse frame number from filename.
+    process_image: Extract LED status and frame info from single image.
+    process_images: Parallel image processing for LED detection.
+    process_data: Full pipeline merging marker data with LED status.
+
+Constants:
+    BRIGHTNESS_THRESHOLD: Default brightness level for LED on/off (0-255).
+
+Example:
+    # Extract LED states and merge with marker data
+    roi = (1250, 1275, 980, 1000)  # (x_start, x_end, y_start, y_end)
+    data = process_data(
+        "markers.csv", "output_merged.csv", "output_sep.csv",
+        "video_frames/", roi, merge_markers=True
+    )
+
+Dependencies:
+    Requires OpenCV, NumPy, Pandas.
+"""
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 
@@ -5,6 +34,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+#: Brightness threshold (0-255) for LED on/off detection
 BRIGHTNESS_THRESHOLD = 150
 
 
@@ -99,20 +129,29 @@ def process_data(
     roi_bounds,
     merge_markers=False,
 ):
-    """
-    Process the marker data and image data to generate output CSV files.
+    """Merge OptiTrack marker data with LED detection from video frames.
+
+    Reads OptiTrack CSV (6-line header skip), extracts LED on/off states
+    from video ROI brightness analysis, and outputs marker positions with
+    synchronized LED status column.
 
     Args:
-        marker_input_file_path: The path to the input CSV file containing marker data.
-        output_path_merged: The path to save the merged output CSV file.
-        output_path_separate: The path to save the separate marker output CSV file.
-        image_folder_path: The path to the folder containing the images.
-        roi_bounds: A tuple of (x_start, x_end, y_start, y_end) specifying the ROI bounds.
-        merge_markers: A boolean indicating whether to merge the marker data into a single set of X, Y, Z columns.
+        marker_input_file_path: OptiTrack CSV with 6-line header, columns
+            "Time (Seconds)" and marker position columns.
+        output_path_merged: Output CSV path if merge_markers=True.
+        output_path_separate: Output CSV path if merge_markers=False.
+        image_folder_path: Directory containing .jpg frames with names
+            like "frame00000.jpg".
+        roi_bounds: (x_start, x_end, y_start, y_end) tuple defining
+            grayscale brightness region.
+        merge_markers: If True, combines all markers into single X/Y/Z
+            columns; if False, keeps separate marker columns.
 
     Returns:
-        If merge_markers is True, returns the merged DataFrame.
-        If merge_markers is False, returns the separate marker DataFrame.
+        DataFrame with columns:
+        - "time": Seconds (3 decimal precision)
+        - LED marker positions (1_X, 1_Y, 1_Z or X, Y, Z if merged)
+        - "input": LED state (1=on, 0=off) mapped from frame brightness
     """
     # Read the CSV data from the file
     data = pd.read_csv(marker_input_file_path, skiprows=6)

@@ -1,18 +1,45 @@
+# Parameter file for the /commander node (nodes/commander.py).
+# Loaded by commander.launch.py; merged at runtime with
+# /tmp/commander_overrides.yaml (per-session overrides, e.g. robot_mode).
+#
+# Lookup order (BaseInterface.param): per-interface key takes precedence,
+# then falls back to the corresponding "common_*" key (dict values are
+# deep-merged). Params declared "null" resolve to Python None.
 /commander:
   ros__parameters:
     # Commander parameters
 
+    # Selects mock vs. real UR hardware behaviour. Set automatically from
+    # robot_mode at launch (true only when robot_mode:=mock; false for ursim
+    # and real). Consumed ONLY by the per-arm manipulation stack — passed from
+    # Commander to each URInterface and ObjectManipulationInterface:
+    #   - URInterface: asserts each UR driver node is running in the matching
+    #     mode (mock when true, real when false) and raises on mismatch; it
+    #     does NOT skip any waits.
+    #   - ObjectManipulationInterface: when true, skips the post-grasp
+    #     effort-based object-attachment check (the object is assumed attached).
+    # Does NOT affect the Teensy, Flic, or Eyelink interfaces
     simulate: true
 
+    # Maximum seconds to wait for all interfaces to shut down cleanly.
     # shutdown_timeout: 3.0
 
+    # --- Smooth-pursuit reward logic (Commander.smooth_pursuit_and_reward) ---
+    # Used by the EyelinkInterface smooth_pursuit callback.
     smooth_pursuit:
+      # Duration (seconds) of each individual reward pulse when pursuit is active.
       reward_duration: 0.1
+      # Minimum interval (seconds) between consecutive reward pulses.
       reward_interval: 1.0
       # minimum ratio of smoothly pursuing feedback messages to total messages
       # to activate the reward
       reward_threshold_ratio: 0.8
 
+    # --- Flic Bluetooth button registry (Commander.flic_response_time) ---
+    # Maps logical object_id strings to Bluetooth MAC addresses of the
+    # corresponding Flic 2 buttons.  Looked up as flic.bd_addrs.<object_id>
+    # by nodes/commander.py line 920.  big_object_7 and small_object_0 share
+    # the same MAC (90:88:a9:50:5f:b6) as big_object_3 — flag for review.
     flic:
       bd_addrs:
         big_object_0: 90:88:a9:50:5f:68
@@ -54,6 +81,10 @@
         small_object_28: 90:88:a9:50:66:09
         small_object_29: 90:88:a9:50:5f:68
 
+    # --- Manipulator wiring (Commander.__init__) ---
+    # Maps logical robot names to the three interface instance names created
+    # for each arm.  Commander iterates this dict to build ManipulationContextManagers;
+    # the names here must match the parameter sections below.
     robot_interface_names:
       left_manipulator:
         ur_interface_name: left_ur_interface
@@ -66,51 +97,97 @@
 
     # Interface parameters
 
+    # --- SoundInterface (interfaces/sound.py) ---
     sound_interface:
+      # Set false to silence all audio output (useful when debugging without speakers).
       enable: true
+      # Absolute path to a SoundFont (.sf2) file; expanded at launch.
       soundfont_path: $(find-pkg-share tabletop_rig)/soundfonts/moog.sf2
+      # General MIDI instrument number (0-127) assigned to the default MIDI channel.
+      # 62 = Synth Brass 1.
       instrument: 62
+      # Default note played by SoundInterface.play() / start_note() when no note is given.
       default_note:
-        name: C
-        octave: 6
-        velocity: 127
-        channel: 0
+        name: C # Note name (mingus format: A-G, optionally with # or b).
+        octave: 6 # Octave number.
+        velocity: 127 # MIDI velocity (0-127); 127 = maximum loudness.
+        channel: 0 # MIDI channel (0-15).
+      # Default playback duration in seconds for SoundInterface.play().
       default_duration: 0.5
 
+    # --- TeensyInterface (interfaces/teensy.py) ---
+    # Controls arm locks, safety laser, reward solenoid, and the smartglass pane.
     teensy_interface:
       safe_to_execute:
+        # Seconds the safety conditions must be continuously met before
+        # TeensyInterface.safe_to_execute returns True.
         required_time: 0.5
+        # Maximum age (seconds) of the last TeensySensor message before the
+        # sensor is considered stale and safe_to_execute returns False.
         max_sensor_delay: 0.1
+      # Poll interval (seconds) in TeensyInterface.lock_arms_and_wait /
+      # start_reward_and_wait busy-wait loops.
       spin_period: 0.05
+      # Log a warning if the ROS receive latency of a TeensySensor message
+      # exceeds this threshold (seconds).
       sensor_delay_warn_threshold: 0.05
 
+    # --- URInterface common defaults (interfaces/ur.py) ---
+    # Applied to both left_ur_interface and right_ur_interface via fallback.
+    # Per-arm sections below can override individual keys.
     common_ur_interface:
+      # UR controller installation file name (loaded on the teach pendant).
       installation: default.installation
+      # UR controller program file name to load and play for external_control.
       program: external_control.urp
+      # Maximum total recovery attempts before giving up (URInterface.reset).
       max_reset_attempts: 5
+      # After this many failed attempts, trigger a full safety restart before
+      # continuing to retry.  null disables this behaviour.
       num_reset_attempts_before_safety_restart: null
+      # Seconds to wait between consecutive reset attempts.
       reset_retry_delay: 1.0
+      # Seconds to wait for the robot to complete a safety restart sequence.
       safety_restart_timeout: 10
+      # Seconds between polling for remote-control mode to become active.
       check_remote_control_delay: 5.0
+      # Seconds between polling for safe safety mode after a protective stop.
       check_safety_mode_delay: 1.0
+      # Seconds to wait after a successful reset before returning control.
       post_reset_delay: 1.0
 
+    # Left arm URInterface — only the ROS namespace differs from common defaults.
     left_ur_interface:
+      # ROS topic/node namespace prefix for the left arm UR driver nodes.
       namespace: left
 
+    # Right arm URInterface — only the ROS namespace differs from common defaults.
     right_ur_interface:
+      # ROS topic/node namespace prefix for the right arm UR driver nodes.
       namespace: right
 
+    # --- ObjectManipulationInterface / PlanAndExecuteInterface common defaults ---
+    # (interfaces/moveit/object_manipulation.py and plan_and_execute.py)
+    # Applied to both left_manipulation_interface and right_manipulation_interface
+    # via fallback merge.
     common_manipulation_interface:
       planning:
+        # Primary planning pipeline ID (fast path, e.g. Pilz PTP).
         fast_pipeline: ptp
+        # Fallback pipeline if fast_pipeline fails (e.g. OMPL RRT*).
         fallback_pipeline: aps_rrt_star
+        # Default maximum planning attempts per request (overridable per-request).
         default_max_attempts: 3
+        # Exponential backoff multiplier applied to planning timeouts on retry.
         default_exp_backoff_factor: 2.0
+        # Cap on the backoff delay (seconds) between planning retries.
         max_backoff_time: 1.0
       trajectory_cache:
+        # Root directory for cached trajectories; $TABLETOP_CACHE_DIR is set in setup.bash.
         base_dir: $TABLETOP_CACHE_DIR/trajectory_cache
+        # If false, planning always runs from scratch (no cache reads or writes).
         use_cached_trajectories: true
+        # If true, existing cache entries are read but new ones are never written.
         freeze_cache: false
         # One of: lmdb, dict, linear, kdtree.
         #   lmdb   - persistent fuzzy binning (production default)
@@ -118,32 +195,65 @@
         #   linear - in-memory brute-force tolerance scan (pickled to `path`)
         #   kdtree - in-memory k-d tree over feature vectors (pickled to `path`)
         backend: kdtree
+        # Backend-specific keyword arguments passed directly to the cache constructor.
         kwargs:
           position_tolerance: 0.03 # meters
           orientation_tolerance: 0.01 # radians
           robot_state_tolerance: 0.02 # radians
+          # Metric used to rank cached trajectories: path_length or path_duration.
           sort_by: path_duration
+          # Maximum number of trajectories stored per cache entry.
           max_trajectories: 5
       execution:
+        # Multiplier on the nominal trajectory duration; execution is aborted if
+        # the controller takes longer than (allowed_duration_scaling * duration + margin).
         allowed_duration_scaling: 1.5
+        # Additional seconds added to the scaled duration window (seconds).
         allowed_duration_margin: 0.5
+        # Maximum joint-position error (radians) between current state and trajectory
+        # start state before execution is blocked.
         allowed_start_tolerance: 0.02 # radians
+        # Maximum joint-position error (radians) allowed at the end of execution
+        # before the result is considered a failure.
         allowed_end_tolerance: 0.01 # radians
+        # NOTE: moved_tolerance (below) is declared here in the config but has no
+        # confirmed reader in the current tabletop_rig Python source — may be unused
+        # or reserved for future use.
         moved_tolerance: 0.02 # radians
+      # Heuristic for detecting whether the robot actually grasped an object after
+      # the ATTACH move step, by sampling joint effort on the elbow joint.
       test_object_attached:
+        # If false, the effort check is skipped; object is assumed attached.
         enable: false
+        # ROS topic carrying JointState messages used for effort sampling.
         topic: /joint_states
+        # Collision object ID expected to be attached after a successful grasp.
         object_id: test_object
+        # Number of JointState samples to collect during the check window.
         num_samples: 2500
+        # Elbow joint effort threshold (Nm); compared with greater_than flag.
         effort_threshold: -1.615
+        # If false, effort must be less than effort_threshold to confirm attachment.
         greater_than: false
+      # Velocity scaling factor (0–1) applied when detaching an object from its mount
+      # to reduce impact forces during release.
       detach_velocity_scaling_factor: 0.3
+      # If true, skip moving to the idle pose when returning from the presented state.
       skip_idle_on_return: false
+      # If true, skip moving to the fetched pose when fetching an object that is
+      # already beyond the pre_fetch waypoint.
       skip_fetched_on_fetch: false
+      # Collision object IDs that represent the physical rig mount structure.
+      # These are excluded from collision checking during manipulation.
       mount_collision_ids:
         - rig
+      # Exclusive region parameters for the presentation area (PlanningSceneInterface).
       presentation_region:
+        # Must match a key under moveit_interface.exclusive_regions.
         region_id: presentation_region
+      # Named waypoint goals for each stage of the fetch/present/return state machine.
+      # Each entry is either a named SRDF target (type: named_target_state) or a
+      # Cartesian offset from the object's initial pose (type: offset, value: [x,y,z] meters).
       manipulation_state_goals:
         idle:
           type: named_target_state
@@ -173,11 +283,20 @@
           # value:
           #   position: [ 0.9525, 0.4, 0.6 ]
           #   rpy: [ 0.0, 0.0, -1.5707 ]
+      # Parameters for manually attaching a non-grid object to the end-effector.
       manually_attach:
+        # Directory containing object mesh files (.stl / .dae) for collision objects.
         mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
+        # Kwargs forwarded to MoveItInterface.add_mesh_collision_object().
         collision_object_kwargs:
+          # Simplification strategy applied to the mesh for collision checking.
           simplification: bounding_primitive
+          # RGBA color for the collision object visualization in RViz.
           color: [1.0, 1.0, 1.0, 0.5]
+      # Per-object reset configuration map (shared defaults; arm-specific maps
+      # below override individual entries).  null means "no reset config file"
+      # (object cannot be reset via reset_object).  big_object_{0,1,4,5} are
+      # overridden in the per-arm sections with actual reset YAML paths.
       reset_config_map:
         big_object_2: null
         big_object_3: null
@@ -237,24 +356,40 @@
         small_object_29: null
         smooth_pursuit_object: null
 
+    # --- Left arm ObjectManipulationInterface / PlanAndExecuteInterface ---
+    # Overrides and additions on top of common_manipulation_interface.
     left_manipulation_interface:
+      # MoveIt planning group name for the left arm (must match SRDF).
       group_name: left_manipulator
       planning:
+        # Default link used to evaluate end-effector poses for this arm.
         default_pose_link: left_eef
       trajectory_cache:
+        # NOTE: base_link_name is declared here but has no confirmed reader in
+        # the current tabletop_rig Python source — may be reserved for future use.
         base_link_name: left_base_link
       execution:
+        # ROS 2 controller action name used to send trajectories to the left arm.
         joint_trajectory_controller: left_scaled_joint_trajectory_controller
       test_object_attached:
+        # Joint whose effort is sampled for attachment detection on the left arm.
+        # NOTE: 'left_eblow_joint' appears to be a typo for 'left_elbow_joint'.
         joint_name: left_eblow_joint
+      # Path (file) where the left arm's persistent manipulation state is pickled
+      # across sessions; $TABLETOP_CACHE_DIR set in setup.bash.
       persistent_state_path: $TABLETOP_CACHE_DIR/left_manipulation_state.pkl
+      # Robot link to which the grasped object collision mesh is attached.
       attach_link: left_eef
+      # Links that are allowed to touch the attached object without collision error.
       touch_links:
         - left_eef_link
         - left_eef_sphere
+      # Per-pair collision allowances between end-effector links and mount objects.
       allowed_mount_collisions:
         left_eef_sphere: rig
+      # Collision IDs used when acquiring / releasing the presentation exclusive region.
       presentation_region:
+        # Links of the left arm that are allowed to pass through presentation walls.
         robot_collision_ids:
           - left_base_link_inertia
           - left_shoulder_link
@@ -265,10 +400,13 @@
           - left_wrist_3_link
           - left_eef_link
           - left_eef_sphere
+        # Presentation wall collision objects unlocked for the left arm.
         region_collision_ids:
           - left_presentation_wall
           # - left_side_presentation_wall
           # - left_back_presentation_wall
+      # Grid cell indices (row,col strings) reachable by the left arm.
+      # Columns 0–4 of the 10×3 grid are on the left side.
       reachable_grid_indices:
         - 0,0
         - 0,1
@@ -285,30 +423,47 @@
         - 4,0
         - 4,1
         - 4,2
+      # Per-object reset YAML paths for objects the left arm can reset;
+      # null entries in common_manipulation_interface are overridden here.
       reset_config_map:
         big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/left_spin.yaml
         big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/left_drawer.yaml
         big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/left_spin.yaml
 
+    # --- Right arm ObjectManipulationInterface / PlanAndExecuteInterface ---
+    # Mirror of left_manipulation_interface for the right arm.
     right_manipulation_interface:
+      # MoveIt planning group name for the right arm (must match SRDF).
       group_name: right_manipulator
       planning:
+        # Default link used to evaluate end-effector poses for this arm.
         default_pose_link: right_eef
       trajectory_cache:
+        # NOTE: base_link_name is declared here but has no confirmed reader in
+        # the current tabletop_rig Python source — may be reserved for future use.
         base_link_name: right_base_link
       execution:
+        # ROS 2 controller action name used to send trajectories to the right arm.
         joint_trajectory_controller: right_scaled_joint_trajectory_controller
       test_object_attached:
+        # Joint whose effort is sampled for attachment detection on the right arm.
+        # NOTE: 'right_eblow_joint' appears to be a typo for 'right_elbow_joint'.
         joint_name: right_eblow_joint
+      # Path where the right arm's persistent manipulation state is pickled.
       persistent_state_path: $TABLETOP_CACHE_DIR/right_manipulation_state.pkl
+      # Robot link to which the grasped object collision mesh is attached.
       attach_link: right_eef
+      # Links that are allowed to touch the attached object without collision error.
       touch_links:
         - right_eef_link
         - right_eef_sphere
+      # Per-pair collision allowances between end-effector links and mount objects.
       allowed_mount_collisions:
         right_eef_sphere: rig
+      # Collision IDs used when acquiring / releasing the presentation exclusive region.
       presentation_region:
+        # Links of the right arm that are allowed to pass through presentation walls.
         robot_collision_ids:
           - right_base_link_inertia
           - right_shoulder_link
@@ -319,10 +474,13 @@
           - right_wrist_3_link
           - right_eef_link
           - right_eef_sphere
+        # Presentation wall collision objects unlocked for the right arm.
         region_collision_ids:
           - right_presentation_wall
           # - right_side_presentation_wall
           # - right_back_presentation_wall
+      # Grid cell indices (row,col strings) reachable by the right arm.
+      # Columns 5–9 of the 10×3 grid are on the right side.
       reachable_grid_indices:
         - 5,0
         - 5,1
@@ -339,19 +497,32 @@
         - 9,0
         - 9,1
         - 9,2
+      # Per-object reset YAML paths for objects the right arm can reset.
       reset_config_map:
         big_object_0: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         big_object_1: $(find-pkg-share tabletop_rig)/config/object_reset/right_spin.yaml
         big_object_4: $(find-pkg-share tabletop_rig)/config/object_reset/right_drawer.yaml
         big_object_5: $(find-pkg-share tabletop_rig)/config/object_reset/right_spin.yaml
+    # --- ManipulationContextManager common defaults (nodes/commander.py) ---
+    # Shared retry limits for the handle_interruptions decorator and the
+    # reset() method on each ManipulationContextManager.
     common_manipulation_context_interface:
       interruptions:
+        # Maximum times a manipulation action is retried after an interruption
+        # (e.g. safety stop, execution rejection) before raising an exception.
         max_attempts: 3
       reset:
+        # Maximum times the reset coroutine is retried before giving up.
         max_attempts: 5
 
+    # --- MoveItInterface (interfaces/moveit/moveit.py) ---
+    # Top-level MoveIt interface: planning scene, link padding, exclusive regions.
     moveit_interface:
+      # Seconds to wait for the planning scene monitor to report a fresh robot
+      # state in MoveItInterface.get_current_state().
       current_state_wait_time: 0.5
+      # Per-link collision padding (meters) added to the robot's collision geometry.
+      # Larger padding on proximal links reduces near-miss false positives.
       link_padding:
         left_base_link_inertia: 0.03
         left_shoulder_link: 0.03
@@ -367,8 +538,13 @@
         right_wrist_1_link: 0.03
         right_wrist_2_link: 0.01
         right_wrist_3_link: 0.01
+      # Named collision regions that only one arm may occupy at a time.
+      # The listed collision_ids are walls that gate access; one arm "acquires"
+      # the region by opening its walls (removing ACM entries) and "releases"
+      # by closing them again.
       exclusive_regions:
         presentation_region:
+          # Collision wall IDs that form the boundary of the presentation area.
           collision_ids:
             - left_presentation_wall
             - right_presentation_wall
@@ -376,10 +552,17 @@
             # - left_back_presentation_wall
             # - right_side_presentation_wall
             # - right_back_presentation_wall
+      # Planning scene: static rig geometry and dynamic grid objects.
       planning_scene:
+        # Directory where the serialized scene and collision matrix are cached;
+        # scene is rebuilt from config only when the config+mesh hash changes.
         cache_dir: $TABLETOP_CACHE_DIR/planning_scene
+        # If true, load scene from cache_dir when hash matches (faster startup).
         use_saved_scene: true
+        # Static collision objects that represent the physical rig structure.
+        # All positions and dimensions are in meters (REP-103).
         rig:
+          # Box and plane primitives added to the MoveIt planning scene.
           primitives:
             robot_platform:
               type: BOX
@@ -475,6 +658,9 @@
               pose_stamped:
                 position: [1.8666, 1.0025, 0.59]
               color: [0.0, 0.0, 1.0, 0.5]
+            # Angled walls that form the left and right presentation zones;
+            # also used as exclusive_region boundaries (see above).
+            # rpy angles are in radians.
             left_presentation_wall:
               type: BOX
               dimensions: [0.001, 0.7036, 0.8]
@@ -495,6 +681,9 @@
                 - left_eef_sphere
                 - right_eef_sphere
               color: [1.0, 0.0, 0.0, 0.2]
+          # Mesh collision objects for structural rig parts and reset stations.
+          # simplification: bounding_primitive converts the mesh to a bounding box/sphere.
+          # subframes define named child frames relative to the mesh origin.
           meshes:
             rig:
               path: $(find-pkg-share tabletop_rig)/meshes/rig/rig.step
@@ -534,6 +723,9 @@
                   position: [0.0575, 0.0, 0.075]
                   rpy: [0.0, 0.0, 3.1415] # aligned with world frame rotation
               color: [0.0, 0.0, 1.0, 0.5]
+        # Dynamic experiment objects placed on the 10×3 presentation grid.
+        # Each entry maps a "row,col" string key to its collision object config.
+        # Positions are calibrated world-frame coordinates (meters).
         grid_objects:
           mesh_dir: $(find-pkg-share tabletop_rig)/meshes/objects
           common_kwargs:

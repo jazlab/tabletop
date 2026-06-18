@@ -266,14 +266,16 @@ def nearest_focus_cross(
 
 
 class LearnableMaskedCorrectionParameter(nn.Module):
-    """A masked parameter with a learnable correction
+    """Learnable parameter with bounded corrections and selective updates.
 
-    This class should be used for parameters for which we have a good initial
-    guess, but the true value is not known.
+    Used for calibration parameters where a good initial estimate exists
+    but fine-tuning is needed. Stores a fixed base value and learns small
+    corrections applied only to masked positions.
 
-    A static parameter is initialized to the initial guess, and the
-    tolerance-limited correction is learned as a parameter. The correction is
-    only applied to the learnable mask.
+    Attributes:
+        _value: Base parameter value (non-trainable).
+        _learnable_mask: Binary mask selecting which elements to correct.
+        _correction: Learnable correction values (bounded).
     """
 
     def __init__(
@@ -284,15 +286,19 @@ class LearnableMaskedCorrectionParameter(nn.Module):
         correction_limit_method: Literal["clamp", "tanh"] = "tanh",
         correction_epsilon: float = 1e-3,
     ):
-        """
+        """Initialize learnable masked correction parameter.
+
         Args:
-            initial_value: The initial value of the parameter.
-            learnable_mask: A mask of the same shape as the parameter,
-                indicating which elements of the parameter are learnable.
-            max_correction: The maximum correction of the parameter, as a
-                fraction of the initial value.
-            correction_limit_method: The method to limit the correction.
-            correction_epsilon: The epsilon to use for the initial correction.
+            initial_value: Base parameter tensor/value.
+            learnable_mask: Boolean mask (same shape as initial_value)
+                indicating which elements are learnable. If None, all
+                elements are frozen.
+            max_correction: Maximum magnitude of correction as a fraction.
+                If None, corrections are unbounded.
+            correction_limit_method: Method to enforce bounds: "clamp"
+                (hard limits) or "tanh" (smooth limits).
+            correction_epsilon: Initial correction std relative to the
+                min abs value (for numerical stability).
         """
         super().__init__()
 
@@ -354,6 +360,12 @@ class LearnableMaskedCorrectionParameter(nn.Module):
         return correction
 
     def forward(self) -> torch.Tensor:
+        """Compute parameter value with applied corrections.
+
+        Returns:
+            Tensor with shape matching initial_value where corrected
+            elements = value * (1 + bounded_correction * mask).
+        """
         return self._value * (
             1
             + self._learnable_mask
@@ -362,13 +374,33 @@ class LearnableMaskedCorrectionParameter(nn.Module):
 
 
 class GazeEstimationModelGeometric(nn.Module):
-    """A geometry-based model for estimating 3D gaze from 2D pupil coordinates"""
+    """Physics-based gaze estimation using ray-sphere geometry.
 
-    # Masks
+    Estimates 3D gaze direction by:
+    1. Projecting 2D pupil pixels to 3D rays via camera intrinsics
+    2. Intersecting rays with eye sphere geometry
+    3. Computing line-line intersection of the two eye gaze rays
+    4. Finding the 3D point closest to both eye rays
+
+    All geometric parameters (camera pose, intrinsics, eye centers/radius)
+    are learnable with masks to constrain which components can be updated.
+
+    Attributes:
+        camera_rotation_tf: 4x4 rotation matrix (learnable in 3x3 block).
+        camera_position: 3D camera position in world frame (learnable).
+        camera_intrinsic_inv: Inverse of 3x3 camera intrinsic matrix
+            (learnable in upper triangle).
+        eye_left_center: 3D position of left eye center (fixed).
+        eye_right_center: 3D position of right eye center (fixed).
+        eye_radius: Radius of eyeball sphere (fixed).
+    """
+
+    #: Learnable mask for camera rotation (3x3 block, leave homogeneous)
     _CAMERA_ROTATION_LEARNABLE_MASK = torch.tensor(
         [[1, 1, 1, 0], [1, 1, 1, 0], [1, 1, 1, 0], [0, 0, 0, 0]],
         dtype=torch.bool,
     )
+    #: Learnable mask for camera intrinsics (upper triangle)
     _CAMERA_INTRINSIC_LEARNABLE_MASK = torch.tensor(
         [[1, 1, 1], [0, 1, 1], [0, 0, 0]],
         dtype=torch.bool,
@@ -382,6 +414,15 @@ class GazeEstimationModelGeometric(nn.Module):
         eye_right_center: torch.Tensor | Any,
         eye_radius: float | Any,
     ):
+        """Initialize geometric gaze model with calibration parameters.
+
+        Args:
+            camera_tf: 4x4 transformation matrix from world to camera frame.
+            camera_intrinsic: 3x3 camera intrinsic matrix.
+            eye_left_center: 3D position of left eye center in world coords.
+            eye_right_center: 3D position of right eye center in world coords.
+            eye_radius: Radius of both eyeballs (assumed equal).
+        """
         super().__init__()
 
         # Camera frame transformations
@@ -503,7 +544,25 @@ class GazeEstimationModelGeometric(nn.Module):
 
 
 class GazeEstimationModelMLP(nn.Module):
-    """An MLP model for estimating 3D gaze from 2D pupil coordinates"""
+    """Multi-layer perceptron for 3D gaze estimation from 2D pupil.
+
+    A fully connected neural network that learns to map 2D pupil
+    coordinates (concatenated from both eyes, 4D input) to 3D gaze
+    position in world coordinates. Includes optional learnable
+    normalization statistics.
+
+    Attributes:
+        input_mean: Learnable or fixed input normalization mean
+            (shape: [1, input_size]).
+        input_std: Learnable or fixed input normalization std
+            (shape: [1, input_size]).
+        output_mean: Learnable or fixed output normalization mean
+            (shape: [1, output_size]).
+        output_std: Learnable or fixed output normalization std
+            (shape: [1, output_size]).
+        layers: Sequential module containing linear layers with ReLU
+            activations and dropout.
+    """
 
     def __init__(
         self,
@@ -517,6 +576,28 @@ class GazeEstimationModelMLP(nn.Module):
         dropout_rate: float = 0.2,
         learn_stats: bool = True,
     ):
+        """Initialize MLP with optional normalization statistics.
+
+        Args:
+            input_size: Dimensionality of input features (typically 4
+                for 2D pupil coords from both eyes).
+            output_size: Dimensionality of output targets (typically 3
+                for 3D gaze position).
+            input_mean: Input feature mean for normalization
+                (shape: [input_size]). Default: zeros.
+            input_std: Input feature std for normalization
+                (shape: [input_size]). Default: ones.
+            output_mean: Output target mean for denormalization
+                (shape: [output_size]). Default: zeros.
+            output_std: Output target std for denormalization
+                (shape: [output_size]). Default: ones.
+            hidden_sizes: List of hidden layer dimensions
+                (default [128, 256, 128]).
+            dropout_rate: Dropout probability after each hidden layer
+                (default 0.2).
+            learn_stats: Whether normalization stats are learnable
+                parameters (default True).
+        """
         super().__init__()
 
         if input_mean is None:
@@ -570,7 +651,15 @@ class GazeEstimationModelMLP(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Predict 3D gaze position from 2D pupil coordinates.
+
+        Args:
+            x: Input pupil coordinates (shape: [B, input_size]).
+
+        Returns:
+            Predicted gaze position in world coordinates
+            (shape: [B, output_size]).
+        """
         x = (x - self.input_mean) / self.input_std
         x = self.layers(x)
         return x * self.output_std + self.output_mean
-        # return self.layers(x)

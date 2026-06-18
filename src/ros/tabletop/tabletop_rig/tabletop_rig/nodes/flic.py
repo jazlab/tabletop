@@ -10,16 +10,18 @@ The node can operate in two modes:
 - Simulation mode: Generates random delays for testing
 
 Actions provided:
-    flic/response_time: Wait for button press and return response time
+    ~/response_time: Wait for button press and return response time.
+
+Topics published:
+    ~/button_pressed_time: Header message published when any button is
+        pressed, containing the timestamp and button Bluetooth address.
 
 Parameters:
-    simulate: Run in simulation mode without hardware (bool).
-    simulate_min_delay: Minimum simulated delay in seconds.
-    simulate_max_delay: Maximum simulated delay in seconds.
-    server_ip: Flic server IP address.
-    server_port: Flic server port.
-    max_connections: Maximum concurrent button connections.
-    auto_disconnect_time: Auto-disconnect timeout in seconds.
+    simulate: Run in simulation mode without hardware (default: false).
+    simulate_min_delay: Minimum simulated delay in seconds (default: 1.0).
+    simulate_max_delay: Maximum simulated delay in seconds (default: 3.0).
+    device_id: Bluetooth device ID to use (default: 0).
+    active_scan: Whether to use active scanning (default: false).
 
 Example:
     ros2 run tabletop_rig flic --ros-args -p simulate:=true
@@ -287,6 +289,12 @@ class Flic(BaseNode):
             await self.flic_client.wait_for_closed()
 
     async def spin_button_publisher(self):
+        """Publish button press events continuously.
+
+        Waits for button presses (real or simulated) and publishes
+        them as Header messages to the button_pressed_time topic.
+        Runs indefinitely until the coroutine is cancelled.
+        """
         while True:
             if self.simulate:
                 await self.simulate_button_event.wait()
@@ -314,6 +322,11 @@ class Flic(BaseNode):
             )
 
     async def spin(self):
+        """Run the Flic node async event loop.
+
+        Initializes the Flic client and simultaneously runs the button
+        publisher and connection monitor until the connection closes.
+        """
         await self.init_flic_client()
         async with asyncio.TaskGroup() as tg:
             publisher_task = tg.create_task(self.spin_button_publisher())

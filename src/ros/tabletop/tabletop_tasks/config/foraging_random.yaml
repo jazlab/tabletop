@@ -1,17 +1,48 @@
+# ForagingTask — delayed match-to-sample behavioral task (random trial order).
+# Identical phase structure to foraging_ordered.yaml but uses RandomChoiceAlternating
+# instead of OrderedChoiceAlternating: object ID, pose, and arm are sampled
+# independently at random for each trial rather than cycled deterministically.
+# See: tabletop_tasks/tasks/foraging.py :: ForagingTask
+#      tabletop_tasks/trial_generators/random_choice_alternating.py :: RandomChoiceAlternating
 tasks:
   - class: ForagingTask
     kwargs:
+      # stimulus_duration: time (seconds) the smartglass is revealed so the
+      # subject can view the object during the stimulus phase.
       stimulus_duration: 1.0
+      # delay_duration: length of the delay period (seconds) between stimulus
+      # offset and response phase. Smartglass may be occluded during this window
+      # (controlled per-trial by the trial generator's occlude_prob).
       delay_duration: 1.0
+      # response_timeout: maximum time (seconds) the task waits for a Flic
+      # button press before declaring a miss. Shorter than the ordered config
+      # (3.0 s vs 10.0 s) — suitable for a well-trained subject.
       response_timeout: 3.0
+      # reward_duration: duration (seconds) of juice reward delivery on a
+      # correct response.
       reward_duration: 0.25
+      # reveal_duration: time (seconds) the object is shown again after the
+      # subject responds correctly (reward-reveal phase). 1.0 s here vs 0 in
+      # foraging_ordered.yaml — provides post-reward visual feedback.
       reveal_duration: 1.0
+      # reward_sound: if true, play an auditory tone simultaneously with juice
+      # delivery on correct trials.
       reward_sound: true
+      # sound_kwargs: keyword arguments forwarded to Commander.play_sound().
       sound_kwargs:
+        # duration: length of the reward tone in seconds.
         duration: 0.25
+      # trial_generator: specifies the trial sequence generator.
       trial_generator:
+        # RandomChoiceAlternating alternates between robot groups (left/right)
+        # and for each group independently samples object_id, pose, arm, and
+        # occlusion from the configured lists on every trial.
         class: RandomChoiceAlternating
         kwargs:
+          # grouped_object_ids: maps each MoveIt planning-group name to the list
+          # of collision-object IDs that group's arm may fetch and present.
+          # Commented-out IDs (small_object_6, _9, _21, _24) are excluded —
+          # likely physically absent or not yet calibrated.
           grouped_object_ids:
             left_manipulator:
               - small_object_0
@@ -44,6 +75,12 @@ tasks:
               - small_object_26
               - small_object_27
               - small_object_28
+          # poses: list of candidate presentation poses sampled uniformly at
+          # random for each trial.
+          #   position: [x, y, z] in meters (robot base frame).
+          #   rpy: [roll, pitch, yaw] in radians.
+          # Currently a single pose; commented entries were alternative positions
+          # explored during calibration.
           poses:
             - position: [0.9525, 0.4, 0.6]
               rpy: [0.0, 0.0, -1.5707]
@@ -51,10 +88,20 @@ tasks:
             #   rpy: [0.0, 0.2, -1.5707]
             # - position: [0.9, 0.4, 0.6]
             #   rpy: [0.0, -0.3, -1.5707]
+          # arms: candidate arm-release assignments sampled randomly per trial.
+          # "left" / "right" = release one arm; "both" = release both arms.
           arms:
             - left
             - right
             - both
+          # occlude_prob: probability (0.0–1.0) that the smartglass is occluded
+          # during the delay period on any given trial.
+          # 1.0 = always occluded (full delayed-response paradigm).
           occlude_prob: 1.0
+          # num_trials: total number of trials before the task terminates.
+          # 100000 is effectively unlimited for a session.
           num_trials: 100000
+          # skip_failed: if true, a trial whose manipulation context exits
+          # unexpectedly (e.g., e-stop) is skipped and a new trial is generated.
+          # If false, the same trial is retried.
           skip_failed: true

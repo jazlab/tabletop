@@ -69,6 +69,26 @@ _CANCEL_WRAPPED_FUTURES = False
 
 
 def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
+    """Recursively flatten a nested dictionary into dot-separated keys.
+
+    Traverses a nested dictionary and produces a flat dictionary whose keys
+    are the dot-separated paths to each leaf value. Non-dict values are
+    treated as leaves and returned immediately with ``prefix`` as their key.
+
+    Args:
+        d: The value to flatten. If not a dict, returned as-is under
+            ``prefix``.
+        prefix: Key prefix accumulated from parent calls. Empty string at
+            the top level.
+        sep: Separator inserted between key segments. Defaults to ``"."``.
+
+    Returns:
+        A flat ``dict`` mapping dot-separated key paths to leaf values.
+
+    Example:
+        >>> flatten_dict({"a": {"b": 1, "c": 2}, "d": 3})
+        {'a.b': 1, 'a.c': 2, 'd': 3}
+    """
     if not isinstance(d, dict):
         return {prefix: d}
 
@@ -83,6 +103,17 @@ def flatten_dict(d: Any, prefix: str = "", sep: str = ".") -> dict:
 
 
 def _get_loop(fut: asyncio.Future):
+    """Return the event loop associated with an asyncio Future.
+
+    Prefers the public ``Future.get_loop()`` API introduced in Python 3.7
+    and falls back to the private ``._loop`` attribute for older runtimes.
+
+    Args:
+        fut: The asyncio Future whose event loop is needed.
+
+    Returns:
+        The ``asyncio.AbstractEventLoop`` bound to ``fut``.
+    """
     # Tries to call Future.get_loop() if it's available.
     # Otherwise fallbacks to using the old '_loop' property.
     try:
@@ -95,6 +126,17 @@ def _get_loop(fut: asyncio.Future):
 
 
 def _copy_future_state(source: rclpy.Future, destination: asyncio.Future):
+    """Copy the terminal state of an rclpy Future into an asyncio Future.
+
+    Propagates the result, exception, or cancellation from a completed
+    rclpy Future to an asyncio Future. Must only be called once ``source``
+    is done or cancelled, and only when ``destination`` is not yet done.
+
+    Args:
+        source: A completed rclpy Future whose state is to be copied.
+        destination: The asyncio Future to receive the state. Must not be
+            done already (unless already cancelled, which is a no-op).
+    """
     assert source.done() or source.cancelled()
     if destination.cancelled():
         return
@@ -126,6 +168,16 @@ def _chain_future(source: rclpy.Future, destination: asyncio.Future):
     assert dest_loop is not None
 
     def _set_state(src):
+        """Done-callback registered on ``source`` to propagate its state.
+
+        Called by rclpy when the source Future completes. If the source and
+        destination share the same event loop the copy is done directly;
+        otherwise ``call_soon_threadsafe`` is used to schedule the copy on
+        the destination loop, keeping the bridge thread-safe.
+
+        Args:
+            src: The completed rclpy Future (same object as ``source``).
+        """
         if destination.cancelled() and dest_loop.is_closed():
             return
 
@@ -145,10 +197,30 @@ def _chain_future(source: rclpy.Future, destination: asyncio.Future):
             )
 
     def _check_cancel(dest):
+        """Done-callback that cancels ``source`` when ``destination`` is cancelled.
+
+        Used when ``_CANCEL_WRAPPED_FUTURES`` is True. Propagates cancellation
+        upstream so the underlying rclpy Future is also cancelled.
+
+        Args:
+            dest: The asyncio Future that just completed (same as
+                ``destination``).
+        """
         if dest.cancelled():
             source.cancel()
 
     def _check_remove_callback(dest):
+        """Done-callback that detaches ``_set_state`` when ``destination`` is cancelled.
+
+        Used when ``_CANCEL_WRAPPED_FUTURES`` is False (the default). Instead
+        of cancelling the underlying rclpy Future, it simply unhooks the
+        ``_set_state`` propagation callback so the cancelled asyncio Future
+        is not written to again.
+
+        Args:
+            dest: The asyncio Future that just completed (same as
+                ``destination``).
+        """
         if dest.cancelled():
             source.remove_done_callback(_set_state)
 
@@ -173,7 +245,29 @@ def wrap_rclpy_future(future: rclpy.Future, *, loop=None):
 
 
 class AIOActionClient(ActionClient):
+    """Asyncio-compatible wrapper around rclpy's ActionClient.
+
+    Extends ``rclpy.action.client.ActionClient`` to replace its blocking
+    and callback-based API with async/await equivalents. rclpy Futures are
+    bridged to asyncio Futures via ``wrap_rclpy_future`` so callers can
+    simply ``await`` action operations inside the asyncio event loop used by
+    ``AIOExecutor`` / ``SimpleAIOExecutor``.
+    """
+
     def wait_for_server(self, timeout_sec=None):
+        """Wait for the action server to become available, raising on timeout.
+
+        Overrides the parent to convert a ``False`` return value (server not
+        ready) into an ``ActionServerWaitTimeoutError`` exception, making
+        error handling consistent with the rest of the tabletop_rig stack.
+
+        Args:
+            timeout_sec: Maximum seconds to wait. ``None`` waits indefinitely.
+
+        Raises:
+            ActionServerWaitTimeoutError: If the server is not available
+                within ``timeout_sec`` seconds.
+        """
         ready = super().wait_for_server(timeout_sec)
         if not ready:
             raise ActionServerWaitTimeoutError(
@@ -193,6 +287,26 @@ class AIOActionClient(ActionClient):
     async def send_goal_async(  # type: ignore
         self, goal, feedback_callback=None, goal_uuid=None
     ) -> ClientGoalHandle:
+        """Send an action goal and await acceptance by the server.
+
+        Wraps the parent's ``send_goal_async`` rclpy Future in an asyncio
+        Future so it can be awaited. Raises immediately if the server
+        rejects the goal rather than returning a handle with
+        ``accepted=False``.
+
+        Args:
+            goal: The goal message to send.
+            feedback_callback: Optional callable invoked with feedback
+                messages as the action executes.
+            goal_uuid: Optional UUID identifying this goal request.
+
+        Returns:
+            A ``ClientGoalHandle`` for the accepted goal.
+
+        Raises:
+            ActionGoalNotAcceptedError: If the action server rejects the
+                goal.
+        """
         goal_handle = await wrap_rclpy_future(
             super().send_goal_async(
                 goal=goal,
@@ -208,6 +322,23 @@ class AIOActionClient(ActionClient):
         return goal_handle
 
     async def get_result_async(self, goal_handle: ClientGoalHandle):
+        """Await the result of a previously sent action goal.
+
+        Bridges the rclpy result Future to asyncio and ensures the goal is
+        cancelled on the server side if it is no longer in a terminal state
+        when the awaiter returns (e.g. due to an exception). Raises if the
+        goal did not succeed.
+
+        Args:
+            goal_handle: The handle returned by ``send_goal_async``.
+
+        Returns:
+            The action result message (``response.result``).
+
+        Raises:
+            ActionResultUnsuccessfulError: If the action completed with a
+                status other than ``STATUS_SUCCEEDED``.
+        """
         try:
             response = await wrap_rclpy_future(goal_handle.get_result_async())
         finally:
@@ -395,6 +526,19 @@ class BaseNode(Node, LoggerMixin):
     def set_or_declare_nested_parameters(
         self, nested_parameters: dict[str, Any], prefix: str = ""
     ) -> None:
+        """Declare or update a set of parameters from a nested dictionary.
+
+        Flattens ``nested_parameters`` into dot-separated keys, then for
+        each key either sets the value (if the parameter is already declared)
+        or declares it with the given value (if it is new).
+
+        Args:
+            nested_parameters: Arbitrarily nested dictionary of parameter
+                values. Keys at each level are joined with ``"."`` to form
+                ROS parameter names.
+            prefix: Optional prefix prepended to every flattened key, useful
+                for placing parameters under an interface namespace.
+        """
         flattened = flatten_dict(nested_parameters, prefix=prefix)
 
         params: list[Parameter] = []
@@ -449,6 +593,21 @@ class BaseNode(Node, LoggerMixin):
     def wait_for_node_blocking(
         self, fully_qualified_node_name: str, timeout: Optional[float] = None
     ) -> bool:
+        """Wait synchronously for a ROS node to appear on the graph.
+
+        Thin wrapper around ``rclpy.Node.wait_for_node`` that substitutes the
+        ``default_node_wait_timeout`` parameter when no explicit timeout is
+        given.
+
+        Args:
+            fully_qualified_node_name: Fully qualified name of the node to
+                wait for (e.g. ``"/namespace/node_name"``).
+            timeout: Maximum seconds to wait. Defaults to the node parameter
+                ``default_node_wait_timeout``.
+
+        Returns:
+            True if the node was found within the timeout, False otherwise.
+        """
         if timeout is None:
             timeout = cast(float, self.param("default_node_wait_timeout"))
 
@@ -486,6 +645,26 @@ class BaseNode(Node, LoggerMixin):
         callback_group: Optional[CallbackGroup] = None,
         enable_introspection: bool = True,
     ) -> Client:
+        """Create a ROS 2 service client, optionally enabling introspection.
+
+        Delegates to ``rclpy.Node.create_client`` and then, when the node is
+        fully initialized and both ``enable_introspection`` and the node
+        parameter ``enable_service_introspection`` are True, configures
+        content-level introspection on the new client.
+
+        Args:
+            srv_type: The service type class.
+            srv_name: Name of the service to connect to.
+            qos_profile: QoS profile for the client. Defaults to the
+                standard services profile.
+            callback_group: Callback group for the client's callbacks.
+                Defaults to None (uses the node's default group).
+            enable_introspection: If False, skip introspection even when the
+                node parameter ``enable_service_introspection`` is True.
+
+        Returns:
+            The created ``rclpy.client.Client`` instance.
+        """
         srv_client = super().create_client(
             srv_type,
             srv_name,
@@ -515,6 +694,25 @@ class BaseNode(Node, LoggerMixin):
         qos_profile: QoSProfile = qos_profile_services_default,
         callback_group: Optional[CallbackGroup] = None,
     ) -> Service:
+        """Create a ROS 2 service server, optionally enabling introspection.
+
+        Delegates to ``rclpy.Node.create_service`` and then, when the node is
+        fully initialized and the node parameter ``enable_service_introspection``
+        is True, configures content-level introspection on the new service.
+
+        Args:
+            srv_type: The service type class.
+            srv_name: Name under which to advertise the service.
+            callback: Handler invoked for each incoming request. Must accept
+                ``(request, response)`` and return the populated response.
+            qos_profile: QoS profile for the service. Defaults to the
+                standard services profile.
+            callback_group: Callback group for the service callback.
+                Defaults to None (uses the node's default group).
+
+        Returns:
+            The created ``rclpy.service.Service`` instance.
+        """
         service = super().create_service(
             srv_type,
             srv_name,
@@ -588,6 +786,20 @@ class BaseNode(Node, LoggerMixin):
     def wait_for_service_blocking(
         self, srv_client: Client, timeout: Optional[float] = None
     ) -> bool:
+        """Wait synchronously for a service to become available.
+
+        Blocks the calling thread until the service advertised by
+        ``srv_client`` is ready or the timeout elapses.
+
+        Args:
+            srv_client: The service client whose server to wait for.
+            timeout: Maximum seconds to wait. Defaults to the node parameter
+                ``default_service_wait_timeout``.
+
+        Returns:
+            True if the service became available within the timeout, False
+            otherwise.
+        """
         if timeout is None:
             timeout = cast(float, self.param("default_service_wait_timeout"))
 
@@ -596,6 +808,21 @@ class BaseNode(Node, LoggerMixin):
     async def wait_for_service_async(
         self, srv_client: Client, timeout: Optional[float] = None
     ) -> bool:
+        """Wait asynchronously for a service to become available.
+
+        Runs the blocking ``wait_for_service`` call in a thread pool via
+        ``asyncio.to_thread`` so the asyncio event loop is not blocked while
+        waiting.
+
+        Args:
+            srv_client: The service client whose server to wait for.
+            timeout: Maximum seconds to wait. Defaults to the node parameter
+                ``default_service_wait_timeout``.
+
+        Returns:
+            True if the service became available within the timeout, False
+            otherwise.
+        """
         if timeout is None:
             timeout = cast(float, self.param("default_service_wait_timeout"))
 
@@ -742,6 +969,14 @@ class BaseNode(Node, LoggerMixin):
                 self.destroy_client(srv_client)
 
     def destroy_node(self):
+        """Destroy the node and all registered interfaces.
+
+        Calls ``destroy_interface()`` on each registered ``BaseInterface``
+        in reverse registration order (LIFO) before delegating to
+        ``rclpy.Node.destroy_node``. This ensures that higher-level
+        interfaces (e.g. MoveItInterface) are torn down before the
+        lower-level ones they depend on.
+        """
         for interface in reversed(self._interfaces):
             interface.destroy_interface()
         Node.destroy_node(self)

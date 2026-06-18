@@ -41,11 +41,17 @@ class FlicInterface(BaseInterface):
     ) -> None:
         """Initialize the Flic interface.
 
-        Sets up the action client for communicating with the Flic node
-        and waits for the action server to become available.
+        Sets up an AIOActionClient for the flic/response_time action and
+        waits for the flic node to be available.
 
         Args:
             node: Parent ROS2 node to create the action client on.
+            name: Interface name (used for parameter lookup and logging).
+            parameter_fallback_prefix: Optional fallback prefix for parameter
+                lookup.
+
+        Raises:
+            RuntimeError: If the flic node is not available.
         """
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -104,7 +110,7 @@ class FlicInterface(BaseInterface):
         return seconds_from_ros_time(result.response_time)
 
     def destroy_interface(self):
-        """Clean up FlicResponseTime action client"""
+        """Clean up FlicResponseTime action client and other ROS resources."""
         self.log("Destroying FlicInterface")
         if hasattr(self, "_response_time_client"):
             self._response_time_client.destroy()

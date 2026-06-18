@@ -25,9 +25,11 @@ Usage:
 Example:
     async with Commander() as commander:
         await commander.fetch_object("object_1")
-        await commander.present_object()
-        response_time = await commander.flic_response_time(timeout=10.0)
-        await commander.return_object()
+        await commander.present_object("object_1")
+        response_time = await commander.flic_response_time(
+            "object_1", timeout=10.0
+        )
+        await commander.return_object("object_1")
 """
 
 import argparse
@@ -235,6 +237,21 @@ def handle_interruptions(coro_fn):
 
 
 class ManipulationContextManager(BaseInterface):
+    """Manages robot manipulation state for a single arm with safety.
+
+    Aggregates the MoveIt interface, UR dashboard interface, and
+    object manipulation interface for coordinated control of a single
+    robot arm. Handles safety checks and error recovery.
+
+    Attributes:
+        _ur: UR robot interface.
+        _manipulator: Object manipulation interface.
+        _teensy: Safety and I/O interface (shared).
+        _initial_reset: Whether the initial reset has been performed.
+        _entered_context: Whether the context manager has been entered.
+        _exited_context: Whether the context manager has been exited.
+    """
+
     def __init__(
         self,
         node: BaseNode,
@@ -283,16 +300,26 @@ class ManipulationContextManager(BaseInterface):
     @property
     @ensure_context
     def current_manipulation_id(self) -> str | None:
+        """Get the ID of the currently manipulated object.
+
+        Returns:
+            Object ID if manipulating, None otherwise.
+        """
         return self._manipulator.current_manipulation_id
 
     @property
     @ensure_context
     def manipulation_state(self) -> ManipulationState:
+        """Get the current manipulation state (idle/fetched/presented).
+
+        Returns:
+            Current ManipulationState enum value.
+        """
         return self._manipulator.manipulation_state
 
     @ensure_context
     async def manually_atatch_object(self, object_id: str) -> None:
-        """Attach a non-grid object to the robot end-effector
+        """Attach a non-grid object to the robot end-effector.
 
         Used when the robot already has an object grasped and the planning
         scene needs updating.
@@ -386,24 +413,46 @@ class ManipulationContextManager(BaseInterface):
     @ensure_context
     @handle_interruptions
     async def present_object(self, object_id: str):
-        """Moves the object from the staging area to the presentation area"""
+        """Move object from staging area to presentation area.
+
+        Args:
+            object_id: The ID of the object to present.
+
+        Raises:
+            PlanningError: If motion planning fails.
+            ExecutionError: If motion execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
+        """
         await self._manipulator.present_object(object_id)
 
     @ensure_context
     @handle_interruptions
     async def unpresent_object(self, object_id: str):
-        """Moves the object from the presentation area back to the staging area"""
+        """Move object from presentation area back to staging area.
+
+        Args:
+            object_id: The ID of the object to unpresent.
+
+        Raises:
+            PlanningError: If motion planning fails.
+            ExecutionError: If motion execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
+        """
         await self._manipulator.unpresent_object(object_id)
 
     @ensure_context
     @handle_interruptions
     async def reset_object(self, object_id: str):
-        """Reset the object using its associated ObjectResetConfig
+        """Reset the object using its associated reset configuration.
+
+        Args:
+            object_id: The ID of the object to reset.
 
         Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
+            RuntimeError: If exactly one object is not attached.
+            PlanningError: If motion planning fails.
+            ExecutionError: If motion execution fails.
+            NotSafeToExecuteError: If safety conditions not met.
         """
         await self._manipulator.reset_object(object_id)
 
@@ -800,10 +849,10 @@ class Commander(BaseNode):
 
     @ensure_context
     async def lock_arm(self, arm: Literal["left", "right", "both"]) -> None:
-        """Release the specified arm lock(s).
+        """Lock the specified arm lock(s).
 
         Args:
-            arm: Which arm(s) to release - "left", "right", or "both".
+            arm: Which arm(s) to lock - "left", "right", or "both".
         """
         await self._teensy.set_arm_lock(arm, lock=True)
 
@@ -937,11 +986,26 @@ class Commander(BaseNode):
     @property
     @ensure_context
     def robot_names(self) -> list[str]:
+        """Get list of available robot names.
+
+        Returns:
+            List of configured robot identifiers.
+        """
         return list(self._manipulation_contexts.keys())
 
     @ensure_context
     def reachable_object_ids(self, robot_name: str) -> set[str]:
-        """Get the reachable objects for this robot"""
+        """Get the IDs of reachable objects for a robot.
+
+        Args:
+            robot_name: Name of the robot.
+
+        Returns:
+            Set of object IDs this robot can manipulate.
+
+        Raises:
+            ValueError: If robot_name is not configured.
+        """
         if robot_name not in self.robot_names:
             raise ValueError(
                 f"Unsupported robot_name: {robot_name}. "
@@ -955,6 +1019,17 @@ class Commander(BaseNode):
     def manipulation_context(
         self, robot_name: str
     ) -> ManipulationContextManager:
+        """Get the manipulation context for a specific robot.
+
+        Args:
+            robot_name: Name of the robot.
+
+        Returns:
+            ManipulationContextManager for the robot.
+
+        Raises:
+            ValueError: If robot_name is not configured.
+        """
         if robot_name not in self.robot_names:
             raise ValueError(
                 f"Unsupported robot_name: {robot_name}. "

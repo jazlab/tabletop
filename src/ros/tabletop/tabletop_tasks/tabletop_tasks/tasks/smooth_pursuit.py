@@ -75,19 +75,26 @@ class SmoothPursuitTask(BaseTask):
 
         Args:
             commander: Commander instance for robot interaction.
-            motion_type: Type of trajectory to generate ("spiral" or "random").
+            motion_type: Type of trajectory to generate ("spiral", "sin",
+                or "random").
             motion_kwargs: Keyword arguments for the trajectory generator.
-                For spiral: center_pose_kwargs, radius, length,
-                    num_revolutions, num_segments.
-                For random: start_pose_kwargs, min_x, max_x, min_y,
-                    max_y, min_z, max_z, num_waypoints.
+                For spiral: center_pose, radius, length, num_revolutions,
+                    num_segments.
+                For sin: center_pose, amplitudes, periods, num_revolutions,
+                    num_segments.
+                For random: start_pose, min_x, max_x, min_y, max_y, min_z,
+                    max_z, num_waypoints.
             num_repetitions: Number of times to execute the trajectory.
             object_id: ID of the object to attach to the end effector.
+            robot_name: Name of the robot group to execute trajectory
+                (e.g., "left_manipulator", "right_manipulator").
             velocity_scaling_factor: Scaling factor for trajectory velocity
-                (default 1.0).
+                (default 1.0, range 0.0-1.0).
+            max_motion_generation_attempts: Maximum number of trajectory
+                generation attempts before giving up (default 5).
 
         Raises:
-            ValueError: If motion_type is not "spiral" or "random".
+            ValueError: If motion_type is not "spiral", "sin", or "random".
         """
         super().__init__("smooth_pursuit_task", commander)
         match motion_type:
@@ -130,12 +137,12 @@ class SmoothPursuitTask(BaseTask):
         - y = center_y - (length/2) * cos(theta_y)
         - z = center_z + radius * sin(theta_xz)
 
-        Where theta_xz controls the XZ rotation (num_revolutions times around)
-        and theta_y controls the Y oscillation (one full cycle).
+        Where theta_xz controls the XZ rotation (num_revolutions times
+        around) and theta_y controls the Y oscillation (one full cycle).
 
         Args:
-            center_pose_kwargs: Keyword arguments for creating the center
-                pose (passed to pose_stamped_msg).
+            center_pose: PoseStamped or dict of pose parameters for the
+                spiral center (passed to pose_stamped_msg if dict).
             radius: Radius of the spiral in the XZ plane (meters).
             length: Total length of Y-axis oscillation (meters).
             num_revolutions: Number of complete rotations in XZ plane.
@@ -177,11 +184,29 @@ class SmoothPursuitTask(BaseTask):
         num_revolutions: int,
         num_segments: int,
     ) -> list[PoseStamped]:
-        """Generate a sinusoidal oscillation in 3D.
+        """Generate a sinusoidal oscillation trajectory in 3D.
 
-        num_revolutions is the number of sinusoidal repetitions along the axis
-        with the largest period.
-        TODO
+        Creates waypoints with independent sinusoidal oscillation along
+        X, Y, and Z axes. Each axis oscillates at its own frequency and
+        amplitude. num_revolutions controls how many cycles occur along
+        the axis with the largest period.
+
+        Args:
+            center_pose: PoseStamped or dict of pose parameters for the
+                oscillation center (passed to pose_stamped_msg if dict).
+            amplitudes: List of three amplitudes for [X, Y, Z] oscillation
+                (meters).
+            periods: List of three periods for [X, Y, Z] oscillation (seconds
+                or normalized units).
+            num_revolutions: Number of sinusoidal cycles along the axis
+                with the largest period.
+            num_segments: Number of waypoints to generate.
+
+        Returns:
+            List of PoseStamped waypoints forming the oscillation trajectory.
+
+        Raises:
+            ValueError: If amplitudes or periods are not length 3.
         """
         self.log("Generating sinusoidal trajectory")
 
@@ -231,8 +256,8 @@ class SmoothPursuitTask(BaseTask):
         All waypoints maintain the same orientation as the start pose.
 
         Args:
-            start_pose_kwargs: Keyword arguments for creating the start
-                pose (passed to pose_stamped_msg).
+            start_pose: PoseStamped or dict of pose parameters for the
+                initial position (passed to pose_stamped_msg if dict).
             min_x: Minimum X coordinate for random sampling (meters).
             max_x: Maximum X coordinate for random sampling (meters).
             min_y: Minimum Y coordinate for random sampling (meters).
@@ -278,15 +303,25 @@ class SmoothPursuitTask(BaseTask):
         """Execute the trajectory repeatedly.
 
         Executes the planned trajectory for the specified number of
-        repetitions.
+        repetitions (num_repetitions).
 
         Args:
+            manipulator: ManipulationContextManager for the active robot.
             trajectory: The planned robot trajectory to execute.
         """
         for _ in range(self._num_repetitions):
             await manipulator.move(trajectory)
 
     def _get_allowed_collisions(self) -> list[tuple[str, str]]:
+        """Get list of allowed robot-region collisions for smooth pursuit.
+
+        Returns collision pairs that should be allowed during smooth pursuit
+        execution: robot links (including manipulated object) against
+        presentation walls and dividers.
+
+        Returns:
+            List of (object1, object2) collision pairs to allow.
+        """
         robot_collision_ids = [
             "right_base_link_inertia",
             "right_shoulder_link",

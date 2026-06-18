@@ -1,4 +1,4 @@
-FROM debian@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db
+FROM debian:latest
 
 # Keep downloaded packages to reduce build time
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \

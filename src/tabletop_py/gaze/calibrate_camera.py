@@ -1,3 +1,27 @@
+"""Camera calibration from checkerboard pattern detection in video.
+
+This module provides tools for performing camera intrinsic calibration
+using a checkerboard pattern video. It detects checkerboard corners
+across video frames and computes the camera matrix and distortion
+coefficients using OpenCV's calibration algorithms.
+
+Functions:
+    calibrate_camera: Main calibration function.
+    main: CLI entry point for camera calibration.
+
+Typical Usage:
+    # Calibrate from video file
+    python -m tabletop_py.gaze.calibrate_camera video.mp4 -o calib.npz
+
+    # Load calibration data
+    npz = np.load("calib.npz")
+    camera_matrix = npz["camera_matrix"]
+    dist_coeffs = npz["dist_coeffs"]
+
+Dependencies:
+    Requires OpenCV (cv2) and NumPy.
+"""
+
 import argparse
 import os
 
@@ -6,13 +30,26 @@ import numpy as np
 
 
 def calibrate_camera(video_path, output_file, checkerboard_size=(9, 6)):
-    """
-    Calibrates a camera using a checkerboard pattern from a video file.
+    """Calibrate camera intrinsics from checkerboard video frames.
+
+    Detects checkerboard corner patterns across video frames, refines
+    corner locations, and computes camera matrix and distortion
+    coefficients using OpenCV's calibration algorithm.
 
     Args:
-        video_path (str): Path to the video file.
-        output_file (str): Path to save the camera matrix and distortion coefficients.
-        checkerboard_size (tuple): Number of inner corners in the checkerboard (width, height).
+        video_path: Path to video file containing checkerboard views.
+        output_file: Output path for .npz file containing "camera_matrix"
+            and "dist_coeffs" arrays.
+        checkerboard_size: (width, height) tuple of inner checkerboard
+            corner counts. Default (9, 6) for 9x6 checkerboards.
+
+    Raises:
+        FileNotFoundError: If video_path doesn't exist or can't be opened.
+
+    Notes:
+        - Requires at least 10 good frames for reasonable calibration
+        - Re-projection error is computed and printed
+        - Saves results to .npz format (loadable with numpy.load)
     """
     # Prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
     objp = np.zeros(

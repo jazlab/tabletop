@@ -63,13 +63,18 @@ OrientationToleranceT = (
 
 @dataclass(slots=True, frozen=True, eq=False)
 class TrajectoryCacheValue:
-    """A trajectory wrapped with its sortable path cost.
+    """Cached trajectory with rankable path cost.
 
-    Used by `TrajectoryCache` subclasses to keep cached trajectories
-    ranked by `path_cost` (lower is better). The trajectory is held in
-    its msg form so it's portable across robot-state contexts;
-    `get_trajectory(state)` rehydrates it bound to a given start state
-    before it's handed back through the public Mapping API.
+    Wraps RobotTrajectoryMsg (portable, not bound to start state) with
+    path cost (length or duration) for ranking. Used by TrajectoryCache
+    subclasses to keep multiple trajectories per request sorted best-
+    first. Rehydrated to RobotTrajectory via get_trajectory(start_state)
+    when returned to callers.
+
+    Attributes:
+        trajectory_msg: Serialized trajectory (RobotTrajectoryMsg).
+        group_name: Joint model group this trajectory belongs to.
+        path_cost: Sortable metric (path_length or path_duration).
     """
 
     trajectory_msg: RobotTrajectoryMsg
@@ -686,27 +691,26 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         validate: bool = True,
         cache_reverse: bool = True,
     ) -> None:
-        """Cache `trajectory`, indexed by both joint-space and Cartesian goals.
+        """Cache trajectory under request's start+goal, with reversal.
 
-        The trajectory is inserted under two synthetic `PlanRequest`s:
-        one whose goal is the trajectory's end `RobotState`, and one
-        whose goal is the trajectory's end Cartesian pose. This lets
-        future lookups via either kind of goal hit the cache.
-
-        With `_reverse=True`, the time-reversed trajectory is also
-        cached so motions in either direction can be reused.
+        Stores trajectory under the provided request's start state and
+        goal (fuzzy-keyed). If cache_reverse=True, also stores the time-
+        reversed trajectory with swapped start/goal, allowing forward and
+        backward motions to reuse cache.
 
         Args:
-            trajectory: The trajectory to cache. Its
-                `joint_model_group_name` must equal the cache's
-                configured `group_name`.
-            request: The original planning request (used for
-                trajectory-quality validation). The synthetic
-                requests written to the cache use the cache's own
-                `group_name` and `pose_link`, not the request's.
-            validate: If True, verify that the trajectory's endpoints
-                match the request before caching.
-            cache_reverse: If True, also cache the time-reversed trajectory.
+            trajectory: RobotTrajectory to cache. Must match cache's
+                group_name.
+            request: Original PlanRequest (used for validation); start_
+                state and goal are the cache key.
+            validate: Validate trajectory endpoints match request
+                (per robot_state_tolerance and position/orientation
+                tolerances).
+            cache_reverse: Cache time-reversed trajectory as well.
+
+        Raises:
+            ValueError: Trajectory group_name doesn't match cache's, or
+                endpoints don't match request (if validate=True).
         """
         self._validate_request(request)
 
@@ -781,7 +785,19 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
     def get_best_trajectory(
         self, request: PlanRequest, validate: bool = True
     ) -> RobotTrajectory:
-        """Get the best (cheapest) cached trajectory for `request`."""
+        """Get the lowest-cost cached trajectory for a request.
+
+        Args:
+            request: PlanRequest (must have start_state and goal).
+            validate: Validate trajectory quality before returning.
+
+        Returns:
+            Single RobotTrajectory.
+
+        Raises:
+            KeyError: No cached trajectory found.
+            ValueError: Trajectory validation failed (if validate=True).
+        """
         self._validate_request(request)
         trajectory = self[request][0]
         if validate:
@@ -791,7 +807,19 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
     def get_trajectories(
         self, request: PlanRequest, validate: bool = True
     ) -> list[RobotTrajectory]:
-        """Get all cached trajectories for `request`, ranked best-first."""
+        """Get all cached trajectories for a request, best-first.
+
+        Args:
+            request: PlanRequest (must have start_state and goal).
+            validate: Validate each trajectory before returning.
+
+        Returns:
+            List of RobotTrajectories, ordered by ascending path cost.
+
+        Raises:
+            KeyError: No cached trajectories found.
+            ValueError: Any trajectory validation failed (if validate=True).
+        """
         self._validate_request(request)
         trajectories = self[request]
         if validate:
@@ -800,12 +828,26 @@ class TrajectoryCache(LoggerMixin, metaclass=abc.ABCMeta):
         return trajectories
 
     def has_trajectory(self, request: PlanRequest) -> bool:
-        """Check if a trajectory exists for `request`."""
+        """Check if at least one cached trajectory exists for request.
+
+        Args:
+            request: PlanRequest (must have start_state and goal).
+
+        Returns:
+            True if fuzzy bin is non-empty, False otherwise.
+        """
         self._validate_request(request)
         return request in self
 
     def delete_trajectory(self, request: PlanRequest) -> None:
-        """Delete all trajectories for `request`."""
+        """Delete all cached trajectories for a request.
+
+        Args:
+            request: PlanRequest (must have start_state and goal).
+
+        Raises:
+            KeyError: No cached trajectories found to delete.
+        """
         self._validate_request(request)
         del self[request]
 

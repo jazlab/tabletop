@@ -1092,6 +1092,12 @@ def preprocess_data(
 
 
 def main(args=None):
+    """Entry point for gaze data preprocessing.
+
+    CLI for preprocessing raw EyeLink eye tracking and OptiTrack marker
+    data from a ROS bag session. Outputs cleaned, synchronized, and
+    merged CSV file ready for model training.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(

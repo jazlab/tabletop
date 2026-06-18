@@ -50,15 +50,21 @@ _META_KEY = b"_metadata"
 
 
 class LMDBTrajectoryCache(TrajectoryCache):
-    """Persistent fuzzy trajectory cache backed by a single LMDB file.
+    """Persistent disk-backed fuzzy trajectory cache.
 
-    Values are pickled and stored under their fuzzy-key bytes. Each
-    backend primitive opens its own LMDB transaction; the base class's
-    `_lock` guards the read-modify-write in `__setitem__`.
+    Uses a single LMDB file for memory-mapped read performance. Request
+    start/goal states and poses are quantized into integer bins
+    (fuzzy keys) via tolerances; each bin maps to a sorted list of
+    (cost, trajectory_msg) pairs. On metadata mismatch (scene_hash,
+    tolerances, group_name changed), the LMDB file is wiped.
 
-    On metadata mismatch (e.g. `scene_hash` or tolerances changed
-    across runs), the LMDB file is removed from disk and recreated in
-    place by the base class's `_open_and_validate` flow.
+    Thread-safe: each backend primitive uses its own LMDB transaction;
+    base class `_lock` guards read-modify-write in `__setitem__`.
+
+    Attributes:
+        _map_size: Virtual address space reserved (bytes). Cheap on Linux
+            (only virtual). Should be larger than cache will ever grow.
+        _env: LMDB environment (None if not open).
     """
 
     def __init__(

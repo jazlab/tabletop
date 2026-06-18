@@ -1,4 +1,0 @@
-string session_bag_dir
----
-bool success
-string message

@@ -103,13 +103,13 @@ modifications made in the `ursim/` directory and `compose.yaml` file).
 This package requires the following software to be installed on your system
 before building and running the project:
 
-| Requirement | Install Script | Notes |
-|-------------|---------------|-------|
-| [Docker](https://docs.docker.com/get-docker/) | `scripts/install/docker.sh` | Required. Configures daemon, log rotation, and boot startup |
+| Requirement | Install | Notes |
+| --- | --- | --- |
+| [Docker](https://docs.docker.com/get-docker/) | [official docs](https://docs.docker.com/engine/install/) | Required. Enable log rotation and boot startup |
 | [Visual Studio Code](https://code.visualstudio.com/) | — | Optional. For Dev Container development |
-| [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | `scripts/install/nvidia-ctk.sh` | Optional. For GPU access in containers |
-| [PipeWire/PulseAudio](https://pipewire.org/) | `scripts/install/pulse.sh` | Optional. For audio playback (reward sounds) |
-| [PlatformIO](https://platformio.org/install/) | `scripts/install/platformio.sh` | Optional. For Teensy micro-controller firmware |
+| [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | [official docs](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | Optional. For GPU access in containers |
+| [PipeWire/PulseAudio](https://pipewire.org/) | see 'Audio' section in `docs/getting-started/setup.md` | Optional. For audio playback (reward sounds) |
+| [PlatformIO](https://platformio.org/install/) | preinstalled in container | Optional. For Teensy/Flic firmware; only needed on the host if building firmware outside the container |
 
 **Note (macOS on Apple Silicon)**: Enable **Use Rosetta for x86/amd64
 emulation on Apple Silicon** in Docker Desktop settings (General) to avoid
@@ -122,21 +122,19 @@ whether an Nvidia GPU is available and configures the containers accordingly.
 
 ### Minimal Installation
 
-1. Clone the TableTop repository:
+1. Clone the TableTop repository and all its Git submodules:
 
     ```bash
-    git clone https://github.com/jazlab/tabletop.git
+    git clone --recurse-submodules https://github.com/jazlab/tabletop.git
     ```
 
-2. Navigate to `tabletop` directory and download the submodules:
+    If you forget to use `--recurse-submodules` when cloning, you can use the following command to initialize and populate the submodules instead:
 
     ```bash
-    cd tabletop
-    git submodule sync
-    git submodule update --init --recursive --remote
+    git submodule update --init --recursive
     ```
 
-3. Source the setup script (and optionally add this to your `.bashrc`):
+2. Source the setup script (and optionally add this to your `.bashrc`):
 
     ```bash
     source setup.bash
@@ -150,21 +148,19 @@ If you intend only to simulate the Teensy, you can skip this section.
 1. Configure udev rules for the Teensy:
 
     ```bash
-    tt-udev-configure
+    ./scripts/configure/udev-configure.sh
     ```
 
-2. Install PlatformIO Core (optional if you are using the Dev Container):
-
-    ```bash
-    ./scripts/install/platformio.sh
-    ```
-
-    You may need to restart your shell for PlatformIO to appear on your PATH.
+2. Install PlatformIO Core. This is only needed if you build firmware on the
+    **host**; the Dev Container and `microros-builder` container already have
+    it installed (see `docker/ros/Dockerfile`). To install on the host, follow
+    the [official instructions](https://platformio.org/install/). You may need
+    to restart your shell for PlatformIO to appear on your PATH.
 
 3. Build and upload the Teensy firmware (from either the host machine or the Dev Container):
 
     ```bash
-    tt-teensy-build
+    tt-microros-build
     ```
 
     This command will retry twice to build and upload the file. The first try will successfully build but almost always fail to upload, but the second attempt will almost always work. Something weird with the platformio upload toolilng, who knows, this works.
@@ -180,7 +176,7 @@ To create a local network over which to communicate with the robot, run the
 following:
 
 ```bash
-tt-robot-network
+./scripts/configure/robot-network.sh
 ```
 
 This will create a new network interface with the first 3 octets of the
@@ -209,10 +205,10 @@ machine (or in our case, the docker container).
 To copy it to the robot, call the following command:
 
 ```bash
-tt-robot-scp
+./scripts/configure/scp-urcaps.sh
 ```
 
-This will copy any `*.urcap` files in the `ursim/programs/` directory to the robot.
+This will copy any `*.urcap` files in the `ur_robot/programs/` directory to the robot.
 
 You must then install them on the robot using the Teach Pendant:
 
@@ -294,9 +290,14 @@ environment generation, project defaults, and passes arguments through to
 
     | Profile | Services Started | Use Case |
     | ------- | ---------------- | -------- |
-    | `sim` | novnc, ur-mock, teensy-sim, flic-sim, eyelink-sim, foxglove, rviz | Simulation with mock hardware |
-    | `ursim` | novnc, ursim | UR Simulator (virtual teach pendant) |
-    | `real` | novnc, autoheal, ur, teensy, flic, flicd, eyelink, foxglove, rviz, optitrack | Real hardware |
+    | `sim` | autoheal, novnc, ur-mock, teensy-sim, flic-sim, eyelink-sim, foxglove, rviz | Simulation with mock hardware |
+    | `ursim` | autoheal, novnc, ursim | UR Simulator (virtual teach pendant) |
+    | `real` | autoheal, novnc, ur, teensy, flic, eyelink, optitrack, flir, foxglove, rviz | Real hardware |
+
+    Other profiles target specific tasks: `commander` (commander node only),
+    `builder` (`ros-base` workspace builder), `dev` (Dev Container), and
+    `deprecated` (retired `flicd`/`flir-no-sync` services). These are usually
+    started indirectly by `tt-launch`/`tt-build`.
 
     For simulation (most common for development):
 
@@ -334,9 +335,10 @@ environment generation, project defaults, and passes arguments through to
 
     ```
 
-4. Access the noVNC web interface at `http://localhost:8080/vnc.html` to
-    interact with GUIs (RViz, UR Simulator, etc.). To scale the display
-    correctly, click the drawer icon on the left, then the gear icon, and
+4. Access the noVNC web interface at `http://localhost:<NOVNC_PORT>/vnc.html` to
+    interact with GUIs (RViz, UR Simulator, etc.), where NOVNC_PORT is set in
+    the `.env` file and can be changed to any available local port. To scale the
+    display correctly, click the drawer icon on the left, then the gear icon, and
     set **Scaling Mode** to **Local Scaling**.
 
 5. Access the Foxglove web interface by nav `https://app.foxglove.dev`, logging in,
@@ -420,13 +422,13 @@ Currently available configurations:
 | ----------- | --------- | ----------- |
 | `foraging_ordered.yaml` | ForagingTask | Ordered object foraging trials |
 | `foraging_random.yaml` | ForagingTask | Randomized object foraging trials |
-| `foraging.yaml` | ForagingTask | Base foraging configuration |
 | `present_ordered.yaml` | PresentTask | Ordered object presentation |
 | `present_random.yaml` | PresentTask | Randomized object presentation |
 | `smooth_pursuit_random.yaml` | SmoothPursuitTask | Random waypoint smooth pursuit |
 | `smooth_pursuit_spiral.yaml` | SmoothPursuitTask | Spiral trajectory smooth pursuit |
 | `smooth_pursuit_spiral_test.yaml` | SmoothPursuitTask | Spiral smooth pursuit (test) |
 | `smooth_pursuit_sin.yaml` | SmoothPursuitTask | Sinusoidal smooth pursuit |
+| `dummy.yaml` | DummyTask | Minimal no-op task (smoke test) |
 
 Each configuration defines a list of tasks with their parameters. For example,
 a foraging task config specifies object IDs, presentation poses, trial
@@ -460,15 +462,19 @@ tabletop/
 │       ├── tabletop/             # Main ROS 2 packages
 │       │   ├── tabletop_rig/     # Core rig control (nodes, interfaces)
 │       │   ├── tabletop_tasks/   # Experiment task definitions
-│       │   ├── tabletop_interfaces/  # ROS message/service definitions
+│       │   ├── tabletop_interfaces/  # ROS message/service/action definitions
 │       │   ├── tabletop_description/ # URDF robot descriptions
 │       │   ├── tabletop_moveit_config/ # MoveIt planning configurations
-│       │   └── tabletop_teensy/  # Teensy micro-controller interface
+│       │   └── tabletop_micro/   # Teensy/Flic firmware (PlatformIO, not colcon)
+│       │       ├── tabletop_teensy/      # Teensy 4.1 micro-ROS firmware
+│       │       └── tabletop_flic_micro/  # Flic BLE sniffer firmware
 │       └── modules/              # External dependencies (git submodules)
 │           ├── moveit2/          # Custom MoveIt fork
 │           └── ...
+├── scripts/                      # Host setup scripts (run by path, not on PATH)
+│   ├── configure/                # udev, usbfs, CPU scaling, robot network, scp urcaps
 ├── ur_robot/                     # URCaps and programs for the UR5e
-├── config/                       # Configuration files
+├── config/                       # Top-level configs (e.g. gaze estimation)
 ├── env_files/                    # Environment variable files
 ├── compose.yaml                  # Docker Compose service definitions
 └── setup.bash                    # Environment setup script
@@ -486,19 +492,19 @@ These commands are available on the host machine (outside Docker containers):
 
 | Command | Description |
 | ------- | ----------- |
-| `tt-compose` | Wrapper for `docker compose` with TableTop-specific defaults |
-| `tt-docker` | Wrapper for `docker` with TableTop environment variables |
+| `tt-compose` | Wrapper for `docker compose` with TableTop defaults (generates `.env` if missing) |
+| `tt-build` | Build the ROS 2 workspace via the `ros-base` container |
 | `tt-launch` | Launch ROS 2 nodes via a temporary `commander` container |
-| `tt-env-gen` | Generate `.env` file from `.env.example` with dynamic hardware detection |
-| `tt-dev-attach` | Attach to a running Dev Container |
-| `tt-buildkit` | Configure Docker BuildKit for optimized builds |
-| `tt-robot-network` | Create network interface for physical UR5e communication |
-| `tt-flicd` | Start the Flic daemon container with auto-restart on disconnect |
+| `tt-env-gen` | Generate `.env` from `.env.example` with dynamic hardware detection |
+| `tt-dev-attach` | Open a shell in a running container (starting it first if needed) |
 | `tt-flir-reset` | Reset FLIR cameras (reload udev, factory reset, regenerate env) |
-| `tt-udev-configure` | Configure udev rules for hardware devices |
-| `tt-usbfs-configure` | Configure USB filesystem for FLIR cameras |
-| `tt-cpu-speed-scaling-disable` | Disable CPU frequency scaling (for real-time performance) |
-| `tt-port-forward` | Forward ports for remote access |
+| `tt-microros-build` | Build/upload Teensy & Flic firmware via the `microros-builder` container |
+
+> Host machine setup tasks that were previously `tt-*` commands are now plain
+> scripts under `scripts/configure/` (`udev-configure.sh`, `usbfs-configure.sh`,
+> `cpu-speed-scaling-disable.sh`, `robot-network.sh`, `scp-urcaps.sh`), run directly by path.
+> They are intentionally **not** on `PATH`, since they make persistent,
+> privileged changes to the host.
 
 ### Container Commands (`bin/container/`)
 
@@ -508,9 +514,9 @@ These commands are available inside Docker containers (rig, devcontainer):
 | ------- | ----------- |
 | `tt-build` | Build ROS 2 packages with colcon |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, etc.) |
-| `tt-clean` | Clean various build artifacts, logs, caches, etc. |
-| `tt-create-graph` | Generate ROS 2 node/topic graph visualization |
+| `tt-create-graph` | Generate ROS 2 node/topic graph |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
+| `tt-microros-build` | Build/upload Teensy & Flic firmware via PlatformIO |
 
 ### Common Commands (`bin/common/`)
 
@@ -518,8 +524,7 @@ These commands work on both host and container:
 
 | Command | Description |
 | ------- | ----------- |
-| `tt-teensy-build` | Build and upload Teensy firmware via PlatformIO |
-| `tt-robot-scp` | Copy URCap files to the physical robot |
+| `tt-clean` | Clean build artifacts, logs, caches, etc. (by flag) |
 
 ### Build Command Options
 
@@ -529,16 +534,18 @@ The `tt-build` command supports several options:
 tt-build [options]
 
 Options:
-  --clean           Clean tabletop packages before building
-  --clean-all       Clean entire workspace before building
-  -a, --all         Build all packages (including moveit2)
-  -p, --packages    Build specific packages and their dependencies
-  -m, --only-modules Build only external modules (moveit2, etc.)
-  -w, --workers N   Limit parallel workers (useful for low-memory systems)
-  --build-debug     Build with debug symbols
-  --clang           Use clang compiler
-  --linker NAME     Use specified linker (default: mold)
-  -v, --verbose     Verbose output
+  -c, --clean-tabletop    Clean tabletop packages before building
+  --clean-all             Clean the entire workspace before building
+  --clean-cmake           Clear CMake caches (--cmake-clean-cache) before building
+  -a, --all               Build all packages (tabletop + modules, e.g. moveit2)
+  -p, --packages-up-to    Build the given packages and their dependencies
+  -m, --only-modules      Build only external modules (moveit2, etc.)
+  -w, --workers N         Limit parallel workers (useful for low-memory systems)
+  --build-debug           Build with debug symbols (default is release)
+  --clang                 Use the clang compiler (default is gcc)
+  --linker NAME           Use the specified linker (default: mold)
+  --foxglove              Also build the Foxglove MoveIt message converter
+  -v, --verbose           Verbose build output (console_cohesion+)
 ```
 
 Examples:
@@ -547,10 +554,10 @@ Examples:
 # Build only tabletop packages (most common)
 tt-build
 
-# Build with clean workspace
-tt-build --clean
+# Rebuild tabletop packages from clean
+tt-build --clean-tabletop
 
-# Build specific package
+# Build a specific package and its dependencies
 tt-build -p tabletop_rig
 
 # Build all packages including moveit2
@@ -568,27 +575,31 @@ The `tt-launch` command provides shortcuts for common launch configurations:
 tt-launch <type> [ros2_launch_args...]
 
 Types:
-  commander       Launch the Commander node only
-  rig             Launch the full rig (all hardware interfaces)
-  tasks           Launch the task runner
-  ur              Launch UR driver only
-  teensy          Launch Teensy interface only
-  flic            Launch Flic button interface only
-  eyelink         Launch Eyelink eye tracker
-  flir            Launch FLIR camera driver
-  flir_calibrate  Launch FLIR camera calibration
-  optitrack       Launch OptiTrack motion capture
-  rosbag          Launch ROS bag recording
-  rosbag_convert  Convert ROS bag to CSV
-  rviz            Launch RViz visualization
-  foxglove        Launch Foxglove bridge
+  commander          Launch the Commander node only
+  rig                Launch the full rig (all hardware interfaces)
+  tasks              Launch the task runner
+  ur                 Launch the UR driver (single arm)
+  dual_ur            Launch the dual-arm UR driver stack
+  teensy             Launch the Teensy interface (or mock)
+  flic               Launch the Flic button interface
+  eyelink            Launch the Eyelink eye tracker
+  flir_no_sync       Launch the FLIR camera driver (unsynchronized)
+  flir_synchronized  Launch the hardware-synchronized FLIR camera driver
+  flir_calibrate     Launch FLIR camera calibration
+  optitrack          Launch OptiTrack motion capture
+  rosbag             Launch ROS bag recording
+  rosbag_convert     Convert a ROS bag to CSV
+  rviz               Launch RViz visualization
+  foxglove           Launch the Foxglove bridge
+  moveit             Launch a standalone move_group (debug)
+  discovery          Launch the FastDDS discovery server (needs ROS_DISCOVERY_SERVER)
 ```
 
 Examples:
 
 ```bash
 # Launch full rig with mock hardware
-tt-launch rig robot_mode:=mock use_mock_teensy:=true
+tt-launch rig robot_mode:=mock teensy_simulate:=true
 
 # Launch tasks with specific configuration
 tt-launch tasks task:=foraging_ordered robot_mode:=ursim
@@ -609,7 +620,8 @@ data processing. These are available after sourcing `setup.bash`:
 | `tt-gaze-train` | Train gaze estimation neural network |
 | `tt-gaze-predict` | Run gaze prediction on new data |
 | `tt-gaze-visualize` | Visualize calibration data and predictions |
-| `tt-flic-client` | Flic Bluetooth button client |
+| `tt-flic-client` | Flic Bluetooth button client (Flic SDK protocol) |
+| `tt-flic-scapy` | Flic button client using a raw scapy BLE sniffer |
 
 ### Gaze Calibration Pipeline
 
@@ -664,22 +676,27 @@ tt-env-gen          # Regenerate only "auto-generated" variables
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-| `USER_NAME` | Container username (useful to match host) | `mules` |
-| `USER_UID` | Container user ID (useful to match host) | `1000` |
-| `USER_GID` | Container group ID (useful to match host) | `1000` |
 | `NOVNC_DISPLAY` | X11 display number for noVNC server | `:20.0` |
+| `NOVNC_WIDTH`/`NOVNC_HEIGHT` | X11 display width/height (in pixels) | `1920`/`1080` |
+| `NOVNC_PORT` | Localhost port to serve the novnc interface. | `8080` |
 | `CUDA_VERSION` | CUDA version suffix for PyTorch (must be compatible with your GPU driver version) | `130` |
 | `BIND_CONSISTENCY` | Docker bind mount consistency mode | `cached` |
+| `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
+| `FLIR_MAX_DEVS` | Maximum number of FLIR cameras to map into containers | `6` |
+
+`tt-env-gen` validates these are present (it does **not** auto-detect serial
+device paths — set `TEENSY_DEV` to match your hardware).
 
 #### Auto-Generated Variables (by `tt-env-gen`)
 
 The `tt-env-gen` script automatically detects and configures:
 
-* **NVIDIA GPU**: Sets `COMMANDER_RUNTIME=nvidia` and configures CUDA
-* **FLIR Cameras**: Detects `/dev/flir/*` devices and maps them to `FLIR_DEV_*`
-* **Teensy**: Detects `/dev/ttyACM0` and sets `TEENSY_DEV`
-* **PulseAudio**: Configures audio socket mounting for sound playback
-* **Kitty Terminal**: Configures Kitty remote control socket
+* **NVIDIA GPU**: Detects `nvidia-smi`; sets `COMMANDER_RUNTIME=nvidia` and the `NVIDIA_*`/CUDA variables (clears them if no GPU)
+* **FLIR Cameras**: Detects `/dev/flir/*` udev symlinks and maps them to `FLIR_DEV_0..N` (up to `FLIR_MAX_DEVS`)
+* **PulseAudio**: Detects the PulseAudio socket and configures the `PULSE_*` mount variables for audio passthrough (falls back to `/dev/null` if not found)
+
+Serial device paths (`TEENSY_DEV`) are **not** auto-detected (yet);
+set them in `.env` to match your hardware.
 
 ## Contributing
 

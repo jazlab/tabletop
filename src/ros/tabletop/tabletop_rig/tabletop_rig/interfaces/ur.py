@@ -62,10 +62,21 @@ class URInterface(BaseInterface):
     ) -> None:
         """Initialize the UR interface.
 
+        Sets up clients for all dashboard services (query and trigger) and
+        the SetMode action. Waits for dashboard_client and ur_robot_state_helper
+        nodes. Reads 'namespace' parameter to determine node prefixes.
+
         Args:
-            ur_ns: ROS2 namespace of UR robot driver nodes
-                (not including the node names)
             node: Parent ROS2 node for creating service clients.
+            name: Interface name (used for parameter lookup and logging).
+            simulate: If True, verifies nodes are in mock mode; if False,
+                verifies they are in real hardware mode.
+            parameter_fallback_prefix: Optional fallback prefix for parameter
+                lookup (e.g., 'common_ur_interface').
+
+        Raises:
+            RuntimeError: If dashboard_client or ur_robot_state_helper nodes
+                are not available, or if hardware mode mismatches simulate param.
         """
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -385,7 +396,20 @@ class URInterface(BaseInterface):
         return response.state
 
     async def is_ready(self) -> bool:
-        # TODO: add logging and documentation
+        """Check if the UR robot is ready for programmatic control.
+
+        Verifies that:
+        1. reset() has been called (_connected flag set)
+        2. Robot is in remote control mode
+        3. Robot mode is RUNNING
+        4. Program state is PLAYING
+        5. Safety mode is NORMAL
+
+        Logs specific reason if any condition fails.
+
+        Returns:
+            True if all conditions are met, False otherwise.
+        """
         if not self._connected:
             self.log("UR not ready: Not yet connected")
             return False
@@ -574,16 +598,15 @@ class URInterface(BaseInterface):
         await asyncio.sleep(post_reset_delay)
 
     def stop_program(self) -> None:
-        # if (
-        #     self._stop_future is None
-        #     or self._stop_future.done()
-        #     or self._stop_future.cancelled()
-        # ):
-        #     self._stop_future = self._stop_client.call_async(Trigger.Request())
+        """Call the UR dashboard stop service asynchronously.
+
+        Initiates a non-blocking stop request via the dashboard_client/stop
+        service. The result is not awaited.
+        """
         self._stop_future = self._stop_client.call_async(Trigger.Request())
 
     def destroy_interface(self):
-        """Clean up SetMode action client"""
+        """Clean up SetMode action client and other ROS resources."""
         self.log("Destroying URInterface")
         if hasattr(self, "_set_mode_client"):
             self._set_mode_client.destroy()

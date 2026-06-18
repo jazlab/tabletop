@@ -1,3 +1,36 @@
+"""Launch file for dual UR5e robot control system.
+
+Launches the complete dual robot control stack including robot state
+publisher, controller manager, controller spawners, dashboard clients,
+and per-arm control nodes. Supports mock hardware, URSim, and real robots.
+
+Nodes Launched:
+    robot_state_publisher (robot_state_publisher): via dual_rsp.launch.py
+    controller_manager (controller_manager): Shared ros2_control node
+    spawner (controller_manager): Active/inactive controller spawners
+    (per-arm, left/right):
+        dashboard_client (ur_robot_driver): Dashboard communication
+        robot_state_helper (ur_robot_driver): Real hardware only
+        mock_dashboard_client (tabletop_rig): Mock hardware only
+        mock_robot_state_helper (tabletop_rig): Mock hardware only
+        tool_communication (ur_robot_driver): Tool serial bridge (optional)
+        urscript_interface (ur_robot_driver): URScript execution interface
+        controller_stopper (ur_robot_driver): Controller safety management
+        trajectory_until_node (ur_robot_driver): Trajectory monitoring
+
+Config Files Loaded:
+    - dual_controllers.yaml: Controller definitions and parameters
+    - dual_rsp.launch.py: Robot state publisher and URDF generation
+    - left/right_ur5e_calibration.yaml: Kinematics calibration
+
+Included Launch Files:
+    - dual_rsp.launch.py (tabletop_description): Robot state publisher
+
+Example:
+    ros2 launch tabletop_rig dual_ur.launch.py robot_mode:=mock \
+        ur_type:=ur5e
+"""
+
 # Copyright (c) 2021 PickNik, Inc.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +61,6 @@
 
 #
 # Author: Denis Stogl
-
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -359,6 +391,9 @@ def controller_spawner(controllers, active):
 
 
 def setup_controller_spawners(context):
+    # Build lists of active/inactive controllers for each arm
+    # Adjust based on robot mode (mock vs real) and joint controller
+    # activation preference
     use_mock_hardware = EqualsSubstitution(
         LaunchConfiguration("robot_mode"), "mock"
     )

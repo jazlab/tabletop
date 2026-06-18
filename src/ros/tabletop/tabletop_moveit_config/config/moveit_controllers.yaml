@@ -1,4 +1,9 @@
-# MoveIt uses this configuration for controller management
+# MoveIt trajectory execution and controller manager configuration (dual-arm rig).
+# Loaded automatically by MoveItConfigsBuilder.trajectory_execution() (matches *_controllers.yaml)
+# when called from commander.launch.py or moveit.launch.py.
+# Configures MoveItSimpleControllerManager with the four ros2_control JTC controllers
+# (left/right scaled and passthrough) and sets trajectory-execution tolerance parameters.
+# See: https://moveit.picknik.ai/main/doc/concepts/trajectory_execution_manager.html
 trajectory_execution:
   allowed_execution_duration_scaling: 2.0
   allowed_goal_duration_margin: 0.5

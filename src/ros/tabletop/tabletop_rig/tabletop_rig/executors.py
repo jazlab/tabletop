@@ -78,10 +78,42 @@ async def _call_in_tpe(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
+    """Submit a blocking function to a thread pool and wait asynchronously.
+
+    Wraps ThreadPoolExecutor.submit with asyncio.wrap_future to allow
+    blocking operations to run in a separate thread while the event loop
+    continues processing other tasks.
+
+    Args:
+        tpe: The ThreadPoolExecutor to submit work to.
+        fn: The callable to execute.
+        *args: Positional arguments for fn.
+        **kwargs: Keyword arguments for fn.
+
+    Returns:
+        The result of fn(*args, **kwargs).
+    """
     return await asyncio.wrap_future(tpe.submit(fn, *args, **kwargs))
 
 
 def _call_task_fn(task: rclpy.task.Task) -> Any:
+    """Execute a synchronous ROS task handler safely with locking.
+
+    Acquires the task lock and executes the non-coroutine handler,
+    setting the result or exception on the task. Does nothing if the
+    task is not pending or already executing.
+
+    Args:
+        task: The ROS task to execute.
+
+    Returns:
+        The handler result, or None if the task was not pending.
+
+    Raises:
+        ValueError: If task._handler is a coroutine (should use
+            _call_task_coro instead).
+        Any exception raised by the handler.
+    """
     if (
         not task._pending()
         or task._executing
@@ -111,6 +143,23 @@ def _call_task_fn(task: rclpy.task.Task) -> Any:
 
 
 async def _call_task_coro(task: rclpy.task.Task) -> Any:
+    """Execute a coroutine ROS task handler safely with locking.
+
+    Acquires the task lock and awaits the coroutine handler, setting
+    the result or exception on the task. Does nothing if the task is
+    not pending or already executing.
+
+    Args:
+        task: The ROS task with a coroutine handler to execute.
+
+    Returns:
+        The coroutine result, or None if the task was not pending.
+
+    Raises:
+        ValueError: If task._handler is not a coroutine (should use
+            _call_task_fn instead).
+        Any exception raised by the coroutine.
+    """
     if (
         not task._pending()
         or task._executing
@@ -138,11 +187,27 @@ async def _call_task_coro(task: rclpy.task.Task) -> Any:
 
 
 class ErrorHandlingMultiThreadedExecutor(MultiThreadedExecutor):
+    """MultiThreadedExecutor variant that collects and raises task exceptions.
+
+    Unlike the base MultiThreadedExecutor which silently discards exceptions
+    from submitted futures, this variant collects them and raises an
+    ExceptionGroup on shutdown or when all futures are processed.
+    """
+
     def _spin_once_impl(
         self,
         timeout_sec: Optional[float | TimeoutObject] = None,
         wait_condition: Callable[[], bool] = lambda: False,
     ) -> None:
+        """Spin once, collecting exceptions from all completed futures.
+
+        Args:
+            timeout_sec: Maximum time to wait for callbacks.
+            wait_condition: Stop spinning if this callable returns True.
+
+        Raises:
+            ExceptionGroup: If any future completed with an exception.
+        """
         try:
             handler, entity, node = self.wait_for_ready_callbacks(
                 timeout_sec,
@@ -178,6 +243,14 @@ class ErrorHandlingMultiThreadedExecutor(MultiThreadedExecutor):
             raise ExceptionGroup("Unhandled Task exceptions", excs)
 
     def shutdown(self, timeout_sec: float | None = None) -> bool:
+        """Shut down the thread pool and base executor.
+
+        Args:
+            timeout_sec: Maximum time to wait for threads to finish.
+
+        Returns:
+            True if shutdown completed within timeout.
+        """
         self._executor.shutdown()
         return super().shutdown(timeout_sec)
 
@@ -212,13 +285,19 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
     ) -> None:
         """Initialize the asyncio executor.
 
+        Creates a base ROS2 Executor and sets up parameters for async spinning.
+        When spin() is called, the executor will use asyncio.TaskGroup to manage
+        coroutines and a ThreadPoolExecutor for blocking ROS wait operations.
+
         Args:
             *args: Arguments passed to the base Executor constructor.
-            multi_threaded: If True, non-coroutine callbacks execute in the
-                thread pool, allowing parallel execution. If False, callbacks
-                execute sequentially.
+            multi_threaded: If True, non-coroutine ROS callbacks execute in the
+                thread pool, allowing parallel execution. If False (default),
+                callbacks execute sequentially in the event loop.
             max_workers: Maximum thread pool size. Only meaningful when
-                multi_threaded is True.
+                multi_threaded is True. Defaults to 1 (sequential execution).
+            eager_task_factory: If True, use asyncio.eager_task_factory to
+                execute tasks eagerly instead of deferring. Defaults to True.
             **kwargs: Keyword arguments passed to the base Executor constructor.
 
         Raises:
@@ -235,22 +314,25 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
 
     @contextlib.contextmanager
     def _spin_context_manager(self):
+        """Context manager for ROS executor spin lifecycle.
+
+        Calls _enter_spin() on entry and _exit_spin() on exit to manage
+        the executor's internal state during spinning.
+        """
         self._enter_spin()
         try:
             yield
-        # except* ExternalShutdownException:
-        #     pass
-        # except* ShutdownException:
-        #     pass
-        # except* TimeoutException:
-        #     pass
-        # except* ConditionReachedException:
-        #     pass
         finally:
             self._exit_spin()
 
     @contextlib.contextmanager
     def _eager_task_context_manager(self):
+        """Context manager for eager task execution.
+
+        Temporarily replaces the asyncio task factory with
+        asyncio.eager_task_factory to execute tasks eagerly instead of
+        deferring them. Restores the original factory on exit.
+        """
         loop = asyncio.get_running_loop()
         old_task_factory = loop.get_task_factory()
         loop.set_task_factory(asyncio.eager_task_factory)
@@ -261,7 +343,15 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
 
     @contextlib.asynccontextmanager
     async def _spin_context_stack(self):
-        """Set up context for spinning"""
+        """Set up context for spinning with TaskGroup and ThreadPoolExecutor.
+
+        Enters the ROS executor spin context, optionally activates eager task
+        factory, creates an asyncio.TaskGroup for managing async work, and
+        creates a ThreadPoolExecutor for blocking ROS wait operations.
+
+        Yields:
+            An AsyncExitStack managing all the above contexts.
+        """
         async with contextlib.AsyncExitStack() as stack:
             stack.enter_context(self._spin_context_manager())
             if self._eager_task_factory:
@@ -277,6 +367,18 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
             yield stack
 
     def _schedule_or_call(self, handler: rclpy.task.Task):
+        """Schedule a ROS task handler for execution.
+
+        Routes the handler based on its type:
+        - Coroutine handlers: create asyncio task with _call_task_coro
+        - Sync handlers with multi_threaded=True: create asyncio task that
+          runs the handler in the thread pool via _call_in_tpe
+        - Sync handlers with multi_threaded=False: execute immediately via
+          _call_task_fn
+
+        Args:
+            handler: The ROS task to schedule.
+        """
         if asyncio.iscoroutine(handler._handler):
             self._tg.create_task(_call_task_coro(handler))
         elif self._multi_threaded:
@@ -305,19 +407,27 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
     async def spin(self) -> None:
         """Spin the executor asynchronously until shutdown.
 
-        Continuously processes callbacks until the ROS context is invalid
-        or shutdown is requested.
+        Continuously processes ROS callbacks and executes scheduled tasks
+        until the ROS context is invalid or shutdown is requested.
+        Bridges ROS2's callback model with asyncio's event loop.
         """
         await self._spin_impl()
 
     async def spin_until_future_complete(
         self, future: rclpy.task.Future, timeout_sec: Optional[float] = None
     ) -> None:
-        """Spin until a ROS future completes or timeout.
+        """Spin until a ROS future completes or timeout expires.
+
+        Registers a callback on the future to wake the executor when it
+        completes, then spins with a wait condition that checks the future.
 
         Args:
             future: The ROS Future to wait for.
-            timeout_sec: Maximum time to wait in seconds.
+            timeout_sec: Maximum time to wait in seconds. If None, waits
+                indefinitely.
+
+        Raises:
+            TimeoutError: If timeout expires before future completes.
         """
         future.add_done_callback(lambda _: self.wake())
         await self._spin_impl(
@@ -327,7 +437,15 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
 
 
 class _AIOExecutor(_BaseAIOExecutor):
+    """Asyncio executor using queue-based producer-consumer pattern.
+
+    Spawns a producer thread that calls the blocking
+    wait_for_ready_callbacks() and queues results for the main event
+    loop to process via _spin_impl.
+    """
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the queue-based executor."""
         super().__init__(*args, **kwargs)
         self._queue: asyncio.Queue[
             tuple[rclpy.task.Task, WaitableEntityType, "Node"]
@@ -341,6 +459,18 @@ class _AIOExecutor(_BaseAIOExecutor):
         loop: asyncio.AbstractEventLoop,
         cancel_event: threading.Event,
     ) -> None:
+        """Blocking producer thread function.
+
+        Repeatedly calls wait_for_ready_callbacks and queues the result
+        using loop.call_soon_threadsafe. Exits when cancel_event is set
+        or the wait condition becomes true.
+
+        Args:
+            timeout_sec: Timeout for wait_for_ready_callbacks.
+            wait_condition: Exit when this callable returns True.
+            loop: The asyncio event loop to queue results to.
+            cancel_event: Threading event to signal producer to exit.
+        """
         try:
             while not cancel_event.is_set():
                 ready = self.wait_for_ready_callbacks(
@@ -360,6 +490,16 @@ class _AIOExecutor(_BaseAIOExecutor):
         timeout_sec: Optional[float] = None,
         wait_condition: Callable[[], bool] = lambda: False,
     ) -> None:
+        """Spin using queue-based producer-consumer pattern.
+
+        Spawns a producer task that runs _queue_producer in the thread pool,
+        continuously queuing ready handlers. The main loop gets handlers from
+        the queue and schedules them for execution.
+
+        Args:
+            timeout_sec: Timeout for wait_for_ready_callbacks.
+            wait_condition: Stop spinning if this callable returns True.
+        """
         async with self._spin_context_stack():
             loop = asyncio.get_running_loop()
             cancel_event = threading.Event()
@@ -387,6 +527,14 @@ class _AIOExecutor(_BaseAIOExecutor):
 
 
 class _AIOExecutorOptimized(_BaseAIOExecutor):
+    """Asyncio executor with optimized async wait-set handling.
+
+    Instead of spawning a producer thread, this executor directly awaits
+    wait_for_ready_callbacks by running it in the thread pool with
+    asyncio.wrap_future. This allows more direct integration with the
+    event loop.
+    """
+
     async def _wait_for_ready_callbacks_async(
         self,
         timeout_sec: Optional[float | TimeoutObject] = None,
@@ -396,6 +544,26 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
         tuple[rclpy.task.Task, Optional[WaitableEntityType], Optional["Node"]],
         None,
     ]:
+        """Async generator yielding ready handlers from the wait set.
+
+        Constructs a wait set from all executable ROS entities and waits
+        on it (blocking in thread pool), then yields ready handlers one
+        at a time. Lazily regenerates the wait set if called with new args.
+
+        Args:
+            timeout_sec: Timeout for wait set wait.
+            nodes: Nodes to check for executable entities. If None, checks
+                all registered nodes.
+            condition: Stop waiting if this callable returns True.
+
+        Yields:
+            Tuples of (handler, entity, node) for ready callbacks.
+
+        Raises:
+            TimeoutException: If timeout expires.
+            ShutdownException: If ROS context is shutdown.
+            ExternalShutdownException: If ROS context becomes invalid.
+        """
         timeout_timer = None
         timeout_nsec = timeout_sec_to_nsec(
             timeout_sec.timeout
@@ -659,6 +827,22 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
     ) -> tuple[
         rclpy.task.Task, Optional[WaitableEntityType], Optional["Node"]
     ]:
+        """Get the next ready handler from the wait set.
+
+        Caches and reuses the async generator from
+        _wait_for_ready_callbacks_async, recreating it if arguments change.
+        Lazily recreates when the generator is exhausted.
+
+        Args:
+            *args: Arguments passed to _wait_for_ready_callbacks_async.
+            **kwargs: Keyword arguments passed to _wait_for_ready_callbacks_async.
+
+        Returns:
+            Tuple of (handler, entity, node) for a ready callback.
+
+        Raises:
+            TimeoutException, ShutdownException, etc. from the wait set.
+        """
         while True:
             if (
                 self._cb_iter is None
@@ -682,6 +866,16 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
         timeout_sec: Optional[float] = None,
         wait_condition: Callable[[], bool] = lambda: False,
     ) -> None:
+        """Spin using optimized async wait-set handling.
+
+        Continuously awaits wait_for_ready_callbacks_async (which runs
+        wait_set.wait in the thread pool) and schedules ready handlers.
+        More efficient than _AIOExecutor's separate producer thread.
+
+        Args:
+            timeout_sec: Timeout for wait set wait.
+            wait_condition: Stop spinning if this callable returns True.
+        """
         async with self._spin_context_stack():
             while (
                 self._context.ok()
@@ -696,4 +890,4 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
                 self._schedule_or_call(handler)
 
 
-AIOExecutor = _AIOExecutorOptimized
+AIOExecutor = _AIOExecutorOptimized  # Default to optimized variant

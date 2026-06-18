@@ -1,3 +1,26 @@
+"""Launch file for single UR5e robot control.
+
+Launches a single UR robot control stack including robot state publisher
+(via ur_control.launch.py) and optional mock dashboard client for
+simulation mode.
+
+Nodes Launched:
+    ur_control.launch.py (included): UR driver, controllers, RSP
+    mock_dashboard_client (tabletop_rig): Mock dashboard (simulation only)
+
+Config Files Loaded:
+    - tabletop.urdf.xacro: Single-arm robot description
+    - ur5e_calibration.yaml: Robot calibration parameters
+    - ur_controllers.yaml: Controller definitions (via ur_control.launch.py)
+
+Included Launch Files:
+    - ur_control.launch.py (ur_robot_driver): Complete UR control
+
+Example:
+    ros2 launch tabletop_rig ur.launch.py robot_mode:=mock \
+        ur_type:=ur5e
+"""
+
 import logging
 import os
 
@@ -82,6 +105,7 @@ def declare_arguments():
 
 
 def print_substitutions(context, substitutions: dict[str, Substitution]):
+    # Debug helper to log computed substitution values at launch time
     for name, substitution in substitutions.items():
         print(f"{name}: {substitution.perform(context)}")
 

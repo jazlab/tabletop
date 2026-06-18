@@ -1,8 +1,9 @@
 """Block-structured cup/drawer trial generator for behavioral experiments.
 
 This module provides an adaptive trial generator that alternates between
-blocks of cup trials and drawer trials. Block switching occurs after a
-specified number of correct (non-timeout) trials.
+blocks of cup trials and drawer trials. Block switching occurs after
+the per-block trial criterion is reached (see send() for how trials
+are counted).
 
 This generator is adaptive - feedback is used to track correct trials
 and trigger block transitions.
@@ -36,8 +37,9 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
     Generates trials in blocks, alternating between "cup" and "drawer"
     object categories. Within each block, objects are randomly sampled
-    from the current category. Block transitions occur after a specified
-    number of correct (non-timeout) trials.
+    from the current category. Block transitions occur once the
+    per-block counter reaches the criterion (note: the counter is
+    incremented on trials whose feedback has timeout=True; see send()).
 
     This implements a common behavioral paradigm for studying category
     learning and set-shifting.
@@ -91,10 +93,14 @@ class BlockedCupDrawer(BaseTrialGenerator):
         """Generate the next trial from the current block.
 
         Randomly samples a pose and an object from the current block's
-        category. All trials use both arms and have occlusion enabled.
+        category. All trials use both arms and have smartglass occlusion
+        enabled.
 
         Returns:
             TrialSpec with randomly sampled parameters from current block.
+
+        Raises:
+            StopIteration: Never raised (generates indefinitely).
         """
         # Sample object pose
         object_pose = np.random.choice(self._poses)  # type: ignore
@@ -114,20 +120,23 @@ class BlockedCupDrawer(BaseTrialGenerator):
 
         return trial_spec
 
-    def send(self, trial_spec: TrialSpec, feedback: TrialFeedback) -> None:
+    def send(
+        self, trial_spec: TrialSpec, feedback: TrialFeedback | None
+    ) -> None:
         """Update generator state based on trial feedback.
 
         Increments the correct trial counter when timeout is True.
-        Switches to the next block when the criterion is reached.
-
-        Note:
-            The logic here checks feedback.timeout - verify this matches
-            the intended experimental design.
+        Switches to the next block when the criterion is reached. Failed
+        trials (feedback is None) are skipped.
 
         Args:
-            spec: Unused original trial spec.
-            feedback: Feedback from the completed trial.
+            trial_spec: Original trial spec (unused).
+            feedback: Feedback from the completed trial (containing timeout
+                status), or None if the trial failed.
         """
+        if feedback is None:
+            return
+
         # Increment counter based on timeout flag
         if feedback.timeout:
             self._num_correct += 1

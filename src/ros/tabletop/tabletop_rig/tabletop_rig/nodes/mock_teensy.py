@@ -5,7 +5,7 @@ used in the tabletop experimental rig. It emulates:
 
 - Arm lock solenoid control and state sensing
 - Safety laser broken state
-- Smartglass (LCD shutter) control
+- Smartglass control
 - Reward solenoid control
 - Sync pulse generation
 - Tactile glove analog inputs
@@ -726,6 +726,9 @@ class MockTeensy(BaseNode):
         Reads all simulated sensor inputs and publishes a TeensySensor
         message with arm lock states, safety laser state, reward state,
         smartglass state, tactile glove values, and sync pulse timing.
+
+        This callback is triggered by self.sensor_timer at SENSOR_PERIOD_MS
+        intervals.
         """
         sensor_msg = TeensySensor()
         sensor_msg.header.stamp = self.get_clock().now().to_msg()
@@ -758,7 +761,11 @@ class MockTeensy(BaseNode):
         self.sensor_pub.publish(sensor_msg)
 
     async def spin(self) -> None:
-        """Spin simulated monkey loop"""
+        """Run the mock Teensy async event loop.
+
+        Starts the monkey_loop coroutine to simulate subject behavior
+        including arm locking and safety laser state changes.
+        """
         wiggins_logger = self.get_logger().get_child("wiggins")
         await monkey_loop(**self.param("monkey_loop"), logger=wiggins_logger)
 

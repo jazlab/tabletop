@@ -54,8 +54,7 @@ echo -e "     You need to run the novnc docker container on the same network\n"
 echo -e "     as this container and set the DISPLAY environment variable of this\n"
 echo -e "     container to 'novnc:0.0'.\n\n"
 
-echo -e "Access the robots user interface through the novnc docker container at this URL:\n"
-echo -e "     http://localhost:8080/vnc.html?autoconnect=true\n\n"
+echo -e "Access the robots user interface through the novnc docker container."
 
 echo -e "You can find documentation on how to use this container on dockerhub:\n"
 echo -e "     https://hub.docker.com/r/universalrobots/ursim_e-series\n\n"

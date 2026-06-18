@@ -1,4 +1,11 @@
-bool reveal
+# Control the smartglass: an electronically switchable glass pane positioned
+# in front of the subject, driven by SMARTGLASS_CONTROL_PIN.
+# Served by: teensy node (firmware, service ~/set_smartglass) / mock_teensy node.
+# Called by: TeensyInterface.set_smartglass() (interfaces/teensy.py).
+
+# --- Request ---
+bool reveal  # True makes the pane transparent (subject can see the stimulus); False makes it translucent/opaque (occludes the view)
 ---
-bool success
-string message
+# --- Response ---
+bool success    # Always True from the firmware (no failure mode defined)
+string message  # Human-readable confirmation (e.g. "Smartglass revealed" or "Smartglass occluded")

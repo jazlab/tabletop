@@ -307,7 +307,12 @@ class NotSafeToExecuteError(ExecutionError):
 
 
 class ExecutionPreventedError(ExecutionError):
-    """TODO"""
+    """Raised when trajectory execution is prevented by external conditions.
+
+    This is distinct from ExecutionRejectedError (not started) and
+    ExecutionInterruptedError (started but stopped). The exact conditions
+    that trigger this exception are not yet defined.
+    """
 
 
 class ExecutionRejectedError(ExecutionError):
@@ -329,7 +334,12 @@ class ExecutionInterruptedError(ExecutionError):
 
 
 class ExecutionStoppedError(ExecutionError):
-    """TODO"""
+    """Raised when trajectory execution stops due to recovery or abort.
+
+    This is distinct from ExecutionInterruptedError (external interruption)
+    and ExecutionRejectedError (never started). The exact triggering
+    conditions are not yet defined.
+    """
 
 
 class ObjectManipulationError(MoveitRecoverableError):
@@ -341,12 +351,26 @@ class ObjectManipulationError(MoveitRecoverableError):
 
 
 class ObjectMismatchError(ObjectManipulationError):
-    """Raised when the user tries to manipulate a different object than that which is currently held"""
+    """Raised when requested object does not match the currently held object.
+
+    This exception is raised when an operation (e.g., return, return_if_grasped)
+    is called with an object_id that differs from the one currently in the
+    manipulator's grasp.
+    """
 
 
 class StateTransitionError(ObjectManipulationError):
-    """Raised when an object manipulation state transition cannot be completed"""
+    """Raised when an object manipulation state transition fails.
+
+    This occurs when the state machine encounters an unexpected state or
+    a transition that cannot be completed due to hardware or planner errors.
+    """
 
 
 class ManipulationContextExitedError(Exception):
-    """Raised when the ManipulationContextManager successfully recovers the manipulation state"""
+    """Raised when ManipulationContextManager exits after recovery.
+
+    This exception is raised after the manipulation context manager has
+    successfully recovered and exited the async context. It signals that
+    recovery was completed and the context has been cleaned up.
+    """

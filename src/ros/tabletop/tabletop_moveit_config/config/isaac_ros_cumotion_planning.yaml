@@ -1,3 +1,13 @@
+# MoveIt planning pipeline configuration for the NVIDIA Isaac ROS CuMotion GPU-accelerated planner.
+# CuMotion uses cuRobo (CUDA-accelerated trajectory optimization) for fast, collision-free planning.
+# This pipeline is currently DISABLED in moveit_cpp.yaml (the "isaac_ros_cumotion" entry is
+# commented out) — enable it by adding "isaac_ros_cumotion" to the pipeline_names list and
+# un-commenting the exec_depend in package.xml.
+# Loaded automatically by MoveItConfigsBuilder.planning_pipelines() when "isaac_ros_cumotion" is
+# in the pipeline list (matches *_planning.yaml filename convention).
+# See: https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion
+# Note: AddTimeOptimalParameterization and DisplayMotionPath are commented out — CuMotion
+# returns pre-timed trajectories, so TOPP re-parameterization is not needed.
 planning_plugins:
   - isaac_ros_cumotion_moveit/CumotionPlanner
 request_adapters:

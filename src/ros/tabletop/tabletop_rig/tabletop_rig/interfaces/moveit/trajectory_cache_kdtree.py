@@ -57,44 +57,34 @@ _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 
 class KDTreeTrajectoryCache(TrajectoryCache):
-    """In-memory trajectory cache indexed by k-d trees over feature vectors.
+    """In-memory fuzzy trajectory cache with scipy KD-trees.
 
-    Each insert appends a single (feature, value) pair to the
-    appropriate store (joint-space or Cartesian); queries do an L∞
-    ball search on the scaled feature space and return the cheapest
-    `max_trajectories` matches.
+    Maintains two KD-trees (one for joint-space goals, one for
+    Cartesian goals) over feature vectors. Each request maps to:
+        - Joint-space: [6 start joints, 6 goal joints] (12D)
+        - Cartesian: [6 start joints, 3 goal position, 4 goal orientation]
+            (13D)
 
-    Tree builds are lazy and size-invalidated: a burst of inserts
-    followed by one query pays exactly one tree build, but
-    interleaved insert/query workloads rebuild on every query. This
-    is the natural cadence for a static k-d tree backend used as a
-    benchmark target.
+    Tolerances are baked into scale vectors once at init; queries scale
+    request features and use L∞ ball search (r=1.0, p=inf) to find all
+    stored points within tolerance. Trees rebuild lazily when features
+    list size changes; perfect for test/benchmark (no per-insert cost
+    until next query) but suboptimal for heavy interleaved insert/query.
 
-    On-disk format is a single pickled dict::
+    Persists to pickled dict with metadata and feature lists; trees
+    rebuilt on load. Joint ordering from sample_state is persisted as
+    metadata for mismatch detection.
 
-        {
-            "metadata": {...base config keys + "joint_names"...},
-            "joint_names": [...],
-            "state_tree": {"features": [...], "values": [...]},
-            "pose_tree":  {"features": [...], "values": [...]},
-        }
-
-    The trees themselves are not persisted; they're rebuilt lazily
-    against the loaded features on the next query.
-
-    Args:
-        path: Absolute path to a pickle file. Loaded on `open()` and
-            saved on `close()`.
-        sample_state: Any `RobotState` from the same MoveIt setup the
-            cache will be queried against. Used once at construction
-            to snapshot the canonical joint ordering (from the joint
-            model group's `active_joint_model_names`) so that feature
-            vectors built later are consistent. The joint ordering is
-            persisted as metadata, and a mismatch on reload triggers a
-            full wipe via the base class's drift-detection flow.
-        (See `TrajectoryCache`. `max_trajectories` caps the number of
-        results returned per query — there is no per-point insert
-        cap; each insert is its own tree point.)
+    Attributes:
+        _joint_names: Canonical joint ordering (from sample_state).
+        _state_scale: 12D scale vector for joint-space feature scaling.
+        _pose_scale: 13D scale vector for Cartesian feature scaling.
+        _state_features: List of 12D joint-space feature vectors.
+        _state_values: List of TrajectoryCacheValue (matches features).
+        _state_tree: scipy KDTree or None (built lazily).
+        _pose_features: List of 13D Cartesian feature vectors.
+        _pose_values: List of TrajectoryCacheValue (matches features).
+        _pose_tree: scipy KDTree or None (built lazily).
     """
 
     def __init__(
@@ -207,7 +197,14 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         return np.array([positions[j] for j in self._joint_names], dtype=float)
 
     def _state_feature(self, request: PlanRequest) -> np.ndarray:
-        """Compute the 12D feature vector for a joint-space goal request."""
+        """Build 12D feature: [start 6 joints, goal 6 joints].
+
+        Args:
+            request: PlanRequest with RobotState start and goal.
+
+        Returns:
+            (12,) float array in canonical joint order.
+        """
         assert isinstance(request.start_state, RobotState)
         assert isinstance(request.goal, RobotState)
         start = self._joints_to_array(request.start_state)
@@ -215,7 +212,16 @@ class KDTreeTrajectoryCache(TrajectoryCache):
         return np.concatenate([start, goal])
 
     def _pose_feature(self, request: PlanRequest) -> np.ndarray:
-        """Compute the 13D feature vector for a Cartesian goal request."""
+        """Build 13D feature: [start 6 joints, goal position 3, quat 4].
+
+        Quaternion sign is canonicalized (q[0] >= 0) for consistency.
+
+        Args:
+            request: PlanRequest with RobotState start, PoseStamped goal.
+
+        Returns:
+            (13,) float array in canonical joint order.
+        """
         assert isinstance(request.start_state, RobotState)
         assert isinstance(request.goal, PoseStamped)
         start = self._joints_to_array(request.start_state)
@@ -231,6 +237,12 @@ class KDTreeTrajectoryCache(TrajectoryCache):
     # ---------------------------------------------------------------
 
     def _ensure_state_tree(self) -> None:
+        """Build/update joint-space KD-tree if features changed.
+
+        Rebuilds tree if _state_features list size changed since last
+        build. Scales features by _state_scale before tree construction.
+        Sets tree to None if features empty.
+        """
         if not self._state_features:
             self._state_tree = None
             self._state_tree_size = 0
@@ -243,6 +255,12 @@ class KDTreeTrajectoryCache(TrajectoryCache):
             self._state_tree_size = len(self._state_features)
 
     def _ensure_pose_tree(self) -> None:
+        """Build/update Cartesian KD-tree if features changed.
+
+        Rebuilds tree if _pose_features list size changed since last
+        build. Scales features by _pose_scale before tree construction.
+        Sets tree to None if features empty.
+        """
         if not self._pose_features:
             self._pose_tree = None
             self._pose_tree_size = 0
@@ -377,7 +395,21 @@ class KDTreeTrajectoryCache(TrajectoryCache):
                 self._pose_values.append(value)
 
     def __getitem__(self, request: PlanRequest) -> list[RobotTrajectory]:
-        """Return cheapest-`max_trajectories` matches via L∞ ball query."""
+        """Return best-cost trajectories matching request (L∞ tolerance).
+
+        Builds tree if needed, scales query point, finds all points in
+        L∞ ball (r=1.0 in scaled space = per-coordinate tolerance),
+        sorts by cost, returns top max_trajectories rehydrated.
+
+        Args:
+            request: PlanRequest with start_state and goal.
+
+        Returns:
+            List of RobotTrajectories, best-cost first.
+
+        Raises:
+            KeyError: No points within tolerance.
+        """
         self._require_open()
         assert isinstance(request.start_state, RobotState)
 

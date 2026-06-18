@@ -1,3 +1,20 @@
+"""Launch file for FLIR camera calibration.
+
+Launches the camera_calibration cameracalibrator node with FLIR cameras
+from flir.launch.py for interactive checkerboard-based camera calibration.
+
+Nodes Launched:
+    flir.launch.py (included): FLIR camera driver
+    cameracalibrator (camera_calibration): Interactive calibration tool
+
+Config Files Loaded:
+    - flir.yaml: Camera configuration (via flir.launch.py)
+
+Example:
+    ros2 launch tabletop_rig flir_calibrate.launch.py \
+        camera:=left_front_top_cam size:=9x11 square:=0.015
+"""
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,

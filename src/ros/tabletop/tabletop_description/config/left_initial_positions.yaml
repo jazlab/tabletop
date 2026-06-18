@@ -1,3 +1,7 @@
+# Initial joint positions for the LEFT arm of the dual-arm UR5e rig (mock hardware).
+# Loaded by tabletop_description/urdf/dual_tabletop.urdf.xacro (via xacro.load_yaml) and passed to
+# dual_rsp.launch.py as the left_initial_positions_file argument.
+# All values are in RADIANS (REP-103).
 shoulder_pan_joint: 0.0
 shoulder_lift_joint: -1.5707
 elbow_joint: 1.5707

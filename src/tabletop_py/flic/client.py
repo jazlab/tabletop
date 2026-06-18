@@ -1736,6 +1736,14 @@ async def main_async(
 
 
 def main(args=None):
+    """Command-line entry point for the Flic daemon client.
+
+    Provides subcommands for scanning, listening, deleting, and querying
+    buttons via the flicd daemon.
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv.
+    """
     parser = argparse.ArgumentParser()
     # parser.add_argument("--host", type=str, default="172.17.0.1")
     parser.add_argument("--host", type=str, default="0.0.0.0")

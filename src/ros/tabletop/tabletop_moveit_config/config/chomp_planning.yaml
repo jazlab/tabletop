@@ -1,3 +1,12 @@
+# MoveIt planning pipeline configuration for the CHOMP (Covariant Hamiltonian Optimization for
+# Motion Planning) planner.  CHOMP optimizes a trajectory for smoothness and obstacle avoidance
+# simultaneously using gradient descent on a functional cost.
+# This pipeline is currently DISABLED in moveit_cpp.yaml (the "chomp" entry is commented out)
+# and is not loaded by default — it is available as a named alternative pipeline.
+# Loaded automatically by MoveItConfigsBuilder.planning_pipelines() when "chomp" is in the
+# pipeline list (matches *_planning.yaml filename convention).
+# See: https://moveit.picknik.ai/main/doc/concepts/motion_planning_pipeline.html
+# Standard CHOMP parameters below — refer to MoveIt CHOMP docs for parameter semantics.
 planning_plugins:
   - chomp_interface/CHOMPPlanner
 # The order of the elements in the adapter corresponds to the order they are processed by the motion planning pipeline.

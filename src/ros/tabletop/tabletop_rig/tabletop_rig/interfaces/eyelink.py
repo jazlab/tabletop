@@ -42,11 +42,17 @@ class EyelinkInterface(BaseInterface):
     ) -> None:
         """Initialize the Eyelink interface.
 
-        Sets up the action client for smooth pursuit monitoring and waits
-        for the Eyelink action server to become available.
+        Sets up an AIOActionClient for the eyelink/smooth_pursuit action and
+        waits for the eyelink node to be available.
 
         Args:
             node: Parent ROS2 node to create the action client on.
+            name: Interface name (used for parameter lookup and logging).
+            parameter_fallback_prefix: Optional fallback prefix for parameter
+                lookup.
+
+        Raises:
+            RuntimeError: If the eyelink node is not available.
         """
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -150,7 +156,7 @@ class EyelinkInterface(BaseInterface):
             consumer_task.cancel()
 
     def destroy_interface(self):
-        """Clean up EyelinkSmoothPursuit action client"""
+        """Clean up EyelinkSmoothPursuit action client and other ROS resources."""
         self.log("Destroying EyelinkInterface")
 
         if hasattr(self, "_smooth_pursuit_client"):

@@ -78,8 +78,7 @@ ln -s /platformio/penv/bin/piodebuggdb /bin/piodebuggdb
 EOT
 
 # Add uv binaries
-COPY --from=ghcr.io/astral-sh/uv@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a \
-    /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

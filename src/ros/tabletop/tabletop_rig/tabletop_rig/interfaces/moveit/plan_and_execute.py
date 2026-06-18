@@ -1,8 +1,10 @@
 """Motion planning and trajectory execution interface.
 
-This module extends PlanningSceneInterface with capabilities for planning
-robot trajectories and executing them on the real robot. It integrates
-with MoveIt's planning pipeline and trajectory execution manager.
+This module defines PlanAndExecuteInterface (a direct subclass of
+BaseInterface) with capabilities for planning robot trajectories and
+executing them on the real robot. It integrates with MoveIt's planning
+pipeline and trajectory execution manager, and is the base class of
+ObjectManipulationInterface.
 
 Key Capabilities:
 - Single and multi-waypoint trajectory planning
@@ -112,24 +114,32 @@ def _is_constraints_goal(goal: Any) -> bool:
 
 
 class PlanAndExecuteInterface(BaseInterface):
-    """Interface for motion planning and trajectory execution.
+    """Motion planning and trajectory execution interface.
 
-    Extends PlanningSceneInterface with:
-    - Motion planning via MoveIt's PlanningComponent
-    - Trajectory execution via TrajectoryExecutionManager
-    - Trajectory caching via TrajectoryCache
-    - Post-processing (TOTG, smoothing)
-    - Safety-checked execution
+    Extends BaseInterface with:
+    - Motion planning via MoveIt's PlanningComponent (with retry logic)
+    - Multi-waypoint trajectory concatenation (ConcatPlanRequest)
+    - Trajectory caching (fuzzy matching via LMDB or KD-tree)
+    - Post-processing: Time-optimal trajectory generation (TOTG),
+        ruckig smoothing, velocity/acceleration scaling
+    - Safe trajectory execution with pre-flight safety checks
+    - Execution cancellation via stop_execution()
 
-    The interface maintains a trajectory pre-cache for deferred cache
-    updates after successful execution.
+    Supports joint-space (RobotState), Cartesian (PoseStamped), named
+    targets (str), and raw constraints (list[Constraints]) goals.
+
+    Parameters from config with '<name>_manipulation_interface.' fallback:
+        trajectory_cache.{backend,base_dir,kwargs,freeze_cache}
+        execution.{joint_trajectory_controller,allowed_start_tolerance,...}
+        planning.{default_pose_link,group_name,fast_pipeline,...}
 
     Attributes:
-        _planning_component: MoveIt planning component for motion planning.
-        _trajectory_execution_manager: Manager for executing trajectories.
-        _safe_to_execute_callback: External safety check function.
-        _trajectory_cache: Trajectory cache for plan reuse.
-        _trajectory_precache: Pending cache entries awaiting confirmation.
+        _moveit: MoveItInterface for planning scene access.
+        _trajectory_cache: Backend-specific cache (LMDB or KD-tree).
+        _execution_client: AIOActionClient for FollowJointTrajectory.
+        _executing: Flag indicating active execution.
+        _execution_stopped: Flag indicating cancellation requested.
+        _execution_goal_handle: Current action goal handle (or None).
     """
 
     def __init__(
@@ -377,13 +387,15 @@ class PlanAndExecuteInterface(BaseInterface):
         trajectory: RobotTrajectory,
         request: PlanRequest | ConcatPlanRequest,
     ) -> RobotTrajectory:
-        """Preprocess the trajectory using the given request.
+        """Apply TOTG and/or smoothing to trajectory per request flags.
 
         Args:
-            request: The request to preprocess the trajectory with.
+            trajectory: The trajectory to post-process.
+            request: Request with apply_totg, apply_smoothing, and scaling
+                parameters.
 
         Returns:
-            The preprocessed trajectory.
+            The post-processed trajectory (copy; original unchanged).
         """
         if request.apply_totg:
             trajectory = self._apply_totg(
@@ -407,13 +419,15 @@ class PlanAndExecuteInterface(BaseInterface):
         return trajectory
 
     def _validate_trajectory(self, trajectory: RobotTrajectory):
-        """Validate the given robot trajectory.
+        """Validate trajectory against current planning scene.
+
+        Checks for self-collisions and collisions with world objects.
 
         Args:
-            trajectory: The robot trajectory to validate.
+            trajectory: The trajectory to validate.
 
         Raises:
-            TrajectoryError: If the trajectory is invalid.
+            TrajectoryError: If collision detected or validation failed.
         """
         self.log("Validating trajectory", severity="DEBUG")
 
@@ -642,7 +656,28 @@ class PlanAndExecuteInterface(BaseInterface):
         *,
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
-        """Retrieve trajectory from cache or plan a trajectory"""
+        """Plan or retrieve cached single trajectory to a goal.
+
+        Normalizes goal (resolves named targets, partial joint goals,
+        frame conversions), attempts cache lookup (if cacheable), falls
+        back to fast then standard pipeline with exponential backoff
+        retry logic, post-processes (TOTG/smoothing), and returns
+        trajectory plus cache metadata.
+
+        Cache is skipped for: Constraints goals, non-default pose_link,
+        use_cache=False, or custom planning_scene.
+
+        Args:
+            request: PlanRequest with goal and parameters.
+            cancel_event: threading.Event to signal cancellation.
+
+        Returns:
+            (trajectory, cache_kwargs_list or None)
+
+        Raises:
+            MaxPlanningAttemptsReachedError: All retry attempts failed.
+            TrajectoryError: TOTG/smoothing failed; post-processing error.
+        """
         self.log("Planning single trajectory", severity="DEBUG")
 
         # Flag to disbale if the plan request contains parameters unsupported
@@ -810,7 +845,25 @@ class PlanAndExecuteInterface(BaseInterface):
         *,
         cancel_event: Optional[threading.Event] = None,
     ) -> PlanResponseT:
-        """Plan a series of trajectories and concatenate them"""
+        """Plan multiple waypoint goals and concatenate trajectories.
+
+        Plans each goal sequentially (start_state for first only),
+        concatenates with dwell times (dts), optionally adds loop-close
+        segment, and post-processes (either per-segment or after concat).
+
+        Args:
+            request: ConcatPlanRequest with goals, dts, loop, etc.
+            cancel_event: threading.Event to signal cancellation.
+
+        Returns:
+            (concatenated_trajectory, cache_kwargs_list or None)
+
+        Raises:
+            ValueError: goals empty, dts length mismatch, or post_process_
+                after_concat conflicts with dts.
+            MaxPlanningAttemptsReachedError: Any segment planning fails.
+            TrajectoryError: Post-processing failed.
+        """
         self.log("Planning concat trajectory", severity="DEBUG")
 
         # Validate request
@@ -912,36 +965,31 @@ class PlanAndExecuteInterface(BaseInterface):
         goals: Optional[list[PlanGoalT]] = None,
         **kwargs: Any,
     ) -> PlanResponseT:
-        """Plan a trajectory to a goal or series of goals
+        """Plan a trajectory to a single goal or series of goals.
+
+        Accepts one of: request, goal, or goals. All other parameters
+        (planning_pipeline, planning_time, etc.) come from request or
+        kwargs. Runs in thread pool to avoid blocking async executor.
 
         Args:
-            goal: The goal to plan towards. If not provided, 'goals' or
-                'request' must be provided
-            goals: The goals to plan towards. If not provided, 'goals' or
-                'request' must be provided
-            request: The request to plan for. If not provided, the request is
-                created from goal and kwargs.
-            **kwargs: Keyword arguments to pass to the 'PlanRequest()' or
-                'ConcatPlanRequest()' constructor.
+            request: PlanRequest or ConcatPlanRequest. Mutually exclusive
+                with goal/goals/kwargs.
+            goal: Single goal (RobotState, PoseStamped, str, or
+                list[Constraints]). Creates PlanRequest.
+            goals: List of goals. Creates ConcatPlanRequest.
+            **kwargs: PlanRequest/ConcatPlanRequest constructor args
+                (group_name, planning_pipeline, planning_time, etc.).
 
         Returns:
-            A tuple containing:
-                The planned trajectory, or None if already at the goal
-                The parsed plan request for caching, or None if already at goal
-                    a cached trajectory was used
-
+            (trajectory, cache_kwargs_list or None). trajectory is the
+            planned RobotTrajectory. cache_kwargs_list is None if cached
+            or if trajectory was not cacheable; otherwise list of dicts
+            for cache_trajectories().
 
         Raises:
-            ValueError: If the request or arguments are invalid.
-            MaxPlanningAttemptsReachedError: If the maximum number of planning
-                attempts is reached.
-            asyncio.CancelledError: If the planning is cancelled by the cancel_event.
-
-        See Also:
-            `create_plan_request()`: For parameter details
-
-        See Also:
-            `_plan_impl()`: For parameter and implementation details.
+            ValueError: Multiple goal sources or request+kwargs provided.
+            MaxPlanningAttemptsReachedError: All planning attempts failed.
+            TrajectoryError: Post-processing (TOTG/smoothing) failed.
         """
         if request is not None:
             if goal is not None or goals is not None or len(kwargs) > 0:
@@ -1084,15 +1132,29 @@ class PlanAndExecuteInterface(BaseInterface):
     async def execute(
         self, trajectory: RobotTrajectory | list[RobotTrajectory]
     ):
-        """Execute the given robot trajectory.
+        """Execute one or more pre-planned trajectories on the robot.
+
+        Checks safety conditions, validates start state, sends goal to
+        FollowJointTrajectory action, monitors execution, and validates
+        end state. Can be cancelled via stop_execution() from another
+        thread.
 
         Args:
-            trajectory: Trajectory to execute
+            trajectory: Single RobotTrajectory or list of trajectories
+                (executed sequentially).
 
         Raises:
-            NotSafeToExecuteError: If the robot is not safe to execute.
-            ExecutionInterruptedError: If the robot moved but not to the goal.
-            ExecutionRejectedError: If the trajectory was rejected by the robot.
+            ValueError: Trajectory group_name doesn't match interface
+                group_name.
+            RuntimeError: Execution already in progress.
+            NotSafeToExecuteError: Safety check failed (before motion).
+            ExecutionPreventedError: Start state > allowed_start_tolerance
+                from current state.
+            ExecutionRejectedError: Action goal not accepted.
+            ExecutionInterruptedError: Execution timeout exceeded, error
+                code returned, or end state > allowed_end_tolerance from
+                goal.
+            ExecutionStoppedError: stop_execution() called during execution.
         """
 
         if isinstance(trajectory, RobotTrajectory):
@@ -1158,7 +1220,12 @@ class PlanAndExecuteInterface(BaseInterface):
             fut.set_result(None)
 
     def stop_execution(self):
-        """Stop execution of the trajectory, if currently executing"""
+        """Signal execution to stop; safe to call from any thread.
+
+        Cancels the FollowJointTrajectory goal and wakes the execute()
+        coroutine, which raises ExecutionStoppedError. No-op if not
+        currently executing.
+        """
         with self._execution_status_lock:
             if self._executing:
                 self._execution_stopped = True
@@ -1189,23 +1256,27 @@ class PlanAndExecuteInterface(BaseInterface):
         cache_trajectories: bool = True,
         **kwargs: Any,
     ) -> list[TrajectoryCacheKwargs] | None:
-        """Plan and execute a trajectory, using the cached trajectory if available.
+        """Plan a trajectory and execute it atomically.
+
+        Convenience method combining plan() and execute(). If
+        cache_trajectories=True, trajectory is cached after successful
+        execution (deferred so only successful plans are persisted).
 
         Args:
-            *args: Arguments to pass to `create_plan_request()`.
-            cache_trajectories: Whether to cache the planned trajectory.
-            use_cache: Whether to use the cached trajectory.
-            **kwargs: Keyword arguments to pass to `create_plan_request()`
-                and `execute()`.
+            request: PlanRequest/ConcatPlanRequest or None.
+            cache_trajectories: Cache trajectory after execution succeeds.
+            **kwargs: plan() and execute() arguments (goal, goals, etc.);
+                start_state is forbidden (always uses current state).
 
         Returns:
-            A dictionary containing the kwargs to cache the trajectory, or None
-            if the trajectory was found in the cache.
+            cache_kwargs_list if cache_trajectories=True and trajectory
+            was planned (not cached); None otherwise.
 
         Raises:
-            ValueError: If start_state is provided in kwargs.
-            PlanningError: If the planning fails.
-            ExecutionError: If the execution fails.
+            ValueError: start_state provided in kwargs.
+            PlanningError: Planning failed.
+            ExecutionError: Execution failed; trajectory still cached if
+                cache_trajectories=True.
         """
         self.log("Planning and executing trajectory", severity="DEBUG")
 

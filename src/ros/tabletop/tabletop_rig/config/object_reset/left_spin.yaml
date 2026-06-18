@@ -1,24 +1,54 @@
+# Object reset configuration — LEFT arm, SPIN strategy.
+#
+# Consumed by: ObjectManipulationInterface._init_reset_configs()
+#   in tabletop_rig/interfaces/moveit/object_manipulation.py, via the
+#   reset_config_map ROS parameter that maps grid object IDs to these files.
+#   Called at runtime by reset_object() / _reset_object_impl().
+#
+# This strategy resets objects that sit on a spike/spindle at the left reset
+# station.  The arm impales the object on the spike, spins wrist_3 a full
+# 360° clockwise (to re-orient or re-seat the object), then retracts.
+#
+# Motion sequence (poses in the left_reset_station/spike TF frame):
+#   1. start_goal — constrained approach pose: EEF link must reach
+#      [0.15, 0.0, 0.074] AND wrist_3 must lie in [-2π, 0] (center -π with
+#      ±π tolerance), i.e. wrist_3 must be ≤ 0 so the subsequent +2π (360° CW)
+#      spin stays within the joint limit.  Planned with the default pipeline
+#      (no collision allowances active yet).
+#   2. goals[0]   — push onto spike: advance 75 mm to [0.075, 0, 0.074].
+#   3. goals[1–4] — 360° CW spin in four 90° (π/2 rad) wrist_3 delta steps
+#                   (linear planner cannot handle a single 360° step because
+#                    a full rotation maps to the same EEF pose).
+#   4. goals[5]   — retract: return to the approach position [0.15, 0, 0.074].
+#
+# All positions are [x, y, z] in meters (REP-103); rpy is [roll, pitch, yaw]
+# in radians (REP-103); joint deltas are in radians (REP-103).
+#
+# velocity_scaling_factor / acceleration_scaling_factor are not set here,
+# so they inherit the ConcatPlanRequest default of 1.0 (full speed).
+# Consider adding explicit scaling if the spin motion is too aggressive.
+
 !ObjectResetConfig
 start_goal:
-  - !Constraints
+  - !Constraints # Approach pose with a joint constraint to set wrist_3 starting angle
     pose_goal:
-      link_name: left_eef
+      link_name: left_eef # End-effector link that must satisfy the Cartesian goal
       pose_stamped: !PoseStamped
-        position: [0.15, 0.0, 0.074]
-        rpy: [1.5707, 2.5307, -1.5707]
-        frame_id: left_reset_station/spike
+        position: [0.15, 0.0, 0.074] # Approach (retracted) pose, 150 mm from spike along X (meters)
+        rpy: [1.5707, 2.5307, -1.5707] # EEF orientation for spike approach (radians; ~90°/145°/-90°)
+        frame_id: left_reset_station/spike # TF frame: the left reset station spike/spindle
     joint_constraints:
-      - joint_name: left_wrist_3_joint
-        position: -3.1415
-        tolerance_above: 3.1415
-        tolerance_below: 3.1415
+      - joint_name: left_wrist_3_joint # Constrain wrist_3 to [-2π, 0] so a full +2π spin stays within the joint limit
+        position: -3.1415 # Center of the allowed wrist_3 range: -π rad (radians, REP-103)
+        tolerance_above: 3.1415 # +π → upper bound 0; wrist_3 must be ≤ 0 (radians)
+        tolerance_below: 3.1415 # -π → lower bound -2π; wrist_3 must be ≥ -2π (radians)
 
 reset_request: !ConcatPlanRequest
   goals:
     # Move forward into drawer station
     - !PoseStamped
-      position: [0.075, 0.0, 0.074]
-      rpy: [1.5707, 2.5307, -1.5707]
+      position: [0.075, 0.0, 0.074] # Insert pose — advance 75 mm onto spike along X (meters)
+      rpy: [1.5707, 2.5307, -1.5707] # Same orientation as approach (radians)
       frame_id: left_reset_station/spike
 
     # 360 spin CW (must use ptp planner)
@@ -31,21 +61,21 @@ reset_request: !ConcatPlanRequest
     # end effector link, and a 360 rotation about any joint results in
     # the same end effector pose, so we do it in steps
     - !JointStateDeltaDict
-      left_wrist_3_joint: 1.5707
+      left_wrist_3_joint: 1.5707 # Step 1 of 4: rotate wrist_3 +90° CW (π/2 rad, REP-103)
     - !JointStateDeltaDict
-      left_wrist_3_joint: 1.5707
+      left_wrist_3_joint: 1.5707 # Step 2 of 4: rotate wrist_3 +90° CW (π/2 rad, REP-103)
     - !JointStateDeltaDict
-      left_wrist_3_joint: 1.5707
+      left_wrist_3_joint: 1.5707 # Step 3 of 4: rotate wrist_3 +90° CW (π/2 rad, REP-103)
     - !JointStateDeltaDict
-      left_wrist_3_joint: 1.5707
+      left_wrist_3_joint: 1.5707 # Step 4 of 4: rotate wrist_3 +90° CW (π/2 rad, REP-103); completes 360°
 
     # Retract to start position
     - !PoseStamped
-      position: [0.15, 0.0, 0.074]
-      rpy: [1.5707, 2.5307, -1.5707]
+      position: [0.15, 0.0, 0.074] # Retract to approach pose — 150 mm from spike (meters)
+      rpy: [1.5707, 2.5307, -1.5707] # Same orientation as approach (radians)
       frame_id: left_reset_station/spike
-  planning_pipeline: linear
+  planning_pipeline: linear # Must be "linear" or "ptp" when collision allowances are active
 object_allowed_collision_ids:
-  - left_reset_station
+  - left_reset_station # Allow collision between the manipulated object and the reset station body during spin
 additional_allowed_collisions:
-  - [left_eef_sphere, left_reset_station]
+  - [left_eef_sphere, left_reset_station] # Allow EEF collision sphere to contact reset station during insert/spin

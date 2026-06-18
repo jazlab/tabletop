@@ -1,16 +1,45 @@
+# SmoothPursuitTask — helical spiral motion type (production config).
+# Moves an attached object along a 3-D helix: the object circles in the XZ
+# plane (num_revolutions full rotations) while simultaneously oscillating
+# along Y (one full sinusoidal cycle), producing a spring-like path.
+# See: tabletop_tasks/tasks/smooth_pursuit.py :: SmoothPursuitTask.generate_spiral
 tasks:
   - class: SmoothPursuitTask
     kwargs:
+      # motion_type selects the trajectory generator function.
+      # "spiral" generates a helical (spring-like) trajectory.
       motion_type: spiral
+      # motion_kwargs are forwarded verbatim to SmoothPursuitTask.generate_spiral().
       motion_kwargs:
+        # center_pose: geometric centre of the spiral.
+        #   position: [x, y, z] in meters (robot base frame).
+        #   rpy: [roll, pitch, yaw] in radians. Orientation is held constant
+        #        throughout. [π/2, π/2, 0] ≈ tool pointing forward/down.
         center_pose:
           position: [0.9525, 0.4, 0.5]
           rpy: [1.5707, 1.5707, 0.0]
+        # radius: radius of the circular XZ component of the helix (meters).
+        # The object swings ±0.1 m from center in both X and Z.
         radius: 0.1
+        # length: total peak-to-peak Y-axis travel of the helix (meters).
+        # The Y oscillation spans ±length/2 = ±0.1 m from center_pose.y.
         length: 0.2
+        # num_revolutions: number of full XZ-plane rotations in one pass
+        # of the trajectory. The Y axis completes exactly one full oscillation
+        # cycle over the same duration (independent of num_revolutions).
         num_revolutions: 10
+        # num_segments: total number of waypoints generated for the trajectory
+        # (higher values produce a smoother path at the cost of planning time).
         num_segments: 800
+      # robot_name: MoveIt planning group that executes the trajectory.
       robot_name: right_manipulator
+      # num_repetitions: how many times the full spiral trajectory is
+      # executed before the task ends.
       num_repetitions: 3
+      # object_id: collision-object ID of the stimulus to attach to the
+      # end effector. Must exist in the planning scene.
       object_id: smooth_pursuit_object
+      # velocity_scaling_factor: fraction of joint-speed limits applied during
+      # trajectory time-parameterisation (range 0.0–1.0).
+      # 0.1 = 10 % of maximum speed.
       velocity_scaling_factor: 0.1

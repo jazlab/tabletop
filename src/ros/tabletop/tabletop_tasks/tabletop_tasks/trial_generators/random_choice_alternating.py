@@ -33,25 +33,22 @@ from tabletop_tasks.trial_generators.base import (
 
 
 class RandomChoiceAlternating(BaseTrialGenerator):
-    """Trial generator with deterministic ordered cycling.
+    """Trial generator with random sampling alternating across robot groups.
 
-    Generates trials by cycling through all combinations of parameters
-    in a fixed order. Creates a full factorial design using itertools.product
-    and iterates through combinations, wrapping when necessary.
-
-    Parameter order in the product (fastest to slowest varying):
-    occlude -> pose -> arm -> object_id
+    Generates trials by alternating between robot groups, randomly sampling
+    parameters for each group. Useful for multi-arm experiments where both
+    arms should be actively engaged in trials.
 
     This generator does not adapt based on feedback.
 
     Attributes:
-        _object_ids: List of object identifiers.
-        _poses: List of PoseStamped objects.
-        _arms: List of arm assignments.
-        _occlude: List of occlusion states.
+        _grouped_object_ids: Dict mapping group names to object lists.
+        _poses: List of PoseStamped objects to sample from.
+        _arms: List of arm assignments to sample from.
+        _occlude_prob: Probability of smartglass occlusion.
         _num_trials: Total number of trials to generate.
         _trial_counter: Current trial count.
-        _parameter_grid: Precomputed list of all parameter combinations.
+        _group_names: List of robot group names.
     """
 
     def __init__(
@@ -64,18 +61,22 @@ class RandomChoiceAlternating(BaseTrialGenerator):
         num_trials: int,
         skip_failed: bool = True,
     ):
-        """Initialize the ordered choice generator.
+        """Initialize the random choice alternating generator.
 
         Args:
             commander: Commander instance for robot interaction.
-            object_ids: List of object IDs to cycle through.
+            grouped_object_ids: Dict mapping robot group names to lists
+                of object IDs for each group.
             poses: List of pose dictionaries (passed to pose_stamped_msg).
-            arms: List of arm assignments to cycle through.
-            occlude: List of occlusion states to cycle through.
+            arms: List of arm assignments to randomly select from.
+            occlude_prob: Probability of smartglass occlusion (0.0-1.0).
             num_trials: Total number of trials to generate.
+            skip_failed: If True, retries failed trials; if False, skips
+                them (default True).
 
         Raises:
-            ValueError: If num_trials is less than 1.
+            ValueError: If num_trials < 1 or objects not reachable by
+                their assigned robots.
         """
         super().__init__(
             "ordered_choice_alternating_trial_generator", commander
@@ -114,16 +115,15 @@ class RandomChoiceAlternating(BaseTrialGenerator):
     def __next__(self) -> TrialSpec:
         """Generate the next trial in sequence.
 
-        Cycles through the parameter grid, wrapping to the beginning
-        when all combinations have been used.
+        Alternates between robot groups, randomly sampling parameters for
+        each group. Returns pending retries before generating new trials.
 
         Returns:
-            TrialSpec with the next parameter combination.
+            TrialSpec with randomly sampled parameters for the next group.
 
         Raises:
             StopIteration: When num_trials have been generated.
         """
-
         group_name: str
         if self._last_feedback_group is not None:
             group_name = self._last_feedback_group
@@ -162,13 +162,15 @@ class RandomChoiceAlternating(BaseTrialGenerator):
         return trial_spec
 
     def send(self, trial_spec: TrialSpec, feedback: TrialFeedback | None):
-        """Process trial feedback.
+        """Process trial feedback from a completed trial.
 
-        This generator does not adapt based on feedback.
+        Clears the last trial spec for the group on successful feedback.
+        If skip_failed is False and feedback is None, retains trial for
+        retry. Marks the group as the next candidate for new trials.
 
         Args:
-            trial_spec: Unused original trial spec.
-            feedback: Unused trial feedback.
+            trial_spec: Original trial spec from the completed trial.
+            feedback: Trial feedback (None indicates failure).
         """
         if trial_spec is not None:
             last_trial_spec = self._last_trial_spec[trial_spec.group_name]

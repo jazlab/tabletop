@@ -1,3 +1,36 @@
+"""Launch file for the Commander node.
+
+Launches the main commander orchestration node which coordinates all robot
+interfaces (MoveIt, Teensy, Flic, Eyelink, Dashboard, Sound) for TableTop
+experiments.
+
+Nodes Launched:
+    wait_for_robot_description (ur_robot_driver): Blocks until robot
+        description is available
+    commander (tabletop_rig): Main orchestration and experiment control
+
+Config Files Loaded:
+    - srdf/dual_tabletop.srdf.xacro: Robot semantic description (SRDF)
+    - commander.yaml: Commander node parameters and overrides
+    - moveit_cpp.yaml: MoveIt C++ (MoveItPy) config; selects the active
+        planning pipelines (ompl, pilz_industrial_motion_planner)
+
+    Additional MoveIt configs are auto-loaded from tabletop_moveit_config by
+    MoveItConfigsBuilder:
+    - kinematics.yaml: IK solver config (robot_description_kinematics)
+    - joint_limits.yaml: joint vel/accel limits (robot_description_planning)
+    - moveit_controllers.yaml: controller manager / trajectory execution
+    - ompl_planning.yaml: OMPL planning pipeline
+    - pilz_industrial_motion_planner_planning.yaml: Pilz planning pipeline
+    - pilz_cartesian_limits.yaml: Cartesian limits for Pilz LIN/CIRC
+    (chomp_planning.yaml, stomp_planning.yaml, isaac_ros_cumotion_planning.yaml,
+     and moveit_controllers_rcm.yaml exist but are not loaded by the current
+     pipeline selection.)
+
+Example:
+    ros2 launch tabletop_rig commander.launch.py robot_mode:=mock
+"""
+
 import os
 
 import yaml
@@ -231,7 +264,9 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     # Set ROS Log Directory
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    use_sim_time = LaunchConfiguration("use_sim_time").perform(context)
+    use_sim_time = (
+        LaunchConfiguration("use_sim_time").perform(context) == "true"
+    )
 
     param_file = LaunchConfiguration("commander_param_file").perform(context)
 
@@ -334,7 +369,7 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
             ParameterFile(overrides_file, allow_substs=True),
             {
                 "publish_robot_description_semantic": True,
-                "use_sim_time": use_sim_time == "true",
+                "use_sim_time": use_sim_time,
             },
         ],
         ros_arguments=[*ros_args],

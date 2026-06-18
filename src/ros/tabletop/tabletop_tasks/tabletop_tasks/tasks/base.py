@@ -137,7 +137,22 @@ class BaseTask(LoggerMixin, metaclass=ABCMeta):
 
 
 class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
-    """TODO"""
+    """Base class for tasks with object manipulation trial structure.
+
+    Implements the standard trial loop: prepare object, run trial, reset
+    object. Automatically handles smartglass occlusion, arm locks, and
+    the manipulation context during each trial. Runs trials asynchronously,
+    allowing multiple robots to execute trials concurrently.
+
+    Subclasses must implement run_trial() to define trial-specific logic.
+
+    Attributes:
+        commander: Reference to the Commander node for robot control.
+        _trial_generator: Generator producing TrialSpec objects.
+        _logger: ROS logger for this task.
+        _trial_lock: Lock ensuring only one arm executes at a time.
+        _trial_condition: Condition variable for trial synchronization.
+    """
 
     def __init__(
         self,
@@ -145,14 +160,14 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
         commander: Commander,
         trial_generator: BaseTrialGenerator | Mapping[str, Any] | None = None,
     ):
-        """Initialize the base task.
+        """Initialize the base object interaction task.
 
         Args:
+            name: Name for the ROS logger.
             commander: Commander instance for robot and peripheral control.
             trial_generator: Either a BaseTrialGenerator instance, or a dict
                 with "class" and "kwargs" keys for dynamic instantiation.
                 If None, tasks must handle trial generation themselves.
-            logger_name: Optional name for the ROS logger (currently unused).
 
         Raises:
             ValueError: If trial_generator dict specifies a class that isn't
@@ -188,23 +203,26 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
 
         Subclasses must implement this method to define the trial-specific
         logic including stimulus presentation, response collection, and
-        reward delivery.
+        reward delivery. Called after the object has been fetched, presented,
+        and moved to the target pose.
 
         Args:
-            trial_spec: Specification for the current trial, or None if
-                no trial generator was provided.
+            trial_spec: Specification for the current trial, containing
+                object ID, pose, arm assignment, and occlusion settings.
+            manipulator: ManipulationContextManager for the robot group
+                executing this trial.
 
         Returns:
             TrialFeedback with behavioral measures from the trial,
-            or None if no feedback should be sent to the generator.
+            or empty TrialFeedback if no behavioral data collected.
         """
 
     async def _occlude_and_lock(self):
         """Occlude smartglass and lock arms concurrently.
 
-        Ensures safety before robot motion by blocking the subject's
-        view and constraining their arms. Waits for both operations
-        to complete.
+        Ensures safety before robot motion by blocking the subject's view
+        and constraining both arms. Waits for both operations to complete
+        before returning.
         """
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.commander.lock_arm("both"))
@@ -213,6 +231,24 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
     async def _run_one_trial(
         self, trial_spec: TrialSpec
     ) -> TrialFeedback | None:
+        """Execute a single trial with object manipulation.
+
+        Orchestrates the complete trial sequence:
+        1. Reset any previous object manipulation state
+        2. Fetch the object from storage
+        3. Lock arms and reveal object
+        4. Move object to target pose
+        5. Run trial-specific logic (stimulus, response, reward)
+        6. Occlude smartglass and lock arms
+        7. Return object to storage
+
+        Args:
+            trial_spec: Specification for the trial to execute.
+
+        Returns:
+            TrialFeedback from run_trial(), or None if the manipulation
+            context exits unexpectedly (e.g., due to emergency stop).
+        """
         presented: bool = False
         unpresented: bool = False
         try:
@@ -255,6 +291,15 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             return None
 
     async def _run_trials_asynchronously(self):
+        """Run trials concurrently across multiple robot groups.
+
+        Implements adaptive trial sequencing: pulls trials from the generator,
+        dispatches them to available robots, and sends feedback back when each
+        trial completes. If the generator requests a robot that is currently
+        busy, waits for at least one trial to complete before proceeding.
+
+        Occlude smartglass and lock arms at the start to ensure safety.
+        """
         # Occlude smartglass and lock arms before starting
         await self._occlude_and_lock()
 
@@ -297,13 +342,15 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                         break
 
     async def run(self) -> None:
-        """Run the complete task.
+        """Run the complete task with asynchronous trial execution.
 
-        Executes the standard trial loop: for each trial from the
-        generator, prepares the trial, runs it, collects feedback,
-        and resets before the next trial.
+        Executes trials from the trial generator concurrently across
+        multiple robot groups. For each trial: fetches object, presents it
+        at the target pose, runs trial-specific logic, and returns object.
 
-        The loop runs indefinitely, restarting the trial generator
-        when exhausted. Override this method for custom task structures.
+        Automatically manages smartglass occlusion and arm locks for safety.
+        Sends trial feedback back to the generator for adaptive sequencing.
+
+        Override this method in subclasses for custom task structures.
         """
         await self._run_trials_asynchronously()

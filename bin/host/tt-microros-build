@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Build and optionally upload MicroROS firmware from host
+# Usage: tt-microros-build [-t|--target teensy|flic_micro|all] [--clean] [--no-upload] [--compiledb]
+# Wraps: tt-compose run --rm microros-builder tt-microros-build
+# Runs on: host
+# Environment: TABLETOP_DIR
 
 set -eo pipefail
 

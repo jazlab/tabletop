@@ -1,3 +1,22 @@
+"""Launch file for FLIR Blackfly S camera system.
+
+Launches FLIR Blackfly S cameras as composable nodes with ROS 2 component
+container. Supports single or multiple cameras with configurable exposure
+control, image transport plugins, and camera poses.
+
+Nodes Launched:
+    flir_camera_container (rclcpp_components): Component container
+        spinnaker_camera_driver (composable): Camera driver per camera
+    tf publishers (tf2_ros): Static transforms for camera poses
+
+Config Files Loaded:
+    - flir.yaml: Camera configuration (names, calibration, transport)
+    - camera_type.yaml: Per-camera manufacturer parameters (Spinnaker)
+
+Example:
+    ros2 launch tabletop_rig flir.launch.py camera:=left_front_top_cam
+"""
+
 import os
 from collections.abc import Sequence
 from copy import copy

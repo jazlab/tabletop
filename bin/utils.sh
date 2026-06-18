@@ -1,3 +1,7 @@
+# Utility functions for environment, configuration, and output formatting
+# Not a standalone script; provides helper functions used by other scripts
+# Helper functions: dotenv_set_if_empty, get_parent_dir, print_status, print_error, print_warning
+
 dotenv_set_if_empty() {
     # Check if the correct number of arguments are provided
     if [ $# -ne 2 ]; then

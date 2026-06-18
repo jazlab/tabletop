@@ -196,8 +196,15 @@ def init_test_dataloader(
     batch_size: int,
     num_workers: int,
 ) -> DataLoader:
-    """
-    TODO
+    """Create a dataloader for test/inference without splitting.
+
+    Args:
+        df: DataFrame containing test data.
+        batch_size: Batch size for dataloader.
+        num_workers: Number of worker processes for data loading.
+
+    Returns:
+        DataLoader for test set (no shuffling).
     """
     dataset = GazeDataset(df)
     loader = DataLoader(
@@ -229,6 +236,17 @@ def init_model(name: str, **kwargs) -> nn.Module:
 def load_model_weights(
     model: nn.Module, weights_path: str, device: str | torch.device
 ):
+    """Load saved model weights from a checkpoint file.
+
+    Supports environment variable expansion (e.g., $TABLETOP_DIR) and
+    user path expansion (e.g., ~). Loads weights onto the specified device.
+
+    Args:
+        model: PyTorch model to load weights into.
+        weights_path: Path to .pt or .pth checkpoint file (may contain
+            env variables like $VAR or ~ for home).
+        device: Target device (str like "cpu"/"cuda" or torch.device).
+    """
     weights_path = os.path.expanduser(os.path.expandvars(weights_path))
     state_dict = torch.load(weights_path, map_location=device)
     model.load_state_dict(state_dict)

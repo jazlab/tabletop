@@ -1,6 +1,12 @@
-bool left_arm
-bool right_arm
-bool lock
+# Control electromagnetic arm restraint locks for one or both subject arms.
+# Served by: teensy node (firmware, service ~/set_arm_lock) / mock_teensy node.
+# Called by: TeensyInterface.set_arm_lock() (interfaces/teensy.py); at least one of left_arm/right_arm must be true.
+
+# --- Request ---
+bool left_arm   # True to include the left arm lock in this command
+bool right_arm  # True to include the right arm lock in this command
+bool lock       # True to engage the solenoid (restrain arm); False to release (also triggers buzzer on real hardware)
 ---
-bool success
-string message
+# --- Response ---
+bool success    # True if the command was accepted; False if neither arm was specified
+string message  # Human-readable status or error description (e.g. "Both arms locked")

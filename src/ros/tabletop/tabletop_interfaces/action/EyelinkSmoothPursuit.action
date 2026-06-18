@@ -1,4 +1,11 @@
+# Continuously monitor subject's eye movements for smooth pursuit and stream status.
+# Action server: eyelink node (nodes/eyelink.py, action ~/smooth_pursuit).
+# Action client: EyelinkInterface.smooth_pursuit() (interfaces/eyelink.py).
+
+# --- Goal (no fields; accepting the goal starts monitoring) ---
 ---
+# --- Result (no fields; action is typically cancelled by the client when no longer needed) ---
 ---
+# --- Feedback ---
 # Whether smooth pursuit started or ended
-bool is_smoothly_pursuing
+bool is_smoothly_pursuing  # True if the subject's eyes are currently following a smoothly moving target (speed within configured min/max bounds); False if fixating or saccading

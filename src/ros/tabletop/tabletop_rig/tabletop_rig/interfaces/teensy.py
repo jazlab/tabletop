@@ -2,7 +2,8 @@
 
 This module provides an interface to communicate with a Teensy microcontroller
 that manages experimental apparatus including arm restraints, safety sensors,
-smartglass goggles, and reward delivery systems.
+the smartglass (a switchable glass pane in front of the subject), and reward
+delivery systems.
 
 The Teensy acts as a bridge between the ROS2 system and physical hardware,
 providing safety interlocks and subject interface mechanisms.
@@ -45,7 +46,7 @@ def noop(msg: TeensySensor) -> None:
 class TeensyInterface(BaseInterface):
     """Interface for controlling experimental apparatus via Teensy microcontroller.
 
-    Provides methods to control arm restraints, smartglass goggles, and reward
+    Provides methods to control arm restraints, the smartglass pane, and reward
     delivery, as well as monitoring safety sensors to determine if it's safe
     to execute robot movements.
 
@@ -73,13 +74,20 @@ class TeensyInterface(BaseInterface):
     ) -> None:
         """Initialize the Teensy interface.
 
-        Sets up subscriptions for sensor data and service clients for
-        controlling the arm locks, reward system, and smartglass.
+        Sets up subscriptions to teensy/sensor topic and service clients for
+        teensy/set_arm_lock, teensy/set_reward, teensy/set_smartglass, and
+        teensy/set_solenoid services. Waits for the teensy node to be available.
 
         Args:
             node: Parent ROS2 node for creating ROS resources.
+            name: Interface name (used for parameter lookup and logging).
             additional_subscription_callback: Optional callback invoked with
                 each TeensySensor message after internal processing.
+            parameter_fallback_prefix: Optional fallback prefix for parameter
+                lookup (e.g., 'common_teensy_interface').
+
+        Raises:
+            RuntimeError: If the teensy node is not available.
         """
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -190,11 +198,16 @@ class TeensyInterface(BaseInterface):
     def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
         """Check if a sensor message indicates safe conditions.
 
+        NOTE: only the safety-laser condition is currently enforced. The
+        arm-lock check (both arms locked) is commented out below and is
+        NOT applied (see docs/known-issues.md). Motion is therefore gated
+        solely on the safety laser being unbroken.
+
         Args:
             msg: The sensor message to evaluate.
 
         Returns:
-            True if both arms are locked and safety laser is unbroken.
+            True if the safety laser is unbroken (arm-lock state ignored).
         """
         # return (
         #     msg.is_left_arm_locked
@@ -206,9 +219,10 @@ class TeensyInterface(BaseInterface):
     def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
         """Process incoming TeensySensor messages.
 
-        Updates internal state and determines if conditions are safe for
-        robot execution. Requires conditions to remain safe for a configurable
-        duration before setting safe_to_execute to True.
+        Updates internal last_teensy_sensor and tracks the last time conditions
+        were unsafe. Reads parameter 'sensor_delay_warn_threshold' and logs
+        warning if latency exceeds threshold. Invokes the additional_subscription
+        callback if provided.
 
         Args:
             msg: The incoming sensor message.
@@ -302,11 +316,13 @@ class TeensyInterface(BaseInterface):
     async def set_smartglass(self, reveal: bool) -> None:
         """Control the smartglass transparency.
 
-        Smartglass can switch between opaque and transparent states
-        to control what the subject can see during trials.
+        The smartglass is a switchable glass pane in front of the subject;
+        it toggles between transparent and translucent/opaque states to
+        control what the subject can see during trials.
 
         Args:
-            reveal: True to make goggles transparent, False to make opaque.
+            reveal: True makes the pane transparent (subject can see),
+                False makes it translucent/opaque (occludes the view).
         """
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
         await self.node.service_call_async(
@@ -383,16 +399,17 @@ class TeensyInterface(BaseInterface):
     async def start_reward_and_wait(self, duration: float) -> None:
         """Deliver reward and wait for completion.
 
-        Starts reward delivery for the specified duration and blocks until
-        the reward finishes. Verifies that the reward actually started and
-        completed.
+        Starts reward delivery via set_reward(activate=True, duration) and
+        polls the last_teensy_sensor property (reading from spin_period
+        parameter) until is_reward_active becomes False.
 
         Args:
             duration: How long to deliver reward in seconds.
 
         Raises:
-            AssertionError: If reward doesn't become active after starting.
-            RuntimeError: If reward is still active after the expected duration.
+            AssertionError: If reward not active after one spin period.
+            RuntimeError: If reward still active after timeout (duration +
+                spin_period).
         """
         await self.set_reward(activate=True, duration=duration)
 

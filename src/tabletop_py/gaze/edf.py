@@ -184,6 +184,11 @@ def edf_to_csv(
 
 
 def main(args=None):
+    """Entry point for EDF to CSV conversion.
+
+    CLI for converting EyeLink EDF binary files to ASCII/CSV format
+    for processing. Requires edf2asc utility from EyeLink SDK.
+    """
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s - %(message)s"
     )

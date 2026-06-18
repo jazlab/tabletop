@@ -47,6 +47,25 @@ def reindex_asof(
     direction: Literal["backward", "forward", "nearest"] = "backward",
     tolerance: Optional[float] = None,
 ) -> pd.DataFrame:
+    """Resample a DataFrame to a new index using an as-of (nearest-key) merge.
+
+    Aligns ``df`` onto ``new_idx`` by performing a ``merge_asof`` join on the
+    column specified by ``on``. Rows in the output correspond to values in
+    ``new_idx``; each row carries the most-recent (or nearest, depending on
+    ``direction``) matching row from ``df``.
+
+    Args:
+        df: Source DataFrame to resample. Must be sorted by ``on``.
+        new_idx: Target index values (e.g., a uniform time grid).
+        on: Column name to join on (typically ``"time"``).
+        direction: Merge direction — ``"backward"`` (default), ``"forward"``,
+            or ``"nearest"``.
+        tolerance: Maximum allowed distance between keys. Unmatched rows
+            receive NaN. If None, no tolerance limit is applied.
+
+    Returns:
+        DataFrame aligned to ``new_idx`` with the same columns as ``df``.
+    """
     return pd.merge_asof(
         pd.DataFrame({on: new_idx}),
         df,
@@ -246,11 +265,13 @@ def animate_2d_dots(
     ax.legend()
 
     def init():
+        """Set all scatter plots to their frame-0 positions."""
         for key, plot in plots.items():
             plot.set_offsets(data[key][0])
         return tuple(plots.values())
 
     def animate(i):
+        """Update all scatter plots to the data frame corresponding to animation step i."""
         idx = int(i * interval * freq)
         for key, plot in plots.items():
             plot.set_offsets(data[key][idx])
@@ -339,6 +360,7 @@ def animate_3d_dots(
         z_idx = 2
 
     def init():
+        """Set all 3D scatter plots to their frame-0 positions."""
         for key, plot in plots.items():
             plot._offsets3d = (
                 data[key][0, x_idx].reshape(1),
@@ -348,6 +370,7 @@ def animate_3d_dots(
         return tuple(plots.values())
 
     def animate(i):
+        """Update all 3D scatter plots to the data frame corresponding to animation step i."""
         idx = int(i * interval * freq)
         for key, plot in plots.items():
             plot._offsets3d = (
@@ -382,6 +405,31 @@ def animate_3d_dots(
 def visualize_calibration(
     session_dir: os.PathLike, config: Mapping[str, Any] | os.PathLike | str
 ):
+    """Run the full visualization pipeline for a gaze calibration session.
+
+    Generates and saves four outputs into ``session_dir``:
+
+    1. ``raw.png`` — time-series plot of raw EyeLink and marker data.
+    2. ``preprocessed.png`` — time-series plot of preprocessed EyeLink data.
+    3. ``eyelink.mp4`` — 2-D animation of left/right eye positions over time.
+    4. ``predictions.mp4`` — 3-D animation of predicted vs. target marker
+       positions over time.
+
+    File names for preprocessed and predictions CSVs, sampling frequencies,
+    and animation bounds are all read from ``config``.
+
+    Args:
+        session_dir: Path to the session directory containing
+            ``raw_eyelink.csv``, ``raw_markers.csv``, and the preprocessed
+            and predictions CSV files named in ``config``.
+        config: Visualization configuration as a mapping or a path to a
+            YAML file. Must contain keys ``eyelink_freq``, ``markers_freq``,
+            ``preprocess.filename``, ``predictions.filename``, and a
+            ``visualize`` sub-mapping consumed by the animation helpers.
+
+    Raises:
+        FileNotFoundError: If ``session_dir`` does not exist.
+    """
     if not os.path.exists(session_dir):
         raise FileNotFoundError(
             f"Session directory not found at {session_dir}"
@@ -459,6 +507,11 @@ def visualize_calibration(
 
 
 def main(args=None):
+    """Entry point for visualizing gaze calibration results.
+
+    CLI for generating plots and animations of raw data, preprocessed
+    data, and model predictions from a calibration session.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(

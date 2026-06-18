@@ -1,3 +1,21 @@
+"""Launch file for Teensy microcontroller interface.
+
+Launches either the micro-ROS agent bridge to a real Teensy board or
+a mock Teensy simulator node for testing without hardware.
+
+Nodes Launched:
+    micro_ros_agent (micro_ros_agent): Bridge to real Teensy via serial
+    mock_teensy (tabletop_rig): Mock Teensy simulation node
+
+Example:
+    # Real hardware
+    ros2 launch tabletop_rig teensy.launch.py simulate:=false \
+        micro_ros_device:=/dev/ttyACM0
+
+    # Simulation
+    ros2 launch tabletop_rig teensy.launch.py simulate:=true
+"""
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,

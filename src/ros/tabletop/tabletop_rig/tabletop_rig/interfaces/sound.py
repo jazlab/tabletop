@@ -44,12 +44,20 @@ class SoundInterface(BaseInterface):
     ) -> None:
         """Initialize the sound interface.
 
-        Loads configuration from the node's parameters, initializes FluidSynth
-        with the configured soundfont, and sets up the default note and
-        instrument.
+        Reads parameters from '<name>.*' (or fallback prefix):
+        - enable: whether sound is active
+        - soundfont_path: path to .sf2 soundfont file
+        - instrument: MIDI instrument number
+        - default_note: dict with Note fields (name, octave, velocity, channel)
+        - default_duration: default playback duration in seconds
+
+        Initializes FluidSynth with pulseaudio driver if enabled.
 
         Args:
             node: Parent ROS2 node containing sound configuration parameters.
+            name: Interface name (used for parameter lookup and logging).
+            parameter_fallback_prefix: Optional fallback prefix for parameter
+                lookup.
 
         Raises:
             FileNotFoundError: If the configured soundfont file doesn't exist.
@@ -90,7 +98,7 @@ class SoundInterface(BaseInterface):
         self.log("Sound interface initialized")
 
     def init_sound(self) -> None:
-        """Initialize sound system (placeholder for future use)."""
+        """Initialize sound system (unused placeholder)."""
 
     def start_note(self, note: Optional[Note] = None) -> None:
         """Start playing a note continuously.
@@ -155,6 +163,10 @@ class SoundInterface(BaseInterface):
             fluidsynth.stop_Note(note)
 
     def destroy_interface(self):
+        """Clean up FluidSynth resources.
+
+        Stops all playing notes and cleanup FluidSynth if initialized.
+        """
         self.log("Destroying SoundInterface")
         if fluidsynth.initialized:
             fluidsynth.stop_everything()

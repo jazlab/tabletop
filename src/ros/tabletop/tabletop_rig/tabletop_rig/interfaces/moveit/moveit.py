@@ -1,26 +1,28 @@
-"""MoveIt planning scene management interface.
+"""Top-level MoveIt planning scene management interface.
 
-This module provides a comprehensive interface for managing the MoveIt planning
-scene, including collision objects, attached objects, and the allowed collision
-matrix. It is the foundation of the MoveIt interface hierarchy.
+This module provides the MoveItInterface, which extends BaseInterface
+directly and owns the MoveItPy instance plus all planning scene state. It is
+a single shared instance held by the Commander; ObjectManipulationInterface
+(itself a subclass of PlanAndExecuteInterface) composes it by reference
+rather than inheriting from it.
 
 Key Capabilities:
-- Loading collision objects from YAML configuration and mesh files
+- Loading/initializing collision objects from YAML configuration
 - Adding/removing world and attached collision objects
 - Managing the allowed collision matrix for selective collision checking
-- Supporting both mesh and primitive collision geometries
+- Supporting mesh, plane, and primitive collision geometries
+- Frame transform queries and reference frame conversions
 - Named robot state and pose management
-- Planning scene hashing for trajectory cache validation
+- Planning scene persistence (save/load to/from disk)
+- Exclusive region management for multi-robot coordination
+- Scene hashing for trajectory cache validation
 
-The PlanningSceneInterface is designed to be subclassed by higher-level
-interfaces that add motion planning and execution capabilities.
+The interface wraps MoveItPy's PlanningSceneMonitor and provides convenient
+methods for common planning scene operations. All public methods include
+proper error handling and logging.
 
-Inheritance Hierarchy:
-    BaseInterface
-    └── PlanningSceneInterface
-        └── PlanAndExecuteInterface
-            └── ObjectManipulationInterface
-                └── MoveItInterface
+Grid objects track experiment objects on a 2D grid; exclusive regions gate
+access to restricted areas with collision walls.
 """
 
 import hashlib
@@ -100,6 +102,14 @@ from tabletop_rig.utils.ros import (
 
 
 class GridObject(NamedTuple):
+    """Tracks a collision object placed on the experiment grid.
+
+    Attributes:
+        object_id: Unique identifier for the collision object.
+        grid_idx: Grid position as (row, col) integer tuple.
+        pose_stamped: Current pose of the object with frame and timestamp.
+    """
+
     object_id: str
     grid_idx: tuple[int, int]
     pose_stamped: PoseStamped
@@ -107,6 +117,21 @@ class GridObject(NamedTuple):
 
 @dataclass
 class ExclusiveRegion:
+    """Tracks an exclusive region that gates access to a restricted area.
+
+    An exclusive region uses collision walls to restrict robot access. Only
+    one robot (identified by group_name) may acquire the region at a time,
+    allowing its collision objects to pass through the walls.
+
+    Attributes:
+        region_id: Unique identifier for the exclusive region.
+        collision_ids: List of wall collision object IDs that form the region.
+        acquired: True if currently held by a robot group.
+        group_name: Name of the planning group holding the region (or None).
+        modified_collisions: List of (robot_id, wall_id) pairs that were
+            allowed when acquired (or None if not acquired).
+    """
+
     region_id: str
     collision_ids: list[str]
     acquired: bool
@@ -115,25 +140,23 @@ class ExclusiveRegion:
 
 
 class MoveItInterface(BaseInterface):
-    """Interface for managing MoveIt planning scene components.
+    """Top-level interface for MoveIt planning scene management.
 
-    Provides methods to:
-    - Load and manage collision objects from configuration
-    - Control object attachment to robot links
-    - Configure allowed collision matrix entries
-    - Query and set named robot states and poses
-    - Generate scene hashes for cache invalidation
+    Manages all aspects of the MoveIt planning scene: collision objects
+    (planes, primitives, meshes), attached objects, frame transforms,
+    robot states, and the allowed collision matrix. Supports persistence
+    via caching, grid object tracking, and exclusive regions for
+    multi-robot coordination.
 
-    This class manages the PlanningSceneMonitor from MoveItPy and provides
-    convenient wrappers for common planning scene operations.
+    Initialization loads the planning scene from either a cached file or
+    by building it from YAML configuration, then caches it for future
+    sessions if the configuration hash matches.
 
     Attributes:
-        _moveit_py: The MoveItPy instance for planning scene access.
-        _planning_scene_monitor: Monitor for planning scene updates.
-        _robot_model: The robot model from URDF/SRDF.
-        _planning_frame: The reference frame for planning.
-        _pose_link: Default end-effector link for pose targets.
-        _group_name: Default planning group name.
+        moveit_py: The MoveItPy instance providing planning scene access.
+        grid_objects_by_id: Map of object_id → GridObject for grid objects.
+        grid_objects_by_idx: Map of (row, col) → GridObject for grid objects.
+        _exclusive_regions: Map of region_id → ExclusiveRegion state.
     """
 
     moveit_py: MoveItPy
@@ -148,13 +171,17 @@ class MoveItInterface(BaseInterface):
         *,
         parameter_fallback_prefix: Optional[str] = None,
     ) -> None:
-        """Initializes the MoveItSceneInterface
+        """Initialize the MoveIt interface and load the planning scene.
 
-        Initializes MoveItPy and planning scene
+        Creates the MoveItPy instance, initializes the planning scene from
+        cache or configuration, sets up exclusive regions, and applies link
+        padding. On first run, saves the initialized scene to cache.
 
         Args:
-            node: Parent ROS node for accessing parameters and communicating with other nodes
-            logger_name: Name given to child logger of parent node
+            node: Parent ROS node for parameter access and logging.
+            name: Interface name (used for logging and parameter prefixes).
+            parameter_fallback_prefix: Optional prefix for fallback parameter
+                lookup (e.g., 'common_moveit_interface').
         """
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -312,13 +339,21 @@ class MoveItInterface(BaseInterface):
     #         yield scene
 
     def get_planning_scene_copy(self) -> PlanningScene:
-        """Get a copy of the planning scene."""
+        """Get a deep copy of the current planning scene.
+
+        Returns:
+            A PlanningScene object representing the current state.
+        """
         with self.psm.read_only() as scene:
             return deepcopy(scene)
 
     @property
     def planning_frame(self) -> str:
-        """Get the planning frame from the planning scene."""
+        """Get the reference frame for planning (always 'world').
+
+        Returns:
+            The planning frame ID string.
+        """
         with self.psm.read_only() as scene:
             planning_frame = scene.planning_frame
             assert planning_frame == "world"
@@ -326,7 +361,11 @@ class MoveItInterface(BaseInterface):
 
     @property
     def collision_object_ids(self) -> list[str]:
-        """Get the collision object ids from the planning scene."""
+        """Get all world collision object IDs from the planning scene.
+
+        Returns:
+            List of collision object IDs (empty if none exist).
+        """
         with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
@@ -335,7 +374,11 @@ class MoveItInterface(BaseInterface):
 
     @property
     def collision_objects(self) -> dict[str, CollisionObject]:
-        """Get the collision objects from the planning scene."""
+        """Get all world collision objects from the planning scene.
+
+        Returns:
+            Dict mapping object_id → CollisionObject (deep copies).
+        """
         with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
@@ -344,7 +387,11 @@ class MoveItInterface(BaseInterface):
 
     @property
     def attached_collision_object_ids(self) -> list[str]:
-        """Get the attached collision object ids from the planning scene."""
+        """Get all attached collision object IDs from the planning scene.
+
+        Returns:
+            List of attached object IDs (empty if none attached).
+        """
         with self.psm.read_only() as scene:
             attached_collision_objects: list[AttachedCollisionObject] = (
                 scene.planning_scene_message.robot_state.attached_collision_objects
@@ -352,8 +399,14 @@ class MoveItInterface(BaseInterface):
             return [x.object.id for x in attached_collision_objects]
 
     @property
-    def attached_collision_objects(self) -> dict[str, AttachedCollisionObject]:
-        """Get the attached collision objects from the planning scene."""
+    def attached_collision_objects(
+        self,
+    ) -> dict[str, AttachedCollisionObject]:
+        """Get all attached collision objects from the planning scene.
+
+        Returns:
+            Dict mapping object_id → AttachedCollisionObject (deep copies).
+        """
         with self.psm.read_only() as scene:
             attached_collision_objects: list[AttachedCollisionObject] = (
                 scene.planning_scene_message.robot_state.attached_collision_objects
@@ -364,7 +417,14 @@ class MoveItInterface(BaseInterface):
 
     @property
     def collision_matrix_df(self) -> pd.DataFrame:
-        """Get the collision matrix as a pandas DataFrame."""
+        """Get the allowed collision matrix as a pandas DataFrame.
+
+        Rows and columns are indexed by collision object IDs. Values are
+        boolean (True = collision allowed, False = collision disallowed).
+
+        Returns:
+            A square DataFrame with object IDs as index and columns.
+        """
         with self.psm.read_only() as scene:
             msg: AllowedCollisionMatrixMsg = (
                 scene.planning_scene_message.allowed_collision_matrix
@@ -378,11 +438,25 @@ class MoveItInterface(BaseInterface):
 
     @property
     def robot_model(self) -> RobotModel:
-        """Get the robot model."""
+        """Get the robot model from URDF and SRDF.
+
+        Returns:
+            The RobotModel instance (from MoveItPy).
+        """
         return self.moveit_py.get_robot_model()
 
     def get_current_state(self) -> RobotState:
-        """Get the current state from the planning scene"""
+        """Get the current robot state from the planning scene.
+
+        Waits for the planning scene monitor to have a fresh robot state
+        within the configured timeout, then returns a deep copy.
+
+        Returns:
+            A RobotState representing the robot's current joint positions.
+
+        Raises:
+            Logs a warning if current state unavailable within timeout.
+        """
         self.log("Getting current state from planning scene", severity="DEBUG")
 
         # TODO: Should probably use this
@@ -400,6 +474,14 @@ class MoveItInterface(BaseInterface):
             return deepcopy(scene.current_state)
 
     def get_joint_names(self, group_name: str) -> list[str]:
+        """Get the active joint names for a planning group.
+
+        Args:
+            group_name: The name of the planning group.
+
+        Returns:
+            List of active joint names in the group.
+        """
         return self.robot_model.get_joint_model_group(
             group_name
         ).active_joint_model_names
@@ -416,13 +498,31 @@ class MoveItInterface(BaseInterface):
         return self.moveit_py.get_planning_component(group_name)
 
     def get_named_target_states(self, group_name: str) -> list[str]:
-        """Get the named target states from the planning component."""
+        """Get the names of all SRDF-defined target states for a group.
+
+        Args:
+            group_name: The name of the planning group.
+
+        Returns:
+            List of named target state names (e.g., 'home', 'ready').
+        """
         return self.get_planning_component(group_name).named_target_states
 
     def get_target_state(
         self, target_name: str, group_name: str
     ) -> RobotState:
-        """Get the named target state from the planning component."""
+        """Get a RobotState for a named SRDF target.
+
+        Looks up the target in the SRDF and creates a RobotState with the
+        named joint positions, keeping other joints at their current values.
+
+        Args:
+            target_name: Name of the SRDF-defined target (e.g., 'home').
+            group_name: Planning group to which the target belongs.
+
+        Returns:
+            A RobotState with the target joint positions applied.
+        """
         joint_positions: dict[str, float] = self.get_planning_component(
             group_name
         ).get_named_target_state_values(target_name)
@@ -507,15 +607,33 @@ class MoveItInterface(BaseInterface):
     ) -> PoseStamped:
         """Create a PoseStamped message from keyword arguments.
 
-        Uses planning frame as default frame id if not specified.
+        Defaults to planning frame (world) if frame_id not specified.
+        Passes remaining kwargs (position, orientation, etc.) to
+        pose_stamped_msg utility.
+
+        Args:
+            frame_id: Reference frame ID (defaults to planning frame).
+            **kwargs: Additional arguments passed to pose_stamped_msg
+                (e.g., position=[x,y,z], orientation=[w,x,y,z]).
+
+        Returns:
+            A PoseStamped message with the specified frame and pose.
         """
         if frame_id is None:
             frame_id = self.planning_frame
         return pose_stamped_msg(frame_id=frame_id, **kwargs)
 
     def get_frame_transform(self, frame_id: str) -> np.ndarray:
-        """
-        Get the frame transform for a given frame id from the planning scene.
+        """Get the 4x4 transform matrix for a frame relative to planning frame.
+
+        Args:
+            frame_id: The frame ID to get the transform for.
+
+        Returns:
+            A 4x4 numpy array representing the homogeneous transform.
+
+        Raises:
+            ValueError: If the frame is unknown to the planning scene.
         """
         with self.psm.read_only() as scene:
             if not scene.knows_frame_transform(frame_id):
@@ -530,7 +648,22 @@ class MoveItInterface(BaseInterface):
     def change_reference_frame(
         self, pose_stamped: PoseStamped, new_frame_id: str
     ) -> PoseStamped:
-        """Change the reference frame of a pose stamped message."""
+        """Transform a pose to a different reference frame.
+
+        Uses planning scene frame transforms to convert the pose from its
+        current frame to the new frame. Logs a warning if already in the
+        target frame.
+
+        Args:
+            pose_stamped: The pose in its original frame.
+            new_frame_id: The target frame ID.
+
+        Returns:
+            A new PoseStamped in the target frame.
+
+        Raises:
+            ValueError: If either frame is unknown to the planning scene.
+        """
         if pose_stamped.header.frame_id == new_frame_id:
             self.log(
                 f"Pose stamped message already in frame {new_frame_id}",
@@ -550,7 +683,17 @@ class MoveItInterface(BaseInterface):
         )
 
     def get_frame_pose_stamped(self, frame_id: str) -> PoseStamped:
-        """Get the frame pose relative to the planning frame for a given frame id."""
+        """Get a frame's pose relative to the planning frame.
+
+        Args:
+            frame_id: The frame to get the pose for.
+
+        Returns:
+            A PoseStamped in the planning frame (world).
+
+        Raises:
+            ValueError: If the frame is unknown to the planning scene.
+        """
         return pose_stamped_msg(
             pose=pose_msg_from_matrix(self.get_frame_transform(frame_id)),
             frame_id=self.planning_frame,
@@ -559,7 +702,21 @@ class MoveItInterface(BaseInterface):
     def get_link_pose_stamped(
         self, link: str, frame_id: Optional[str] = None
     ) -> PoseStamped:
-        """Get the current end-effector pose."""
+        """Get the current pose of a robot link.
+
+        Gets the link's pose from the current robot state. If a frame_id is
+        provided, transforms the pose to that frame.
+
+        Args:
+            link: The name of the robot link.
+            frame_id: Optional target frame ID. If None, uses planning frame.
+
+        Returns:
+            A PoseStamped for the link in the requested frame.
+
+        Raises:
+            ValueError: If the frame_id is unknown to the planning scene.
+        """
         link_pose = self.get_current_state().get_pose(link)
 
         pose_stamped = pose_stamped_msg(
@@ -600,6 +757,14 @@ class MoveItInterface(BaseInterface):
         return object_id_to_path
 
     def scene_config_hash(self) -> str:
+        """Hash the planning scene configuration and mesh files.
+
+        Computes MD5 hash of the planning_scene parameter and all mesh file
+        contents referenced in the config. Used to invalidate cached scenes.
+
+        Returns:
+            Hex string of the MD5 hash.
+        """
         config = self.param("planning_scene")
 
         hash_algorithm = hashlib.md5()
@@ -631,10 +796,16 @@ class MoveItInterface(BaseInterface):
         return hash_algorithm.hexdigest()
 
     def scene_hash(self, include_robot: bool) -> str:
-        """Get the hash of the rig, for consistency purposes.
+        """Hash the current planning scene state.
+
+        Computes MD5 hash of all collision object poses and optionally the
+        robot base link transforms. Used for trajectory cache invalidation.
+
+        Args:
+            include_robot: If True, includes robot base link poses in hash.
 
         Returns:
-            The hash of the rig.
+            Hex string of the MD5 hash.
         """
         config = self.param("planning_scene")
 
@@ -708,14 +879,28 @@ class MoveItInterface(BaseInterface):
         return hash_algorithm.hexdigest()
 
     def save_planning_scene(self, path: str):
-        """Save the planning scene to a file."""
+        """Save the planning scene geometry to a file.
+
+        Args:
+            path: Absolute path to write the scene file to.
+
+        Raises:
+            RuntimeError: If the save operation fails.
+        """
         self.log(f"Saving planning scene to {path}")
         with self.psm.read_only() as scene:
             if not scene.save_geometry_to_file(path):
                 raise RuntimeError("Could not save planning scene to file")
 
     def load_planning_scene(self, path: str):
-        """Load the planning scene from a file."""
+        """Load planning scene geometry from a file.
+
+        Args:
+            path: Absolute path to the scene file to load.
+
+        Raises:
+            RuntimeError: If the load operation fails.
+        """
         self.log(f"Loading planning scene from {path}")
         with self.psm.read_write() as scene:
             if not scene.load_geometry_from_file(path):
@@ -723,12 +908,23 @@ class MoveItInterface(BaseInterface):
             scene.current_state.update()
 
     def save_collision_matrix(self, path: str):
-        """Save the collision matrix to a file."""
+        """Save the collision matrix to a CSV file.
+
+        Args:
+            path: Absolute path to write the CSV to.
+        """
         self.log(f"Saving collision matrix to {path}")
         self.collision_matrix_df.to_csv(path)
 
     def load_collision_matrix(self, path: str):
-        """Load the collision matrix from a file."""
+        """Load the collision matrix from a CSV file.
+
+        Reads the CSV and applies the allowed/disallowed collision pairs
+        to the planning scene.
+
+        Args:
+            path: Absolute path to the CSV file to load.
+        """
         self.log(f"Loading collision matrix from {path}")
         matrix_df = pd.read_csv(path, index_col=0)
 
@@ -749,7 +945,11 @@ class MoveItInterface(BaseInterface):
         self.disallow_collision(*zip(*false_pairs))
 
     def save_grid_objects(self, path: str):
-        """Save the grid object poses to a file."""
+        """Save grid object poses to a YAML file.
+
+        Args:
+            path: Absolute path to write the YAML to.
+        """
         self.log(f"Saving grid objects to {path}")
 
         to_save: list[dict] = []
@@ -780,7 +980,11 @@ class MoveItInterface(BaseInterface):
             yaml.dump(to_save, f)
 
     def load_grid_objects(self, path: str):
-        """Load the grid object poses from a file."""
+        """Load grid object poses from a YAML file.
+
+        Args:
+            path: Absolute path to the YAML file to load.
+        """
         self.log(f"Loading grid object poses from {path}")
 
         with open(path, "r") as f:
@@ -805,7 +1009,17 @@ class MoveItInterface(BaseInterface):
     ###########################################################################
 
     def get_collision_object(self, object_id: str) -> CollisionObject:
-        """Get a collision object from the planning scene."""
+        """Get a collision object by ID from the planning scene.
+
+        Args:
+            object_id: The ID of the collision object to retrieve.
+
+        Returns:
+            A deep copy of the CollisionObject message.
+
+        Raises:
+            ValueError: If no collision object with the given ID exists.
+        """
         with self.psm.read_only() as scene:
             collision_objects: list[CollisionObject] = (
                 scene.planning_scene_message.world.collision_objects
@@ -836,7 +1050,16 @@ class MoveItInterface(BaseInterface):
     def is_state_valid(
         self, robot_state: RobotState, group_name: str, verbose: bool = True
     ) -> bool:
-        """Check if the current state of the planning scene is ."""
+        """Check if a robot state is valid (no collisions, joint limits met).
+
+        Args:
+            robot_state: The RobotState to validate.
+            group_name: Planning group for validation context.
+            verbose: If True, logs details about any violations.
+
+        Returns:
+            True if the state is valid, False otherwise.
+        """
 
         with self.psm.read_only() as scene:
             return scene.is_state_valid(
@@ -844,13 +1067,17 @@ class MoveItInterface(BaseInterface):
             )
 
     def is_path_valid(self, trajectory: RobotTrajectory, verbose: bool = True):
-        """Validate the given robot trajectory.
+        """Validate a trajectory for collisions and joint limits.
+
+        Checks all waypoints in the trajectory, and optionally all states
+        along straight-line interpolation between waypoints.
 
         Args:
-            trajectory: The robot trajectory to validate.
+            trajectory: The RobotTrajectory to validate.
+            verbose: If True, logs details about any violations.
 
-        Raises:
-            TrajectoryError: If the trajectory is invalid.
+        Returns:
+            True if the trajectory is valid, False otherwise.
         """
         group_name = trajectory.joint_model_group_name
 
@@ -862,7 +1089,21 @@ class MoveItInterface(BaseInterface):
     def _parse_collision_matrix_entry(
         self, entry_found: bool, allowed_collision_type: str
     ) -> bool:
-        """Parse the collision matrix entry for two collision objects."""
+        """Parse collision matrix lookup result into boolean allowed flag.
+
+        Internal helper for querying the allowed collision matrix.
+
+        Args:
+            entry_found: True if an entry exists in the matrix.
+            allowed_collision_type: The type value ('ALWAYS', 'NEVER',
+                'UNKNOWN').
+
+        Returns:
+            True if collision is allowed, False otherwise.
+
+        Raises:
+            ValueError: If allowed_collision_type is invalid.
+        """
         if not entry_found:
             assert allowed_collision_type in ("UNKNOWN", "NEVER"), (
                 "Inconsistent collision matrix entry | "
@@ -880,7 +1121,15 @@ class MoveItInterface(BaseInterface):
             )
 
     def is_collision_allowed(self, id_0: str, id_1: str) -> bool:
-        """Check if collision is allowed between two collision objects."""
+        """Check if collision is allowed between two objects.
+
+        Args:
+            id_0: First collision object ID.
+            id_1: Second collision object ID.
+
+        Returns:
+            True if collision is allowed, False if disallowed.
+        """
         with self.psm.read_only() as scene:
             matrix: AllowedCollisionMatrix = scene.allowed_collision_matrix
             entry_found, allowed_collision_type = matrix.get_entry(id_0, id_1)
@@ -967,12 +1216,20 @@ class MoveItInterface(BaseInterface):
     def allow_collision(
         self, id_0: str | Iterable[str], id_1: str | Iterable[str]
     ) -> list[tuple[str, str]]:
-        """Modify the collision matrix to allow collisions
+        """Allow collision between object(s) in the collision matrix.
 
-        Accepts either a single pair of collision objects or multiple pairs of collision objects.
+        Accepts a single pair or multiple pairs of collision object IDs.
+        Flexible argument forms via _modify_collision_matrix:
+        - allow_collision('obj1', 'obj2'): single pair
+        - allow_collision('obj1', ['obj2', 'obj3']): one-to-many
+        - allow_collision(['obj1', 'obj2'], ['obj3', 'obj4']): many-to-many
 
-        See Also:
-            `_modify_collision_matrix` for argument and return value details
+        Args:
+            id_0: First collision object ID(s).
+            id_1: Second collision object ID(s).
+
+        Returns:
+            List of (id_0, id_1) pairs actually modified.
         """
         self.log(
             f"Disallowing collision between {id_0} and {id_1}",
@@ -983,15 +1240,24 @@ class MoveItInterface(BaseInterface):
     def disallow_collision(
         self, id_0: str | Iterable[str], id_1: str | Iterable[str]
     ) -> list[tuple[str, str]]:
-        """Modify the collision matrix to disallow collisions
+        """Disallow collision between object(s) in the collision matrix.
 
-        Accepts either a single pair of collision objects or multiple pairs of collision objects.
+        Accepts a single pair or multiple pairs of collision object IDs.
+        Flexible argument forms via _modify_collision_matrix:
+        - disallow_collision('obj1', 'obj2'): single pair
+        - disallow_collision('obj1', ['obj2', 'obj3']): one-to-many
+        - disallow_collision(['obj1', 'obj2'], ['obj3', 'obj4']): many-to-many
 
-        See Also:
-            `_modify_collision_matrix` for argument and return value details
+        Args:
+            id_0: First collision object ID(s).
+            id_1: Second collision object ID(s).
+
+        Returns:
+            List of (id_0, id_1) pairs actually modified.
         """
         self.log(
-            f"Allowing collision between {id_0} and {id_1}", severity="DEBUG"
+            f"Allowing collision between {id_0} and {id_1}",
+            severity="DEBUG",
         )
         return self._modify_collision_matrix(id_0, id_1, allow=False)
 
@@ -1004,14 +1270,21 @@ class MoveItInterface(BaseInterface):
         ] = None,
         allowed_collision_ids: Optional[Iterable[str]] = None,
     ):
-        """Process a collision object.
+        """Add a collision object to the planning scene with color and ACM.
 
-        Adds the collision object to the planning scene and saves the init kwargs.
+        Validates the object (must be ADD operation, ID must be unique),
+        processes color if provided, adds to scene via PSM, and allows
+        collisions with the specified object IDs.
 
         Args:
-            collision_object: The collision object to process.
-            color: The color of the collision object.
-            allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
+            collision_object: The CollisionObject to add (operation=ADD).
+            color: Optional color (ObjectColor msg, string name, RGBA list,
+                or dict). Defaults to no color.
+            allowed_collision_ids: Optional list of object IDs that are
+                allowed to collide with this object.
+
+        Raises:
+            ValueError: If operation is not ADD or ID already exists.
         """
         self.log(
             f"Processing collision object: {collision_object.id}",
@@ -1057,10 +1330,12 @@ class MoveItInterface(BaseInterface):
         """Add a plane collision object to the planning scene.
 
         Args:
-            object_id: The id for the collision object.
-            coef: The coefficients of the plane.
-            header_frame_id: The frame id of the header. If not specified, the
-                planning frame will be used.
+            object_id: Unique ID for the collision object.
+            coef: Plane coefficients [a, b, c, d] for equation ax+by+cz+d=0.
+            pose_stamped: Pose or dict (position/orientation) in the planning
+                frame. If dict, passed to create_pose_stamped.
+            allowed_collision_ids: Optional list of object IDs allowed to
+                collide with this plane.
         """
         self.log(f"Adding plane collision object: {object_id}")
         if not isinstance(pose_stamped, PoseStamped):
@@ -1089,13 +1364,15 @@ class MoveItInterface(BaseInterface):
         """Add a primitive collision object to the planning scene.
 
         Args:
-            object_id: The id for the collision object.
-            type: The type of the primitive.
-            dimensions: The dimensions of the primitive.
-            pose_stamped: The stamped pose of the collision object.
-            grid_idx: The index of the collision object in the grid.
-            color: The color of the collision object.
-            allowed_collision_ids: The ids of the collision objects that are allowed to collide with this object.
+            object_id: Unique ID for the collision object.
+            type: Primitive type (e.g., 'BOX', 'SPHERE', 'CYLINDER').
+            dimensions: Primitive dimensions (box: [x,y,z], sphere: [r],
+                cylinder: [r,h], etc.).
+            pose_stamped: Pose or dict in the planning frame.
+            subframes: Optional dict of subframe_name → Pose/dict.
+            color: Optional color (string name, RGBA list, or dict).
+            allowed_collision_ids: Optional list of object IDs allowed to
+                collide with this primitive.
         """
         self.log(f"Adding primitive collision object: {object_id}")
 
@@ -1149,18 +1426,25 @@ class MoveItInterface(BaseInterface):
         color: Optional[str | Iterable[float] | Mapping[str, float]] = None,
         allowed_collision_ids: Optional[list[str]] = None,
     ):
-        """Add a mesh collision object at a given path to the planning scene.
+        """Add a mesh collision object from a file to the planning scene.
+
+        Loads the mesh, optionally simplifies it, applies correction transform,
+        and adds to the planning scene. Supports both mesh and primitive-based
+        (bounding box, sphere, cylinder) collision representations.
 
         Args:
-            object_id: The id for the collision object.
-            path: The path to the mesh file.
-            pose_stamped: The pose of the collision object.
-            scale: The scale of the mesh.
-            correction: The correction to apply to the mesh.
-            simplification: The simplification method to use.
-            additional_subframe_names: The names of the additional subframes.
-            additional_subframe_poses: The poses of the additional subframes.
-            color: The color of the collision object.
+            object_id: Unique ID for the collision object.
+            path: Absolute path to the mesh file (STL, DAE, etc.).
+            scale: Optional scale factor for the mesh geometry.
+            correction: Optional Pose/dict to apply to the mesh before adding.
+            simplification: Optional simplification method. If starts with
+                'bounding_', converts mesh to primitive. Otherwise, applies
+                geometry simplification ('convex_hull', 'quadratic_decimation').
+            pose_stamped: Pose or dict in the planning frame.
+            subframes: Optional dict of subframe_name → Pose/dict.
+            color: Optional color (string name, RGBA list, or dict).
+            allowed_collision_ids: Optional list of object IDs allowed to
+                collide with this mesh.
         """
         self.log(f"Adding mesh collision object: {object_id}")
 
@@ -1237,16 +1521,25 @@ class MoveItInterface(BaseInterface):
         common_kwargs: dict[str, Any],
         object_kwargs: dict[str, dict[str, Any]],
     ):
-        """Add object meshes as collision objects to the planning scene.
+        """Add grid objects (meshes) to the planning scene.
 
-        Loads meshes from a directory and adds them using the global
-        pose_stamped specified for each object.
+        Loads meshes from a directory and adds them as collision objects.
+        Grid positions are tracked via the grid_objects_by_id and
+        grid_objects_by_idx dicts. Objects with object_id=None are skipped.
 
         Args:
-            path: The directory path to the object meshes.
-            common_kwargs: The common kwargs for the object meshes.
-            object_kwargs: The object kwargs for the object meshes, keyed
-                by grid index (e.g., "0,0").
+            mesh_dir: Directory containing mesh files (STL, DAE).
+            common_kwargs: Common kwargs for all grid objects (scale,
+                correction, simplification, subframes, color,
+                allowed_collision_ids, pose_stamped).
+            object_kwargs: Per-object kwargs keyed by grid index string
+                (e.g., "0,0"). Merged with common_kwargs; per-object
+                overrides common. Must include 'object_id' and
+                'pose_stamped'.
+
+        Raises:
+            ValueError: If mesh_dir is invalid, object mesh not found, or
+                object ID already exists in planning scene.
         """
         object_id_to_path = self._grid_object_id_to_path(mesh_dir)
 
@@ -1313,7 +1606,18 @@ class MoveItInterface(BaseInterface):
         *,
         touch_links: Optional[list[str]] = None,
     ):
-        """Attach an object to the robot."""
+        """Attach a collision object to a robot link.
+
+        Moves the object from the world to robot_state.attached_collision_objects.
+        The object will move with the link and not collide with specified touch
+        links (e.g., fingers, gripper).
+
+        Args:
+            object_id: ID of the collision object to attach.
+            link_name: Name of the robot link to attach to.
+            touch_links: Optional list of links that may touch the object
+                without collision (e.g., end-effector fingers).
+        """
         self.log(f"Attaching collision object {object_id}", severity="DEBUG")
         attached_collision_object = attached_collision_object_msg(
             object_id=object_id,
@@ -1324,7 +1628,16 @@ class MoveItInterface(BaseInterface):
         self.psm.process_attached_collision_object(attached_collision_object)
 
     def detach_collision_object(self, object_id: str, link_name: str = ""):
-        """Detach an object from the robot."""
+        """Detach a collision object from a robot link.
+
+        Moves the object from robot_state.attached_collision_objects back
+        to the world.
+
+        Args:
+            object_id: ID of the attached collision object to detach.
+            link_name: Name of the link the object is attached to (unused
+                for detach operation, included for API clarity).
+        """
         self.log(f"Detaching collision object {object_id}", severity="DEBUG")
         attached_collision_object = attached_collision_object_msg(
             object_id=object_id,
@@ -1334,14 +1647,21 @@ class MoveItInterface(BaseInterface):
         self.psm.process_attached_collision_object(attached_collision_object)
 
     def detach_all_collision_objects(self):
-        """Detach all collision objects from the robot."""
+        """Detach all attached collision objects from the robot.
+
+        Detaches each object individually and verifies all are detached.
+        """
         self.log("Detaching all collision objects", severity="DEBUG")
         for object_id in self.attached_collision_object_ids:
             self.detach_collision_object(object_id)
         assert len(self.attached_collision_object_ids) == 0
 
     def remove_collision_object(self, object_id: str):
-        """Remove a collision object from the planning scene."""
+        """Remove a collision object from the planning scene.
+
+        Args:
+            object_id: ID of the collision object to remove.
+        """
         self.log(f"Removing collision object: {object_id}")
         collision_object = CollisionObject(
             id=object_id, operation=CollisionObject.REMOVE
@@ -1349,7 +1669,11 @@ class MoveItInterface(BaseInterface):
         self.psm.process_collision_object(collision_object)
 
     def remove_all_collision_objects(self):
-        """Remove all collision objects from the planning scene."""
+        """Remove all collision objects from the planning scene.
+
+        Detaches all attached objects first, then removes all world objects.
+        Clears grid object tracking dicts and verifies empty state.
+        """
         self.log("Removing all collision objects", severity="DEBUG")
 
         self.detach_all_collision_objects()
@@ -1364,7 +1688,15 @@ class MoveItInterface(BaseInterface):
         assert len(self.collision_object_ids) == 0
 
     def move_collision_object(self, object_id: str, pose_stamped: PoseStamped):
-        """Move a collision object."""
+        """Move a collision object to a new pose.
+
+        If the object is attached, detaches it first. Then updates its pose
+        in the planning scene.
+
+        Args:
+            object_id: ID of the collision object to move.
+            pose_stamped: Target pose in the planning frame.
+        """
         self.log(f"Moving collision object: {object_id}", severity="DEBUG")
         if object_id in self.attached_collision_object_ids:
             self.detach_collision_object(object_id)
@@ -1382,24 +1714,15 @@ class MoveItInterface(BaseInterface):
     ###########################################################################
 
     def _init_exclusive_regions(self):
-        """Populate exclusive-region tracking and (optionally) add wall objects.
+        """Populate exclusive-region tracking from parameters.
 
-        An exclusive region is a set of collision walls that gate access to a
-        restricted area. Only one robot may hold the region at a time; the
-        holder uses `acquire_exclusive_region` to allow its own collision
-        objects to pass through the walls while every other robot remains
-        blocked.
+        Loads exclusive region definitions from the 'exclusive_regions'
+        parameter. Each region is a set of collision walls that gate access
+        to a restricted area. Validates that all referenced collision_ids
+        exist in the planning scene.
 
-        The walls themselves live in the planning scene like any other
-        primitive, so they participate in normal collision checking and are
-        included in the saved scene cache. When `add_to_scene` is False (we
-        loaded a cached scene), we only repopulate the tracking dict — the
-        walls are already present in the loaded scene.
-
-        Args:
-            config: The `planning_scene` parameter dict.
-            add_to_scene: Whether to also add the wall primitives to the
-                planning scene. False when loading from a cached scene.
+        Does not add the wall primitives to the scene (they are added during
+        _init_planning_scene as regular collision objects).
         """
         try:
             regions: dict[str, Any] = self.param("exclusive_regions")
@@ -1431,27 +1754,31 @@ class MoveItInterface(BaseInterface):
         robot_collision_ids: list[str],
         region_collision_ids: list[str],
     ) -> None:
-        """Acquire exclusive access to a region for the given holder.
+        """Acquire exclusive access to a region for a planning group.
 
-        Allows each of the provided collision objects to collide with every
-        wall in the region, so the holder can move through the walls while
-        other robots remain blocked.
+        Allows each robot collision object to pass through each region wall
+        by adding collision allowances to the ACM. Only one group may hold
+        a region at a time.
 
-        This is non-blocking: if the region is already held (by anyone,
-        including this caller), `RuntimeError` is raised immediately rather
-        than waiting for release.
+        This is non-blocking: if the region is already held, `RuntimeError`
+        is raised immediately rather than waiting for release.
 
         Args:
-            region_id: The id of the region to acquire (must match a key
-                under `planning_scene.exclusive_regions` in config).
-            holder: An identifier for the caller (typically the joint model
-                group name). Used to validate matching releases.
-            collision_ids: Collision object ids that should be allowed to
-                pass through the region's walls while it is held.
+            region_id: The region to acquire (must match a key under
+                `planning_scene.exclusive_regions` in config).
+            group_name: Planning group name acquiring the region. Used to
+                validate matching releases.
+            robot_collision_ids: Collision object IDs that should be allowed
+                to pass through the region's walls while it is held. Must be
+                non-empty.
+            region_collision_ids: Subset of the region's wall IDs that should
+                have allowances added. Must be non-empty and all must belong
+                to the region.
 
         Raises:
-            ValueError: if `region_id` is not a known exclusive region.
-            RuntimeError: if the region is already held.
+            ValueError: If region_id is unknown, group_name is invalid,
+                or collision IDs are invalid/empty.
+            RuntimeError: If the region is already held by any group.
         """
         self.log(
             f"Acquiring exclusive region '{region_id}' for '{group_name}'"
@@ -1510,19 +1837,19 @@ class MoveItInterface(BaseInterface):
     ) -> None:
         """Release exclusive access to a region.
 
-        Reverts the collision-matrix changes made by the corresponding
-        `acquire_exclusive_region` call.
+        Reverts all collision allowances added by the corresponding
+        `acquire_exclusive_region` call, returning the region to its initial
+        state (walls block all traffic).
 
         Args:
-            region_id: The id of the region to release.
-            holder: The identifier passed to `acquire_exclusive_region`.
-                Required to match; releasing on behalf of a different
-                holder raises `RuntimeError`.
+            region_id: The region to release (must match acquisition).
+            group_name: Planning group name releasing the region. Must match
+                the group that acquired it.
 
         Raises:
-            ValueError: if `region_id` is not a known exclusive region.
-            RuntimeError: if the region is not currently held, or is held
-                by a different holder.
+            ValueError: If region_id is unknown.
+            RuntimeError: If the region is not currently held, or is held
+                by a different group.
         """
         if region_id not in self._exclusive_regions:
             raise ValueError(
@@ -1558,7 +1885,13 @@ class MoveItInterface(BaseInterface):
     def log_planning_scene(
         self, severity: SeverityString | LoggingSeverity = "INFO"
     ):
-        """Log the planning scene."""
+        """Log the complete planning scene state (objects, state, ACM).
+
+        Clears mesh geometry from logged messages for readability.
+
+        Args:
+            severity: Log level (defaults to INFO).
+        """
         if not isinstance(severity, LoggingSeverity):
             severity = LoggingSeverity[severity]
 
@@ -1585,7 +1918,11 @@ class MoveItInterface(BaseInterface):
     def log_collision_matrix(
         self, severity: SeverityString | LoggingSeverity = "INFO"
     ):
-        """Log the collision matrix."""
+        """Log the allowed collision matrix as a DataFrame.
+
+        Args:
+            severity: Log level (defaults to INFO).
+        """
         if not isinstance(severity, LoggingSeverity):
             severity = LoggingSeverity[severity]
 
@@ -1600,7 +1937,13 @@ class MoveItInterface(BaseInterface):
     def log_collision_objects(
         self, severity: SeverityString | LoggingSeverity = "INFO"
     ):
-        """Log the collision objects."""
+        """Log all collision objects and attached objects.
+
+        Clears mesh geometry from logged messages for readability.
+
+        Args:
+            severity: Log level (defaults to INFO).
+        """
         if not isinstance(severity, LoggingSeverity):
             severity = LoggingSeverity[severity]
 
@@ -1641,7 +1984,10 @@ class MoveItInterface(BaseInterface):
     ###########################################################################
 
     def destroy_interface(self):
-        """Shut down MoveItPy"""
+        """Clean up MoveItPy resources and shutdown the interface.
+
+        Calls moveit_py.shutdown() and invokes parent cleanup.
+        """
         self.log("Destroying PlanAndExecuteInterface")
         if hasattr(self, "moveit_py"):
             self.moveit_py.shutdown()

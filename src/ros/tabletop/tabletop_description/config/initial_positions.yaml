@@ -1,3 +1,8 @@
+# Initial joint positions for the single-arm UR5e robot (mock hardware and joint_state_broadcaster).
+# Loaded by tabletop_description/urdf/tabletop.urdf.xacro (via xacro.load_yaml) and passed to
+# rsp.launch.py as the initial_positions_file argument.  Values set the joint starting state when
+# running with mock hardware (use_mock_hardware:=true).
+# All values are in RADIANS (REP-103).
 shoulder_pan_joint: 0
 shoulder_lift_joint: -2.618
 elbow_joint: 2.0944

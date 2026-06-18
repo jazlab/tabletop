@@ -37,8 +37,14 @@ class PresentTask(BaseObjectInteractionTask):
     or reward delivery. Returns empty TrialFeedback to allow trial
     generators to track trial completion.
 
-    This task requires a trial generator (will raise ValueError if
-    trial_spec is None).
+    This task requires a trial generator and is useful for:
+    - Object familiarization phases
+    - Passive viewing experiments
+    - Testing object presentation mechanics
+
+    Attributes:
+        commander: Reference to the Commander node for robot control.
+        _trial_generator: Generator producing TrialSpec objects.
     """
 
     def __init__(
@@ -60,16 +66,15 @@ class PresentTask(BaseObjectInteractionTask):
     ) -> TrialFeedback:
         """Execute a single presentation trial.
 
-        Moves the object to the specified pose and returns empty
-        feedback. No behavioral response is collected.
+        Presents the object at the target pose for passive viewing.
+        Object positioning is handled by the base class (_run_one_trial);
+        this method returns immediately without collecting behavioral data.
 
         Args:
             trial_spec: Specification containing the target object pose.
+            manipulator: ManipulationContextManager for the active robot.
 
         Returns:
             Empty TrialFeedback (no behavioral measures collected).
-
-        Raises:
-            ValueError: If trial_spec is None.
         """
         return TrialFeedback()

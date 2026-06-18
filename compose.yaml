@@ -1,10 +1,24 @@
+# Docker Compose service definitions for the TableTop rig.
+#
+# Services are grouped by Compose `profiles` and are normally brought up via
+# `tt-compose --profile=<sim|ursim|real> up` (see README / docs/architecture.md
+# section 2.3). Most ROS services `extends: ros-base` (shared image + repo bind
+# mount) and differ only in their profile, devices, and `tt-launch` command.
+# Profiles: real / sim / ursim (full sessions); commander, builder, dev
+# (single-purpose, usually started indirectly by tt-launch/tt-build);
+# deprecated (retired services kept for reference). .env (from tt-env-gen)
+# supplies the $VARS below (device paths, GPU runtime, PulseAudio mounts).
 name: tabletop
 
+# Shared settings merged into most services: host IPC + networking so every
+# ROS node sees every other node regardless of container (single DDS domain).
 x-common: &common
   ipc: host
   network_mode: host
 
 services:
+  # Watchdog that restarts any container labeled `autoheal-tabletop: true`
+  # when its healthcheck fails. Isolated network; talks only to the Docker socket.
   autoheal:
     container_name: tabletop-autoheal
     profiles: [ real, sim, ursim ]
@@ -16,16 +30,18 @@ services:
       - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
     restart: unless-stopped
 
+  # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
+  # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
   novnc:
     <<: *common
     container_name: tabletop-novnc
     profiles: [ real, sim, ursim ]
     image: jazlabtabletop/novnc
     environment:
-      - PORT=8080
+      - PORT=$NOVNC_PORT
       - DISPLAY=$NOVNC_DISPLAY
-      - DISPLAY_WIDTH=1920
-      - DISPLAY_HEIGHT=1080
+      - DISPLAY_WIDTH=$NOVNC_WIDTH
+      - DISPLAY_HEIGHT=$NOVNC_HEIGHT
       - WINDOW_MANAGER=dwm
     labels:
       autoheal-tabletop: true
@@ -33,6 +49,8 @@ services:
       - autoheal
     restart: unless-stopped
 
+  # Universal Robots UR5e simulator (virtual controller + teach pendant GUI).
+  # Renders to the noVNC display; loads our URCaps/programs from ur_robot/.
   ursim:
     <<: *common
     container_name: tabletop-ursim
@@ -53,6 +71,8 @@ services:
     init: true
     entrypoint: [ /entrypoint.sh ]
 
+  # DEPRECATED: Flic daemon (flicd) bridge over BLE. Superseded by the in-process
+  # scapy BLE sniffer in the flic node; kept under the `deprecated` profile.
   flicd:
     <<: *common
     container_name: tabletop-flicd
@@ -82,6 +102,8 @@ services:
     # stop_signal: SIGINT
     command: /app/entrypoint.sh
 
+  # Base image + workspace bind mount that every ROS service extends. On its own
+  # (profile `builder`) it builds the full workspace (`tt-build --all`).
   ros-base:
     <<: *common
     image: jazlabtabletop/ros-base
@@ -104,6 +126,8 @@ services:
     working_dir: /tabletop
     command: tt-build --all
 
+  # Builds/uploads the Teensy & Flic micro-controller firmware via PlatformIO.
+  # Privileged with /dev mounted for USB serial flashing (target of tt-microros-build).
   microros-builder:
     extends: ros-base
     container_name: tabletop-microros-builder
@@ -113,6 +137,7 @@ services:
     privileged: true
     command: tt-microros-build
 
+  # Foxglove bridge: exposes a WebSocket (ws://localhost:8765) for the Foxglove app.
   foxglove:
     extends: ros-base
     container_name: tabletop-foxglove
@@ -120,6 +145,7 @@ services:
     restart: unless-stopped
     command: tt-launch foxglove
 
+  # RViz visualization, rendered to the noVNC display.
   rviz:
     extends: ros-base
     container_name: tabletop-rviz
@@ -132,6 +158,8 @@ services:
     restart: unless-stopped
     command: tt-launch rviz
 
+  # Real dual-arm UR5e driver stack. SYS_NICE + rtprio/memlock ulimits for the
+  # driver's real-time control thread.
   ur:
     extends: ros-base
     container_name: tabletop-ur
@@ -144,6 +172,7 @@ services:
     restart: unless-stopped
     command: tt-launch dual_ur robot_mode:=real
 
+  # Mock dual-arm UR5e driver (no hardware) for simulation; same RT ulimits.
   ur-mock:
     extends: ros-base
     container_name: tabletop-ur-mock
@@ -156,6 +185,7 @@ services:
     restart: unless-stopped
     command: tt-launch dual_ur robot_mode:=mock
 
+  # OptiTrack motion-capture driver (real hardware only).
   optitrack:
     extends: ros-base
     container_name: tabletop-optitrack
@@ -163,6 +193,8 @@ services:
     restart: unless-stopped
     command: tt-launch optitrack
 
+  # DEPRECATED: unsynchronized FLIR camera driver (one device per $FLIR_DEV_*).
+  # Superseded by the hardware-synchronized `flir` service below.
   flir-no-sync:
     extends: ros-base
     container_name: tabletop-flir-no-sync
@@ -174,22 +206,15 @@ services:
       - $FLIR_DEV_3
       - $FLIR_DEV_4
       - $FLIR_DEV_5
-    # volumes:
-    #   - /dev:/dev
-    # privileged: true
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
-    #   - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
-    # cpus: 8 # Limit cpu usage
-    # runtime: $COMMANDER_RUNTIME
     restart: unless-stopped
-    command: tt-launch flir
+    command: tt-launch flir_no_sync
 
+  # Hardware-synchronized FLIR camera driver (Teensy trigger pulse). One USB
+  # device per $FLIR_DEV_* (up to FLIR_MAX_DEVS).
   flir:
     extends: ros-base
     container_name: tabletop-flir
-    # TODO: Change to real profile
-    profiles: !override [ flir ]
+    profiles: !override [ real ]
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -208,6 +233,8 @@ services:
     restart: unless-stopped
     command: tt-launch flir_synchronized
 
+  # Real Teensy micro-ROS agent (arm locks, safety laser, reward, sync pulse).
+  # Needs the $TEENSY_DEV serial device.
   teensy:
     extends: ros-base
     container_name: tabletop-teensy
@@ -217,6 +244,7 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=false micro_ros_device:=$TEENSY_DEV
 
+  # Mock Teensy node (simulates firmware topics/services), no serial device.
   teensy-sim:
     extends: ros-base
     container_name: tabletop-teensy-sim
@@ -224,6 +252,7 @@ services:
     restart: unless-stopped
     command: tt-launch teensy simulate:=true
 
+  # Real Flic button node. NET_ADMIN for raw BLE packet capture (scapy sniffer).
   flic:
     extends: ros-base
     container_name: tabletop-flic
@@ -239,6 +268,7 @@ services:
     restart: unless-stopped
     command: tt-launch flic simulate:=false
 
+  # Mock Flic button node (simulated presses), still needs NET_ADMIN.
   flic-sim:
     extends: ros-base
     container_name: tabletop-flic-sim
@@ -248,6 +278,8 @@ services:
     restart: unless-stopped
     command: tt-launch flic simulate:=true
 
+  # Real EyeLink eye-tracker node. rtprio ulimit for sample timing; bags mount
+  # for recording eye samples.
   eyelink:
     extends: ros-base
     container_name: tabletop-eyelink
@@ -263,6 +295,7 @@ services:
     restart: unless-stopped
     command: tt-launch eyelink simulate:=false
 
+  # Mock EyeLink node (simulated samples), no hardware.
   eyelink-sim:
     extends: ros-base
     container_name: tabletop-eyelink-sim
@@ -270,6 +303,9 @@ services:
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
+  # The orchestrator: runs the Commander node (in-process MoveIt). GPU runtime
+  # if available, PulseAudio sockets for reward sounds, bags mount. Longer
+  # stop grace period for clean shutdown. Usually launched on top of a session.
   commander:
     extends: ros-base
     container_name: tabletop-commander
@@ -289,6 +325,8 @@ services:
     stop_grace_period: 40s
     command: tt-launch commander
 
+  # The VS Code Dev Container: everything mounted, idles on `sleep infinity`
+  # so you attach and run tt-build / tt-launch interactively.
   dev:
     extends: ros-base
     container_name: tabletop-dev
@@ -310,5 +348,6 @@ services:
     entrypoint: ""
     command: sleep infinity
 
+# Named volume caching PlatformIO's core (toolchains/frameworks) across builds.
 volumes:
   platformio-core:

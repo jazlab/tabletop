@@ -1,24 +1,46 @@
+# Object reset configuration — LEFT arm, DRAWER strategy.
+#
+# Consumed by: ObjectManipulationInterface._init_reset_configs()
+#   in tabletop_rig/interfaces/moveit/object_manipulation.py, via the
+#   reset_config_map ROS parameter that maps grid object IDs to these files.
+#   Called at runtime by reset_object() / _reset_object_impl() to reset a
+#   drawer-type object to its "closed" state at the left reset station.
+#
+# Motion sequence (all poses in the left_reset_station/drawer TF frame):
+#   1. start_goal  — approach waypoint the arm moves to BEFORE collision
+#                    allowances are enabled (default planning pipeline).
+#   2. reset_request.goals[0] — push forward to close the drawer (reset object).
+#   3. reset_request.goals[1] — retract back to the approach position.
+#
+# All positions are [x, y, z] in meters (REP-103); rpy is [roll, pitch, yaw]
+# in radians (REP-103) relative to the named TF frame.
+#
+# Collision notes: the drawer insert motion intentionally contacts the reset
+# station and bar, so those links are explicitly allowed via
+# object_allowed_collision_ids and additional_allowed_collisions.
+# This requires planning_pipeline to be "linear" or "ptp" (enforced in code).
+
 !ObjectResetConfig
 start_goal: !PoseStamped
-  position: [0.15, 0.0, -0.065]
-  rpy: [0.0, 0.0, 3.1415]
-  frame_id: left_reset_station/drawer
+  position: [0.15, 0.0, -0.065] # Approach (retracted) pose, 150 mm out from drawer along X (meters)
+  rpy: [0.0, 0.0, 3.1415] # End-effector orientation — 180° yaw to face into drawer (radians)
+  frame_id: left_reset_station/drawer # TF frame: the left reset station drawer slot
 reset_request: !ConcatPlanRequest
   goals:
     - !PoseStamped
-      position: [0.067, 0.0, -0.065]
-      rpy: [0.0, 0.0, 3.1415]
+      position: [0.067, 0.0, -0.065] # Insert pose — pushed 67 mm into drawer along X (meters)
+      rpy: [0.0, 0.0, 3.1415] # Same orientation as approach (radians)
       frame_id: left_reset_station/drawer
     - !PoseStamped
-      position: [0.15, 0.0, -0.065]
-      rpy: [0.0, 0.0, 3.1415]
+      position: [0.15, 0.0, -0.065] # Retract to approach pose — 150 mm out from drawer (meters)
+      rpy: [0.0, 0.0, 3.1415] # Same orientation (radians)
       frame_id: left_reset_station/drawer
-  planning_pipeline: linear
-  velocity_scaling_factor: 0.3
-  acceleration_scaling_factor: 0.3
+  planning_pipeline: linear # Must be "linear" or "ptp" when collision allowances are active
+  velocity_scaling_factor: 0.3 # Scale on joint velocity limits (0.0–1.0); slow for safe drawer contact
+  acceleration_scaling_factor: 0.3 # Scale on joint acceleration limits (0.0–1.0); slow for safe drawer contact
 object_allowed_collision_ids:
-  - left_reset_station
-  - left_reset_bar
+  - left_reset_station # Allow collision between the manipulated object and the reset station body
+  - left_reset_bar # Allow collision between the manipulated object and the bar/guide rail
 additional_allowed_collisions:
-  - [left_eef_sphere, left_reset_station]
-  - [left_eef_sphere, left_reset_bar]
+  - [left_eef_sphere, left_reset_station] # Allow EEF collision sphere to contact the reset station during insert
+  - [left_eef_sphere, left_reset_bar] # Allow EEF collision sphere to contact the bar/guide rail during insert

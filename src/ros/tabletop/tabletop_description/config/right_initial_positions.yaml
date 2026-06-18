@@ -1,3 +1,9 @@
+# Initial joint positions for the RIGHT arm of the dual-arm UR5e rig (mock hardware).
+# Loaded by tabletop_description/urdf/dual_tabletop.urdf.xacro (via xacro.load_yaml) and passed to
+# dual_rsp.launch.py as the right_initial_positions_file argument.
+# The right arm mirrors the left arm: elbow_joint and wrist_2_joint are negated to keep the arm
+# on the right side of the workspace without self-collision.
+# All values are in RADIANS (REP-103).
 shoulder_pan_joint: 0.0
 shoulder_lift_joint: -1.5707
 elbow_joint: -1.5707

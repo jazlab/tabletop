@@ -84,27 +84,48 @@ _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 
 class ManipulationState(IntEnum):
-    """State machine states for object manipulation.
+    """State machine states for object manipulation operations.
 
-    The states track the current state of object manipulation, from
-    idle through fetch, present, and return operations.
+    Represents the current phase of a pick-place-return cycle for grid
+    objects, plus special states for manual attachment and initialization.
 
-    Attributes:
-        IDLE: No active manipulation, ready for next command.
-        PRE_FETCH: Moving toward object mount fetch position
-            (below and behind object mount).
-        PRE_ATTACH: Moving up (w.r.t. object mount) to contact dovetail.
-        ATTACH: Moving forward (w.r.t. object mount) into dovetail.
-        POST_ATTACH: Moving forward (w.r.t. object mount) out of object mount.
-        POST_FETCH: Moving down (w.r.t. object mount) out of object grid.
-        PRESENT: Moving toward presentation state/pose.
-        RESET: Resetting the object (user-defined ObjectResetConfig)
-        PRE_RETURN: Moving toward object mount return position
-            (below and in front of object mount).
-        PRE_DETACH: Moving up (w.r.t. object mount) in front of object mount.
-        DETACH: Moving back (w.r.t. object mount) into object mount.
-        POST_DETACH: Moving back (w.r.t. object mount) out of dovetail.
-        POST_RETURN: Moving down (w.r.t. object mount) away from dovetail.
+    Main Sequences:
+        FETCH: IDLE → PRE_FETCH → PRE_ATTACH → ATTACH → POST_ATTACH
+            → POST_FETCH → FETCHED (sequential; each state can skip if
+            already past)
+        PRESENT: FETCHED → PRESENTED (atomic)
+        RESET: User-defined waypoints via ObjectResetConfig (NEEDS_RESET
+            → PRE_RESET → RESETTED)
+        RETURN: FETCHED/RESETTED → PRE_RETURN → PRE_DETACH → DETACH
+            → POST_DETACH → POST_RETURN → IDLE (reverse of fetch; can
+            skip to IDLE if planning fails)
+
+    State Definitions:
+        IDLE: No object attached, ready for fetch/present/move commands.
+        PRE_FETCH: Moving to fetch approach pose (below/behind mount).
+        PRE_ATTACH: Moving to dovetail contact pose (up w.r.t. mount).
+        ATTACH: Inserting into dovetail (forward w.r.t. mount); object
+            attached in this state.
+        POST_ATTACH: Withdrawing from mount (forward w.r.t. mount).
+        POST_FETCH: Moving away from grid (down w.r.t. mount).
+        FETCHED: Ready to present; object held above grid.
+        PRESENTED: Holding object at presentation pose (locked via
+            exclusive region).
+        NEEDS_RESET: Object presented; unpresenting failed or reset
+            requested. Requires reset path execution.
+        PRE_RESET: Reset sequence started; awaiting completion.
+        RESETTED: Reset sequence complete; ready for return.
+        PRE_RETURN: Moving to return approach (above/in front of mount).
+        PRE_DETACH: Moving to dovetail insertion pose (up w.r.t. mount).
+        DETACH: Inserting into dovetail for return (back w.r.t. mount);
+            object still attached.
+        POST_DETACH: Withdrawing from dovetail (back w.r.t. mount);
+            object detached in this state.
+        POST_RETURN: Moving away from grid (down w.r.t. mount).
+        MANUALLY_ATTACHED: Non-grid object manually attached to end
+            effector (no state transitions; only reachable via
+            manually_attach_object()).
+        UNINITIALIZED: Initial state; not yet tested for attached object.
     """
 
     IDLE = 0
@@ -190,6 +211,21 @@ _STATE_GOAL_NAME_MAP = {
 
 
 class PersistentState(NamedTuple):
+    """Serializable snapshot of manipulation state for cross-session recovery.
+
+    Written to disk on shutdown and loaded on the next startup to restore
+    in-progress manipulation (e.g., an object that was fetched but not
+    returned before the process exited).
+
+    Attributes:
+        manipulation_state: ManipulationState at the time of serialization.
+        manipulation_id: Grid object ID being manipulated, or None if idle.
+        saved_return_state_positions: Per-object joint positions for return
+            waypoints, keyed by object ID. Values are (ManipulationState,
+            joint_name → position) pairs corresponding to the saved robot
+            states at POST_ATTACH and POST_FETCH.
+    """
+
     manipulation_state: ManipulationState
     manipulation_id: str | None
     saved_return_state_positions: dict[
@@ -198,7 +234,21 @@ class PersistentState(NamedTuple):
 
 
 class ResetLoader(KwargYamlLoader):
+    """YAML loader for object reset configuration files.
+
+    Registers custom constructors for all types that may appear in
+    per-object reset YAML files (PoseStamped, Constraints, plan request
+    types, and joint state types). Used by ``_init_reset_configs`` to
+    parse ``ObjectResetConfig`` documents.
+    """
+
     def get_kwarg_constructors(self) -> dict[str, Callable]:
+        """Return tag-to-constructor mapping for reset config YAML types.
+
+        Returns:
+            Mapping of YAML tag strings to callables that accept keyword
+            arguments, covering all types used in object reset config files.
+        """
         return {
             "!PoseStamped": pose_stamped_msg,
             "!Constraints": constraints_msg,
@@ -210,12 +260,36 @@ class ResetLoader(KwargYamlLoader):
 
 
 def validate_and_lock(coro_fn):
+    """Decorator that serializes coroutine execution under a manipulation lock.
+
+    Wraps an ``async`` method so that it:
+
+    1. Raises ``ObjectManipulationError`` immediately if the lock is already
+       held (no waiting — only one manipulation can be in flight at a time).
+    2. Acquires ``self._manipulation_lock`` for the duration of the call.
+    3. Validates ``_manipulation_state`` consistency both before and after
+       the wrapped coroutine (via ``_validate_manipulation_state``), even
+       if the coroutine raises.
+
+    Only coroutine functions are wrapped; non-coroutines pass through
+    unmodified (currently the decorator is applied only to ``async def``
+    methods, so the non-coroutine branch is unused).
+
+    Args:
+        coro_fn: The async method to wrap. Must be a method of
+            ``ObjectManipulationInterface`` (i.e. ``self`` is the first arg).
+
+    Returns:
+        Wrapped async function, or the original function unchanged if it is
+        not a coroutine function.
+    """
     if inspect.iscoroutinefunction(coro_fn):
 
         @functools.wraps(coro_fn)
         async def async_wrapper(
             self: "ObjectManipulationInterface", *args, **kwargs
         ):
+            """Acquire lock, validate state, run wrapped coroutine, re-validate."""
             if self._manipulation_lock.locked():
                 raise ObjectManipulationError(
                     "Robot cannot cannot acquire manipulation "
@@ -234,7 +308,32 @@ def validate_and_lock(coro_fn):
 
 
 class ObjectManipulationInterface(PlanAndExecuteInterface):
-    """TODO"""
+    """High-level object manipulation state machine for pick-and-place ops.
+
+    Extends PlanAndExecuteInterface with automated state-machine-based
+    picking, presenting, and returning of objects from a grid mount.
+    Coordinates collision allowances, attachment/detachment, and reset
+    sequences defined in per-object YAML configuration files.
+
+    State Machine (ManipulationState):
+        Fetch sequence (PRE_FETCH → ... → FETCHED)
+        Present sequence (FETCHED → PRESENTED)
+        Reset sequence (user-defined waypoints via ObjectResetConfig)
+        Return sequence (FETCHED/PRESENTED → ... → IDLE)
+
+    Parameters loaded from config with fallback prefixes:
+        '<name>_manipulation_interface.' → 'common_manipulation_interface.'
+
+    Attributes:
+        _manipulation_state: Current state in fetch/present/return cycle.
+        _current_manipulation_id: Object currently being manipulated.
+        _manipulation_lock: Async lock for serializing operations.
+        _reachable_object_ids: Set of grid object IDs the robot can reach.
+        _reset_configs: Cached ObjectResetConfig per grid object.
+        _saved_return_states: Cached states for returning to fetch pose.
+        _last_pre_reset_state: State before reset sequence (for recovery).
+        _persistent_state_path: Absolute path for persisting state on exit.
+    """
 
     _manipulation_state: ManipulationState
     _current_manipulation_id: str | None
@@ -444,6 +543,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @property
     def attach_link(self) -> str:
+        """Get the robot link to which objects are attached/detached."""
         return self.default_pose_link
 
     @property
@@ -609,15 +709,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         state: ManipulationState,
         object_id: Optional[str],
     ) -> PlanGoalT:
-        """Get the goal for the given state and object.
+        """Get the planning goal for the given manipulation state.
+
+        Looks up goal configuration from parameters, supporting per-object
+        overrides. Goal types include offsets from object mount position,
+        named target states, joint configurations, and Cartesian poses.
+        Saves and restores return-path states (PRE_RETURN, PRE_DETACH)
+        so the robot can retrace its fetch path.
 
         Args:
-            state: The state to get the goal for
-            object_id: The ID of the object to get the goal for
-            goal: The goal to use if the state is present or unpresent
+            state: ManipulationState to get goal for.
+            object_id: Grid object ID (or None for IDLE/non-grid goals).
 
         Returns:
-            The goal for the given state and object.
+            Goal as PlanGoalT (RobotState, PoseStamped, str, or
+            list[Constraints]).
+
+        Raises:
+            ParameterNotDeclaredException: If goal config not found.
+            ValueError: If goal type is unknown or validation fails.
         """
         if (
             state
@@ -677,18 +787,32 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def _fetch_or_return_transition(
         self, object_id: str, next_state: ManipulationState
     ) -> list[TrajectoryCacheKwargs] | None:
-        """Plan and execute a state transition of the object manipulation process.
+        """Plan and execute one step in the fetch/return state machine.
 
-        This is a helper function for the object manipulation process.
+        Helper for _fetch_object_impl and _return_object_impl. Manages
+        collision allowances during object-mount interactions, saves/
+        restores return-path states, and attaches/detaches objects at
+        the appropriate states. Uses linear planning pipeline for
+        Cartesian mount approach/withdraw motions.
+
+        Starting State: Current _manipulation_state (IDLE, RESETTED, or
+            a fetch/return state).
+        Resulting State: next_state (set by caller after this returns).
 
         Args:
-            object_id: The ID of the object to manipulate
-            group_name: Joint model group name to use
-            next_state: The object manipulation state to transition to
+            object_id: Grid object ID being manipulated.
+            next_state: Target ManipulationState to transition toward.
 
         Returns:
-            A dictionary containing the kwargs to cache the trajectory, or None
-            if the trajectory was found in the cache.
+            List of TrajectoryCacheKwargs if trajectory was planned
+            (cacheable). None if trajectory was cached or request had
+            use_cache=False.
+
+        Raises:
+            ExecutionInterruptedError, ExecutionStoppedError: On execution
+                failure.
+            StateTransitionError: If next_state is invalid for current
+                state.
         """
         self.log(
             f"Transitioning from "
@@ -1367,6 +1491,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         joint_efforts: dict[str, list[float]] = {}
 
         def joint_state_callback(msg: JointState):
+            """Accumulate joint effort samples and signal when enough are collected."""
             try:
                 nonlocal joint_efforts
                 nonlocal num_samples
@@ -1470,6 +1595,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         torques: list[list[float]] = []
 
         def wrench_callback(msg: WrenchStamped):
+            """Accumulate wrench force/torque samples and signal when enough are collected."""
             try:
                 nonlocal forces
                 nonlocal torques
@@ -1731,6 +1857,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
     @property
     def current_manipulation_id(self) -> str | None:
+        """Get the ID of the object currently being manipulated, or None."""
         return self._current_manipulation_id
 
     @validate_and_lock
@@ -1740,38 +1867,53 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         *,
         cache_trajectories: bool = True,
     ) -> None:
-        """Fetch an object from its mount.
+        """Pick up an object from its grid mount (IDLE → FETCHED).
 
-        The robot moves to the object's mount, attaches the object, and moves
-        to the object's post-fetch pose. It uses cached trajectories if
-        available and only caches the planned trajectories if the full fetch
-        process is successful. This addresses the issue of the robot getting
-        "stuck" in a state that it cannot complete the full fetch process and
-        caching trajectories that are unusable.
+        Executes fetch state machine: PRE_FETCH → PRE_ATTACH → ATTACH
+        → POST_ATTACH → POST_FETCH → FETCHED. If already partially
+        through fetch, resumes from current state. If in return states,
+        reverses direction. Caches only after full success.
+
+        Starting State: IDLE, RESETTED, or any fetch/return state.
+        Resulting State: FETCHED (or partially through if exception).
 
         Args:
-            object_id: The ID of the object to fetch
-            cache_trajectories: Whether to cache the trajectories after fetching
-                the object
+            object_id: Reachable grid object ID.
+            cache_trajectories: Cache planned trajectories after fetch.
 
         Raises:
-            ValueError: If the object ID is not a valid collision object
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
+            ValueError: object_id not reachable or not a grid object.
+            StateTransitionError: Invalid starting state.
+            PlanningError: Planning failed (e.g., POST_FETCH fallback to
+                FETCHED may occur).
+            ExecutionError: Execution failed (state advanced before
+                exception if applicable).
         """
-        # async with self._validate_and_lock(wait=False):
         await self._fetch_object_impl(
             object_id, cache_trajectories=cache_trajectories
         )
 
     @validate_and_lock
     async def present_object(self, object_id: str, *, cache_trajectories=True):
-        """Present the object to the present pose
+        """Move fetched object to presentation pose (FETCHED → PRESENTED).
+
+        Acquires exclusive presentation region lock, moves to presentation
+        pose, and releases lock only on success. Failure leaves state at
+        FETCHED and lock not released; reset_manipulation will retry.
+
+        Starting State: FETCHED or RESETTED.
+        Resulting State: PRESENTED.
 
         Args:
-            goal: The goal to present the object at
+            object_id: Reachable grid object ID being presented.
+            cache_trajectories: Cache planned trajectory after present.
+
+        Raises:
+            StateTransitionError: Not in FETCHED or RESETTED state.
+            PlanningError: Planning failed.
+            ExecutionError: Execution failed; state reverts to FETCHED,
+                lock not released.
         """
-        # async with self._validate_and_lock(wait=False):
         await self._present_object_impl(
             object_id, cache_trajectories=cache_trajectories
         )
@@ -1780,12 +1922,23 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def unpresent_object(
         self, object_id: str, *, cache_trajectories=True
     ):
-        """Unpresent the currently attached object
+        """Return presented object to fetch pose (PRESENTED → NEEDS_RESET).
+
+        Releases exclusive presentation region lock after successful move.
+
+        Starting State: PRESENTED.
+        Resulting State: NEEDS_RESET.
 
         Args:
-            goal: The goal to present the object at
+            object_id: Reachable grid object ID being unpresented.
+            cache_trajectories: Cache planned trajectory after unpresent.
+
+        Raises:
+            StateTransitionError: Not in PRESENTED state.
+            PlanningError: Planning failed.
+            ExecutionError: Execution failed; state reverts to PRESENTED,
+                lock not released.
         """
-        # async with self._validate_and_lock(wait=False):
         await self._unpresent_object_impl(
             object_id, cache_trajectories=cache_trajectories
         )
@@ -1797,8 +1950,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         *,
         cache_trajectories: bool = True,
     ):
-        """Perform the reset procedure for an object"""
-        # async with self._validate_and_lock(wait=False):
+        """Execute user-defined reset path (NEEDS_RESET/PRE_RESET → RESETTED).
+
+        Applies collision allowances defined in ObjectResetConfig and
+        executes multi-waypoint reset sequence. If interrupted mid-reset,
+        can resume by retrying reset_object. On failure, attempts fallback
+        to IDLE pose then retries.
+
+        Starting State: NEEDS_RESET or PRE_RESET.
+        Resulting State: RESETTED.
+
+        Args:
+            object_id: Grid object ID to reset.
+            cache_trajectories: Cache planned trajectories after reset.
+
+        Raises:
+            StateTransitionError: Not in NEEDS_RESET or PRE_RESET state.
+            PlanningError: Planning failed twice (after fallback retry).
+            ExecutionError: Execution failed.
+        """
         await self._reset_object_impl(
             object_id, cache_trajectories=cache_trajectories
         )
@@ -1810,32 +1980,65 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         *,
         cache_trajectories: bool = True,
     ) -> None:
-        """Return an object to its original position.
+        """Return held object to mount and detach (FETCHED/RESETTED → IDLE).
+
+        Executes return state machine in reverse of fetch: PRE_RETURN →
+        PRE_DETACH → DETACH → POST_DETACH → POST_RETURN → IDLE. If
+        intermediate state, resumes from current position. On planning
+        failure, attempts fallback strategies: skip to IDLE, or fetch
+        object back and retry return with IDLE intermediate pose.
+
+        Starting State: IDLE (noop), FETCHED, RESETTED, or any fetch/
+            return state.
+        Resulting State: IDLE.
 
         Args:
-            cache_trajectories: Whether to cache the trajectories after
-                returning the object
+            object_id: Reachable grid object ID being returned.
+            cache_trajectories: Cache planned trajectories after return.
 
         Raises:
-            RuntimeError: If exactly one object is not attached
-            PlanningError: If the planning fails
-            ExecutionError: If the execution fails
+            StateTransitionError: Invalid starting state.
+            PlanningError: Planning failed even after fallback strategies.
+            ExecutionError: Execution failed; state partially advanced.
         """
-        # async with self._validate_and_lock(wait=False):
         await self._return_object_impl(
             object_id, cache_trajectories=cache_trajectories
         )
 
     @validate_and_lock
     async def manually_attach_object(self, object_id: str):
-        """Manually attach collision object to the robot end effector."""
-        # async with self._validate_and_lock(wait=False):
+        """Manually attach a non-grid object to end effector.
+
+        Loads mesh from manually_attach.mesh_dir, adds collision object,
+        and attaches it. Used for objects not in the grid mount.
+
+        Starting State: IDLE.
+        Resulting State: MANUALLY_ATTACHED.
+
+        Args:
+            object_id: Non-grid object ID (must have mesh in
+                manually_attach.mesh_dir).
+
+        Raises:
+            StateTransitionError: Not in IDLE state.
+            FileNotFoundError: Mesh not found for object_id.
+            ValueError: Multiple meshes found for object_id.
+        """
         await self._manually_attach_object_impl(object_id)
 
     @validate_and_lock
     async def manually_detach_object(self, object_id: str):
-        """Manually detach collision object from the robot end effector."""
-        # async with self._validate_and_lock(wait=False):
+        """Manually detach a manually-attached non-grid object.
+
+        Starting State: MANUALLY_ATTACHED.
+        Resulting State: IDLE.
+
+        Args:
+            object_id: Non-grid object ID being detached.
+
+        Raises:
+            StateTransitionError: Not in MANUALLY_ATTACHED state.
+        """
         await self._manually_detach_object_impl(object_id)
 
     @validate_and_lock
@@ -1846,16 +2049,47 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         cache_trajectories: bool = True,
         **kwargs: Any,
     ) -> None:
-        """TODO"""
-        # async with self._validate_and_lock(wait=False):
+        """Plan and execute a trajectory without changing manipulation state.
+
+        Valid while holding fetched/presented/reset objects or no object.
+        Does not update _manipulation_state; only moves the robot.
+
+        Starting State: IDLE, MANUALLY_ATTACHED, FETCHED, PRESENTED,
+            or RESETTED.
+        Resulting State: Unchanged.
+
+        Args:
+            request: PlanRequest/ConcatPlanRequest or None.
+            cache_trajectories: Cache planned trajectory.
+            **kwargs: Additional arguments to plan() (goal, goals, etc.).
+
+        Raises:
+            StateTransitionError: Invalid current state.
+            PlanningError: Planning failed.
+            ExecutionError: Execution failed.
+        """
         await self._plan_and_move_impl(
             request, cache_trajectories=cache_trajectories, **kwargs
         )
 
     @validate_and_lock
     async def move(self, trajectory: RobotTrajectory | list[RobotTrajectory]):
-        """TODO"""
-        # async with self._validate_and_lock(wait=False):
+        """Execute a pre-planned trajectory without replanning.
+
+        Valid while holding fetched/presented/reset objects or no object.
+        Does not update _manipulation_state.
+
+        Starting State: IDLE, MANUALLY_ATTACHED, FETCHED, PRESENTED,
+            or RESETTED.
+        Resulting State: Unchanged.
+
+        Args:
+            trajectory: Trajectory or list of trajectories to execute.
+
+        Raises:
+            StateTransitionError: Invalid current state.
+            ExecutionError: Execution failed.
+        """
         await self._move_impl(trajectory)
 
     ###########################################################################
@@ -1866,14 +2100,25 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     async def reset_manipulation(
         self, *, reset_to_idle: bool = False, cache_trajectories: bool = True
     ) -> None:
-        """Reset robot manipulation state.
+        """Recover manipulation state and optionally move to idle.
 
-        If manipulating a grid object (aka not a manually attached object),
-        reset and return the grid object to its mount if necessary.
+        Tests if an object is attached (or loads persistent state on
+        first call), then unpresents/resets/returns it if needed. If
+        reset_to_idle, also moves to the idle configuration.
 
-        Then, move to idle position.
+        Starting State: UNINITIALIZED (first call) or any valid state.
+        Resulting State: IDLE or UNINITIALIZED (if no object attached).
+
+        Args:
+            reset_to_idle: Move to idle configuration after returning
+                object (if attached).
+            cache_trajectories: Cache planned trajectories during reset.
+
+        Raises:
+            PlanningError: Planning failed even after fallback strategies
+                (returns to IDLE pose, then retries).
+            ExecutionError: Execution failed.
         """
-        # TODO: Maybe change wait to True here
         await self._reset_manipulation_impl(
             reset_to_idle=reset_to_idle, cache_trajectories=cache_trajectories
         )

@@ -10,10 +10,10 @@
 cameras:
   - left_front_top_cam
   - left_back_top_cam
-  # - left_bottom_cam
+  - left_bottom_cam
   - right_front_top_cam
   - right_back_top_cam
-  # - right_bottom_cam
+  - right_bottom_cam
 
 camera_types:
   left_front_top_cam: blackfly_s
@@ -108,8 +108,10 @@ camera_params_common:
   # cameras: it uses the FrameID chunk as the synchronization key. Also
   # enables reporting line status of other lines (in this case Line0, which
   # is connected to the teensy sync pulse pin)
-  line0_selector: Line0
-  line0_linemode: Input
+  # line0_selector: Line0
+  # line0_linemode: Input
+  # line1_selector: Line1
+  # line1_linemode: Input
   line3_selector: Line3
   line3_linemode: Input
   chunk_mode_active: true

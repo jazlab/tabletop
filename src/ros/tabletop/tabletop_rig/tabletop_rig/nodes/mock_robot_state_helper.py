@@ -5,7 +5,7 @@ interface. It implements a simple dummy SetMode action server, allowing
 testing of the Commander node without a physical robot.
 
 Actions provided:
-    /ur_robot_state_helper/set_mode: Change robot operational mode
+    ~/set_mode: Change robot operational mode.
 
 Example:
     ros2 run tabletop_rig mock_robot_state_helper
@@ -24,7 +24,15 @@ from tabletop_rig.nodes.base import BaseNode
 
 
 class MockRobotStateHelper(BaseNode):
-    """TODO"""
+    """Mock Universal Robots robot state helper for testing.
+
+    Simulates the UR robot state helper interface providing a minimal
+    SetMode action server that always succeeds. This allows testing the
+    Commander node without a physical robot.
+
+    Attributes:
+        set_mode_server: Action server for the SetMode action.
+    """
 
     def __init__(self):
         super().__init__("robot_state_helper")

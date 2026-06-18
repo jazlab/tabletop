@@ -1,25 +1,24 @@
-"""Training and evaluation pipeline for gaze estimation models.
+"""Inference and evaluation for trained gaze estimation models.
 
-This module provides the training loop, evaluation metrics, and full
-training pipeline for gaze estimation models. Supports K-fold cross-
-validation with early stopping and model checkpointing.
+This module provides inference functions for making predictions with
+trained gaze estimation models and computing evaluation metrics.
 
 Functions:
-    evaluate: Compute test metrics (MSE, RMSE, R2) on a dataloader.
-    train: Train a model with early stopping on validation loss.
-    train_and_evaluate: Full pipeline with cross-validation and test eval.
-    main: CLI entry point for training.
+    evaluate: Compute test metrics (MSE, RMSE, MAE, R2) on a dataloader.
+    predict: Full prediction pipeline loading model and evaluating on test
+        set from session directory.
+    main: CLI entry point for prediction.
 
-The training pipeline:
-1. Load and preprocess data from session directory
-2. Initialize K-fold cross-validation dataloaders
-3. Train models for each fold with early stopping
-4. Select best model based on validation loss
-5. Evaluate on held-out test set
-6. Save model weights and predictions
+The prediction pipeline:
+1. Load preprocessed data from session directory
+2. Initialize test dataloader
+3. Load trained model weights
+4. Evaluate on test set to get predictions
+5. Save targets and predictions to CSV
+6. Optionally visualize predictions vs targets
 
 Example:
-    python -m tabletop_py.gaze.train -d /path/to/session --visualize
+    python -m tabletop_py.gaze.predict -d /path/to/session --visualize
 """
 
 import logging
@@ -52,18 +51,27 @@ def evaluate(
     loader: torch.utils.data.DataLoader,
     device: torch.device,
 ) -> dict[str, float | torch.Tensor]:
-    """
-    Calculates the test set metrics (MSE, RMSE, R2) for the trained model.
+    """Compute evaluation metrics on a test dataloader.
 
     Args:
-        X_test (numpy.ndarray): Test input features.
-        y_test (numpy.ndarray): Test target variables.
-        model (torch.nn.Module): Trained model.
-        device (torch.device): Device to run the model on (CPU or GPU).
-        y_scaler (sklearn.preprocessing.StandardScaler): Scaler for the target variables.
+        model: Trained neural network model.
+        criterion: Loss function for evaluation.
+        loader: DataLoader containing test samples (inputs, targets).
+        device: Torch device (CPU or GPU) for computation.
 
     Returns:
-        tuple: A tuple containing the test set MSE, RMSE, and R2 scores.
+        Dictionary containing:
+        - "targets": Ground truth 3D positions (shape: [N, 3]).
+        - "preds": Model predictions (shape: [N, 3]).
+        - "loss": Average loss over dataloader.
+        - "mse": Mean squared error (averaged across dimensions).
+        - "raw_mse": Per-dimension MSE (shape: [3]).
+        - "rmse": Root mean squared error (averaged).
+        - "raw_rmse": Per-dimension RMSE (shape: [3]).
+        - "mae": Mean absolute error (averaged).
+        - "raw_mae": Per-dimension MAE (shape: [3]).
+        - "r2": R-squared score (averaged).
+        - "raw_r2": Per-dimension R-squared (shape: [3]).
     """
     total_loss = 0
     count = 0
@@ -133,8 +141,22 @@ def predict(
     config: Mapping[str, Any] | os.PathLike | str,
     visualize: bool = False,
 ) -> dict[str, Any]:
-    """
-    Trains and evaluates the gaze estimation model.
+    """Run full prediction pipeline on test data.
+
+    Loads a trained model and evaluates it on preprocessed test data,
+    saving predictions and optionally visualizing results.
+
+    Args:
+        session_dir: Path to session directory containing preprocessed
+            data and model weights.
+        config: Path to YAML config file or config dict containing
+            model parameters and paths.
+        visualize: If True, creates 3D animation of predictions vs
+            targets and saves as MP4.
+
+    Returns:
+        Dictionary from evaluate() containing predictions, targets, and
+        all metrics (loss, mse, rmse, mae, r2, etc.).
     """
     # Load config
     if not isinstance(config, Mapping):

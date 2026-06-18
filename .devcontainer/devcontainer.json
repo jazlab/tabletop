@@ -10,6 +10,10 @@
   "mounts": [
     "source=claude-code-config-${devcontainerId},target=/claude,type=volume"
   ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/claude",
+    "DISABLE_AUTOUPDATER": "1"
+  },
   "onCreateCommand": [
     "bash",
     "-c",
@@ -25,10 +29,6 @@
     "-c",
     "sudo npm update -g @anthropic-ai/claude-code"
   ],
-  "containerEnv": {
-    "CLAUDE_CONFIG_DIR": "/claude",
-    "DISABLE_AUTOUPDATER": "1"
-  },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "instalZsh": false

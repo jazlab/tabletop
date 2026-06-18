@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Build the ROS 2 workspace with colcon (runs in container)
+# Usage: tt-build [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num>] [--clang] [--linker <linker>] [-p|--packages <name>...] [--all] [--only-modules] [--foxglove]
+# Runs on: container
+# Environment: TABLETOP_DIR, COLCON_WS, UV_PROJECT_ENVIRONMENT
+# Logic: Parses args to select package scope (tabletop/all/modules/specific), configures CMake mixins (ccache/linker/compiler), runs colcon build
 
 set -eo pipefail
 
@@ -7,7 +12,7 @@ source $bin_dir/../../setup.bash
 source $bin_dir/../utils.sh
 
 print_usage() {
-    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules]"
+    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules] [--foxglove]"
 }
 
 builtin cd $COLCON_WS
@@ -92,18 +97,18 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Package selection
+# Select which packages to build based on flags (mutually exclusive options)
 base_paths="src/ros"
 package_selection=
 if [[ $all = true ]]; then
-    # Build all packages in src/ros
+    # Build all packages in src/ros (both tabletop and modules)
     if [[ ${#packages_up_to[@]} -gt 0  || $only_modules = true ]]; then
         print_error "Cannot use --all with -p|--packages or -d|--only-modules"
         print_usage
         exit 1
     fi
 elif [[ $only_modules = true ]]; then
-    # Build only dependency packages in src/ros/modules
+    # Build only external dependencies in src/ros/modules (moveit2, etc.)
     if [[ ${#packages_up_to[@]} -gt 0 ]]; then
         print_error "Cannot use -p|--packages with -d|--only-modules"
         print_usage
@@ -112,39 +117,39 @@ elif [[ $only_modules = true ]]; then
     base_paths="src/ros/modules"
     # from_paths="--from-paths $base_paths"
 elif [[ ${#packages_up_to[@]} -gt 0 ]]; then
-    # Build only the specified packages and their recursive dependencies
+    # Build only specified packages and their recursive dependencies
     package_selection="--packages-up-to ${packages_up_to[@]}"
 else
-    # Build only the tabletop packages in src/ros/tabletop
+    # Default: build only tabletop packages (most common case)
     base_paths="src/ros/tabletop"
     # skip_moveit_apt_removal="--skip-moveit-apt-removal"
 fi
 
-# Skip x86_64-dependent packages
+# Skip architecture-dependent packages (e.g., x86_64-only)
 packages_to_skip=("moveit_ros_tests")
 # if [[ $(uname -m) != x86_64 ]]; then
 #     packages_to_skip+=("mocap4r2_optitrack_driver")
 # fi
 packages_skip="--packages-skip ${packages_to_skip[@]}"
 
-# Clean workspace
+# Clean workspace if requested
 if [[ "$clean_all" == true ]]; then
     tt-clean --all-colcon
 elif [[ "$clean_tabletop" == true ]]; then
     tt-clean --tabletop-colcon
 fi
 
-# Install python dependencies with uv
+# Install python dependencies with uv (respects UV_EXTRA from environment)
 print_status "Installing python dependencies with uv"
 uv sync $UV_EXTRA
 source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 
-# Build colcon workspace
+# Build ROS 2 packages with colcon
 
-# Set CMake arguments
+# Set CMake arguments (disable micro-agent features)
 cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 
-# Set Mixins
+# Build mixins control compilation flags and toolchain (ccache, linker, compiler)
 mixins=()
 mixins+=("build-testing-off" "ccache" "$linker")
 
@@ -153,22 +158,25 @@ if [[ $all = true ]]; then
     mixins+=("compile-commands")
 fi
 
+# Select debug or release build
 if [[ $build_debug = true ]]; then
     mixins+=("debug")
 else
     mixins+=("release")
 fi
 
+# Optionally use clang compiler instead of gcc
 if [[ $clang = true ]]; then
     mixins+=("clang")
 fi
 
-# Set parallel workers
+# Set parallel workers if specified
 if [[ -n $workers ]]; then
     # export MAKEFLAGS="-j$workers -l1"
     parallel_workers="--parallel-workers $workers"
 fi
 
+# Enable verbose event handlers for build output
 if [[ $verbose = true ]]; then
     event_handlers="--event-handlers console_cohesion+"
 fi
@@ -191,6 +199,7 @@ print_status "Building ROS 2 packages with command: $command"
 $command
 print_status "Successfully built ROS 2 packages!"
 
+# Build Foxglove message converters if requested
 if [[ "$foxglove" == true ]]; then
     builtin cd "$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
     npm run package

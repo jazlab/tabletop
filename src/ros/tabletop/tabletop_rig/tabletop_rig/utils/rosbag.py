@@ -223,6 +223,17 @@ def get_cv2_conversion_code(src_encoding: str, dst_encoding: str) -> int:
 
 
 def parse_compressed_image_format(fmt: str) -> tuple[str, str, str]:
+    """Parse the format string from a CompressedImage message.
+
+    The format string has the form:
+    '<original_encoding>; <compression_type> <compressed_encoding>'
+
+    Args:
+        fmt: The format string from CompressedImage.format.
+
+    Returns:
+        Tuple of (original_encoding, compressed_encoding, compression_type).
+    """
     original_encoding, compressed_params = fmt.split(";")
     original_encoding = original_encoding.strip()
     compressed_params = compressed_params.strip().split(" ")
@@ -236,6 +247,24 @@ def compressed_imgmsg_to_cv2(
     msg: CompressedImage,
     dst_encoding: Optional[Literal["original"] | str] = None,
 ) -> tuple[NDArray, str]:
+    """Decode a CompressedImage message to a numpy array.
+
+    Decompresses the image and optionally converts to a target encoding.
+
+    Args:
+        msg: The CompressedImage message.
+        dst_encoding: Target encoding for color conversion. Can be:
+            - None or matches compressed_encoding: return as-is
+            - "original": convert to the image's original encoding
+            - Any other valid ROS encoding: convert to that encoding
+
+    Returns:
+        Tuple of (image_array, compression_type) where image_array is
+        a numpy array suitable for cv2 operations.
+
+    Raises:
+        ValueError: If the requested color conversion is unsupported.
+    """
     buf = np.ndarray(shape=(1, len(msg.data)), dtype=np.uint8, buffer=msg.data)
     img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
 
@@ -265,6 +294,23 @@ def compressed_imgmsg_to_cv2(
 def save_image_msg(
     msg: Image | CompressedImage, save_dir: str, force: bool = False
 ):
+    """Save a ROS image message to disk as a compressed image file.
+
+    Decompresses compressed images and saves them as JPEG, PNG, or TIFF
+    based on the message format. Skips saving if the file already exists
+    (unless force=True).
+
+    Args:
+        msg: The image message (CompressedImage or Image).
+        save_dir: Directory to save the image file to.
+        force: If True, overwrite existing files. If False, skip if file
+            with same timestamp already exists.
+
+    Raises:
+        NotImplementedError: If msg is an uncompressed Image (conversion
+            not yet implemented).
+        ValueError: If the message type is neither Image nor CompressedImage.
+    """
     basename = f"{msg.header.stamp.sec}_{msg.header.stamp.nanosec}"
     path = os.path.join(save_dir, f"{basename}.*")
     existing_files = glob.glob(path)
@@ -343,6 +389,16 @@ def gen_msg_values(
 
 
 def topic_to_basename(topic: str) -> str:
+    """Convert a ROS topic name to a safe filename.
+
+    Removes leading '/' and replaces '/' with '_'.
+
+    Args:
+        topic: The topic name (e.g., '/joint_states').
+
+    Returns:
+        A filename-safe string (e.g., 'joint_states').
+    """
     return f"{topic.lstrip('/').replace('/', '_')}"
 
 

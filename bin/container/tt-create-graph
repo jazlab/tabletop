@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Generate ROS 2 computation graph visualization (requires running ROS nodes)
+# Usage: tt-create-graph [output_file] (default: graph.md in current working dir)
+# Wraps: ros2 node list, ros2_graph
+# Runs on: container
+# Environment: TABLETOP_DIR
+# Note: Must be run while ROS 2 nodes are active (after tt-launch)
 
 set -eo pipefail
 
@@ -8,12 +14,11 @@ source $bin_dir/../utils.sh
 
 if [[ $# -gt 1 ]]; then
     print_error "Usage: $0 [output_file]"
-    print_error "If not provided, the graph will be saved to $TABLETOP_DIR/docs/graph.md"
+    print_error "If not provided, the graph will be saved to <PWD>/graph.md"
     exit 1
 fi
 
-pushd $TABLETOP_DIR/docs
-
+# List of nodes to exclude from graph (currently empty; examples shown as comments)
 nodes_to_ignore=""
 # /rosbag2_recorder
 # /rviz2
@@ -25,10 +30,18 @@ nodes_to_ignore=""
 # /joint_trajectory_controller
 # /passthrough_trajectory_controller"
 
-nodes=$(ros2 node list | grep -vE "$nodes_to_ignore" | tr '\n' ' ')
-echo Nodes: $nodes
+# Query active ROS nodes, optionally filtering out excluded nodes.
+# Guard the filter: with an empty nodes_to_ignore, `grep -vE ""` matches every
+# line and would drop ALL nodes (and trip `set -o pipefail`), leaving none for
+# ros2_graph.
+if [[ -n "$nodes_to_ignore" ]]; then
+    nodes=$(ros2 node list | grep -vE "$nodes_to_ignore" | tr '\n' ' ')
+else
+    nodes=$(ros2 node list | tr '\n' ' ')
+fi
+echo "Nodes: $nodes"
 
-output_file=${1:-graph.md}
-ros2_graph $nodes -o $output_file --styleConfig ros/graph_style.yaml
+output_file="${1:-graph.md}"
+ros2_graph $nodes -o "$output_file" --styleConfig "$TABLETOP_DIR/config/ros_graph_style.yaml"
 
 popd
