@@ -83,8 +83,9 @@ All Docker interactions use the `tt-compose` wrapper (on the host), which
 handles environment generation and project defaults.
 
 ```bash
-# Build Docker images and full ROS 2 workspace (from host)
-tt-compose build
+# Pull the prebuilt Docker images, then build the workspace (from host)
+tt-compose pull
+tt-build all
 
 # Start containers using profiles (from host)
 tt-compose --profile=sim up        # Simulation with mock hardware

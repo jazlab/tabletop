@@ -79,8 +79,14 @@ tt-env-gen
 # 5. Edit .env to fill in your personal preferences (e.g. noVNC / Foxglove ports)
 nano .env          # or whatever editor you prefer
 
-# 6. Build the Docker images + ROS 2 workspace
-tt-compose build
+# 6. Pull the prebuilt Docker images from Docker Hub (needs `docker login`).
+#    Do this BEFORE step 7: tt-build runs inside the `builder` image.
+tt-compose pull
+
+# 7. Build the ROS 2 workspace inside the builder container.
+#    `all` also packages the Foxglove plugin and builds the firmware; use
+#    `tt-build colcon --all` for just the colcon workspace.
+tt-build all
 ```
 
 `setup.bash` is the single source of environment truth: it detects host vs.
@@ -94,6 +100,35 @@ in `.env` — rather than in your shell — is what lets the Dev Container be bu
 directly from VS Code while still resolving every `$VAR` in `compose.yaml`.
 Re-run `tt-env-gen` whenever you plug or unplug hardware, since device paths are
 baked into `.env`.
+
+## Docker images
+
+The `jazlabtabletop/ros-base` and `jazlabtabletop/novnc` images are prebuilt and
+pushed to Docker Hub; `tt-compose pull` fetches them. `tt-compose build` no
+longer builds anything — the image build moved to `docker-bake.hcl`.
+
+!!! warning "Building images yourself is rarely needed and can break things"
+    Building the images (rather than pulling them) may introduce breaking
+    changes and should be avoided. If you genuinely need to, use `buildx bake`:
+
+    ```bash
+    docker buildx bake ros-base          # rebuild the ROS base image
+    docker buildx bake ros-base --pull   # ...and refresh the upstream base image
+    docker buildx bake novnc             # rebuild the noVNC image
+    ```
+
+    The `novnc` image should essentially never need rebuilding. The `ros-base`
+    image only needs rebuilding if:
+
+    1. You need extra **non-Python** dependencies for the existing ROS 2
+       packages, or you add a new ROS 2 package whose `package.xml` declares
+       dependencies beyond those already installed; **or**
+    2. You need to update the git submodules to a more recent commit; **or**
+    3. You need new apt packages and simply installing them in a new Dockerfile
+       layer on top of the existing image would pull in incompatible versions.
+       (This is why the ROS base image in the Dockerfile is intentionally not
+       pinned: apt packages installed in the Dockerfile can conflict with
+       packages already baked into the base image if that base is out of date.)
 
 ## Optional host setup
 

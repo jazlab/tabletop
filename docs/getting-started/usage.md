@@ -7,7 +7,7 @@ All builds happen inside the container; the `tt-*` wrappers handle that for you.
 `all`):
 
 ```bash
-tt-compose build                  # Docker images + full ROS 2 workspace
+tt-compose pull                   # pull the prebuilt Docker images from Docker Hub
 tt-build colcon                   # tabletop packages only (most common)
 tt-build colcon --clean-tabletop  # clean rebuild of tabletop packages
 tt-build colcon -p tabletop_rig   # one package + its dependencies
