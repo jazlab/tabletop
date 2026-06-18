@@ -71,16 +71,18 @@ baked into `.env`.
 
 ## Optional host setup
 
-These configure the host for real hardware and are run **by path** (they make
-persistent, privileged changes, so they are intentionally not on `PATH`):
+These configure the host for real hardware and make persistent, privileged
+changes:
 
 ```bash
 ./scripts/configure/udev-configure.sh            # configure Teensy and Flir device udev rules
 ./scripts/configure/usbfs-configure.sh           # increase USB buffer size for FLIR
-./scripts/configure/robot-network.sh             # configure robot subnet interface
-./scripts/configure/scp-urcaps.sh                # copy urcaps to robot control boxes over SSH
 ./scripts/configure/cpu-speed-scaling-disable.sh # enable 'performance' CPU governor for real-time robot control
 ```
+
+For configuring the **TableTop network** (the wired LAN that connects the host,
+robots, and rig computers) and the UR5e robot itself, see
+[Real Hardware Setup](real-hardware.md).
 
 ### Audio (reward sounds)
 
