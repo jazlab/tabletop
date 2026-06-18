@@ -20,6 +20,33 @@ variables and **auto-detects** a few:
 
 `compose.yaml` reads these for device mounts, runtimes, and volumes.
 
+### Required variables (set in `.env.example`)
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `NOVNC_DISPLAY` | X11 display number for the noVNC server | `:20.0` |
+| `NOVNC_WIDTH` / `NOVNC_HEIGHT` | X11 display width / height (pixels) | `1920` / `1080` |
+| `NOVNC_PORT` | Localhost port serving the noVNC interface | `8080` |
+| `CUDA_VERSION` | CUDA version suffix for PyTorch (must match your GPU driver) | `130` |
+| `BIND_CONSISTENCY` | Docker bind-mount consistency mode | `cached` |
+| `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
+| `FLIR_MAX_DEVS` | Maximum number of FLIR cameras mapped into containers | `6` |
+
+`tt-env-gen` validates that these are present (it does **not** auto-detect
+serial device paths — set `TEENSY_DEV` to match your hardware).
+
+### Auto-generated variables (by `tt-env-gen`)
+
+`tt-env-gen` automatically detects and configures:
+
+- **NVIDIA GPU** — detects `nvidia-smi`; sets `COMMANDER_RUNTIME=nvidia` and the
+  `NVIDIA_*` / CUDA variables (clears them if no GPU is present).
+- **FLIR cameras** — detects `/dev/flir/*` udev symlinks and maps them to
+  `FLIR_DEV_0..N` (up to `FLIR_MAX_DEVS`).
+- **PulseAudio** — detects the PulseAudio socket and configures the `PULSE_*`
+  mount variables for audio passthrough (falls back to `/dev/null` if not
+  found).
+
 ## Parameter files (config → consumer)
 
 | Config | Consumed by | Drives |

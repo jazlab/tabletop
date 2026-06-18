@@ -1,9 +1,9 @@
 # Setup
 
 TableTop runs in Docker, so the only hard host requirement is Docker itself.
-GPU, audio, and firmware tooling are optional. For the exhaustive hardware
-walkthrough (robot network, URCaps, Teensy), see the
-[README](https://github.com/jazlab/tabletop#setup).
+GPU, audio, and firmware tooling are optional. For the full real-hardware
+walkthrough (robot network, URCaps, remote control), see
+[Real Hardware Setup](real-hardware.md).
 
 ## Requirements
 
@@ -15,6 +15,7 @@ walkthrough (robot network, URCaps, Teensy), see the
 | [VS Code](https://code.visualstudio.com/) | Dev Container development | optional |
 | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional |
 | PipeWire/PulseAudio | reward sounds | see [Audio](#audio-reward-sounds) |
+| [PlatformIO](https://platformio.org/install/) | Teensy/Flic firmware | preinstalled in the container; only needed on the host to build firmware outside the container |
 
 !!! tip "Apple Silicon"
     Enable **Use Rosetta for x86/amd64 emulation** in Docker Desktop to run the
@@ -105,11 +106,17 @@ brew services start pulseaudio
 
 ### Firmware
 
-Firmware (Teensy + Flic micro-controllers) is built/flashed via the container:
+Firmware (Teensy + Flic micro-controllers) is built/flashed via the container
+(this also works from the Dev Container):
 
 ```bash
 tt-microros-build
 ```
+
+!!! tip "First upload usually fails"
+    `tt-microros-build` retries the build/upload twice. The first attempt
+    almost always builds successfully but fails to *upload*; the second attempt
+    almost always succeeds. This is a quirk of the PlatformIO upload tooling.
 
 !!! note "Flic Micro firmware is incomplete"
     The Teensy is the only currently supported micro-controller.

@@ -264,6 +264,12 @@ driver must run in a separate process from the Commander.
 
 ## Further Reading
 
+The `docs/` tree (published at <https://jazlab.github.io/tabletop/>) is the
+canonical source for setup, usage, and troubleshooting; `README.md` is now just
+a high-level overview that points here. Setup/usage live under
+`docs/getting-started/` (`setup.md`, `real-hardware.md`, `usage.md`), with the
+design rationale in `docs/design-choices.md`.
+
 For a deeper conceptual map (runtime topic/service graph, launch hierarchy,
 parameter flow, and "where to look when X breaks"), see `docs/architecture.md`.
 Other useful docs: `docs/known-issues.md` (review findings), `musings.md`

@@ -325,6 +325,6 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 
 ## 7. Related Documents
 
-- `README.md` — setup and quick start
+- `README.md` — high-level project overview and entry point into this docs site
 - `musings.md` — battle-tested troubleshooting notes
 - `docs/known-issues.md` — discrepancies found during documentation review
