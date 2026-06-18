@@ -13,7 +13,7 @@ variables and **auto-detects** a few:
 - **Auto-detected:** NVIDIA GPU (`COMMANDER_RUNTIME`, CUDA vars), FLIR cameras
   (`FLIR_DEV_0..N` from `/dev/flir/*` udev symlinks), and the PulseAudio socket
   (`PULSE_*`).
-- **Set by you:** serial device paths `TEENSY_DEV` and `FLIC_MICRO_DEV` are
+- **Set by you:** serial device paths (currently only `TEENSY_DEV`) are
   **not** auto-detected — edit them to match your hardware. Regenerate with
   `tt-env-gen` (or `tt-env-gen --clean` to start fresh) after any hardware
   change.

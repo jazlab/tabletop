@@ -24,20 +24,26 @@ walkthrough (robot network, URCaps, Teensy), see the
 
 ```bash
 # 1. Clone and pull submodules
-git clone https://github.com/jazlab/tabletop.git
+git clone --recurse-submodules https://github.com/jazlab/tabletop.git
 cd tabletop
-git submodule sync
-git submodule update --init --recursive --remote
+
+# If you forgot to use `--recurse-submodules` when cloning,
+# you can use the following command to pull the submodules
+git submodule update --init --recursive
 
 # 2. Source the environment (consider adding to ~/.bashrc)
 source setup.bash
 
 # 3. Sync the host Python environment (required by tt-env-gen).
-#    Add --extra cu130 to also pull the CUDA 13.0 wheels for PyTorch
-#    GPU work (or whatever CUDA version your driver supports).
+#    Add `--extra cu130` to also pull the CUDA 13.0 wheels for PyTorch
+#    GPU work (or whatever CUDA version your driver supports, see
+#    `pyproject.toml` for available dependency groups, e.g. `--extra cu128`
+#    for CUDA 12.8, or `--extra cpu` if you do not have a CUDA-capable GPU).
 #    This is only necessary if you want to run the gaze estimation
-#    calibration pipeline on the host machine, otherwise you can run
-#    it in the Devcontainer or using the commander service.
+#    calibration pipeline on the host machine and need support for a
+#    different CUDA version than the default one available through PyPI.
+#    Otherwise you can run it in the Devcontainer or using the commander
+#    container, both of which user the NVIDIA Container Runtime if available.
 uv sync            # or: uv sync --extra cu130
 
 # 4. Generate the .env file (detects GPU / FLIR cameras / PulseAudio)
@@ -68,10 +74,11 @@ These configure the host for real hardware and are run **by path** (they make
 persistent, privileged changes, so they are intentionally not on `PATH`):
 
 ```bash
-./scripts/configure/udev-configure.sh            # Teensy / device udev rules
-./scripts/configure/usbfs-configure.sh           # USB buffer size for FLIR
-./scripts/configure/robot-network.sh             # robot subnet interface
-./scripts/configure/cpu-speed-scaling-disable.sh # real-time control
+./scripts/configure/udev-configure.sh            # configure Teensy and Flir device udev rules
+./scripts/configure/usbfs-configure.sh           # increase USB buffer size for FLIR
+./scripts/configure/robot-network.sh             # configure robot subnet interface
+./scripts/configure/scp-urcaps.sh                # copy urcaps to robot control boxes over SSH
+./scripts/configure/cpu-speed-scaling-disable.sh # enable 'performance' CPU governor for real-time robot control
 ```
 
 ### Audio (reward sounds)

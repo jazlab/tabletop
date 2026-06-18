@@ -100,7 +100,6 @@ dotenv_get_required NOVNC_PORT
 dotenv_get_required CUDA_VERSION
 dotenv_get_required BIND_CONSISTENCY
 dotenv_get_required TEENSY_DEV
-dotenv_get_required FLIC_MICRO_DEV
 dotenv_get_required FLIR_MAX_DEVS
 
 # Get optional variables (may be unset or empty)

@@ -122,21 +122,19 @@ whether an Nvidia GPU is available and configures the containers accordingly.
 
 ### Minimal Installation
 
-1. Clone the TableTop repository:
+1. Clone the TableTop repository and all its Git submodules:
 
     ```bash
-    git clone https://github.com/jazlab/tabletop.git
+    git clone --recurse-submodules https://github.com/jazlab/tabletop.git
     ```
 
-2. Navigate to `tabletop` directory and download the submodules:
+    If you forget to use `--recurse-submodules` when cloning, you can use the following command to initialize and populate the submodules instead:
 
     ```bash
-    cd tabletop
-    git submodule sync
-    git submodule update --init --recursive --remote
+    git submodule update --init --recursive
     ```
 
-3. Source the setup script (and optionally add this to your `.bashrc`):
+2. Source the setup script (and optionally add this to your `.bashrc`):
 
     ```bash
     source setup.bash
@@ -684,11 +682,10 @@ tt-env-gen          # Regenerate only "auto-generated" variables
 | `CUDA_VERSION` | CUDA version suffix for PyTorch (must be compatible with your GPU driver version) | `130` |
 | `BIND_CONSISTENCY` | Docker bind mount consistency mode | `cached` |
 | `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
-| `FLIC_MICRO_DEV` | Serial device path for the Flic micro-controller (`/dev/null` to disable) | `/dev/null` |
 | `FLIR_MAX_DEVS` | Maximum number of FLIR cameras to map into containers | `6` |
 
 `tt-env-gen` validates these are present (it does **not** auto-detect serial
-device paths — set `TEENSY_DEV`/`FLIC_MICRO_DEV` to match your hardware).
+device paths — set `TEENSY_DEV` to match your hardware).
 
 #### Auto-Generated Variables (by `tt-env-gen`)
 
@@ -698,7 +695,7 @@ The `tt-env-gen` script automatically detects and configures:
 * **FLIR Cameras**: Detects `/dev/flir/*` udev symlinks and maps them to `FLIR_DEV_0..N` (up to `FLIR_MAX_DEVS`)
 * **PulseAudio**: Detects the PulseAudio socket and configures the `PULSE_*` mount variables for audio passthrough (falls back to `/dev/null` if not found)
 
-Serial device paths (`TEENSY_DEV`, `FLIC_MICRO_DEV`) are **not** auto-detected;
+Serial device paths (`TEENSY_DEV`) are **not** auto-detected (yet);
 set them in `.env` to match your hardware.
 
 ## Contributing
