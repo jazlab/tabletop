@@ -365,6 +365,7 @@ build_foxglove() {
 
     local module_dir="$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
     builtin cd "$module_dir"
+    npm install
     npm run package
 
     # `foxglove-extension package` emits a <publisher>.<name>-<version>.foxe in
