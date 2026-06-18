@@ -268,7 +268,9 @@ driver must run in a separate process from the Commander.
 - `ruff.toml` - Python linting configuration
 - `.pre-commit-config.yaml` - Pre-commit hooks
 - `bin/` - the `tt-*` commands (`common/`, `host/`, `container/`)
-- `scripts/configure/` - host-side udev/USB/CPU/network setup
+- Real-hardware host configuration (udev/USB/CPU/network/URCaps) is documented
+  as Ubuntu 24.04 procedures in `docs/getting-started/real-hardware.md` (the old
+  `scripts/configure/` shell scripts were removed)
 - ROS parameter files live in each package's `config/`; see
   `docs/guide/configuration.md` for the config → consumer map
 

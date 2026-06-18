@@ -76,8 +76,10 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 | `container/tt-kill-ros` | container | `pkill -f ros` |
 | `common/tt-clean` | both | `rm -rf` of build/install/log/cache dirs by flag |
 
-Host setup scripts (udev rules, usbfs size, CPU scaling, robot network, scp urcaps)
-live in `scripts/configure/`.
+Host configuration for real hardware (udev rules, USB buffer size, CPU governor,
+the TableTop network, URCaps) is no longer shipped as `scripts/configure/`
+scripts; it is documented as Ubuntu 24.04 procedures in
+[Real Hardware Setup](getting-started/real-hardware.md).
 
 ### 2.3 Compose services × profiles
 

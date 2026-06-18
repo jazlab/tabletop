@@ -143,10 +143,10 @@ the remaining ones are open.
    `tt-udev-configure`, `tt-teensy-build`, `tt-teensy-connect`,
    `tt-calibrate`, `tt-cpu-speed-scaling-disable`, `tt-docker`, plus
    `scripts/docker_prune.sh`, `scripts/build.sh`, `scripts/piano.sh`.
-   Current equivalents: `scripts/configure/usbfs-configure.sh`,
-   `scripts/configure/udev-configure.sh`,
-   `scripts/configure/cpu-speed-scaling-disable.sh`,
-   `tt-build microros` (for teensy builds), `tt-compose`/`tt-build`.
+   Current equivalents: host configuration (USB buffer size, udev rules, CPU
+   governor) is now documented in
+   [Real Hardware Setup](getting-started/real-hardware.md) rather than shipped
+   as scripts; `tt-build microros` (for teensy builds); `tt-compose`/`tt-build`.
    The gaze CLI entry points are `tt-gaze-*` (not `gaze-*`).
 
 ## Minor

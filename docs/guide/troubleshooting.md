@@ -166,9 +166,12 @@ python -m tabletop_py.gaze.edf recording.edf -o recording.csv
 
 ## FLIR cameras
 
+Make sure the host is configured for the cameras (USB buffer size and
+`/dev/flir/*` udev symlinks) per
+[Real Hardware Setup → Host configuration](../getting-started/real-hardware.md#host-configuration-ubuntu-2404),
+then capture the device paths:
+
 ```bash
-./scripts/configure/usbfs-configure.sh   # USB buffer size (large frames)
-./scripts/configure/udev-configure.sh    # /dev/flir/* symlinks
 tt-env-gen                               # capture FLIR_DEV_* into .env
 ```
 
@@ -177,8 +180,11 @@ regenerates the env. Check synchronization with `ros2 run tabletop_rig system_ch
 
 ## Performance
 
+For real-time control, pin the CPU to the `performance` governor (see
+[Real Hardware Setup → CPU governor](../getting-started/real-hardware.md#cpu-governor-real-time-control)).
+Build/clean helpers:
+
 ```bash
-./scripts/configure/cpu-speed-scaling-disable.sh   # real-time control
 tt-build colcon --workers 1|2                      # avoid build OOM
 tt-clean --tabletop-colcon                         # clean tabletop build
 tt-clean --all-colcon                              # clean all colcon builds

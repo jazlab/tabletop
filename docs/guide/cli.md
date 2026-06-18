@@ -19,10 +19,11 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 `tt-launch` has no host wrapper — run it inside a container, or as a one-shot
 from the host with `tt-compose run --rm commander tt-launch <target> …`.
 
-!!! note "Host setup scripts"
-    udev rules, USB buffer size, CPU scaling, and the robot network are now
-    plain scripts under `scripts/configure/`, run by path (not `tt-*`
-    commands), because they make persistent privileged changes to the host.
+!!! note "Host setup"
+    Real-hardware host configuration (udev rules, USB buffer size, CPU
+    governor, the TableTop network, URCaps) is documented as Ubuntu 24.04
+    procedures in [Real Hardware Setup](../getting-started/real-hardware.md),
+    not shipped as `tt-*` commands or scripts.
 
 ## Container commands (`bin/container`)
 
