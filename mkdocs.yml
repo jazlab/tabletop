@@ -94,7 +94,9 @@ nav:
   - Home: index.md
   - Getting Started:
       - Setup: getting-started/setup.md
+      - Real Hardware Setup: getting-started/real-hardware.md
       - Usage: getting-started/usage.md
+  - Design Choices: design-choices.md
   - Architecture: architecture.md
   - Guide:
       - CLI & Tooling: guide/cli.md

@@ -1,188 +1,223 @@
 #!/usr/bin/env bash
-# Build the ROS 2 workspace with colcon (runs in container)
-# Usage: tt-build [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num>] [--clang] [--linker <linker>] [-p|--packages <name>...] [--all] [--only-modules] [--foxglove]
+# Build TableTop components (runs in container)
+# Usage: tt-build <colcon|microros|foxglove> [component options...]
 # Runs on: container
 # Environment: TABLETOP_DIR, COLCON_WS, UV_PROJECT_ENVIRONMENT
-# Logic: Parses args to select package scope (tabletop/all/modules/specific), configures CMake mixins (ccache/linker/compiler), runs colcon build
+# Logic: Dispatches on a required positional `component` argument to a dedicated
+#        build function. `colcon` builds the ROS 2 workspace, `microros` builds/
+#        uploads the Teensy & Flic firmware via PlatformIO, and `foxglove`
+#        packages the Foxglove MoveIt message converter plugin (.foxe ->
+#        $TABLETOP_DIR by default, or the -o/--output path).
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
 
 print_usage() {
-    echo "Usage: $0 [--build-debug] [-c|--clean-tabletop] [--clean-all] [-w|--workers <num_workers>] [--clang] [--linker <linker>] [-p|--packages <package_name>...] [--all] [--only-modules] [--foxglove]"
+    cat <<EOF
+Usage: $0 <component> [options...]
+
+Components:
+  colcon     Build the ROS 2 workspace with colcon
+  microros   Build/upload the Teensy & Flic micro-controller firmware (PlatformIO)
+  foxglove   Package the Foxglove MoveIt message converter plugin (.foxe -> \$TABLETOP_DIR)
+
+colcon options:
+  --build-debug          Build with debug symbols (default: release)
+  -c, --clean-tabletop   Clean tabletop packages before building
+  --clean-all            Clean the entire workspace before building
+  --clean-cmake          Clear CMake caches before building
+  -a, --all              Build all packages (tabletop + modules, e.g. moveit2)
+  -p, --packages-up-to   Build the given packages and their dependencies
+  -m, --only-modules     Build only external modules
+  -w, --workers <num>    Limit parallel workers (low-memory systems)
+  --clang                Use clang (default: gcc)
+  --linker <name>        Linker to use (default: mold)
+  -v, --verbose          Verbose build output
+
+microros options:
+  -t, --target teensy(default)|flic_micro|all   Select firmware project(s)
+  --clean                Clean the micro-ROS build directory first
+  --no-upload            Build only (no upload)
+  --compiledb            Generate compile_commands.json for IDE integration
+
+foxglove options:
+  -o, --output <path>    Where to write the packaged .foxe (default: \$TABLETOP_DIR).
+                         A directory receives the plugin under its packaged name;
+                         a path ending in .foxe renames it.
+EOF
 }
 
-builtin cd $COLCON_WS
+# === colcon: build the ROS 2 workspace =====================================
+build_colcon() {
+    builtin cd "$COLCON_WS"
 
-# Parse arguments
-build_debug=false
-clean_tabletop=false
-clean_cmake=
-clean_all=false
-all=false
-packages_up_to=()
-only_modules=false
-workers=
-linker=mold
-clang=false
-foxglove=false
-verbose=false
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -a|--all)
-            all=true
-            ;;
-        -p|--packages-up-to)
-            while [[ $# -gt 1 && $2 != -* ]]; do
-                packages_up_to+=($2)
+    # Parse arguments
+    local build_debug=false
+    local clean_tabletop=false
+    local clean_cmake=
+    local clean_all=false
+    local all=false
+    local packages_up_to=()
+    local only_modules=false
+    local workers=
+    local linker=mold
+    local clang=false
+    local verbose=false
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -a|--all)
+                all=true
+                ;;
+            -p|--packages-up-to)
+                while [[ $# -gt 1 && $2 != -* ]]; do
+                    packages_up_to+=($2)
+                    shift
+                done
+                if [[ ${#packages_up_to[@]} -eq 0 ]]; then
+                    print_error "No packages provided with -p|--packages-up-to"
+                    print_usage
+                    exit 1
+                fi
+                ;;
+            -m|--only-modules)
+                only_modules=true
+                ;;
+            -c|--clean-tabletop)
+                clean_tabletop=true
+                ;;
+            --clean-cmake)
+                clean_cmake="--cmake-clean-cache"
+                ;;
+            --clean-all)
+                clean_all=true
+                ;;
+            --build-debug)
+                build_debug=true
+                ;;
+            -w|--workers)
+                if [[ $# -le 1  || $2 == -* ]]; then
+                    print_error "No workers provided with --workers"
+                    print_usage
+                    exit 1
+                fi
+                workers=$2
                 shift
-            done
-            if [[ ${#packages_up_to[@]} -eq 0 ]]; then
-                print_error "No packages provided with -p|--packages-up-to"
+                ;;
+            --clang)
+                clang=true
+                ;;
+            --linker)
+                if [[ $# -le 1  || $2 == -* ]]; then
+                    print_error "No linker provided with --linker"
+                    print_usage
+                    exit 1
+                fi
+                linker=$2
+                shift
+                ;;
+            -v|--verbose)
+                verbose=true
+                ;;
+            *)
+                print_error "Unknown argument $1"
                 print_usage
                 exit 1
-            fi
-            ;;
-        -m|--only-modules)
-            only_modules=true
-            ;;
-        -c|--clean-tabletop)
-            clean_tabletop=true
-            ;;
-        --clean-cmake)
-            clean_cmake="--cmake-clean-cache"
-            ;;
-        --clean-all)
-            clean_all=true
-            ;;
-        --build-debug)
-            build_debug=true
-            ;;
-        -w|--workers)
-            if [[ $# -le 1  || $2 == -* ]]; then
-                print_error "No workers provided with --workers"
-                print_usage
-                exit 1
-            fi
-            workers=$2
-            shift
-            ;;
-        --clang)
-            clang=true
-            ;;
-        --linker)
-            if [[ $# -le 1  || $2 == -* ]]; then
-                print_error "No linker provided with --linker"
-                print_usage
-                exit 1
-            fi
-            linker=$2
-            shift
-            ;;
-        --foxglove)
-            foxglove=true
-            ;;
-        -v|--verbose)
-            verbose=true
-            ;;
-        *)
-            print_error "Unknown argument $1"
+                ;;
+        esac
+        shift
+    done
+
+    # Select which packages to build based on flags (mutually exclusive options)
+    local base_paths="src/ros"
+    local package_selection=
+    if [[ $all = true ]]; then
+        # Build all packages in src/ros (both tabletop and modules)
+        if [[ ${#packages_up_to[@]} -gt 0  || $only_modules = true ]]; then
+            print_error "Cannot use --all with -p|--packages or -d|--only-modules"
             print_usage
             exit 1
-            ;;
-    esac
-    shift
-done
-
-# Select which packages to build based on flags (mutually exclusive options)
-base_paths="src/ros"
-package_selection=
-if [[ $all = true ]]; then
-    # Build all packages in src/ros (both tabletop and modules)
-    if [[ ${#packages_up_to[@]} -gt 0  || $only_modules = true ]]; then
-        print_error "Cannot use --all with -p|--packages or -d|--only-modules"
-        print_usage
-        exit 1
+        fi
+    elif [[ $only_modules = true ]]; then
+        # Build only external dependencies in src/ros/modules (moveit2, etc.)
+        if [[ ${#packages_up_to[@]} -gt 0 ]]; then
+            print_error "Cannot use -p|--packages with -d|--only-modules"
+            print_usage
+            exit 1
+        fi
+        base_paths="src/ros/modules"
+        # from_paths="--from-paths $base_paths"
+    elif [[ ${#packages_up_to[@]} -gt 0 ]]; then
+        # Build only specified packages and their recursive dependencies
+        package_selection="--packages-up-to ${packages_up_to[@]}"
+    else
+        # Default: build only tabletop packages (most common case)
+        base_paths="src/ros/tabletop"
+        # skip_moveit_apt_removal="--skip-moveit-apt-removal"
     fi
-elif [[ $only_modules = true ]]; then
-    # Build only external dependencies in src/ros/modules (moveit2, etc.)
-    if [[ ${#packages_up_to[@]} -gt 0 ]]; then
-        print_error "Cannot use -p|--packages with -d|--only-modules"
-        print_usage
-        exit 1
+
+    # Skip architecture-dependent packages (e.g., x86_64-only)
+    local packages_to_skip=("moveit_ros_tests")
+    # if [[ $(uname -m) != x86_64 ]]; then
+    #     packages_to_skip+=("mocap4r2_optitrack_driver")
+    # fi
+    local packages_skip="--packages-skip ${packages_to_skip[@]}"
+
+    # Clean workspace if requested
+    if [[ "$clean_all" == true ]]; then
+        tt-clean --all-colcon
+    elif [[ "$clean_tabletop" == true ]]; then
+        tt-clean --tabletop-colcon
     fi
-    base_paths="src/ros/modules"
-    # from_paths="--from-paths $base_paths"
-elif [[ ${#packages_up_to[@]} -gt 0 ]]; then
-    # Build only specified packages and their recursive dependencies
-    package_selection="--packages-up-to ${packages_up_to[@]}"
-else
-    # Default: build only tabletop packages (most common case)
-    base_paths="src/ros/tabletop"
-    # skip_moveit_apt_removal="--skip-moveit-apt-removal"
-fi
 
-# Skip architecture-dependent packages (e.g., x86_64-only)
-packages_to_skip=("moveit_ros_tests")
-# if [[ $(uname -m) != x86_64 ]]; then
-#     packages_to_skip+=("mocap4r2_optitrack_driver")
-# fi
-packages_skip="--packages-skip ${packages_to_skip[@]}"
+    # Install python dependencies with uv (respects UV_EXTRA from environment)
+    print_status "Installing python dependencies with uv"
+    uv sync $UV_EXTRA
+    source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 
-# Clean workspace if requested
-if [[ "$clean_all" == true ]]; then
-    tt-clean --all-colcon
-elif [[ "$clean_tabletop" == true ]]; then
-    tt-clean --tabletop-colcon
-fi
+    # Build ROS 2 packages with colcon
 
-# Install python dependencies with uv (respects UV_EXTRA from environment)
-print_status "Installing python dependencies with uv"
-uv sync $UV_EXTRA
-source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
+    # Set CMake arguments (disable micro-agent features)
+    local cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
 
-# Build ROS 2 packages with colcon
+    # Build mixins control compilation flags and toolchain (ccache, linker, compiler)
+    local mixins=()
+    mixins+=("build-testing-off" "ccache" "$linker")
 
-# Set CMake arguments (disable micro-agent features)
-cmake_args=("-DUAGENT_BUILD_EXECUTABLE=OFF" "-DUAGENT_P2P_PROFILE=OFF")
+    if [[ $all = true ]]; then
+        rm -f "$TABLETOP_DIR/build/compile_commands.json"
+        mixins+=("compile-commands")
+    fi
 
-# Build mixins control compilation flags and toolchain (ccache, linker, compiler)
-mixins=()
-mixins+=("build-testing-off" "ccache" "$linker")
+    # Select debug or release build
+    if [[ $build_debug = true ]]; then
+        mixins+=("debug")
+    else
+        mixins+=("release")
+    fi
 
-if [[ $all = true ]]; then
-    rm -f "$TABLETOP_DIR/build/compile_commands.json"
-    mixins+=("compile-commands")
-fi
+    # Optionally use clang compiler instead of gcc
+    if [[ $clang = true ]]; then
+        mixins+=("clang")
+    fi
 
-# Select debug or release build
-if [[ $build_debug = true ]]; then
-    mixins+=("debug")
-else
-    mixins+=("release")
-fi
+    # Set parallel workers if specified
+    local parallel_workers=
+    if [[ -n $workers ]]; then
+        # export MAKEFLAGS="-j$workers -l1"
+        parallel_workers="--parallel-workers $workers"
+    fi
 
-# Optionally use clang compiler instead of gcc
-if [[ $clang = true ]]; then
-    mixins+=("clang")
-fi
+    # Enable verbose event handlers for build output
+    local event_handlers=
+    if [[ $verbose = true ]]; then
+        event_handlers="--event-handlers console_cohesion+"
+    fi
 
-# Set parallel workers if specified
-if [[ -n $workers ]]; then
-    # export MAKEFLAGS="-j$workers -l1"
-    parallel_workers="--parallel-workers $workers"
-fi
-
-# Enable verbose event handlers for build output
-if [[ $verbose = true ]]; then
-    event_handlers="--event-handlers console_cohesion+"
-fi
-
-# Build ROS 2 packages
-command="colcon --log-base log/colcon build \
+    # Build ROS 2 packages
+    local command="colcon --log-base log/colcon build \
 --base-paths $base_paths \
 $packages_skip \
 $packages_skip_regex \
@@ -195,12 +230,189 @@ $parallel_workers \
 $event_handlers"
 
 
-print_status "Building ROS 2 packages with command: $command"
-$command
-print_status "Successfully built ROS 2 packages!"
+    print_status "Building ROS 2 packages with command: $command"
+    $command
+    print_status "Successfully built ROS 2 packages!"
+}
 
-# Build Foxglove message converters if requested
-if [[ "$foxglove" == true ]]; then
-    builtin cd "$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
+# === microros: build/upload the Teensy & Flic firmware =====================
+build_microros() {
+    # Default: build and upload teensy firmware with 2 retries on failure
+    local target_arg="--target upload"
+    local retries=2
+    local clean=
+    local project_dirs=(
+        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
+    )
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --clean)
+                clean=true
+                ;;
+            --no-upload)
+                # Build only (no upload); 1 retry
+                unset target_arg
+                retries=1
+                ;;
+            --compiledb)
+                # Generate compile_commands.json for IDE integration; 1 retry
+                target_arg="--target compiledb"
+                retries=1
+                ;;
+            -t|--target)
+                # Select which microcontroller projects to build
+                shift
+                case $1 in
+                    teensy)
+                        project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy")
+                        ;;
+                    flic_micro)
+                        project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro")
+                        ;;
+                    all)
+                        project_dirs=(
+                            "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
+                            "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro"
+                        )
+                        ;;
+                    *)
+                        print_error "Error: Unknown target '$1'"
+                        print_usage
+                        exit 1
+                        ;;
+                esac
+                ;;
+            *)
+                print_error "Error: Unknown argument '$1'"
+                print_usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # Build each selected project with retries on upload failures
+    local project_dir
+    for project_dir in "${project_dirs[@]}"; do
+        builtin cd "$project_dir"
+
+        if [[ "$clean" = true ]]; then
+            print_status "Cleaning microros build directory"
+            # rm -rf .pio
+            pio run --target clean_microros
+        fi
+
+        print_status "Building MicroROS at $project_dir"
+        local i=0
+        # Retry loop: attempt build/upload up to $retries times on failure
+        while (( i < retries )) && ! pio run $target_arg; do
+            (( i+=1 ))
+            if (( i >= retries )); then
+                print_error "Build failed $i times, aborting"
+                exit 1
+            fi
+
+            if [[ -n $target_arg ]]; then
+                print_status "Build failed, retrying..."
+                sleep 1
+            else
+                print_error "Build failed, aborting"
+                exit 1
+            fi
+        done
+    done
+}
+
+# === foxglove: package the MoveIt message converter plugin =================
+build_foxglove() {
+    # Default: write the .foxe to $TABLETOP_DIR. -o/--output overrides this with
+    # either a directory (plugin keeps its packaged name) or a path ending in
+    # .foxe (plugin is renamed to that filename).
+    local output="$TABLETOP_DIR"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -o|--output)
+                if [[ $# -le 1 || $2 == -* ]]; then
+                    print_error "No path provided with -o|--output"
+                    print_usage
+                    exit 1
+                fi
+                output=$2
+                shift
+                ;;
+            *)
+                print_error "Error: Unknown argument '$1'"
+                print_usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # Resolve the requested output into a destination directory and (optionally)
+    # an explicit filename.
+    local dest_dir dest_name=
+    if [[ "$output" == *.foxe ]]; then
+        dest_dir=$(dirname "$output")
+        dest_name=$(basename "$output")
+    else
+        dest_dir="$output"
+    fi
+    mkdir -p "$dest_dir"
+    # Resolve to an absolute path now, before we cd into the module directory, so
+    # a relative -o path stays relative to the caller's directory.
+    dest_dir=$(cd "$dest_dir" && pwd)
+
+    local module_dir="$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
+    builtin cd "$module_dir"
+    npm install
     npm run package
+
+    # `foxglove-extension package` emits a <publisher>.<name>-<version>.foxe in
+    # the module directory. Move the freshly packaged plugin to the destination
+    # so it is easy to find and install into the Foxglove app (see docs/usage).
+    local foxe moved=false dest
+    shopt -s nullglob
+    for foxe in "$module_dir"/*.foxe; do
+        dest="$dest_dir/${dest_name:-$(basename "$foxe")}"
+        mv -f "$foxe" "$dest"
+        print_status "Packaged Foxglove plugin -> $dest"
+        moved=true
+    done
+    shopt -u nullglob
+
+    if [[ "$moved" != true ]]; then
+        print_error "Foxglove packaging produced no .foxe file"
+        exit 1
+    fi
+}
+
+# === dispatch on the required positional component =========================
+if [[ $# -lt 1 ]]; then
+    print_error "Missing required component argument"
+    print_usage
+    exit 1
 fi
+
+component=$1
+shift
+case $component in
+    colcon)
+        build_colcon "$@"
+        ;;
+    microros)
+        build_microros "$@"
+        ;;
+    foxglove)
+        build_foxglove "$@"
+        ;;
+    -h|--help)
+        print_usage
+        exit 0
+        ;;
+    *)
+        print_error "Unknown component '$component'"
+        print_usage
+        exit 1
+        ;;
+esac

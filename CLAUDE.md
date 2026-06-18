@@ -9,39 +9,56 @@ TableTop is a ROS 2-based robotics platform for controlling Universal Robots UR5
 ## Common Commands
 
 The `tt-*` commands are added to `PATH` by `setup.bash`. They are split into
-`bin/host` (run on the host, wrap `tt-compose run --rm <service> …`),
-`bin/container` (run inside a container), and `bin/common` (both). The same
-name (e.g. `tt-build`, `tt-launch`) resolves to the host wrapper on the host
-and the real implementation inside a container, so most workflows look
-identical from either side.
+`bin/host` (run on the host, mostly thin wrappers around
+`tt-compose run --rm <service> …`), `bin/container` (run inside a container),
+and `bin/common` (both). `tt-build` exists on both sides (the host wrapper runs
+the real build in the privileged `builder` container). `tt-launch` is
+container-only: run it from inside a container (the Dev Container, or a shell
+opened with `tt-attach`) or as a one-shot from the host via
+`tt-compose run --rm commander tt-launch …`.
 
 ### Building
 
+`tt-build` takes a required component (`colcon`, `microros`, or `foxglove`):
+
 ```bash
-# Build tabletop packages only (most common)
-tt-build
+# Build the full workspace incl. external modules (moveit2) — run this first
+tt-build colcon --all
+
+# Build tabletop packages only (most common, after the first build)
+tt-build colcon
 
 # Clean tabletop packages first, then build
-tt-build -c            # --clean-tabletop  (--clean-all wipes the whole ws)
+tt-build colcon -c     # --clean-tabletop  (--clean-all wipes the whole ws)
 
 # Build the given packages and their dependencies
-tt-build -p <package_name>
+tt-build colcon -p <package_name>
 
-# Build all packages including external modules (moveit2, etc.)
-tt-build -a            # --all
+# Build all colcon packages including external modules (moveit2, etc.)
+tt-build colcon -a     # --all
 
 # Build only external modules
-tt-build -m            # --only-modules
+tt-build colcon -m     # --only-modules
+
+# Build/upload the Teensy & Flic firmware (PlatformIO)
+tt-build microros
+
+# Package the Foxglove MoveIt plugin (.foxe written to $TABLETOP_DIR by
+# default, or to the -o/--output path)
+tt-build foxglove
 ```
 
-Other useful flags: `-w/--workers N` (low-memory systems), `--build-debug`,
-`--clang`, `--foxglove`, `-v/--verbose`. Run `tt-build --help` for the full set.
+Other useful colcon flags: `-w/--workers N` (low-memory systems),
+`--build-debug`, `--clang`, `-v/--verbose`. Run `tt-build colcon --help` for the
+full set.
 
 ### Running
 
-`tt-launch <target> [ros2 launch args…]`. Common targets: `commander`, `rig`,
-`tasks`, `ur`, `dual_ur`, `teensy`, `flic`, `eyelink`, `flir_no_sync`,
-`flir_synchronized`, `optitrack`, `rosbag`, `rviz`, `foxglove`, `moveit`.
+`tt-launch <target> [ros2 launch args…]`, run inside a container or via
+`tt-compose run --rm commander tt-launch …` from the host. Common targets:
+`commander`, `rig`, `tasks`, `ur`, `dual_ur`, `teensy`, `flic`, `eyelink`,
+`flir_no_sync`, `flir_synchronized`, `optitrack`, `rosbag`, `rviz`, `foxglove`,
+`moveit`.
 
 ```bash
 # Launch the main commander node
@@ -66,8 +83,10 @@ All Docker interactions use the `tt-compose` wrapper (on the host), which
 handles environment generation and project defaults.
 
 ```bash
-# Build Docker images and full ROS 2 workspace (from host)
-tt-compose build
+# Pull the prebuilt Docker images, then build the workspace (from host).
+# `--profile='*'` selects every service so all images are pulled.
+tt-compose --profile='*' pull
+tt-build colcon --all
 
 # Start containers using profiles (from host)
 tt-compose --profile=sim up        # Simulation with mock hardware
@@ -80,15 +99,17 @@ tt-compose ps
 # Stop and remove containers
 tt-compose --profile=sim down
 
-# Launch tasks from the host (spins up a commander container)
-tt-launch tasks task:=foraging_ordered robot_mode:=mock
+# Launch tasks from the host (spins up a temporary commander container)
+tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
 The user-facing profiles are `sim`, `ursim`, and `real` (the `real` profile
 includes the FLIR cameras). Other profiles exist for narrower jobs: `builder`
-(`ros-base`, used by `tt-build`), `commander` (temporary container spun up by
-`tt-launch`), and `dev` (the Dev Container). `tt-env-gen` regenerates `.env`
-(from `.env.example`) whenever hardware changes — device paths are baked into it.
+(the privileged build container used by `tt-build`), `commander` (temporary
+container spun up to run `tt-launch`), `dev` (the Dev Container), and `template`
+(the `ros-base` extends-only base image, never run directly). `tt-env-gen`
+regenerates `.env` (from `.env.example`) whenever hardware changes — device
+paths are baked into it.
 
 ### Testing
 
@@ -135,7 +156,7 @@ src/
     │   ├── tabletop_description/ # URDF robot descriptions + UR calibration
     │   ├── tabletop_moveit_config/ # MoveIt planning configurations
     │   └── tabletop_micro/       # Teensy + Flic firmware (COLCON_IGNOREd;
-    │       ├── tabletop_teensy/  #   built with PlatformIO via tt-microros-build,
+    │       ├── tabletop_teensy/  #   built with PlatformIO via tt-build microros,
     │       └── tabletop_flic_micro/ #   NOT colcon — implements interfaces in C)
     └── modules/              # External dependencies (git submodules)
         ├── moveit2/          # Custom MoveIt fork
@@ -249,7 +270,9 @@ driver must run in a separate process from the Commander.
 - `ruff.toml` - Python linting configuration
 - `.pre-commit-config.yaml` - Pre-commit hooks
 - `bin/` - the `tt-*` commands (`common/`, `host/`, `container/`)
-- `scripts/configure/` - host-side udev/USB/CPU/network setup
+- Real-hardware host configuration (udev/USB/CPU/network/URCaps) is documented
+  as Ubuntu 24.04 procedures in `docs/getting-started/real-hardware.md` (the old
+  `scripts/configure/` shell scripts were removed)
 - ROS parameter files live in each package's `config/`; see
   `docs/guide/configuration.md` for the config → consumer map
 
@@ -263,6 +286,12 @@ driver must run in a separate process from the Commander.
   sees every other node regardless of which container it runs in
 
 ## Further Reading
+
+The `docs/` tree (published at <https://jazlab.github.io/tabletop/>) is the
+canonical source for setup, usage, and troubleshooting; `README.md` is now just
+a high-level overview that points here. Setup/usage live under
+`docs/getting-started/` (`setup.md`, `real-hardware.md`, `usage.md`), with the
+design rationale in `docs/design-choices.md`.
 
 For a deeper conceptual map (runtime topic/service graph, launch hierarchy,
 parameter flow, and "where to look when X breaks"), see `docs/architecture.md`.

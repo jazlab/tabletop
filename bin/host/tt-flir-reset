@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
 # Factory reset FLIR cameras and reinitialize their udev symlinks
 # Usage: tt-flir-reset
-# Wraps: tt-compose, tt-env-gen, udevadm, tt-launch
+# Wraps: docker compose, tt-env-gen, udevadm, tt-launch
 # Runs on: host
 # Environment: TABLETOP_DIR
 # Logic: Stops flir container, resets udev, factory-resets cameras, regenerates device paths, restarts container
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
+
+builtin cd "$TABLETOP_DIR"
+export COMPOSE_REMOVE_ORPHANS=true
+
+# Regenerate .env and call `docker compose` directly (rather than via tt-compose)
+# so this wrapper does not depend on tt-compose, which may change or be replaced.
+tt-env-gen 1>/dev/null
 
 # Bring down flir container if running
 print_status "Bringing down flir container (if running)"
-tt-compose down flir
+docker compose down flir
 
 # Reload and trigger udev rules to refresh device state
 print_status "Reloading udev rules"
@@ -33,7 +40,7 @@ print_status "Factory resetting Flir cameras"
 print_warning "You'll have to ctrl+c when it's done (TODO)"
 echo
 sleep 1
-tt-compose run --rm flir tt-launch flir_no_sync factory_reset:=true || true
+docker compose run --rm flir tt-launch flir_no_sync factory_reset:=true || true
 
 # Reload and trigger udev rules again to pick up reinitialized cameras
 print_status "Reloading udev rules again"
@@ -49,4 +56,4 @@ tt-env-gen
 # Start flir container again
 print_status "Starting flir container again"
 print_status "Check logs using 'tt-compose logs flir' to ensure everything is working"
-tt-compose up flir
+docker compose up flir

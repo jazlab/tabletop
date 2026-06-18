@@ -44,6 +44,9 @@ flic.db
 *.mp4
 *.gif
 
+# Foxglove extension
+*.foxe
+
 # Bags
 /bags
 /bags_container

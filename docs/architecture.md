@@ -67,26 +67,25 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 | --- | --- | --- |
 | `host/tt-compose` | host | `tt-env-gen` (if no `.env`) then `docker compose "$@"` |
 | `host/tt-env-gen` | host | regenerates `.env` from `.env.example`; scans `/dev/flir/`, `nvidia-smi`, PulseAudio |
-| `host/tt-build` | host | `tt-compose run --rm ros-base tt-build "$@"` |
-| `host/tt-launch` | host | `tt-compose run --rm commander tt-launch "$@"` |
-| `host/tt-microros-build` | host | `tt-compose run --rm microros-builder tt-microros-build "$@"` |
-| `host/tt-dev-attach` | host | start service if needed, `docker compose exec <svc> /entrypoint.sh bash` |
-| `host/tt-flir-reset` | host | stop flir svc → reload udev → `tt-launch flir_no_sync factory_reset:=true` → restart |
-| `container/tt-build` | container | `uv sync $UV_EXTRA` then `colcon build` (mixins: release/ccache/mold) |
+| `host/tt-build` | host | `tt-env-gen` then `docker compose run --rm builder tt-build "$@"` |
+| `host/tt-attach` | host | `tt-env-gen` then `docker compose run --rm <svc> [/entrypoint.sh] bash` (or `exec` with `-e`); does **not** start the service |
+| `host/tt-flir-reset` | host | `tt-env-gen` → stop flir svc → reload udev → `docker compose run --rm flir tt-launch flir_no_sync factory_reset:=true` → restart |
+| `container/tt-build` | container | dispatches on `<colcon\|microros\|foxglove>`: colcon (`uv sync` + `colcon build`), microros (PlatformIO `pio run`), foxglove (`npm run package` → `.foxe` to `$TABLETOP_DIR` or `-o` path) |
 | `container/tt-launch` | container | case-routes to `ros2 launch <pkg> <name>.launch.py`, sets per-target `ROS_LOG_DIR` |
-| `container/tt-microros-build` | container | PlatformIO `pio run` in `tabletop_micro/tabletop_{teensy,flic_micro}` |
 | `container/tt-create-graph` | container | `ros2_graph` → `graph.md` |
 | `container/tt-kill-ros` | container | `pkill -f ros` |
 | `common/tt-clean` | both | `rm -rf` of build/install/log/cache dirs by flag |
 
-Host setup scripts (udev rules, usbfs size, CPU scaling, robot network, scp urcaps)
-live in `scripts/configure/`.
+Host configuration for real hardware (udev rules, USB buffer size, CPU governor,
+the TableTop network, URCaps) is no longer shipped as `scripts/configure/`
+scripts; it is documented as Ubuntu 24.04 procedures in
+[Real Hardware Setup](getting-started/real-hardware.md).
 
 ### 2.3 Compose services × profiles
 
 | Service | Profile(s) | Command | Devices / special |
 | --- | --- | --- | --- |
-| `ros-base` | builder | `tt-build --all` | bind-mounts repo at `/tabletop`; parent of all ROS services |
+| `ros-base` | template | — (extends-only) | bind-mounts repo at `/tabletop`; parent of all ROS services, never run directly |
 | `commander` | commander | `tt-launch commander` | GPU runtime if available, PulseAudio, bags mount |
 | `ur` / `ur-mock` | real / sim | `tt-launch dual_ur robot_mode:=real\|mock` | rtprio ulimits |
 | `teensy` / `teensy-sim` | real / sim | `tt-launch teensy simulate:=false\|true` | `$TEENSY_DEV` serial |
@@ -97,13 +96,13 @@ live in `scripts/configure/`.
 | `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
 | `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
 | `ursim` | ursim | UR simulator image | shares noVNC display |
-| `autoheal` | real, sim, ursim | restarts unhealthy labeled containers | |
-| `microros-builder` | — | `tt-microros-build` | privileged, `/dev`, platformio cache volume |
+| `builder` | builder | — (set at run time) | privileged, `/dev`, platformio cache volume; target of host `tt-build` |
 | `dev` | dev | `sleep infinity` | the Dev Container; everything mounted |
 
 A typical real-hardware session: `tt-compose --profile=real up` starts
 ur + teensy + flic + eyelink + optitrack + flir + rviz + novnc, then
-`tt-launch tasks task:=…` runs a commander container on top.
+`tt-compose run --rm commander tt-launch tasks task:=…` runs a commander
+container on top.
 
 ## 3. ROS Runtime Graph
 
@@ -223,7 +222,7 @@ graph TD
   that wraps it in ROS nodes. `tabletop_tasks` only consumes the
   `Commander`; it never touches devices directly.
 - `tabletop_micro/` is `COLCON_IGNORE`d — firmware is built by
-  PlatformIO (`tt-microros-build`), not colcon, but it *implements*
+  PlatformIO (`tt-build microros`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
 - The **Teensy** firmware (`tabletop_micro/tabletop_teensy`) is the supported
   micro-controller, launched via `teensy.launch.py` (micro-ROS agent). The
@@ -325,6 +324,6 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 
 ## 7. Related Documents
 
-- `README.md` — setup and quick start
+- `README.md` — high-level project overview and entry point into this docs site
 - `musings.md` — battle-tested troubleshooting notes
 - `docs/known-issues.md` — discrepancies found during documentation review

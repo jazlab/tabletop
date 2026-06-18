@@ -11,12 +11,13 @@ command set. For a symptom → starting-point table, see
 # Host
 source setup.bash                          # set up environment (add to ~/.bashrc)
 tt-env-gen                                  # (re)generate .env after hardware changes
-tt-compose build                           # build Docker images + workspace
+tt-compose --profile='*' pull              # pull the prebuilt Docker images (all services)
+tt-build colcon --all                      # build the full workspace (modules incl.) — first build
 tt-compose --profile=sim up                # start a simulation session
 
 # Inside a container (or Dev Container)
-tt-build                                   # build tabletop packages
-tt-build --clean-tabletop                  # clean rebuild
+tt-build colcon                            # build tabletop packages
+tt-build colcon --clean-tabletop           # clean rebuild
 tt-launch rig robot_mode:=mock             # launch with mock hardware
 tt-launch tasks task:=foraging_ordered     # run a task
 ```
@@ -26,8 +27,9 @@ tt-launch tasks task:=foraging_ordered     # run a task
 - **Containers rebuilding independently / stale layers.** Stop everything
   (`tt-compose --profile=<p> down`, or `docker container stop $(docker ps -q)`),
   then prune project artifacts with `docker system prune -af` (optionally
-  `--volumes`), and rebuild with `tt-compose build`. Be aware this clears build
-  cache for *all* Docker projects on the machine.
+  `--volumes`), re-pull the images with `tt-compose --profile='*' pull`, and
+  rebuild the workspace with `tt-build colcon --all`. Be aware the prune clears
+  build cache for *all* Docker projects on the machine.
 
 ## Build
 
@@ -35,8 +37,8 @@ tt-launch tasks task:=foraging_ordered     # run a task
   × workers building at once. Limit parallelism:
 
     ```bash
-    tt-build --workers 1   # single-threaded (slow but safe)
-    tt-build --workers 2   # compromise
+    tt-build colcon --workers 1   # single-threaded (slow but safe)
+    tt-build colcon --workers 2   # compromise
     ```
 
 ## Editor (Dev Container)
@@ -112,7 +114,7 @@ remaining pain is host Bluetooth.
   with the correct number of handles (and `colcon.meta` matches), then rebuild:
 
     ```bash
-    tt-microros-build
+    tt-build microros
     ```
 
 - **Serial debugging:** attach to the device with PlatformIO from a container
@@ -166,9 +168,12 @@ python -m tabletop_py.gaze.edf recording.edf -o recording.csv
 
 ## FLIR cameras
 
+Make sure the host is configured for the cameras (USB buffer size and
+`/dev/flir/*` udev symlinks) per
+[Real Hardware Setup → Host configuration](../getting-started/real-hardware.md#host-configuration-ubuntu-2404),
+then capture the device paths:
+
 ```bash
-./scripts/configure/usbfs-configure.sh   # USB buffer size (large frames)
-./scripts/configure/udev-configure.sh    # /dev/flir/* symlinks
 tt-env-gen                               # capture FLIR_DEV_* into .env
 ```
 
@@ -177,9 +182,12 @@ regenerates the env. Check synchronization with `ros2 run tabletop_rig system_ch
 
 ## Performance
 
+For real-time control, pin the CPU to the `performance` governor (see
+[Real Hardware Setup → CPU governor](../getting-started/real-hardware.md#cpu-governor-real-time-control)).
+Build/clean helpers:
+
 ```bash
-./scripts/configure/cpu-speed-scaling-disable.sh   # real-time control
-tt-build --workers 1|2                             # avoid build OOM
+tt-build colcon --workers 1|2                      # avoid build OOM
 tt-clean --tabletop-colcon                         # clean tabletop build
 tt-clean --all-colcon                              # clean all colcon builds
 tt-clean --logs                                    # clean logs

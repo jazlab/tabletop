@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
-# Build the ROS 2 workspace from host
-# Usage: tt-build [<options>]  — thin host wrapper; see bin/container/tt-build for the full option list
-# Wraps: tt-compose run --rm ros-base tt-build
+# Build TableTop components from the host
+# Usage: tt-build <colcon|microros|foxglove> [options...]  — thin host wrapper; see bin/container/tt-build for the full option list
+# Wraps: docker compose run --rm builder tt-build
 # Runs on: host
 # Environment: TABLETOP_DIR
+# Notes: Uses the privileged `builder` service (/dev + platformio-core mounts) so
+#        the same wrapper can build the colcon workspace, the Foxglove plugin,
+#        and the Teensy/Flic firmware.
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
 
-exec tt-compose run --rm ros-base tt-build "$@"
+builtin cd "$TABLETOP_DIR"
+
+# Regenerate .env and call `docker compose` directly (rather than via tt-compose)
+# so this wrapper does not depend on tt-compose, which may change or be replaced.
+tt-env-gen 1>/dev/null
+
+exec docker compose run --rm builder tt-build "$@"

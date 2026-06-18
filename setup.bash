@@ -3,7 +3,7 @@
 
 # === Directory Configuration ===
 # Core paths for workspace and build artifacts
-export TABLETOP_DIR="${TABLETOP_DIR:-$(dirname $(realpath ${BASH_SOURCE[0]}))}"
+export TABLETOP_DIR="${TABLETOP_DIR:-$(dirname "$(realpath "${BASH_SOURCE[0]}")")}"
 export TABLETOP_CACHE_DIR="${TABLETOP_CACHE_DIR:-$TABLETOP_DIR/.cache/tabletop}"
 export COLCON_WS="${COLCON_WS:-$TABLETOP_DIR}"
 export COLCON_LOG_DIR="${COLCON_LOG_DIR:-$COLCON_WS/log/colcon}"
