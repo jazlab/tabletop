@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Open an interactive shell in a TableTop compose service
+# Usage: tt-attach [-e|--use-existing] [<service_name>]   (default service: dev)
+# Wraps: tt-compose run --rm <service> bash   (or tt-compose exec with -e)
+# Runs on: host
+# Environment: TABLETOP_DIR
+# Logic: By default spawns a fresh throwaway container with `run --rm` (handy for
+#        the gaze pipeline or any ros2 command not covered by tt-launch); with
+#        -e/--use-existing it `exec`s into an already-running container. Does NOT
+#        bring the service up first and does NOT use the devcontainer CLI.
+
+set -eo pipefail
+
+bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
+source $bin_dir/../../setup.bash
+source $bin_dir/../utils.sh
+
+builtin cd $TABLETOP_DIR
+
+print_usage() {
+    echo "Usage: $0 [-e|--use-existing] [<service_name> (default: dev)]"
+}
+
+use_existing=false
+service=
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -e|--use-existing)
+            use_existing=true
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        -*)
+            print_error "Unknown option '$1'"
+            print_usage
+            exit 1
+            ;;
+        *)
+            if [[ -n $service ]]; then
+                print_error "Unexpected extra argument '$1'"
+                print_usage
+                exit 1
+            fi
+            service=$1
+            ;;
+    esac
+    shift
+done
+
+service="${service:-dev}"
+
+# Attach to an already-running container with `exec`. /entrypoint.sh sets up the
+# ROS environment for the new shell (the container's main process already ran it).
+if [[ "$use_existing" == true ]]; then
+    exec tt-compose exec "$service" /entrypoint.sh bash
+fi
+
+# Default: spawn a fresh throwaway container with `run --rm`. Warn if one is
+# already running, since `run` starts a *separate* container rather than
+# attaching to the existing one (use -e/--use-existing for that).
+if [[ -n "$(tt-compose ps -q --status=running "$service" 2>/dev/null)" ]]; then
+    print_warning "Service '$service' is already running; 'run --rm' will start a separate container. Use -e/--use-existing to attach to the running one instead."
+fi
+
+# The dev service overrides its entrypoint to "" so the VS Code devcontainer
+# works, so /entrypoint.sh must be invoked explicitly to set up the environment.
+# Other services keep the default /entrypoint.sh, which `run` applies for us.
+if [[ "$service" == dev ]]; then
+    exec tt-compose run --rm "$service" /entrypoint.sh bash
+else
+    exec tt-compose run --rm "$service" bash
+fi
