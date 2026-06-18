@@ -3,13 +3,18 @@
 ## Building
 
 All builds happen inside the container; the `tt-*` wrappers handle that for you.
+`tt-build` takes a required component (`colcon`, `microros`, `foxglove`, or
+`all`):
 
 ```bash
-tt-compose build                 # Docker images + full ROS 2 workspace
-tt-build                         # tabletop packages only (most common)
-tt-build --clean-tabletop        # clean rebuild of tabletop packages
-tt-build -p tabletop_rig         # one package + its dependencies
-tt-build --all                   # everything, including external modules (moveit2)
+tt-compose build                  # Docker images + full ROS 2 workspace
+tt-build colcon                   # tabletop packages only (most common)
+tt-build colcon --clean-tabletop  # clean rebuild of tabletop packages
+tt-build colcon -p tabletop_rig   # one package + its dependencies
+tt-build colcon --all             # everything, including external modules (moveit2)
+tt-build microros                 # Teensy & Flic firmware (PlatformIO)
+tt-build foxglove                 # Foxglove MoveIt plugin (.foxe -> $TABLETOP_DIR)
+tt-build all                      # full workspace + plugin + firmware (build only)
 ```
 
 See [CLI & Tooling](../guide/cli.md) for the full option list.
@@ -72,6 +77,8 @@ for the exact steps for your Foxglove version.
 
 Install the **Dev Containers** extension, run `tt-env-gen`, open the folder, and
 choose **Reopen in Container**. Inside, `tt-build` and `tt-launch` work directly.
+To open a shell in a non-dev service instead, use `tt-attach <service>` (see
+[CLI & Tooling](../guide/cli.md)).
 
 !!! note
     Source changes for nodes running in *other* containers require restarting
@@ -79,16 +86,21 @@ choose **Reopen in Container**. Inside, `tt-build` and `tt-launch` work directly
 
 ## Running a task
 
-Tasks are the behavioral experiments. Launch them from the host (which spins up
-a temporary `commander` container) or from inside a container:
+Tasks are the behavioral experiments. `tt-launch` runs inside a container, so
+launch them from a shell in a container (the Dev Container, or `tt-attach
+commander`), or as a one-shot from the host that spins up a temporary
+`commander` container:
 
 ```bash
-# Default foraging task, mock robot
-tt-launch tasks
+# One-shot from the host: default foraging task, mock robot
+tt-compose run --rm commander tt-launch tasks
 
 # Specific task + robot mode (must match the profile you started)
+tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:=mock
+tt-compose run --rm commander tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
+
+# Or, from inside a container shell (Dev Container / tt-attach commander):
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
-tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
 ```
 
 `Ctrl-C` stops a running task. The `task` argument is a config filename (without

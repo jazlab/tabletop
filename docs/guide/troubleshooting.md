@@ -15,8 +15,8 @@ tt-compose build                           # build Docker images + workspace
 tt-compose --profile=sim up                # start a simulation session
 
 # Inside a container (or Dev Container)
-tt-build                                   # build tabletop packages
-tt-build --clean-tabletop                  # clean rebuild
+tt-build colcon                            # build tabletop packages
+tt-build colcon --clean-tabletop           # clean rebuild
 tt-launch rig robot_mode:=mock             # launch with mock hardware
 tt-launch tasks task:=foraging_ordered     # run a task
 ```
@@ -35,8 +35,8 @@ tt-launch tasks task:=foraging_ordered     # run a task
   × workers building at once. Limit parallelism:
 
     ```bash
-    tt-build --workers 1   # single-threaded (slow but safe)
-    tt-build --workers 2   # compromise
+    tt-build colcon --workers 1   # single-threaded (slow but safe)
+    tt-build colcon --workers 2   # compromise
     ```
 
 ## Editor (Dev Container)
@@ -112,7 +112,7 @@ remaining pain is host Bluetooth.
   with the correct number of handles (and `colcon.meta` matches), then rebuild:
 
     ```bash
-    tt-microros-build
+    tt-build microros
     ```
 
 - **Serial debugging:** attach to the device with PlatformIO from a container
@@ -179,7 +179,7 @@ regenerates the env. Check synchronization with `ros2 run tabletop_rig system_ch
 
 ```bash
 ./scripts/configure/cpu-speed-scaling-disable.sh   # real-time control
-tt-build --workers 1|2                             # avoid build OOM
+tt-build colcon --workers 1|2                      # avoid build OOM
 tt-clean --tabletop-colcon                         # clean tabletop build
 tt-clean --all-colcon                              # clean all colcon builds
 tt-clean --logs                                    # clean logs

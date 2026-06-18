@@ -50,7 +50,7 @@ The Teensy and Flic micro-controller firmware live under
 `tabletop_micro/` and are built with PlatformIO (not colcon):
 
 ```bash
-tt-microros-build
+tt-build microros
 ```
 
 The Teensy firmware implements the `tabletop_interfaces` services (`SetArmLock`,

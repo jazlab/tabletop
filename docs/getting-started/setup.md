@@ -110,11 +110,11 @@ Firmware (Teensy + Flic micro-controllers) is built/flashed via the container
 (this also works from the Dev Container):
 
 ```bash
-tt-microros-build
+tt-build microros
 ```
 
 !!! tip "First upload usually fails"
-    `tt-microros-build` retries the build/upload twice. The first attempt
+    `tt-build microros` retries the build/upload twice. The first attempt
     almost always builds successfully but fails to *upload*; the second attempt
     almost always succeeds. This is a quirk of the PlatformIO upload tooling.
 

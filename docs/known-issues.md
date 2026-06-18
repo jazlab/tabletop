@@ -146,7 +146,7 @@ the remaining ones are open.
    Current equivalents: `scripts/configure/usbfs-configure.sh`,
    `scripts/configure/udev-configure.sh`,
    `scripts/configure/cpu-speed-scaling-disable.sh`,
-   `tt-microros-build` (for teensy builds), `tt-compose`/`tt-build`.
+   `tt-build microros` (for teensy builds), `tt-compose`/`tt-build`.
    The gaze CLI entry points are `tt-gaze-*` (not `gaze-*`).
 
 ## Minor
