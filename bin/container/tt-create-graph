@@ -8,9 +8,9 @@
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
 
 if [[ $# -gt 1 ]]; then
     print_error "Usage: $0 [output_file]"

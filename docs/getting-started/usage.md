@@ -3,19 +3,21 @@
 ## Building
 
 All builds happen inside the container; the `tt-*` wrappers handle that for you.
-`tt-build` takes a required component (`colcon`, `microros`, `foxglove`, or
-`all`):
+`tt-build` takes a required component — `colcon`, `microros`, or `foxglove`:
 
 ```bash
-tt-compose pull                   # pull the prebuilt Docker images from Docker Hub
-tt-build colcon                   # tabletop packages only (most common)
+tt-compose --profile='*' pull     # pull the prebuilt Docker images from Docker Hub
+tt-build colcon --all             # full workspace incl. external modules (moveit2) — run this first
+tt-build colcon                   # tabletop packages only (most common, after the first build)
 tt-build colcon --clean-tabletop  # clean rebuild of tabletop packages
 tt-build colcon -p tabletop_rig   # one package + its dependencies
-tt-build colcon --all             # everything, including external modules (moveit2)
 tt-build microros                 # Teensy & Flic firmware (PlatformIO)
 tt-build foxglove                 # Foxglove MoveIt plugin (.foxe -> $TABLETOP_DIR)
-tt-build all                      # full workspace + plugin + firmware (build only)
 ```
+
+Run `tt-build colcon --all` the **first** time so the external modules (moveit2,
+etc.) are built too. After that you can drop `--all` and just run
+`tt-build colcon`, as long as you are only changing the tabletop packages.
 
 See [CLI & Tooling](../guide/cli.md) for the full option list.
 
@@ -63,13 +65,17 @@ To visualize MoveIt planning scenes, install the bundled Foxglove extension.
 Build and package it with:
 
 ```bash
-tt-build foxglove
+tt-build foxglove                            # writes to $TABLETOP_DIR
+tt-build foxglove -o ~/plugins               # write into a directory (keeps the packaged name)
+tt-build foxglove -o ~/plugins/moveit.foxe   # write to a specific filename
 ```
 
 This packages the `foxglove_moveit_msg_converter` extension and writes the
-resulting `.foxe` file to `$TABLETOP_DIR` (the repository root). Install it into
-the Foxglove app by opening the extensions settings and adding the local
-`.foxe`; see the
+resulting `.foxe` file to `$TABLETOP_DIR` (the repository root) by default, or to
+the `-o/--output` path — a directory (the plugin keeps its packaged name) or a
+path ending in `.foxe` (the plugin is renamed to it). Install it into the
+Foxglove app by opening the extensions settings and adding the local `.foxe`; see
+the
 [Foxglove extensions guide](https://docs.foxglove.dev/docs/visualization/extensions/introduction)
 for the exact steps for your Foxglove version.
 
@@ -86,21 +92,22 @@ To open a shell in a non-dev service instead, use `tt-attach <service>` (see
 
 ## Running a task
 
-Tasks are the behavioral experiments. `tt-launch` runs inside a container, so
-launch them from a shell in a container (the Dev Container, or `tt-attach
-commander`), or as a one-shot from the host that spins up a temporary
-`commander` container:
+Tasks are the behavioral experiments. `tt-launch` runs inside a container. The
+recommended way is to open a shell in the `commander` service with `tt-attach`
+(or use the Dev Container) and run `tt-launch` from there:
 
 ```bash
-# One-shot from the host: default foraging task, mock robot
-tt-compose run --rm commander tt-launch tasks
+tt-attach commander       # open a shell in a fresh commander container, then:
+tt-launch tasks                                              # default foraging task, mock robot
+tt-launch tasks task:=foraging_ordered robot_mode:=mock     # specific task + robot mode
+tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
+```
 
-# Specific task + robot mode (must match the profile you started)
+Alternatively, run a task as a one-shot from the host — this spins up a temporary
+`commander` container and tears it down when the task exits:
+
+```bash
 tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:=mock
-tt-compose run --rm commander tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
-
-# Or, from inside a container shell (Dev Container / tt-attach commander):
-tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
 `Ctrl-C` stops a running task. The `task` argument is a config filename (without

@@ -19,11 +19,13 @@ opened with `tt-attach`) or as a one-shot from the host via
 
 ### Building
 
-`tt-build` takes a required component (`colcon`, `microros`, `foxglove`, or
-`all`):
+`tt-build` takes a required component (`colcon`, `microros`, or `foxglove`):
 
 ```bash
-# Build tabletop packages only (most common)
+# Build the full workspace incl. external modules (moveit2) — run this first
+tt-build colcon --all
+
+# Build tabletop packages only (most common, after the first build)
 tt-build colcon
 
 # Clean tabletop packages first, then build
@@ -41,11 +43,9 @@ tt-build colcon -m     # --only-modules
 # Build/upload the Teensy & Flic firmware (PlatformIO)
 tt-build microros
 
-# Package the Foxglove MoveIt plugin (.foxe written to $TABLETOP_DIR)
+# Package the Foxglove MoveIt plugin (.foxe written to $TABLETOP_DIR by
+# default, or to the -o/--output path)
 tt-build foxglove
-
-# Build everything: full workspace + plugin + firmware (build only)
-tt-build all
 ```
 
 Other useful colcon flags: `-w/--workers N` (low-memory systems),
@@ -83,9 +83,10 @@ All Docker interactions use the `tt-compose` wrapper (on the host), which
 handles environment generation and project defaults.
 
 ```bash
-# Pull the prebuilt Docker images, then build the workspace (from host)
-tt-compose pull
-tt-build all
+# Pull the prebuilt Docker images, then build the workspace (from host).
+# `--profile='*'` selects every service so all images are pulled.
+tt-compose --profile='*' pull
+tt-build colcon --all
 
 # Start containers using profiles (from host)
 tt-compose --profile=sim up        # Simulation with mock hardware

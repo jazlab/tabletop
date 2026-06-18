@@ -11,17 +11,18 @@
 # (device paths, GPU runtime, PulseAudio mounts).
 name: tabletop
 
-# Shared settings merged into most services: host IPC + networking so every
-# ROS node sees every other node regardless of container (single DDS domain).
-x-common: &common
-  ipc: host
-  network_mode: host
+# Every service runs with host IPC + networking (`ipc: host`, `network_mode:
+# host`) so every ROS node sees every other node regardless of container (a
+# single DDS domain). These two settings are repeated explicitly in each
+# top-level service below (novnc, ursim, flicd, ros-base); the remaining services
+# inherit them through `extends: ros-base`.
 
 services:
   # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
   # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
   novnc:
-    <<: *common
+    ipc: host
+    network_mode: host
     container_name: tabletop-novnc
     profiles: [ real, sim, ursim ]
     image: jazlabtabletop/novnc
@@ -36,7 +37,8 @@ services:
   # Universal Robots UR5e simulator (virtual controller + teach pendant GUI).
   # Renders to the noVNC display; loads our URCaps/programs from ur_robot/.
   ursim:
-    <<: *common
+    ipc: host
+    network_mode: host
     container_name: tabletop-ursim
     profiles: [ ursim ]
     image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
@@ -58,7 +60,8 @@ services:
   # DEPRECATED: Flic daemon (flicd) bridge over BLE. Superseded by the in-process
   # scapy BLE sniffer in the flic node; kept under the `deprecated` profile.
   flicd:
-    <<: *common
+    ipc: host
+    network_mode: host
     container_name: tabletop-flicd
     profiles: [ deprecated ]
     image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
@@ -88,7 +91,8 @@ services:
   # `builder` service below performs builds, and each real service overrides the
   # command.
   ros-base:
-    <<: *common
+    ipc: host
+    network_mode: host
     image: jazlabtabletop/ros-base
     container_name: tabletop-ros-base
     profiles: [ template ]
@@ -111,8 +115,7 @@ services:
   # General-purpose build container used by the host tt-build wrapper. Privileged
   # with /dev mounted and the platformio-core cache so the same service can build
   # the colcon workspace, package the Foxglove plugin, AND build/flash the
-  # Teensy/Flic firmware. The build component is supplied at run time via
-  # `tt-compose run --rm builder tt-build <component>`.
+  # Teensy/Flic firmware.
   builder:
     extends: ros-base
     container_name: tabletop-builder

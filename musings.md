@@ -9,15 +9,15 @@ Before diving into troubleshooting, here are the most common commands:
 
 ```bash
 # Host machine commands
-source setup.bash           # Set up environment (add to .bashrc)
-tt-env-gen                   # Generate .env file (run after hardware changes)
-tt-compose build             # Build Docker images
-tt-compose up ursim_novnc rig_novnc  # Start simulator and rig
+source setup.bash                       # Set up environment (add to .bashrc)
+tt-env-gen                              # Generate .env file (run after hardware changes)
+tt-compose --profile='*' pull          # Pull the prebuilt Docker images
+tt-compose --profile=sim up            # Start a simulation session
 
-# Inside container
-tt-build                     # Build tabletop packages
-tt-build --clean             # Clean rebuild
-tt-launch rig robot_mode:=mock  # Launch with mock hardware
+# Inside a container (or Dev Container)
+tt-build colcon                         # Build tabletop packages
+tt-build colcon --clean-tabletop        # Clean rebuild
+tt-launch rig robot_mode:=mock          # Launch with mock hardware
 tt-launch tasks task:=foraging_ordered  # Run a task
 ```
 

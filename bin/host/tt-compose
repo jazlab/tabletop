@@ -8,11 +8,11 @@
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
 
-builtin cd $TABLETOP_DIR
+builtin cd "$TABLETOP_DIR"
 
 tt-env-gen 1>/dev/null
 

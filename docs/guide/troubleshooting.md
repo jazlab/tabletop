@@ -11,8 +11,8 @@ command set. For a symptom → starting-point table, see
 # Host
 source setup.bash                          # set up environment (add to ~/.bashrc)
 tt-env-gen                                  # (re)generate .env after hardware changes
-tt-compose pull                            # pull the prebuilt Docker images
-tt-build all                               # build workspace (+ plugin + firmware)
+tt-compose --profile='*' pull              # pull the prebuilt Docker images (all services)
+tt-build colcon --all                      # build the full workspace (modules incl.) — first build
 tt-compose --profile=sim up                # start a simulation session
 
 # Inside a container (or Dev Container)
@@ -27,9 +27,9 @@ tt-launch tasks task:=foraging_ordered     # run a task
 - **Containers rebuilding independently / stale layers.** Stop everything
   (`tt-compose --profile=<p> down`, or `docker container stop $(docker ps -q)`),
   then prune project artifacts with `docker system prune -af` (optionally
-  `--volumes`), re-pull the images with `tt-compose pull`, and rebuild the
-  workspace with `tt-build all`. Be aware the prune clears build cache for *all*
-  Docker projects on the machine.
+  `--volumes`), re-pull the images with `tt-compose --profile='*' pull`, and
+  rebuild the workspace with `tt-build colcon --all`. Be aware the prune clears
+  build cache for *all* Docker projects on the machine.
 
 ## Build
 

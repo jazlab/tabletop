@@ -20,7 +20,7 @@ for the project overview, setup, usage, and troubleshooting:
 - **[Setup](https://jazlab.github.io/tabletop/getting-started/setup/)** — clone,
   configure the host, and bring up the containers.
 - **[Real Hardware Setup](https://jazlab.github.io/tabletop/getting-started/real-hardware/)**
-  — robot network, URCaps, and remote control.
+  — the TableTop network, URCaps, and remote control.
 - **[Usage](https://jazlab.github.io/tabletop/getting-started/usage/)** — build,
   start containers, and run a task.
 - **[Design Choices](https://jazlab.github.io/tabletop/design-choices/)** — why

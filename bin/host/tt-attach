@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Open an interactive shell in a TableTop compose service
 # Usage: tt-attach [-e|--use-existing] [<service_name>]   (default service: dev)
-# Wraps: tt-compose run --rm <service> bash   (or tt-compose exec with -e)
+# Wraps: docker compose run --rm <service> bash   (or docker compose exec with -e)
 # Runs on: host
 # Environment: TABLETOP_DIR
 # Logic: By default spawns a fresh throwaway container with `run --rm` (handy for
@@ -11,11 +11,15 @@
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
 
-builtin cd $TABLETOP_DIR
+builtin cd "$TABLETOP_DIR"
+
+# Regenerate .env and call `docker compose` directly (rather than via tt-compose)
+# so this wrapper does not depend on tt-compose, which may change or be replaced.
+tt-env-gen 1>/dev/null
 
 print_usage() {
     echo "Usage: $0 [-e|--use-existing] [<service_name> (default: dev)]"
@@ -54,21 +58,21 @@ service="${service:-dev}"
 # Attach to an already-running container with `exec`. /entrypoint.sh sets up the
 # ROS environment for the new shell (the container's main process already ran it).
 if [[ "$use_existing" == true ]]; then
-    exec tt-compose exec "$service" /entrypoint.sh bash
+    exec docker compose exec "$service" /entrypoint.sh bash
 fi
 
-# Default: spawn a fresh throwaway container with `run --rm`. Warn if one is
-# already running, since `run` starts a *separate* container rather than
-# attaching to the existing one (use -e/--use-existing for that).
-if [[ -n "$(tt-compose ps -q --status=running "$service" 2>/dev/null)" ]]; then
-    print_warning "Service '$service' is already running; 'run --rm' will start a separate container. Use -e/--use-existing to attach to the running one instead."
+# Default: spawn a fresh throwaway container. Warn if one is already running,
+# since this starts a *separate* container rather than attaching to the existing
+# one (use -e/--use-existing for that).
+if [[ -n "$(docker compose ps -q --status=running "$service" 2>/dev/null)" ]]; then
+    print_warning "Service '$service' is already running. By default this command starts a separate container with the same configuration; use -e/--use-existing to open a shell in the running one instead."
 fi
 
 # The dev service overrides its entrypoint to "" so the VS Code devcontainer
 # works, so /entrypoint.sh must be invoked explicitly to set up the environment.
 # Other services keep the default /entrypoint.sh, which `run` applies for us.
 if [[ "$service" == dev ]]; then
-    exec tt-compose run --rm "$service" /entrypoint.sh bash
+    exec docker compose run --rm "$service" /entrypoint.sh bash
 else
-    exec tt-compose run --rm "$service" bash
+    exec docker compose run --rm "$service" bash
 fi

@@ -67,10 +67,10 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 | --- | --- | --- |
 | `host/tt-compose` | host | `tt-env-gen` (if no `.env`) then `docker compose "$@"` |
 | `host/tt-env-gen` | host | regenerates `.env` from `.env.example`; scans `/dev/flir/`, `nvidia-smi`, PulseAudio |
-| `host/tt-build` | host | `tt-compose run --rm builder tt-build "$@"` |
-| `host/tt-attach` | host | `tt-compose run --rm <svc> [/entrypoint.sh] bash` (or `exec` with `-e`); does **not** start the service |
-| `host/tt-flir-reset` | host | stop flir svc → reload udev → `tt-compose run --rm flir tt-launch flir_no_sync factory_reset:=true` → restart |
-| `container/tt-build` | container | dispatches on `<colcon\|microros\|foxglove\|all>`: colcon (`uv sync` + `colcon build`), microros (PlatformIO `pio run`), foxglove (`npm run package` → `.foxe` to `$TABLETOP_DIR`) |
+| `host/tt-build` | host | `tt-env-gen` then `docker compose run --rm builder tt-build "$@"` |
+| `host/tt-attach` | host | `tt-env-gen` then `docker compose run --rm <svc> [/entrypoint.sh] bash` (or `exec` with `-e`); does **not** start the service |
+| `host/tt-flir-reset` | host | `tt-env-gen` → stop flir svc → reload udev → `docker compose run --rm flir tt-launch flir_no_sync factory_reset:=true` → restart |
+| `container/tt-build` | container | dispatches on `<colcon\|microros\|foxglove>`: colcon (`uv sync` + `colcon build`), microros (PlatformIO `pio run`), foxglove (`npm run package` → `.foxe` to `$TABLETOP_DIR` or `-o` path) |
 | `container/tt-launch` | container | case-routes to `ros2 launch <pkg> <name>.launch.py`, sets per-target `ROS_LOG_DIR` |
 | `container/tt-create-graph` | container | `ros2_graph` → `graph.md` |
 | `container/tt-kill-ros` | container | `pkill -f ros` |

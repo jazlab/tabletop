@@ -3,7 +3,7 @@
 Sourcing `setup.bash` puts the `tt-*` commands on your `PATH`. They are split
 by where they run: `bin/common` (both), and `bin/host` or `bin/container`
 depending on context. Under the hood, the host wrappers mostly shell out to
-`tt-compose run --rm <service> …`. See
+`docker compose` (regenerating `.env` first). See
 [Architecture §2.2](../architecture.md) for exactly what each one runs.
 
 ## Host commands (`bin/host`)
@@ -11,13 +11,10 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | Command | Description |
 | --- | --- |
 | `tt-compose` | Wrapper for `docker compose` with TableTop defaults (generates `.env` if missing) |
-| `tt-build` | Build a component (`colcon`/`microros`/`foxglove`/`all`) via the privileged `builder` container |
+| `tt-build` | Build a component (`colcon`/`microros`/`foxglove`) via the privileged `builder` container |
 | `tt-env-gen` | Generate `.env` from `.env.example` with hardware detection |
-| `tt-attach` | Open a shell in a compose service (`run --rm` a fresh one by default; `-e` to `exec` into a running one) |
+| `tt-attach` | Open a shell in a compose service (a fresh container by default; `-e` to reuse a running one) |
 | `tt-flir-reset` | Reset FLIR cameras (reload udev, factory reset, regenerate env) |
-
-`tt-launch` has no host wrapper — run it inside a container, or as a one-shot
-from the host with `tt-compose run --rm commander tt-launch <target> …`.
 
 !!! note "Host setup"
     Real-hardware host configuration (udev rules, USB buffer size, CPU
@@ -29,7 +26,7 @@ from the host with `tt-compose run --rm commander tt-launch <target> …`.
 
 | Command | Description |
 | --- | --- |
-| `tt-build` | Build a component: `colcon` (workspace), `microros` (firmware), `foxglove` (plugin), or `all` |
+| `tt-build` | Build a component: `colcon` (workspace), `microros` (firmware), or `foxglove` (plugin) |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, …) |
 | `tt-create-graph` | Generate the ROS 2 node/topic graph |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
@@ -49,7 +46,12 @@ from the host with `tt-compose run --rm commander tt-launch <target> …`.
 | `colcon` | the ROS 2 workspace (colcon) |
 | `microros` | the Teensy & Flic micro-controller firmware (PlatformIO) |
 | `foxglove` | the Foxglove MoveIt converter plugin (`.foxe` written to `$TABLETOP_DIR`) |
-| `all` | the full workspace + plugin + firmware (firmware build only) |
+
+!!! note "First build"
+    Run `tt-build colcon --all` once to build the external modules (moveit2,
+    etc.) as well; afterwards `tt-build colcon` rebuilds just the tabletop
+    packages. There is no `all` component — build `microros` and `foxglove`
+    separately when you need them.
 
 ### `colcon` options
 
@@ -76,9 +78,18 @@ from the host with `tt-compose run --rm commander tt-launch <target> …`.
 --compiledb            Generate compile_commands.json for IDE integration
 ```
 
+### `foxglove` options
+
+```text
+-o, --output <path>    Where to write the packaged .foxe (default: $TABLETOP_DIR).
+                       A directory keeps the packaged name; a path ending in
+                       .foxe renames the plugin to it.
+```
+
 ## `tt-launch` targets
 
-`tt-launch` runs inside a container; from the host, prefix it with
+`tt-launch` runs inside a container — open one with `tt-attach <service>` (or use
+the Dev Container), or run it as a one-shot from the host by prefixing it with
 `tt-compose run --rm commander`. `tt-launch <target> [ros2 launch args…]`.
 Targets: `commander`, `rig`, `tasks`, `ur`, `dual_ur`, `teensy`, `flic`,
 `eyelink`, `flir_no_sync`, `flir_synchronized`, `flir_calibrate`, `optitrack`,

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Build TableTop components (runs in container)
-# Usage: tt-build <colcon|microros|foxglove|all> [component options...]
+# Usage: tt-build <colcon|microros|foxglove> [component options...]
 # Runs on: container
 # Environment: TABLETOP_DIR, COLCON_WS, UV_PROJECT_ENVIRONMENT
 # Logic: Dispatches on a required positional `component` argument to a dedicated
 #        build function. `colcon` builds the ROS 2 workspace, `microros` builds/
-#        uploads the Teensy & Flic firmware via PlatformIO, `foxglove` packages
-#        the Foxglove MoveIt message converter plugin (.foxe -> $TABLETOP_DIR),
-#        and `all` builds the full workspace + plugin + firmware (build only).
+#        uploads the Teensy & Flic firmware via PlatformIO, and `foxglove`
+#        packages the Foxglove MoveIt message converter plugin (.foxe ->
+#        $TABLETOP_DIR by default, or the -o/--output path).
 
 set -eo pipefail
 
-bin_dir=$(dirname $(realpath ${BASH_SOURCE[0]}))
-source $bin_dir/../../setup.bash
-source $bin_dir/../utils.sh
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+source "$bin_dir/../utils.sh"
 
 print_usage() {
     cat <<EOF
@@ -23,7 +23,6 @@ Components:
   colcon     Build the ROS 2 workspace with colcon
   microros   Build/upload the Teensy & Flic micro-controller firmware (PlatformIO)
   foxglove   Package the Foxglove MoveIt message converter plugin (.foxe -> \$TABLETOP_DIR)
-  all        Build everything: colcon (full workspace) + foxglove + microros (build only)
 
 colcon options:
   --build-debug          Build with debug symbols (default: release)
@@ -43,12 +42,17 @@ microros options:
   --clean                Clean the micro-ROS build directory first
   --no-upload            Build only (no upload)
   --compiledb            Generate compile_commands.json for IDE integration
+
+foxglove options:
+  -o, --output <path>    Where to write the packaged .foxe (default: \$TABLETOP_DIR).
+                         A directory receives the plugin under its packaged name;
+                         a path ending in .foxe renames it.
 EOF
 }
 
 # === colcon: build the ROS 2 workspace =====================================
 build_colcon() {
-    builtin cd $COLCON_WS
+    builtin cd "$COLCON_WS"
 
     # Parse arguments
     local build_debug=false
@@ -290,7 +294,7 @@ build_microros() {
     # Build each selected project with retries on upload failures
     local project_dir
     for project_dir in "${project_dirs[@]}"; do
-        builtin cd $project_dir
+        builtin cd "$project_dir"
 
         if [[ "$clean" = true ]]; then
             print_status "Cleaning microros build directory"
@@ -321,18 +325,54 @@ build_microros() {
 
 # === foxglove: package the MoveIt message converter plugin =================
 build_foxglove() {
+    # Default: write the .foxe to $TABLETOP_DIR. -o/--output overrides this with
+    # either a directory (plugin keeps its packaged name) or a path ending in
+    # .foxe (plugin is renamed to that filename).
+    local output="$TABLETOP_DIR"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -o|--output)
+                if [[ $# -le 1 || $2 == -* ]]; then
+                    print_error "No path provided with -o|--output"
+                    print_usage
+                    exit 1
+                fi
+                output=$2
+                shift
+                ;;
+            *)
+                print_error "Error: Unknown argument '$1'"
+                print_usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    # Resolve the requested output into a destination directory and (optionally)
+    # an explicit filename.
+    local dest_dir dest_name=
+    if [[ "$output" == *.foxe ]]; then
+        dest_dir=$(dirname "$output")
+        dest_name=$(basename "$output")
+    else
+        dest_dir="$output"
+    fi
+    mkdir -p "$dest_dir"
+
     local module_dir="$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
     builtin cd "$module_dir"
     npm run package
 
     # `foxglove-extension package` emits a <publisher>.<name>-<version>.foxe in
-    # the module directory. Move the freshly packaged plugin to $TABLETOP_DIR so
-    # it is easy to find and install into the Foxglove app (see docs/usage).
-    local foxe moved=false
+    # the module directory. Move the freshly packaged plugin to the destination
+    # so it is easy to find and install into the Foxglove app (see docs/usage).
+    local foxe moved=false dest
     shopt -s nullglob
     for foxe in "$module_dir"/*.foxe; do
-        mv -f "$foxe" "$TABLETOP_DIR/"
-        print_status "Packaged Foxglove plugin -> $TABLETOP_DIR/$(basename "$foxe")"
+        dest="$dest_dir/${dest_name:-$(basename "$foxe")}"
+        mv -f "$foxe" "$dest"
+        print_status "Packaged Foxglove plugin -> $dest"
         moved=true
     done
     shopt -u nullglob
@@ -341,16 +381,6 @@ build_foxglove() {
         print_error "Foxglove packaging produced no .foxe file"
         exit 1
     fi
-}
-
-# === all: full workspace + plugin + firmware (build only) ==================
-build_all() {
-    # Build the full colcon workspace (forwarding any extra colcon flags, e.g.
-    # --workers for low-memory systems), then the Foxglove plugin, then the
-    # firmware without uploading (the builder may not have a Teensy attached).
-    build_colcon --all "$@"
-    build_foxglove
-    build_microros --no-upload
 }
 
 # === dispatch on the required positional component =========================
@@ -371,9 +401,6 @@ case $component in
         ;;
     foxglove)
         build_foxglove "$@"
-        ;;
-    all)
-        build_all "$@"
         ;;
     -h|--help)
         print_usage

@@ -54,9 +54,10 @@ sudo udevadm control --reload
 sudo udevadm trigger
 ```
 
-PlatformIO also ships generic board rules; the custom Teensy rule above replaces
-them. After plugging or unplugging a device, re-run `tt-env-gen` so Docker
-re-maps it.
+PlatformIO also ships
+[generic board udev rules](https://docs.platformio.org/en/latest/core/installation/udev-rules.html);
+the custom Teensy rule above replaces them. After plugging or unplugging a
+device, re-run `tt-env-gen` so Docker re-maps it.
 
 ### USB buffer size (FLIR cameras)
 
@@ -80,9 +81,13 @@ kernel command line through your bootloader's mechanism instead.
 
 ### CPU governor (real-time control)
 
-For deterministic real-time robot control, pin the CPU to the `performance`
-governor. On Ubuntu/Debian this uses `cpufrequtils` (listed under
-[Requirements](setup.md#requirements)):
+For deterministic real-time robot control, disable CPU frequency scaling by
+pinning the CPU to the `performance` governor — the setup
+[recommended by the `ur_robot_driver` real-time guide](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_client_library/doc/real_time.html).
+Any mechanism that pins the governor works; the
+[`cpufrequtils`](https://manpages.ubuntu.com/manpages/noble/man1/cpufreq-info.1.html)
+approach below (listed under [Requirements](setup.md#requirements)) is just one
+example, shown for Ubuntu/Debian:
 
 ```bash
 sudo apt install -y cpufrequtils
@@ -91,8 +96,32 @@ echo 'GOVERNOR=performance' | sudo tee /etc/default/cpufrequtils
 sudo systemctl enable --now cpufrequtils
 ```
 
-On other distributions use the equivalent tool — e.g.
-`sudo cpupower frequency-set -g performance` on Fedora/RHEL.
+Tools with equivalent functionality on other distributions include:
+
+- [`cpupower`](https://www.kernel.org/doc/html/latest/admin-guide/pm/cpufreq.html)
+  — `sudo cpupower frequency-set -g performance`; ships with the kernel tools
+  package (`linux-tools-common`/`linux-tools-$(uname -r)` on Debian/Ubuntu,
+  `kernel-tools` on Fedora/RHEL).
+- [TuneD](https://tuned-project.org/) — apply a real-time-oriented profile such
+  as `latency-performance` (`sudo tuned-adm profile latency-performance`),
+  common on Fedora/RHEL.
+
+### Real-time kernel (optional, recommended)
+
+The same
+[`ur_robot_driver` real-time guide](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_client_library/doc/real_time.html)
+recommends running a real-time or low-latency kernel for the best control
+performance. On Ubuntu 24.04 the low-latency kernel is a drop-in install:
+
+```bash
+sudo apt install -y linux-lowlatency
+sudo reboot
+```
+
+Confirm the running kernel after rebooting with `uname -a` (it should report
+`lowlatency`). For a fully preemptible `PREEMPT_RT` kernel, see
+[Ubuntu's real-time kernel](https://ubuntu.com/real-time); on other
+distributions install that distro's real-time or low-latency kernel package.
 
 ## The TableTop network
 
@@ -149,14 +178,16 @@ sudo ip addr add 192.168.13.10/24 dev <iface>
 ```
 
 This lasts until the next reboot. To make it persistent, use the graphical
-settings above, `nmcli`, or a netplan file under `/etc/netplan/`.
+settings above,
+[`nmcli`](https://networkmanager.dev/docs/api/latest/nmcli.html), or a
+[netplan](https://netplan.io/) file under `/etc/netplan/`.
 
 ### Firewall
 
-If you run a host firewall (e.g. `ufw`), make sure it does not block traffic on
-the TableTop subnet — the UR driver and the rig computers must reach the host on
-several ports. Either allow the subnet or disable the firewall while on the rig
-network:
+If you run a host firewall (e.g. [`ufw`](https://help.ubuntu.com/community/UFW)),
+make sure it does not block traffic on the TableTop subnet — the UR driver and
+the rig computers must reach the host on several ports. Either allow the subnet
+or disable the firewall while on the rig network:
 
 ```bash
 sudo ufw allow from 192.168.13.0/24   # allow the local subnet
