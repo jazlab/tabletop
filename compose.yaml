@@ -18,19 +18,6 @@ x-common: &common
   network_mode: host
 
 services:
-  # Watchdog that restarts any container labeled `autoheal-tabletop: true`
-  # when its healthcheck fails. Isolated network; talks only to the Docker socket.
-  autoheal:
-    container_name: tabletop-autoheal
-    profiles: [ real, sim, ursim ]
-    image: willfarrell/autoheal@sha256:ae1599ab171135fe3d5b779d84ece28f5cac95137e0e508ca49c62ccd740785e
-    network_mode: none
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - AUTOHEAL_CONTAINER_LABEL=autoheal-tabletop
-    restart: unless-stopped
-
   # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
   # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
   novnc:
@@ -44,10 +31,6 @@ services:
       - DISPLAY_WIDTH=$NOVNC_WIDTH
       - DISPLAY_HEIGHT=$NOVNC_HEIGHT
       - WINDOW_MANAGER=dwm
-    labels:
-      autoheal-tabletop: true
-    depends_on:
-      - autoheal
     restart: unless-stopped
 
   # Universal Robots UR5e simulator (virtual controller + teach pendant GUI).
@@ -79,8 +62,6 @@ services:
     container_name: tabletop-flicd
     profiles: [ deprecated ]
     image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
-    labels:
-      autoheal-tabletop: true
     volumes:
       - ./docker/flicd:/app
     environment:
@@ -88,7 +69,6 @@ services:
       - BD_ADDR=c8:c6:ac:df:da:c2
       - PORT=5551
       - SERVER_ADDR=0.0.0.0
-    depends_on: [ autoheal ]
     healthcheck:
       disable: false
       test: [ CMD, /app/healthcheck.sh ]
