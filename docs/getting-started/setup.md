@@ -16,6 +16,13 @@ walkthrough (robot network, URCaps, remote control), see
 | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional |
 | PipeWire/PulseAudio | reward sounds | see [Audio](#audio-reward-sounds) |
 | [PlatformIO](https://platformio.org/install/) | Teensy/Flic firmware | preinstalled in the container; only needed on the host to build firmware outside the container |
+| [cpufrequtils](https://manpages.ubuntu.com/manpages/noble/man1/cpufreq-info.1.html) | `performance` CPU governor for real-time control (real hardware) | optional; `sudo apt install cpufrequtils` on Ubuntu/Debian (other distros: e.g. `cpupower`) — see [Real Hardware Setup](real-hardware.md#cpu-governor-real-time-control) |
+
+!!! note "Real hardware tested on Ubuntu 24.04"
+    The full real-hardware stack has only been tested with a host running
+    **Ubuntu 24.04**. The host-configuration commands in
+    [Real Hardware Setup](real-hardware.md) are Ubuntu 24.04 examples; adapt
+    them for other distributions.
 
 !!! tip "Apple Silicon"
     Enable **Use Rosetta for x86/amd64 emulation** in Docker Desktop to run the
@@ -71,18 +78,11 @@ baked into `.env`.
 
 ## Optional host setup
 
-These configure the host for real hardware and make persistent, privileged
-changes:
-
-```bash
-./scripts/configure/udev-configure.sh            # configure Teensy and Flir device udev rules
-./scripts/configure/usbfs-configure.sh           # increase USB buffer size for FLIR
-./scripts/configure/cpu-speed-scaling-disable.sh # enable 'performance' CPU governor for real-time robot control
-```
-
-For configuring the **TableTop network** (the wired LAN that connects the host,
-robots, and rig computers) and the UR5e robot itself, see
-[Real Hardware Setup](real-hardware.md).
+Driving the real hardware needs some persistent, privileged host configuration:
+device udev rules (Teensy/Flic, FLIR cameras), a larger USB buffer for the FLIR
+cameras, the `performance` CPU governor for real-time control, the **TableTop
+network**, and the UR5e robot itself. All of this — with Ubuntu 24.04 command
+examples — is documented in [Real Hardware Setup](real-hardware.md).
 
 ### Audio (reward sounds)
 

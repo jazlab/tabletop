@@ -19,6 +19,81 @@ Before starting, make sure you have completed the [Setup](setup.md) steps
     Building and flashing the Teensy micro-controller firmware is covered in
     [Setup → Firmware](setup.md#firmware).
 
+## Host configuration (Ubuntu 24.04)
+
+These steps prepare the host for device access and real-time control. They are
+the concrete commands that work on Ubuntu 24.04; on another distribution use the
+equivalent mechanism (the udev rules themselves are distro-independent).
+
+### Device access (udev rules)
+
+The Teensy / Flic Micro and the FLIR cameras need udev rules so the containers
+can open them — and so each FLIR camera gets a stable `/dev/flir/<serial>`
+symlink. Create the rule files under `/etc/udev/rules.d/` and reload:
+
+```bash
+# Teensy / Flic Micro (vendor 16c0, plus the 1fc9 BLE dongle)
+sudo tee /etc/udev/rules.d/00-teensy.rules > /dev/null <<'EOF'
+ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1"
+ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04[789a]*", ENV{MTP_NO_PROBE}="1"
+KERNEL=="ttyACM*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666", RUN:="/bin/stty -F /dev/%k raw -echo"
+KERNEL=="hidraw*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", MODE:="0666"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="0666"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="0666"
+EOF
+
+# FLIR cameras (vendor 1e10 / 1724; creates /dev/flir/<serial> symlinks)
+sudo tee /etc/udev/rules.d/40-flir.rules > /dev/null <<'EOF'
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", MODE="0666" SYMLINK+="flir/%s{serial}"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", MODE="0666" SYMLINK+="flir/%s{serial}"
+EOF
+
+# Reload and apply
+sudo udevadm control --reload
+sudo udevadm trigger
+```
+
+PlatformIO also ships generic board rules; the custom Teensy rule above replaces
+them. After plugging or unplugging a device, re-run `tt-env-gen` so Docker
+re-maps it.
+
+### USB buffer size (FLIR cameras)
+
+FLIR cameras stream large frames and need a bigger USBFS buffer than the kernel
+default. Raise `usbcore.usbfs_memory_mb` for the current session and persist it
+via GRUB:
+
+```bash
+# Current session (effective immediately)
+sudo sh -c 'echo 5000 > /sys/module/usbcore/parameters/usbfs_memory_mb'
+
+# Persist across reboots (GRUB)
+sudo tee /etc/default/grub.d/99-usbfs-memory.cfg > /dev/null <<'EOF'
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT usbcore.usbfs_memory_mb=5000"
+EOF
+sudo update-grub
+```
+
+On a distro without `update-grub`, add `usbcore.usbfs_memory_mb=5000` to the
+kernel command line through your bootloader's mechanism instead.
+
+### CPU governor (real-time control)
+
+For deterministic real-time robot control, pin the CPU to the `performance`
+governor. On Ubuntu/Debian this uses `cpufrequtils` (listed under
+[Requirements](setup.md#requirements)):
+
+```bash
+sudo apt install -y cpufrequtils
+sudo systemctl disable ondemand || true
+echo 'GOVERNOR=performance' | sudo tee /etc/default/cpufrequtils
+sudo systemctl enable --now cpufrequtils
+```
+
+On other distributions use the equivalent tool — e.g.
+`sudo cpupower frequency-set -g performance` on Fedora/RHEL.
+
 ## The TableTop network
 
 The host, the UR5e robot control box(es), and the other rig computers (the
