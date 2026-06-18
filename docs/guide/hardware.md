@@ -15,6 +15,10 @@ containers share the host network and IPC, they form a single ROS graph. See
 | FLIR cameras | `cam_sync` (SynchronizedCameraDriver) | hardware-synchronized video |
 | OptiTrack | `optitrack_driver` (mocap4r2) | rigid-body poses |
 
+For the one-time setup of the EyeLink and OptiTrack host computers (and the
+network that connects them to the host), see
+[Real Hardware Setup](../getting-started/real-hardware.md#eyelink-and-optitrack-computers).
+
 MoveIt runs **in-process** inside the Commander (`moveit_py`), not as a separate
 `move_group` node — planning is in-process; execution is dispatched to the UR
 `controller_manager` action servers.

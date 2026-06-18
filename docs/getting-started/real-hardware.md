@@ -230,3 +230,39 @@ command the robot through the `external_control` URCap:
 5. Select **Remote Control** from the dropdown.
 
 *You do not need to do this for the simulator.*
+
+## EyeLink and OptiTrack computers
+
+The EyeLink eye tracker and the OptiTrack motion-capture system each run on
+their own dedicated host computer with vendor software; the TableTop host
+connects to them over the network and reads their data through ROS nodes. This
+is an overview — follow the vendor documentation for the authoritative setup.
+
+### OptiTrack (Motive)
+
+- Run [Motive](https://docs.optitrack.com/) on the OptiTrack host PC and attach
+  that PC to the [TableTop network](#the-tabletop-network).
+- In Motive, enable **data streaming** (NatNet), stream the rigid body you want
+  to track (the rig expects one named `ground` by default), and note the
+  server's IP and command/data ports.
+- Point the rig's `optitrack_driver` at the server in
+  `tabletop_rig/config/optitrack.yaml` (`server_address`,
+  `server_command_port`, `server_data_port`, `connection_type`,
+  `rigid_body_name`). The defaults expect Motive at `192.168.13.40` on NatNet
+  ports `1510`/`1511`.
+- See the OptiTrack [Motive](https://docs.optitrack.com/) and
+  [NatNet SDK](https://docs.optitrack.com/developer-tools/natnet-sdk)
+  documentation for camera calibration and streaming details.
+
+### EyeLink
+
+- Run the SR Research **EyeLink Host PC** software on the EyeLink host computer.
+  The rig's `eyelink` node connects to it through `pylink` (from the EyeLink
+  Developers Kit).
+- By SR Research convention the Host PC is reached over a dedicated Ethernet
+  link, typically at `100.1.1.1` with the connecting (Display) PC at
+  `100.1.1.2`; configure the relevant host interface accordingly for your setup.
+- Install the **EyeLink Developers Kit**, which provides `pylink` and the
+  `edf2asc` converter used by the gaze tools. See the
+  [SR Research support site](https://www.sr-research.com/support/) for the
+  installation packages and EyeLink documentation (account required).
