@@ -1,57 +1,61 @@
 max_bag_size_gb: 20
 max_cache_size_mb: 1000
 topics:
-  # Teensy node
+  # Teensy sensor state and logs
   - /teensy/sensor
   - /teensy/log
-  # Flic
+
+  # Flic button pressed times
   - /flic/button_pressed_time
-  # Optitrack
+
+  # Optitrack markers and rigid bodies, and their republished visualization messages
   - /markers
   - /markers_viz
+  - /predicted_markers_viz
   - /rigid_bodies
   - /rigid_bodies_viz
-  # Eyelink node
+
+  # Eyelink samples and predicted gaze markers
   - /eyelink/sample
   - /eyelink/sample_array
   - /predicted_markers
-  # Flir
-  # - /left_front_top_cam/image_raw/ffmpeg
-  # - /left_front_top_cam/image_raw/compressed
-  - /left_front_top_cam/image_raw
-  - /left_front_top_cam/camera_info
-  - /left_front_top_cam/meta
-  # - /left_back_top_cam/image_raw/ffmpeg
-  # - /left_back_top_cam/image_raw/compressed
-  - /left_back_top_cam/image_raw
-  - /left_back_top_cam/camera_info
-  - /left_back_top_cam/meta
-  # - /left_bottom_cam/image_raw/ffmpeg
-  # - /left_bottom_cam/image_raw/compressed
-  - /left_bottom_cam/image_raw
-  - /left_bottom_cam/camera_info
-  - /left_bottom_cam/meta
-  # - /right_front_top_cam/image_raw/ffmpeg
-  # - /right_front_top_cam/image_raw/compressed
-  - /right_front_top_cam/image_raw
-  - /right_front_top_cam/camera_info
-  - /right_front_top_cam/meta
-  # - /right_back_top_cam/image_raw/ffmpeg
-  # - /right_back_top_cam/image_raw/compressed
-  - /right_back_top_cam/image_raw
-  - /right_back_top_cam/camera_info
-  - /right_back_top_cam/meta
-  # - /right_bottom_cam/image_raw/ffmpeg
-  # - /right_bottom_cam/image_raw/compressed
-  - /right_bottom_cam/image_raw
-  - /right_bottom_cam/camera_info
-  - /right_bottom_cam/meta
-  # Robot joint states
+
+  # Flir camera images and metadata
+  # We use the base image topic name as opposed to the one suffixed by the image
+  # transport (i.e. /image_topic vs /image_topic/compressed) since the rosbag
+  # recorded seems to only record the image topics that way.
+  - /cam_sync/left_front_top_cam/image_raw
+  - /cam_sync/left_front_top_cam/camera_info
+  - /cam_sync/left_front_top_cam/meta
+
+  - /cam_sync/left_back_top_cam/image_raw
+  - /cam_sync/left_back_top_cam/camera_info
+  - /cam_sync/left_back_top_cam/meta
+
+  - /cam_sync/left_bottom_cam/image_raw
+  - /cam_sync/left_bottom_cam/camera_info
+  - /cam_sync/left_bottom_cam/meta
+
+  - /cam_sync/right_front_top_cam/image_raw
+  - /cam_sync/right_front_top_cam/camera_info
+  - /cam_sync/right_front_top_cam/meta
+
+  - /cam_sync/right_back_top_cam/image_raw
+  - /cam_sync/right_back_top_cam/camera_info
+  - /cam_sync/right_back_top_cam/meta
+
+  - /cam_sync/right_bottom_cam/image_raw
+  - /cam_sync/right_bottom_cam/camera_info
+  - /cam_sync/right_bottom_cam/meta
+
+  # Robot joint states (covers both robots)
   - /joint_states
   - /dynamic_joint_states
+
   # Robot end effector torque
   - /force_torque_sensor_broadcaster/wrench
   - /force_torque_sensor_broadcaster/wrench_filtered
+
   # ROS out
   - /rosout
 services:

@@ -208,7 +208,10 @@ class MoveItInterface(BaseInterface):
 
         # self._init_collision_detector()
 
-        self.log(self.robot_model.get_model_info())
+        # self.log(
+        #     f"Robot Model Info:\n{self.robot_model.get_model_info()}",
+        #     severity="DEBUG",
+        # )
 
         self.log("MoveIt interface initialized")
 

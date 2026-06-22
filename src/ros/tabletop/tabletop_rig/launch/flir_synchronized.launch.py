@@ -204,9 +204,6 @@ def launch_setup(context, *args, **kwargs):
                 )
             )
 
-    for k, v in driver_params.items():
-        print(f"{k}: {v}")
-
     if USE_COMPOSABLE_NODES:
         driver = ComposableNodeContainer(
             name="flir_camera_container",

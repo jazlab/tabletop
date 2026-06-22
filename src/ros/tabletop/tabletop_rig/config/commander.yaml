@@ -142,11 +142,16 @@
       program: external_control.urp
       # Maximum total recovery attempts before giving up (URInterface.reset).
       max_reset_attempts: 5
-      # After this many failed attempts, trigger a full safety restart before
-      # continuing to retry.  null disables this behaviour.
-      num_reset_attempts_before_safety_restart: null
       # Seconds to wait between consecutive reset attempts.
       reset_retry_delay: 1.0
+      # If true, when recovery finds the robot in a VIOLATION or FAULT safety
+      # mode the URInterface automatically restarts the safety controller
+      # (restart_safety service). If false, it instead waits for the operator
+      # to restart safety manually on the robot's dashboard.
+      safety_restart_enable: true
+      # Seconds to wait before calling the restart_safety service, giving the
+      # operator a window to abort the program before safety is restarted.
+      safety_restart_delay: 5.0
       # Seconds to wait for the robot to complete a safety restart sequence.
       safety_restart_timeout: 10
       # Seconds between polling for remote-control mode to become active.
@@ -749,7 +754,7 @@
               object_id: small_object_2
               color: [0.0, 0.0, 1.0, 0.5] # blue
               pose_stamped:
-                position: [0.2803, 1.4096, 0.98]
+                position: [0.2803, 1.4057, 0.98]
                 rpy: [-1.5707, 1.5707, 0.0]
             1,0:
               object_id: big_object_2
@@ -758,7 +763,7 @@
                 position: [0.427, 0.7655, 1.1805]
                 rpy: [0.0, 0.0, -1.5707]
             1,1:
-              object_id: big_object_1
+              object_id: big_object_0
               color: [1.0, 0.0, 1.0, 0.5] # purple
               pose_stamped:
                 position: [0.4329, 1.2038, 1.1772]
@@ -767,7 +772,7 @@
               object_id: big_object_3
               color: [0.0, 1.0, 1.0, 0.5] # cyan
               pose_stamped:
-                position: [0.4289, 1.4077, 0.9807]
+                position: [0.4289, 1.4037, 0.9807]
                 rpy: [-1.5707, 1.5707, 0.0]
             2,0:
               object_id: small_object_6
@@ -785,7 +790,7 @@
               object_id: small_object_8
               color: [0.5, 0.5, 0.0, 0.5] # olive
               pose_stamped:
-                position: [0.5778, 1.4059, 0.981]
+                position: [0.5778, 1.4026, 0.981]
                 rpy: [-1.5707, 1.5707, 0.0]
             3,0:
               object_id: small_object_9
@@ -794,7 +799,7 @@
                 position: [0.7253, 0.7646, 1.1826]
                 rpy: [0.0, 0.0, -1.5707]
             3,1:
-              object_id: big_object_0
+              object_id: big_object_1
               color: [0.5, 0.0, 0.0, 0.5] # maroon
               pose_stamped:
                 position: [0.7289, 1.1997, 1.1789]
@@ -803,7 +808,7 @@
               object_id: small_object_11
               color: [0.0, 0.5, 0.0, 0.5] # lime
               pose_stamped:
-                position: [0.7281, 1.4045, 0.9784]
+                position: [0.7281, 1.4015, 0.9784]
                 rpy: [-1.5707, 1.5707, 0.0]
             4,0:
               object_id: small_object_12
@@ -821,7 +826,7 @@
               object_id: small_object_14
               color: [0.75, 0.75, 0.75, 0.5] # light gray
               pose_stamped:
-                position: [0.8802, 1.4022, 0.9819]
+                position: [0.8802, 1.4002, 0.9819]
                 rpy: [-1.5707, 1.5707, 0.0]
             5,0:
               object_id: small_object_15
@@ -839,7 +844,7 @@
               object_id: small_object_17
               color: [0.0, 0.25, 0.5, 0.5] # dark blue
               pose_stamped:
-                position: [1.0312, 1.4016, 0.9805]
+                position: [1.0312, 1.4, 0.9805]
                 rpy: [-1.5707, 1.5707, 0.0]
             6,0:
               object_id: small_object_18
