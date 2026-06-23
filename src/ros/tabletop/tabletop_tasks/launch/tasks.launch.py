@@ -11,7 +11,7 @@ Launch Arguments:
     robot_name: Robot model name for SRDF loading.
         Default: "ur5e"
     robot_mode: Robot connection mode.
-        Options: "mock" (default), "ursim", "real"
+        Options: "mock" (default), "real"
 
 Usage:
     # Run with default foraging task

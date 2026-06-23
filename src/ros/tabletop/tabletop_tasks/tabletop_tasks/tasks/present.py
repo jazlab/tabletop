@@ -10,7 +10,7 @@ This task is useful for:
 - Testing object presentation mechanics
 
 Example:
-    generator = OrderedChoice(commander, ...)
+    generator = OrderedChoiceAlternating(commander, ...)
     task = PresentObjectTask(commander, generator)
     await task.run()
 """

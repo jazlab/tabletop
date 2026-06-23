@@ -55,8 +55,6 @@ from launch.launch_description_sources import (
 )
 from launch.substitutions import (
     EnvironmentVariable,
-    EqualsSubstitution,
-    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -87,8 +85,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "robot_mode",
             default_value="real",
-            choices=["ursim", "real"],
-            description="Whether to use the URSim or real robot for calibration",
+            choices=["real"],
+            description="Robot to calibrate (real hardware only)",
         ),
         DeclareLaunchArgument(
             "log_level",
@@ -98,37 +96,21 @@ def declare_arguments():
         ),
     ]
 
-    # Conditional substitutions
-    left_robot_ip = IfElseSubstitution(
-        EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
-        EnvironmentVariable("LEFT_ROBOT_IP"),
-        EnvironmentVariable("LEFT_SIM_ROBOT_IP"),
-    )
-    right_robot_ip = IfElseSubstitution(
-        EqualsSubstitution(LaunchConfiguration("robot_mode"), "real"),
-        EnvironmentVariable("RIGHT_ROBOT_IP"),
-        EnvironmentVariable("RIGHT_SIM_ROBOT_IP"),
-    )
+    # Calibration is only meaningful against real hardware.
+    left_robot_ip = EnvironmentVariable("LEFT_ROBOT_IP")
+    right_robot_ip = EnvironmentVariable("RIGHT_ROBOT_IP")
     left_kinematics_params_file = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_description"),
             "config",
-            IfElseSubstitution(
-                EqualsSubstitution(LaunchConfiguration("robot_mode"), "ursim"),
-                "left_ursim_calibration.yaml",
-                "left_ur5e_calibration.yaml",
-            ),
+            "left_ur5e_calibration.yaml",
         ]
     )
     right_kinematics_params_file = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_description"),
             "config",
-            IfElseSubstitution(
-                EqualsSubstitution(LaunchConfiguration("robot_mode"), "ursim"),
-                "right_ursim_calibration.yaml",
-                "right_ur5e_calibration.yaml",
-            ),
+            "right_ur5e_calibration.yaml",
         ]
     )
 

@@ -116,7 +116,7 @@ def declare_arguments():
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_description"),
-                    "rviz",
+                    "config",
                     "view_robot.rviz",
                 ]
             ),

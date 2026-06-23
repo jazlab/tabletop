@@ -8,7 +8,7 @@ This generator is non-adaptive - feedback is ignored and does not
 influence subsequent trial generation.
 
 Example:
-    generator = OrderedChoice(
+    generator = OrderedChoiceAlternating(
         commander=commander,
         object_ids=["cup_1", "cup_2"],
         poses=[{"position": [0.5, 0, 0.3]}],

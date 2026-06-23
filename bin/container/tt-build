@@ -38,7 +38,7 @@ colcon options:
   -v, --verbose          Verbose build output
 
 microros options:
-  -t, --target teensy(default)|flic_micro|all   Select firmware project(s)
+  -t, --target teensy(default)|all   Select firmware project(s)
   --clean                Clean the micro-ROS build directory first
   --no-upload            Build only (no upload)
   --compiledb            Generate compile_commands.json for IDE integration
@@ -266,13 +266,9 @@ build_microros() {
                     teensy)
                         project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy")
                         ;;
-                    flic_micro)
-                        project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro")
-                        ;;
                     all)
                         project_dirs=(
                             "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
-                            "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_flic_micro"
                         )
                         ;;
                     *)

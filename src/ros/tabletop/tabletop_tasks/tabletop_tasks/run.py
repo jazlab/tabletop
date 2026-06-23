@@ -13,10 +13,10 @@ Configuration file format:
       - class: ForagingTask
         kwargs:
           trial_generator:
-            class: BlockedCupDrawer
+            class: OrderedChoiceAlternating
             kwargs:
               poses: [...]
-              correct_trials_per_block: 10
+              num_trials: 100
           stimulus_duration: 1.0
           delay_duration: 2.0
           ...

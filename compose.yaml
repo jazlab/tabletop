@@ -1,20 +1,21 @@
 # Docker Compose service definitions for the TableTop rig.
 #
 # Services are grouped by Compose `profiles` and are normally brought up via
-# `tt-compose --profile=<sim|ursim|real> up` (see README / docs/architecture.md
+# `tt-compose --profile=<sim|real> up` (see README / docs/architecture.md
 # section 2.3). Most ROS services `extends: ros-base` (shared image + repo bind
 # mount) and differ only in their profile, devices, and `tt-launch` command.
-# Profiles: real / sim / ursim (full sessions); commander, builder, dev
+# Profiles: real / sim (full sessions); commander, builder, dev
 # (single-purpose, usually started indirectly by tt-launch/tt-build); template
-# (the ros-base extends-only template, never run directly); deprecated (retired
-# services kept for reference). .env (from tt-env-gen) supplies the $VARS below
-# (device paths, GPU runtime, PulseAudio mounts).
+# (the ros-base extends-only template, never run directly). .env (from
+# tt-env-gen) supplies the $VARS below (device paths, GPU runtime, PulseAudio
+# mounts). Retired services (ursim, flicd, flir-no-sync) were removed; their
+# definitions are preserved in deprecated/compose-services.yaml.
 name: tabletop
 
 # Every service runs with host IPC + networking (`ipc: host`, `network_mode:
 # host`) so every ROS node sees every other node regardless of container (a
 # single DDS domain). These two settings are repeated explicitly in each
-# top-level service below (novnc, ursim, flicd, ros-base); the remaining services
+# top-level service below (novnc, ros-base); the remaining services
 # inherit them through `extends: ros-base`.
 
 services:
@@ -24,7 +25,7 @@ services:
     ipc: host
     network_mode: host
     container_name: tabletop-novnc
-    profiles: [ real, sim, ursim ]
+    profiles: [ real, sim ]
     image: jazlabtabletop/novnc
     environment:
       - PORT=$NOVNC_PORT
@@ -33,58 +34,6 @@ services:
       - DISPLAY_HEIGHT=$NOVNC_HEIGHT
       - WINDOW_MANAGER=dwm
     restart: unless-stopped
-
-  # Universal Robots UR5e simulator (virtual controller + teach pendant GUI).
-  # Renders to the noVNC display; loads our URCaps/programs from ur_robot/.
-  ursim:
-    ipc: host
-    network_mode: host
-    container_name: tabletop-ursim
-    profiles: [ ursim ]
-    image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
-    volumes:
-      - ./ur_robot/urcaps:/urcaps
-      - ./ur_robot/programs:/ursim/programs
-      - ./docker/ursim/entrypoint.sh:/entrypoint.sh
-    environment:
-      - DISPLAY=$NOVNC_DISPLAY
-      - ROBOT_MODEL=ur5e
-    depends_on:
-      novnc:
-        condition: service_healthy
-        restart: true
-    restart: unless-stopped
-    init: true
-    entrypoint: [ /entrypoint.sh ]
-
-  # DEPRECATED: Flic daemon (flicd) bridge over BLE. Superseded by the in-process
-  # scapy BLE sniffer in the flic node; kept under the `deprecated` profile.
-  flicd:
-    ipc: host
-    network_mode: host
-    container_name: tabletop-flicd
-    profiles: [ deprecated ]
-    image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
-    volumes:
-      - ./docker/flicd:/app
-    environment:
-      - HCI_DEV=hci0
-      - BD_ADDR=c8:c6:ac:df:da:c2
-      - PORT=5551
-      - SERVER_ADDR=0.0.0.0
-    healthcheck:
-      disable: false
-      test: [ CMD, /app/healthcheck.sh ]
-      interval: 2s
-      timeout: 1s
-      start_period: 5s
-      start_interval: 1s
-      retries: 1
-    cap_add:
-      - NET_ADMIN
-    init: true
-    # stop_signal: SIGINT
-    command: /app/entrypoint.sh
 
   # Base image + workspace bind mount that every ROS service extends. This is an
   # extends-only template (profile `template`); it is never run directly — the
@@ -181,22 +130,6 @@ services:
     restart: unless-stopped
     command: tt-launch optitrack
 
-  # DEPRECATED: unsynchronized FLIR camera driver (one device per $FLIR_DEV_*).
-  # Superseded by the hardware-synchronized `flir` service below.
-  flir-no-sync:
-    extends: ros-base
-    container_name: tabletop-flir-no-sync
-    profiles: !override [ deprecated ]
-    devices:
-      - $FLIR_DEV_0
-      - $FLIR_DEV_1
-      - $FLIR_DEV_2
-      - $FLIR_DEV_3
-      - $FLIR_DEV_4
-      - $FLIR_DEV_5
-    restart: unless-stopped
-    command: tt-launch flir_no_sync
-
   # Hardware-synchronized FLIR camera driver (Teensy trigger pulse). One USB
   # device per $FLIR_DEV_* (up to FLIR_MAX_DEVS).
   flir:
@@ -247,12 +180,6 @@ services:
     profiles: !override [ real ]
     cap_add:
       - NET_ADMIN
-    # flicd no longer needed after scapy implementation
-    # depends_on:
-    #   flicd:
-    #     condition: service_healthy
-    #     # condition: service_started
-    #     restart: true
     restart: unless-stopped
     command: tt-launch flic simulate:=false
 

@@ -26,4 +26,4 @@ endif()
 
 ament_package()
 
-install(DIRECTORY config launch srdf xrdf DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config launch srdf DESTINATION share/${PROJECT_NAME})

@@ -6,7 +6,7 @@ arguments. Supports task running and full experiment control.
 
 Included Launch Files:
     - commander.launch.py: Main control orchestrator
-    - ur.launch.py: UR robot driver and control
+    - dual_ur.launch.py: UR robot driver and control (both arms)
     - teensy.launch.py: Teensy microcontroller interface
     - flic.launch.py: Flic button interface
     - optitrack.launch.py: OptiTrack motion capture
@@ -54,8 +54,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
-            choices=["mock", "ursim", "real"],
-            description="Whether to use the mock robot, URSim, or real robot",
+            choices=["mock", "real"],
+            description="Whether to use the mock robot or real robot",
         ),
         DeclareLaunchArgument(
             "use_sim_time",
@@ -356,7 +356,7 @@ def generate_launch_description():
                             [
                                 FindPackageShare("tabletop_rig"),
                                 "launch",
-                                "ur.launch.py",
+                                "dual_ur.launch.py",
                             ]
                         )
                     ]

@@ -1,6 +1,7 @@
 """Drop-in Flic client that sniffs BLE advertisements directly via scapy.
 
-The default :mod:`tabletop_py.flic.client` talks to ``flicd``, which itself
+The former flicd-based client (now archived at
+``deprecated/flic-button/client.py``) talked to ``flicd``, which itself
 connects to each Flic button over GATT to read the click-type
 characteristic. That GATT round-trip adds tens of ms of latency between
 the user pressing the button and the daemon emitting an event.
@@ -13,7 +14,7 @@ as soon as the contact closes, so we catch the press at the wake-up
 edge instead of after a connection has been established.
 
 The client follows the same :class:`asyncio.Protocol` pattern as
-:mod:`tabletop_py.flic.client`: a Transport drives reads from the HCI
+the archived flicd-based client: a Transport drives reads from the HCI
 socket and ``FlicClient`` (the Protocol) gets ``connection_made`` /
 ``data_received`` / ``connection_lost`` callbacks. We can't use
 ``loop.create_connection`` here because it requires ``SOCK_STREAM`` and
@@ -702,8 +703,9 @@ class FlicClient(asyncio.Protocol):
     def _send_command(self, cmd: Packet):
         """Write a command to the transport without awaiting a response.
 
-        Mirrors :meth:`FlicClient._send_command` in
-        :mod:`tabletop_py.flic.client`: pure write, no future bookkeeping.
+        Mirrors ``FlicClient._send_command`` in the archived flicd-based
+        client (deprecated/flic-button/client.py): pure write, no future
+        bookkeeping.
         """
         if self._transport is None:
             raise RuntimeError(

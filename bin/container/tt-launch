@@ -13,7 +13,7 @@ source "$bin_dir/../utils.sh"
 
 print_usage() {
     echo "Usage: $0 [<launch_type>] [<launch_options>...]"
-    echo "launch_type: commander, rig, tasks, ur, dual_ur, teensy, flic, eyelink, flir_no_sync, flir_synchronized, flir_calibrate, optitrack, rosbag, rosbag_convert, rviz, foxglove, moveit, discovery"
+    echo "launch_type: commander, rig, tasks, dual_ur, teensy, flic, eyelink, flir_no_sync, flir_synchronized, flir_calibrate, optitrack, rosbag, rosbag_convert, rviz, foxglove, moveit, discovery"
 }
 
 # Case statement routes to one of three execution modes: EXEC (raw command), RUN (ros2 run), or LAUNCH (ros2 launch)
@@ -69,11 +69,6 @@ case $1 in
         # FLIR camera calibration
         export ROS_LOG_DIR="$ROS_LOG_DIR/flir_calibrate"
         LAUNCH="tabletop_rig flir_calibrate.launch.py"
-        ;;
-    ur)
-        # Universal Robots UR5e arm driver
-        export ROS_LOG_DIR="$ROS_LOG_DIR/ur"
-        LAUNCH="tabletop_rig ur.launch.py"
         ;;
     dual_ur)
         # Two UR5e arms driver

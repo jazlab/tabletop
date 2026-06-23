@@ -45,7 +45,7 @@ from rclpy.time import Time
 from std_msgs.msg import Header
 from tabletop_interfaces.action import FlicResponseTime
 
-import tabletop_py.flic.client
+import tabletop_py.flic.scapy_client
 from tabletop_py.flic.scapy_client import ButtonPressInfo, FlicClient
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
@@ -79,7 +79,9 @@ class Flic(BaseNode):
         """Initialize the Flic node and action server."""
         super().__init__("flic")
 
-        tabletop_py.flic.client.logger = self.get_logger().get_child("client")
+        tabletop_py.flic.scapy_client.logger = self.get_logger().get_child(
+            "client"
+        )
 
         self.simulate = self.param("simulate")
         self.simulate_button_event = asyncio.Event()
