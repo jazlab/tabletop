@@ -71,7 +71,6 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 ### `microros` options
 
 ```text
--t, --target teensy|all   Select firmware project(s) (default: teensy)
 --clean                Clean the micro-ROS build directory first
 --no-upload            Build only (no upload)
 --compiledb            Generate compile_commands.json for IDE integration

@@ -77,7 +77,7 @@ the remaining ones are open.
 ## Firmware review (firmware documentation pass)
 
 1. **Potential pin conflict in Teensy firmware.**
-    `tabletop_micro/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
+    `src/microros/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
     is `38` with a `// TODO: change back to 36`, but `BUTTON_STATE_PIN` is
     already `36`. Acting on the TODO without relocating the button pin would
     map both to pin 36.
@@ -106,7 +106,7 @@ the remaining ones are open.
 1. **`CLAUDE.md` architecture section (corrected).** It previously listed
    `interfaces/dashboard.py` (actual file: `interfaces/ur.py`), placed
    `tabletop_teensy` directly under `src/ros/tabletop/` (actual:
-   `src/ros/tabletop/tabletop_micro/tabletop_teensy`, COLCON_IGNOREd
+   `src/microros/tabletop_teensy`, COLCON_IGNOREd
    PlatformIO firmware), and omitted the `interfaces/moveit/` cache siblings
    (`trajectory_cache_kdtree.py` / `trajectory_cache_lmdb.py`) and
    `requests.py`. These have since been corrected.

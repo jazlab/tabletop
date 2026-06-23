@@ -147,31 +147,36 @@ src/
 │       ├── gaze/             # Eye-gaze estimation/tracking ML models + CLI tools
 │       ├── flic/             # Flic Bluetooth button client
 │       └── utils/            # Common utilities (yaml/dict/mesh helpers)
+├── microros/                 # Teensy firmware (COLCON_IGNOREd; built with
+│   └── tabletop_teensy/      #   PlatformIO via tt-build microros, NOT colcon —
+│                             #   implements tabletop_interfaces in C)
+├── foxglove_msg_converter/   # Foxglove MoveIt plugin source (git submodule,
+│                             #   COLCON_IGNOREd; packaged via tt-build foxglove)
 └── ros/
     ├── tabletop/             # Main ROS 2 packages
     │   ├── tabletop_rig/         # Core rig control (nodes, interfaces)
     │   ├── tabletop_tasks/       # Experiment task definitions
     │   ├── tabletop_interfaces/  # ROS message/service/action definitions
     │   ├── tabletop_description/ # URDF robot descriptions + UR calibration
-    │   ├── tabletop_moveit_config/ # MoveIt planning configurations
-    │   └── tabletop_micro/       # Teensy firmware (COLCON_IGNOREd; built with
-    │       └── tabletop_teensy/  #   PlatformIO via tt-build microros, NOT colcon
-    │                             #   — implements tabletop_interfaces in C)
+    │   └── tabletop_moveit_config/ # MoveIt planning configurations
     └── modules/              # External dependencies (git submodules)
         ├── moveit2/          # Custom MoveIt fork
         ├── flir_camera_driver/   # Spinnaker-based FLIR driver
         ├── mocap4r2*/        # OptiTrack motion-capture drivers
         ├── micro-ROS-Agent/  # micro-ROS bridge for the Teensy
         ├── trac_ik/          # IK solver
-        └── ...               # foxglove_moveit_msg_converter, image_transport, …
+        └── ...               # image_transport, …
 ```
 
-`tabletop_py` and `tabletop_micro` both carry a `COLCON_IGNORE` marker, so
-`colcon`/`tt-build` skip them: `tabletop_py` is installed by `uv` and imported
-directly, while `tabletop_micro` is firmware flashed by PlatformIO. Both still
-matter to the ROS side — `tabletop_rig` wraps `tabletop_py`, and the firmware
-implements `tabletop_interfaces` services (`SetArmLock`, `SetReward`,
-`SetSolenoid`, `SetSmartglass`, `Ping`) in C.
+`tabletop_py`, `src/microros`, and `src/foxglove_msg_converter` all carry a
+`COLCON_IGNORE` marker, so `colcon`/`tt-build` skip them: `tabletop_py` is
+installed by `uv` and imported directly, `src/microros/tabletop_teensy` is
+firmware flashed by PlatformIO (`tt-build microros`), and
+`src/foxglove_msg_converter` is the Foxglove plugin source packaged by
+`tt-build foxglove`. The firmware and `tabletop_py` still matter to the ROS
+side — `tabletop_rig` wraps `tabletop_py`, and the firmware implements
+`tabletop_interfaces` services (`SetArmLock`, `SetReward`, `SetSolenoid`,
+`SetSmartglass`, `Ping`) in C.
 
 ### tabletop_rig Architecture
 

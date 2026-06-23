@@ -208,7 +208,7 @@ graph TD
     TP[tabletop_py<br/>pure Python] --> RIG[tabletop_rig]
     TP --> TASKS[tabletop_tasks]
     IF[tabletop_interfaces<br/>msgs/srvs/actions] --> RIG
-    IF --> FW[tabletop_micro/tabletop_teensy<br/>firmware]
+    IF --> FW[src/microros/tabletop_teensy<br/>firmware]
     RIG --> TASKS
     DESC[tabletop_description] -.URDF via launch.-> RIG
     MVC[tabletop_moveit_config] -.SRDF/planner cfg via launch.-> RIG
@@ -218,10 +218,10 @@ graph TD
 - `tabletop_py` never imports ROS. `tabletop_rig` is the only package
   that wraps it in ROS nodes. `tabletop_tasks` only consumes the
   `Commander`; it never touches devices directly.
-- `tabletop_micro/` is `COLCON_IGNORE`d — firmware is built by
+- `src/microros/` is `COLCON_IGNORE`d — firmware is built by
   PlatformIO (`tt-build microros`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
-- The **Teensy** firmware (`tabletop_micro/tabletop_teensy`) is the only
+- The **Teensy** firmware (`src/microros/tabletop_teensy`) is the only
   micro-controller firmware, launched via `teensy.launch.py` (micro-ROS agent).
   An earlier, incomplete **Flic Micro** (ESP32) firmware was retired — it now
   lives in `deprecated/flic-button/tabletop_flic_micro/`, superseded by the

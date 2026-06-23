@@ -50,8 +50,8 @@ continuously for a configured time and the sensor message to be fresh.
 
 ## Firmware
 
-The Teensy and Flic micro-controller firmware live under
-`tabletop_micro/` and are built with PlatformIO (not colcon):
+The Teensy micro-controller firmware lives under
+`src/microros/` and is built with PlatformIO (not colcon):
 
 ```bash
 tt-build microros

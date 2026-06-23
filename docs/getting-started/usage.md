@@ -69,7 +69,7 @@ tt-build foxglove -o ~/plugins               # write into a directory (keeps the
 tt-build foxglove -o ~/plugins/moveit.foxe   # write to a specific filename
 ```
 
-This packages the `foxglove_moveit_msg_converter` extension and writes the
+This packages the `src/foxglove_msg_converter` extension and writes the
 resulting `.foxe` file to `$TABLETOP_DIR` (the repository root) by default, or to
 the `-o/--output` path — a directory (the plugin keeps its packaged name) or a
 path ending in `.foxe` (the plugin is renamed to it). Install it into the

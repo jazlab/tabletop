@@ -5,7 +5,7 @@
 # Environment: TABLETOP_DIR, COLCON_WS, UV_PROJECT_ENVIRONMENT
 # Logic: Dispatches on a required positional `component` argument to a dedicated
 #        build function. `colcon` builds the ROS 2 workspace, `microros` builds/
-#        uploads the Teensy & Flic firmware via PlatformIO, and `foxglove`
+#        uploads the Teensy firmware via PlatformIO, and `foxglove`
 #        packages the Foxglove MoveIt message converter plugin (.foxe ->
 #        $TABLETOP_DIR by default, or the -o/--output path).
 
@@ -38,7 +38,6 @@ colcon options:
   -v, --verbose          Verbose build output
 
 microros options:
-  -t, --target teensy(default)|all   Select firmware project(s)
   --clean                Clean the micro-ROS build directory first
   --no-upload            Build only (no upload)
   --compiledb            Generate compile_commands.json for IDE integration
@@ -235,14 +234,14 @@ $event_handlers"
     print_status "Successfully built ROS 2 packages!"
 }
 
-# === microros: build/upload the Teensy & Flic firmware =====================
+# === microros: build/upload the Teensy firmware ============================
 build_microros() {
     # Default: build and upload teensy firmware with 2 retries on failure
     local target_arg="--target upload"
     local retries=2
     local clean=
     local project_dirs=(
-        "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
+        "$TABLETOP_DIR/src/microros/tabletop_teensy"
     )
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -258,25 +257,6 @@ build_microros() {
                 # Generate compile_commands.json for IDE integration; 1 retry
                 target_arg="--target compiledb"
                 retries=1
-                ;;
-            -t|--target)
-                # Select which microcontroller projects to build
-                shift
-                case $1 in
-                    teensy)
-                        project_dirs=("$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy")
-                        ;;
-                    all)
-                        project_dirs=(
-                            "$TABLETOP_DIR/src/ros/tabletop/tabletop_micro/tabletop_teensy"
-                        )
-                        ;;
-                    *)
-                        print_error "Error: Unknown target '$1'"
-                        print_usage
-                        exit 1
-                        ;;
-                esac
                 ;;
             *)
                 print_error "Error: Unknown argument '$1'"
@@ -359,7 +339,7 @@ build_foxglove() {
     # a relative -o path stays relative to the caller's directory.
     dest_dir=$(cd "$dest_dir" && pwd)
 
-    local module_dir="$TABLETOP_DIR/src/ros/modules/foxglove_moveit_msg_converter"
+    local module_dir="$TABLETOP_DIR/src/foxglove_msg_converter"
     builtin cd "$module_dir"
     npm install
     npm run package
