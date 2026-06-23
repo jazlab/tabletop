@@ -49,7 +49,7 @@ Nodes Launched:
 
 Example:
     # View robot with joint slider GUI
-    ros2 launch tabletop_description view_robot.launch.py joint_state_publisher_gui:=true
+    ros2 launch tabletop_description dual_view_robot.launch.py joint_state_publisher_gui:=true
 
 Author: Denis Stogl
 """
