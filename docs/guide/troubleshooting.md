@@ -1,7 +1,7 @@
 # Troubleshooting
 
-Battle-tested notes, distilled from `musings.md` and updated to the current
-command set. For a symptom → starting-point table, see
+Battle-tested notes for the current command set. For a symptom →
+starting-point table, see
 [Architecture §6](../architecture.md). Known code/config bugs are tracked in
 [Known Issues](../known-issues.md).
 

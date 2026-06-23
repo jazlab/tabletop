@@ -275,9 +275,10 @@ BaseInterface
   (`trajectory_cache*.py`, LMDB + KD-tree fuzzy lookup) before
   re-planning.
 - `executors.py` provides the asyncio-bridging executors. Note the
-  hard-won lessons in `musings.md`: the Commander must use the
-  thread-based executor, and the UR driver must run in a separate
-  process from the Commander.
+  hard-won lessons (see [Troubleshooting → Commander signal
+  handling](guide/troubleshooting.md#commander-signal-handling)): the
+  Commander must use the thread-based executor, and the UR driver must
+  run in a separate process from the Commander.
 
 ### 5.3 tabletop_tasks internals
 
@@ -310,17 +311,17 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 | `tt-*` command not found | `source setup.bash` | `bin/` PATH logic in setup.bash |
 | Container can't see camera/Teensy | `tt-env-gen` then `tt-compose ps` | `.env` `FLIR_DEV_*`/`TEENSY_DEV`, `compose.yaml` devices |
 | Robot won't move, no error | Teensy safety loop | `interfaces/teensy.py: safe_to_execute`, arm-lock hardware |
-| "Joint outside bounds" on start | robot was manually moved | musings.md → Robot §2 |
+| "Joint outside bounds" on start | robot was manually moved | [Troubleshooting → Robot](guide/troubleshooting.md#robot-ur5e) |
 | Planning fails / slow | trajectory cache + planner config | `interfaces/moveit/plan_and_execute.py`, `tabletop_moveit_config/config/` |
 | Pick/place stuck in weird state | manipulation state machine | `interfaces/moveit/object_manipulation.py` (`ManipulationState`) |
 | Cameras out of sync / missing frames | `ros2 run tabletop_rig system_check` | `flir_synchronized.yaml` trigger settings, Teensy sync pulse |
-| Flic button not responding | flic container logs | musings.md → Flic section (bluetooth voodoo) |
+| Flic button not responding | flic container logs | [Troubleshooting → Flic buttons](guide/troubleshooting.md#flic-buttons) |
 | Task behaves wrong | the task's YAML config | `tabletop_tasks/config/<task>.yaml` → task class kwargs |
-| Commander hangs on shutdown | signal handling notes | musings.md → "Commander signal handling" |
+| Commander hangs on shutdown | signal handling notes | [Troubleshooting → Commander signal handling](guide/troubleshooting.md#commander-signal-handling) |
 | No sound in container | PulseAudio mount | `tt-env-gen` PULSE_* detection, `compose.yaml` commander mounts |
 
 ## 7. Related Documents
 
 - `README.md` — high-level project overview and entry point into this docs site
-- `musings.md` — battle-tested troubleshooting notes
+- `docs/guide/troubleshooting.md` — battle-tested troubleshooting notes
 - `docs/known-issues.md` — discrepancies found during documentation review

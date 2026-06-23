@@ -253,8 +253,9 @@ The `Commander` class in `nodes/commander.py` is the main entry point that:
 callback model with Python's async/await pattern. The public `AIOExecutor`
 aliases the optimized variant (`_AIOExecutorOptimized`); nodes that need robust
 error reporting use `ErrorHandlingMultiThreadedExecutor`. Per the hard-won notes
-in `musings.md`, the Commander must use the thread-based executor and the UR
-driver must run in a separate process from the Commander.
+in `docs/guide/troubleshooting.md` (Commander signal handling), the Commander
+must use the thread-based executor and the UR driver must run in a separate
+process from the Commander.
 
 ## Code Style
 
@@ -299,8 +300,9 @@ design rationale in `docs/design-choices.md`.
 
 For a deeper conceptual map (runtime topic/service graph, launch hierarchy,
 parameter flow, and "where to look when X breaks"), see `docs/architecture.md`.
-Other useful docs: `docs/known-issues.md` (review findings), `musings.md`
-(battle-tested troubleshooting), and the guides under `docs/guide/`.
+Other useful docs: `docs/known-issues.md` (review findings),
+`docs/guide/troubleshooting.md` (battle-tested troubleshooting), and the other
+guides under `docs/guide/`.
 
 Superseded subsystems (the old `flicd`-based Flic stack, the UR simulator, the
 Flic ESP32 firmware, unused MoveIt configs, the ROS graph tooling) are archived
