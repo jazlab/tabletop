@@ -54,15 +54,6 @@ wheels = [
 ]
 
 [[package]]
-name = "argparse"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/18/dd/e617cfc3f6210ae183374cd9f6a26b20514bbb5a792af97949c5aacddf0f/argparse-1.4.0.tar.gz", hash = "sha256:62b089a55be1d8949cd2bc7e0df0bddb9e028faefc8c32038cc84862aefdd6e4", size = 70508, upload-time = "2015-09-12T20:22:16.217Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/94/3af39d34be01a24a6e65433d19e107099374224905f1e0cc6bbe1fd22a2f/argparse-1.4.0-py2.py3-none-any.whl", hash = "sha256:c31647edb69fd3d465a847ea3157d37bed1f95f19760b11a47aa91c04b666314", size = 23000, upload-time = "2015-09-14T16:03:16.137Z" },
-]
-
-[[package]]
 name = "asttokens"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2449,19 +2440,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ros2-graph"
-version = "0.0.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "argparse" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/23/bf/7e41b0064b06d2b85150da22c02a7bc4ab4aa513df435818ea59e344d896/ros2_graph-0.0.5.tar.gz", hash = "sha256:088e4f82bab6e3ae7266d69a04dc5b62172d4534fd96e6c4f889d08d20d55c66", size = 25871, upload-time = "2023-10-17T13:59:20.9Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/38/ec3d61a4c5d233b6771c8f20831d613733ef729e0b0b4c966787a232d960/ros2_graph-0.0.5-py3-none-any.whl", hash = "sha256:9d356122ab8898fbbe60a9c2ee102c8e57d57c63007ee5aeb4e07e65b1827981", size = 26127, upload-time = "2023-10-17T13:59:19.661Z" },
-]
-
-[[package]]
 name = "rpds-py"
 version = "0.30.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2738,7 +2716,6 @@ dev = [
     { name = "mingus" },
     { name = "pre-commit" },
     { name = "pyglet" },
-    { name = "ros2-graph" },
 ]
 docs = [
     { name = "mkdocs-material" },
@@ -2782,7 +2759,6 @@ dev = [
     { name = "mingus", specifier = ">=0.6.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyglet", specifier = "<2" },
-    { name = "ros2-graph", specifier = ">=0.0.5" },
 ]
 docs = [
     { name = "mkdocs-material", specifier = ">=9.5.0" },

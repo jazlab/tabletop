@@ -2,7 +2,7 @@
 
 Launches the complete dual robot control stack including robot state
 publisher, controller manager, controller spawners, dashboard clients,
-and per-arm control nodes. Supports mock hardware, URSim, and real robots.
+and per-arm control nodes. Supports mock hardware and real robots.
 
 Nodes Launched:
     robot_state_publisher (robot_state_publisher): via dual_rsp.launch.py
@@ -142,8 +142,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
-            choices=["mock", "ursim", "real"],
-            description="Whether to use the mock robot, URSim, or real robot",
+            choices=["mock", "real"],
+            description="Whether to use the mock robot or real robot",
         ),
         DeclareLaunchArgument(
             "description_launchfile",
@@ -234,7 +234,7 @@ def declare_arguments():
             default_value=PathJoinSubstitution(
                 [
                     FindPackageShare("tabletop_description"),
-                    "rviz",
+                    "config",
                     "view_robot.rviz",
                 ]
             ),
@@ -274,22 +274,14 @@ def declare_arguments():
         [
             FindPackageShare("tabletop_description"),
             "config",
-            IfElseSubstitution(
-                EqualsSubstitution(LaunchConfiguration("robot_mode"), "ursim"),
-                "left_ursim_calibration.yaml",
-                "left_ur5e_calibration.yaml",
-            ),
+            "left_ur5e_calibration.yaml",
         ]
     )
     right_kinematics_params_file = PathJoinSubstitution(
         [
             FindPackageShare("tabletop_description"),
             "config",
-            IfElseSubstitution(
-                EqualsSubstitution(LaunchConfiguration("robot_mode"), "ursim"),
-                "right_ursim_calibration.yaml",
-                "right_ur5e_calibration.yaml",
-            ),
+            "right_ur5e_calibration.yaml",
         ]
     )
 

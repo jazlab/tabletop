@@ -28,7 +28,6 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | --- | --- |
 | `tt-build` | Build a component: `colcon` (workspace), `microros` (firmware), or `foxglove` (plugin) |
 | `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, …) |
-| `tt-create-graph` | Generate the ROS 2 node/topic graph |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
 
 ## Common commands (`bin/common`)
@@ -72,7 +71,6 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 ### `microros` options
 
 ```text
--t, --target teensy|flic_micro|all   Select firmware project(s) (default: teensy)
 --clean                Clean the micro-ROS build directory first
 --no-upload            Build only (no upload)
 --compiledb            Generate compile_commands.json for IDE integration
@@ -91,13 +89,13 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 `tt-launch` runs inside a container — open one with `tt-attach <service>` (or use
 the Dev Container), or run it as a one-shot from the host by prefixing it with
 `tt-compose run --rm commander`. `tt-launch <target> [ros2 launch args…]`.
-Targets: `commander`, `rig`, `tasks`, `ur`, `dual_ur`, `teensy`, `flic`,
+Targets: `commander`, `rig`, `tasks`, `dual_ur`, `teensy`, `flic`,
 `eyelink`, `flir_no_sync`, `flir_synchronized`, `flir_calibrate`, `optitrack`,
 `rosbag`, `rosbag_convert`, `rviz`, `foxglove`, `moveit`, `discovery`.
 
 ```bash
 tt-launch rig robot_mode:=mock teensy_simulate:=true
-tt-launch tasks task:=foraging_ordered robot_mode:=ursim
+tt-launch tasks task:=foraging_ordered robot_mode:=mock
 tt-launch commander robot_mode:=real
 ```
 
@@ -112,5 +110,4 @@ Installed as entry points (available after sourcing `setup.bash`):
 | `tt-gaze-train` | Train the gaze estimation model |
 | `tt-gaze-predict` | Predict gaze on a new session |
 | `tt-gaze-visualize` | Visualize calibration data and predictions |
-| `tt-flic-client` | Flic button client (Flic SDK protocol) |
 | `tt-flic-scapy` | Flic button client using a raw scapy BLE sniffer |

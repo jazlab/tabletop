@@ -1,3 +1,7 @@
+# Archived/reference code under deprecated/ is preserved as-is and not linted,
+# formatted, or otherwise checked.
+exclude: '^deprecated/'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

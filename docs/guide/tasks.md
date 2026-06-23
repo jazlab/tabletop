@@ -32,10 +32,10 @@ on the subject's last response (e.g. alternating or blocked designs).
 ## Trial generators
 
 Generators implement an iterator + `send(trial_spec, feedback)` protocol:
-`BaseTrialGenerator` and the `{ordered,random}_choice[_alternating]` and
-`blocked_cup_drawer` variants. The config's `trial_generator` key selects one
-and supplies its kwargs (object groups, poses, occlusion probability, block
-sizes, …).
+`BaseTrialGenerator` plus `OrderedChoiceAlternating` and
+`RandomChoiceAlternating`, which alternate between robot groups (left/right).
+The config's `trial_generator` key selects one and supplies its kwargs (object
+groups, poses, occlusion probability, …).
 
 ## Configuring a task
 

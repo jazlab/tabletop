@@ -14,7 +14,7 @@ The task collects reaction time data and delivers rewards (juice + optional
 sound) for correct responses.
 
 Example:
-    generator = BlockedCupDrawer(commander, ...)
+    generator = OrderedChoiceAlternating(commander, ...)
     task = ForagingTask(
         commander=commander,
         trial_generator=generator,

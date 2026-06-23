@@ -9,7 +9,7 @@ YAML files and executes them sequentially.
 
 Subpackages:
     tasks: Experimental task implementations (ForagingTask, etc.)
-    trial_generators: Trial sequence generators (RandomChoice, etc.)
+    trial_generators: Trial sequence generators (RandomChoiceAlternating, etc.)
 
 Example:
     from tabletop_tasks import run_tasks

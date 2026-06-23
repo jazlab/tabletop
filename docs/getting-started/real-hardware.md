@@ -2,8 +2,8 @@
 
 This page covers the one-time configuration needed to drive the **real**
 hardware (the network, the UR5e robot, and the rig computers). If you only
-intend to run in simulation (`robot_mode:=mock` or `ursim`), you can skip this
-page entirely.
+intend to run in simulation (`robot_mode:=mock`), you can skip this page
+entirely.
 
 Before starting, make sure you have completed the [Setup](setup.md) steps
 (clone, `source setup.bash`, `tt-env-gen`).
@@ -213,13 +213,13 @@ With the network in place, set a static IP on the robot via the Teach Pendant:
 ### Installing and configuring the `external_control` URCap
 
 The `external_control` URCap is required to command the robot from the host
-machine (and therefore from the Docker containers). Copy the `*.urcap` files in
-`ur_robot/programs/` to the robot's `/programs` directory over SSH (this needs
-SSH access to the robot as `root`):
+machine (and therefore from the Docker containers). Copy
+`share/externalcontrol-1.0.5.urcap` to the robot's `/programs` directory over
+SSH (this needs SSH access to the robot as `root`):
 
 ```bash
-scp ur_robot/programs/*.urcap root@$LEFT_ROBOT_IP:/programs
-scp ur_robot/programs/*.urcap root@$RIGHT_ROBOT_IP:/programs
+scp share/externalcontrol-1.0.5.urcap root@$LEFT_ROBOT_IP:/programs
+scp share/externalcontrol-1.0.5.urcap root@$RIGHT_ROBOT_IP:/programs
 ```
 
 Install the copied URCap on the robot using the Teach Pendant:

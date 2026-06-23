@@ -19,13 +19,17 @@ Config Files Loaded:
     MoveItConfigsBuilder:
     - kinematics.yaml: IK solver config (robot_description_kinematics)
     - joint_limits.yaml: joint vel/accel limits (robot_description_planning)
-    - moveit_controllers.yaml: controller manager / trajectory execution
+    - moveit_controllers.yaml: trajectory-execution / controller manager
     - ompl_planning.yaml: OMPL planning pipeline
     - pilz_industrial_motion_planner_planning.yaml: Pilz planning pipeline
     - pilz_cartesian_limits.yaml: Cartesian limits for Pilz LIN/CIRC
-    (chomp_planning.yaml, stomp_planning.yaml, isaac_ros_cumotion_planning.yaml,
-     and moveit_controllers_rcm.yaml exist but are not loaded by the current
-     pipeline selection.)
+
+    moveit_controllers.yaml configures MoveIt's own trajectory-execution
+    manager. This rig normally executes trajectories through the UR driver,
+    but the config is kept so MoveItConfigsBuilder finds a *_controllers.yaml
+    (no startup warning) and the MoveIt execution manager stays available as
+    an option. The chomp/stomp/cuMotion planning configs were retired; see
+    deprecated/moveit-config/.
 
 Example:
     ros2 launch tabletop_rig commander.launch.py robot_mode:=mock
@@ -71,8 +75,8 @@ def declare_arguments():
         DeclareLaunchArgument(
             "robot_mode",
             default_value="mock",
-            choices=["mock", "ursim", "real"],
-            description="Whether to use the mock robot, URSim, or real robot",
+            choices=["mock", "real"],
+            description="Whether to use the mock robot or real robot",
         ),
         DeclareLaunchArgument(
             "semantic_description_file",

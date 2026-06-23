@@ -7,15 +7,7 @@ the remaining ones are open.
 
 ## Likely bugs
 
-1. **`multi_ur.launch.py` references a missing config file.**
-   `tabletop_rig/launch/multi_ur.launch.py:135` defaults
-   `controllers_file` to `config/multi_controllers.yaml`, which does
-   not exist (only `dual_controllers.yaml` does). The launch file will
-   fail at runtime unless the argument is overridden. Either add the
-   file, point the default at `dual_controllers.yaml`, or delete the
-   launch file if `dual_ur.launch.py` superseded it.
-
-2. **`AIOExecutor.spin_until_future_complete` leaks
+1. **`AIOExecutor.spin_until_future_complete` leaks
    `ConditionReachedException`.** The exception suppression in
    `tabletop_rig/executors.py:_spin_context_manager` is commented out,
    so callers crash with an `ExceptionGroup` when the awaited future
@@ -37,16 +29,7 @@ the remaining ones are open.
     `plan_and_execute` is then called with the *original*
     `config.reset_request` — the no-cache intent is silently lost.
 
-3. **Inverted "correct" counter in
-    `trial_generators/blocked_cup_drawer.py:133`.** `_num_correct` is
-    incremented when `feedback.timeout` is True, but in the tasks that
-    produce feedback (`tasks/foraging.py:177-181`) `timeout=True`
-    means the subject did NOT respond. Blocks therefore switch after N
-    *failed* trials, contradicting the `correct_trials_per_block`
-    name. Docstrings now describe the implemented behavior; the logic
-    needs review.
-
-4. **Arm-lock safety check disabled in `interfaces/teensy.py`.**
+3. **Arm-lock safety check disabled in `interfaces/teensy.py`.**
     `_msg_safe_to_execute` (line ~206) has the arm-lock condition
     (`is_left_arm_locked and is_right_arm_locked`) commented out and
     returns only `not msg.is_safety_laser_broken`. So robot motion is
@@ -93,23 +76,13 @@ the remaining ones are open.
 
 ## Firmware review (firmware documentation pass)
 
-1. **`resetButtonAds()` blocks the Flic firmware main loop.**
-    `tabletop_micro/tabletop_flic_micro/src/main.cpp`: `pump_publish_queue()`
-    calls `resetButtonAds()` after every detected press, which connects to
-    the button and immediately disconnects to silence its ~3 s post-press
-    advertisement burst. The connect runs on the main loop and can block
-    long enough to stall executor spin / time-sync and drop the micro-ROS
-    agent. A pre-existing header comment wrongly claimed this was "dropped"
-    (corrected to match the code). Consider moving it to a dedicated
-    FreeRTOS task fed by a separate queue.
-
-2. **Potential pin conflict in Teensy firmware.**
-    `tabletop_micro/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
+1. **Potential pin conflict in Teensy firmware.**
+    `src/microros/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
     is `38` with a `// TODO: change back to 36`, but `BUTTON_STATE_PIN` is
     already `36`. Acting on the TODO without relocating the button pin would
     map both to pin 36.
 
-3. **Misspelled enum `UNCRECOVERABLE_ERROR` in Teensy firmware.**
+2. **Misspelled enum `UNCRECOVERABLE_ERROR` in Teensy firmware.**
     The `agent_states` member is spelled `UNCRECOVERABLE_ERROR` (used
     consistently, so functionally harmless) while a nearby LED blink-pattern
     comment refers to `UNRECOVERABLE_ERROR`. Cosmetic; rename for clarity.
@@ -133,28 +106,28 @@ the remaining ones are open.
 1. **`CLAUDE.md` architecture section (corrected).** It previously listed
    `interfaces/dashboard.py` (actual file: `interfaces/ur.py`), placed
    `tabletop_teensy` directly under `src/ros/tabletop/` (actual:
-   `src/ros/tabletop/tabletop_micro/tabletop_teensy`, COLCON_IGNOREd
+   `src/microros/tabletop_teensy`, COLCON_IGNOREd
    PlatformIO firmware), and omitted the `interfaces/moveit/` cache siblings
    (`trajectory_cache_kdtree.py` / `trajectory_cache_lmdb.py`) and
    `requests.py`. These have since been corrected.
 
-2. **`musings.md` references commands that no longer exist** (or never
-   did under these names): `tt-display-set`, `tt-usbfs-configure`,
-   `tt-udev-configure`, `tt-teensy-build`, `tt-teensy-connect`,
-   `tt-calibrate`, `tt-cpu-speed-scaling-disable`, `tt-docker`, plus
-   `scripts/docker_prune.sh`, `scripts/build.sh`, `scripts/piano.sh`.
-   Current equivalents: host configuration (USB buffer size, udev rules, CPU
-   governor) is now documented in
-   [Real Hardware Setup](getting-started/real-hardware.md) rather than shipped
-   as scripts; `tt-build microros` (for teensy builds); `tt-compose`/`tt-build`.
-   The gaze CLI entry points are `tt-gaze-*` (not `gaze-*`).
+## Resolved in the deprecation/cleanup branch
 
-## Minor
+The following previously flagged items are no longer open — the relevant code
+was removed or retired to `deprecated/` (see `deprecated/README.md`):
 
-1. **`commander_pretty.yaml`** appears to be an unconsumed alternate of
-   `commander.yaml` (no launch file references it). Confirm whether it
-   is still needed.
-
-> Resolved in this branch: `bin/container/tt-create-graph` (it referenced a
-> non-existent style-config path and dropped all nodes when the ignore-list
-> was empty — both fixed).
+- **`commander_pretty.yaml`** (an unconsumed alternate of `commander.yaml`) was
+  removed.
+- **`bin/container/tt-create-graph`** — besides its earlier fixes (it referenced
+  a non-existent style-config path and dropped all nodes when the ignore-list
+  was empty), the script and its `ros_graph_style.yaml` were retired to
+  `deprecated/ros-graph/`.
+- **`trial_generators/blocked_cup_drawer.py`** (the inverted "correct" counter)
+  was removed along with the non-alternating `ordered_choice` / `random_choice`
+  generators; the surviving `*_alternating` variants are the supported path.
+- **`tabletop_flic_micro` firmware** (the `resetButtonAds()` main-loop block)
+  was retired to `deprecated/flic-button/`, superseded by the in-process scapy
+  BLE sniffer.
+- **`musings.md`** (which referenced many commands/scripts that no longer exist)
+  was removed; its still-relevant troubleshooting content lives in
+  [Troubleshooting](guide/troubleshooting.md) with the current command set.

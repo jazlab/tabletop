@@ -1,0 +1,127 @@
+name: tabletop
+
+services:
+  # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
+  # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
+  novnc:
+    ipc: host
+    network_mode: host
+    container_name: tabletop-novnc
+    profiles: [ real, sim, ursim ]
+    image: jazlabtabletop/novnc
+    environment:
+      - PORT=$NOVNC_PORT
+      - DISPLAY=$NOVNC_DISPLAY
+      - DISPLAY_WIDTH=$NOVNC_WIDTH
+      - DISPLAY_HEIGHT=$NOVNC_HEIGHT
+      - WINDOW_MANAGER=dwm
+    restart: unless-stopped
+
+  # Universal Robots UR5e simulator (virtual controller + teach pendant GUI).
+  # Renders to the noVNC display; loads our URCaps/programs from ur_robot/.
+  ursim:
+    ipc: host
+    network_mode: host
+    container_name: tabletop-ursim
+    profiles: [ ursim ]
+    image: universalrobots/ursim_e-series@sha256:bb2dd54b2c187af971e1fd2ac8a5752e88fb7f36cac0b0c375c90eb6262abee8
+    volumes:
+      - ./ur_robot/urcaps:/urcaps
+      - ./ur_robot/programs:/ursim/programs
+      - ./docker/ursim/entrypoint.sh:/entrypoint.sh
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+      - ROBOT_MODEL=ur5e
+    depends_on:
+      novnc:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    init: true
+    entrypoint: [ /entrypoint.sh ]
+
+  # Flic daemon (flicd) bridge over BLE. Superseded by the in-process
+  # scapy BLE sniffer in the flic node; kept under the `deprecated` profile.
+  flicd:
+    ipc: host
+    network_mode: host
+    container_name: tabletop-flicd
+    profiles: [ deprecated ]
+    image: ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
+    volumes:
+      - ./docker/flicd:/app
+    environment:
+      - HCI_DEV=hci0
+      - BD_ADDR=c8:c6:ac:df:da:c2
+      - PORT=5551
+      - SERVER_ADDR=0.0.0.0
+    healthcheck:
+      disable: false
+      test: [ CMD, /app/healthcheck.sh ]
+      interval: 2s
+      timeout: 1s
+      start_period: 5s
+      start_interval: 1s
+      retries: 1
+    cap_add:
+      - NET_ADMIN
+    init: true
+    # stop_signal: SIGINT
+    command: /app/entrypoint.sh
+
+  # Example: the daemon-based Flic node. The active `flic` service in
+  # compose.yaml now sniffs BLE directly with scapy and needs only NET_ADMIN,
+  # but when the flicd daemon was used the node waited for it via depends_on.
+  # This shows how the two were wired together.
+  flic:
+    extends: ros-base
+    container_name: tabletop-flic
+    profiles: !override [ deprecated ]
+    depends_on:
+      flicd:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    command: tt-launch flic simulate:=false
+
+  # Base image + workspace bind mount that every ROS service extends. This is an
+  # extends-only template (profile `template`); it is never run directly — the
+  # `builder` service below performs builds, and each real service overrides the
+  # command.
+  ros-base:
+    ipc: host
+    network_mode: host
+    image: jazlabtabletop/ros-base
+    container_name: tabletop-ros-base
+    profiles: [ template ]
+    volumes:
+      - type: bind
+        source: .
+        target: /tabletop
+        consistency: $BIND_CONSISTENCY
+      # - ./docker/ros/entrypoint.sh:/entrypoint.sh
+      # - ./docker/ros/user-entrypoint.sh:/user-entrypoint.sh
+      # - ./docker/ros/fix-uid-gid.sh:/fix-uid-gid.sh
+    environment:
+      - UV_EXTRA=$UV_EXTRA
+      - HOST_UID=$HOST_UID
+      - HOST_GID=$HOST_GID
+    user: root
+    stop_signal: SIGINT
+    working_dir: /tabletop
+
+  # DEPRECATED: unsynchronized FLIR camera driver (one device per $FLIR_DEV_*).
+  # Superseded by the hardware-synchronized `flir` service below.
+  flir-no-sync:
+    extends: ros-base
+    container_name: tabletop-flir-no-sync
+    profiles: !override [ deprecated ]
+    devices:
+      - $FLIR_DEV_0
+      - $FLIR_DEV_1
+      - $FLIR_DEV_2
+      - $FLIR_DEV_3
+      - $FLIR_DEV_4
+      - $FLIR_DEV_5
+    restart: unless-stopped
+    command: tt-launch flir_no_sync

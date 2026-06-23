@@ -31,7 +31,7 @@
 	url = https://github.com/valmikikothare/flir_camera_driver.git
 	branch = ros2-release
 [submodule "foxglove_moveit_msg_converter"]
-	path = src/ros/modules/foxglove_moveit_msg_converter
+	path = src/foxglove_moveit_msg_converter
 	url = https://github.com/valmikikothare/foxglove_moveit_msg_converter.git
 [submodule "image_transport_plugins"]
 	path = src/ros/modules/image_transport_plugins

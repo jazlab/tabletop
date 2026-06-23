@@ -29,7 +29,6 @@ Services are grouped by Compose **profiles**. Bring up a whole session with
 | Profile | Brings up | Use case |
 | --- | --- | --- |
 | `sim` | mock UR, teensy-sim, flic-sim, eyelink-sim, rviz, foxglove, novnc | development with mock hardware |
-| `ursim` | UR simulator + novnc | virtual teach pendant |
 | `real` | ur, teensy, flic, eyelink, optitrack, flir, rviz, foxglove, novnc | real hardware |
 
 ```bash
@@ -70,7 +69,7 @@ tt-build foxglove -o ~/plugins               # write into a directory (keeps the
 tt-build foxglove -o ~/plugins/moveit.foxe   # write to a specific filename
 ```
 
-This packages the `foxglove_moveit_msg_converter` extension and writes the
+This packages the `src/foxglove_moveit_msg_converter` extension and writes the
 resulting `.foxe` file to `$TABLETOP_DIR` (the repository root) by default, or to
 the `-o/--output` path — a directory (the plugin keeps its packaged name) or a
 path ending in `.foxe` (the plugin is renamed to it). Install it into the
@@ -111,6 +110,6 @@ tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:
 ```
 
 `Ctrl-C` stops a running task. The `task` argument is a config filename (without
-`.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock`, `ursim`, or
-`real`. See [Tasks & Experiments](../guide/tasks.md) for the available tasks and
-how to configure them.
+`.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock` or `real`. See
+[Tasks & Experiments](../guide/tasks.md) for the available tasks and how to
+configure them.

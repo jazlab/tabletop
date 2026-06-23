@@ -10,8 +10,8 @@
     # Commander parameters
 
     # Selects mock vs. real UR hardware behaviour. Set automatically from
-    # robot_mode at launch (true only when robot_mode:=mock; false for ursim
-    # and real). Consumed ONLY by the per-arm manipulation stack — passed from
+    # robot_mode at launch (true when robot_mode:=mock; false when
+    # robot_mode:=real). Consumed ONLY by the per-arm manipulation stack — passed from
     # Commander to each URInterface and ObjectManipulationInterface:
     #   - URInterface: asserts each UR driver node is running in the matching
     #     mode (mock when true, real when false) and raises on mismatch; it

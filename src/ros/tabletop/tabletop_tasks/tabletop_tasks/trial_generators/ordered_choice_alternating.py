@@ -4,13 +4,14 @@ This module provides a trial generator that cycles through all
 combinations of trial parameters in a deterministic order. Uses
 itertools.product to create a full factorial design.
 
-This generator is non-adaptive - feedback is ignored and does not
-influence subsequent trial generation.
+With skip_failed=True (the default) the generator is non-adaptive and
+ignores feedback; with skip_failed=False it retries a failed trial instead
+of advancing, so feedback governs retry behavior.
 
 Example:
-    generator = OrderedChoice(
+    generator = OrderedChoiceAlternating(
         commander=commander,
-        object_ids=["cup_1", "cup_2"],
+        grouped_object_ids={"left": ["cup_1"], "right": ["cup_2"]},
         poses=[{"position": [0.5, 0, 0.3]}],
         arms=["left", "right"],
         occlude=[True, False],

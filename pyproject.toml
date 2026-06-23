@@ -36,7 +36,6 @@ tt-gaze-preprocess = "tabletop_py.gaze.preprocess:main"
 tt-gaze-train = "tabletop_py.gaze.train:main"
 tt-gaze-predict = "tabletop_py.gaze.predict:main"
 tt-gaze-visualize = "tabletop_py.gaze.visualize:main"
-tt-flic-client = "tabletop_py.flic.client:main"
 tt-flic-scapy = "tabletop_py.flic.scapy_client:main"
 
 
@@ -47,13 +46,7 @@ cu128 = ["torch>=2.8.0"]
 cu130 = ["torch>=2.8.0"]
 
 [dependency-groups]
-dev = [
-  "ipykernel>=6.30.1",
-  "mingus>=0.6.1",
-  "pre-commit>=4.3.0",
-  "pyglet<2",
-  "ros2-graph>=0.0.5",
-]
+dev = ["ipykernel>=6.30.1", "mingus>=0.6.1", "pre-commit>=4.3.0", "pyglet<2"]
 # Documentation site toolchain (mkdocs). Build/serve with:
 #   uv run --group docs mkdocs serve   (or `mkdocs build`)
 # mkdocstrings uses griffe's static analysis, so the API reference is
