@@ -72,7 +72,6 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
 | `host/tt-flir-reset` | host | `tt-env-gen` → stop flir svc → reload udev → `docker compose run --rm flir tt-launch flir_no_sync factory_reset:=true` → restart |
 | `container/tt-build` | container | dispatches on `<colcon\|microros\|foxglove>`: colcon (`uv sync` + `colcon build`), microros (PlatformIO `pio run`), foxglove (`npm run package` → `.foxe` to `$TABLETOP_DIR` or `-o` path) |
 | `container/tt-launch` | container | case-routes to `ros2 launch <pkg> <name>.launch.py`, sets per-target `ROS_LOG_DIR` |
-| `container/tt-create-graph` | container | `ros2_graph` → `graph.md` |
 | `container/tt-kill-ros` | container | `pkill -f ros` |
 | `common/tt-clean` | both | `rm -rf` of build/install/log/cache dirs by flag |
 
@@ -94,8 +93,7 @@ scripts; it is documented as Ubuntu 24.04 procedures in
 | `flir` | real | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
 | `optitrack` | real | `tt-launch optitrack` | |
 | `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
-| `novnc` | real, sim, ursim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
-| `ursim` | ursim | UR simulator image | shares noVNC display |
+| `novnc` | real, sim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
 | `builder` | builder | — (set at run time) | privileged, `/dev`, platformio cache volume; target of host `tt-build` |
 | `dev` | dev | `sleep infinity` | the Dev Container; everything mounted |
 
@@ -156,7 +154,7 @@ Key edges:
 tasks.launch.py (tabletop_tasks)         task:=<name> ⇒ coro_config=config/<name>.yaml
 └── rig.launch.py (tabletop_rig)         per-subsystem *_launch:=true|false toggles
     ├── commander.launch.py              → commander node (+ moveit_cpp config)
-    ├── ur.launch.py / dual_ur.launch.py → ur driver stack
+    ├── dual_ur.launch.py                → ur driver stack (both arms)
     │   └── dual_rsp.launch.py (tabletop_description) → robot_state_publisher (URDF)
     ├── teensy.launch.py                 → micro_ros_agent  | mock_teensy (simulate)
     ├── flic.launch.py                   → flic node
@@ -178,13 +176,12 @@ moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug
 | `tabletop_rig/config/flir_synchronized.yaml` | flir_synchronized.launch.py | camera list, serials, trigger/chunk settings, poses |
 | `tabletop_rig/config/flir.yaml`, `blackfly_s.yaml` | flir.launch.py | unsynchronized per-camera params |
 | `tabletop_rig/config/dual_controllers.yaml` | dual_ur.launch.py → controller_manager | left/right controller definitions |
-| `tabletop_rig/config/update_rate.yaml` | ur_control/dual_ur/multi_ur launch → controller_manager | ros2_control update rate (Hz) |
 | `tabletop_rig/config/optitrack.yaml` | optitrack.launch.py | server address, ports, QoS |
 | `tabletop_rig/config/rosbag.yaml` | rosbag.launch.py | recorded topics/services, bag size |
 | `tabletop_rig/config/object_reset/*.yaml` | Commander reset_object requests | reset motion parameters |
 | `tabletop_tasks/config/<task>.yaml` | tasks.launch.py → run_tasks coroutine | task class + kwargs + trial generator |
-| `tabletop_description/config/*_calibration.yaml` | (dual_)rsp.launch.py | per-arm UR kinematics |
-| `tabletop_moveit_config/config/*.yaml` | commander.launch.py, moveit.launch.py | planners, limits, controllers |
+| `tabletop_description/config/*_calibration.yaml` | dual_rsp.launch.py | per-arm UR kinematics |
+| `tabletop_moveit_config/config/*.yaml` | commander.launch.py, moveit.launch.py | planners, limits |
 
 ### 4.3 Parameter flow (config → code)
 
@@ -224,11 +221,11 @@ graph TD
 - `tabletop_micro/` is `COLCON_IGNORE`d — firmware is built by
   PlatformIO (`tt-build microros`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
-- The **Teensy** firmware (`tabletop_micro/tabletop_teensy`) is the supported
-  micro-controller, launched via `teensy.launch.py` (micro-ROS agent). The
-  **Flic Micro** firmware (`tabletop_micro/tabletop_flic_micro`) is
-  **incomplete** and has no launch file; a working one would be nearly
-  identical to `teensy.launch.py` with a different micro-ROS agent node name.
+- The **Teensy** firmware (`tabletop_micro/tabletop_teensy`) is the only
+  micro-controller firmware, launched via `teensy.launch.py` (micro-ROS agent).
+  An earlier, incomplete **Flic Micro** (ESP32) firmware was retired — it now
+  lives in `deprecated/flic-button/tabletop_flic_micro/`, superseded by the
+  in-process scapy BLE sniffer in the `flic` node.
 
 ### 5.2 tabletop_rig internals
 
@@ -294,7 +291,7 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
        tasks/{foraging,present,smooth_pursuit,dummy}.py
     └─ trial_generators/
          BaseTrialGenerator (iterator + send() feedback protocol)
-         {ordered,random}_choice[_alternating].py, blocked_cup_drawer.py
+         {ordered,random}_choice_alternating.py
 ```
 
 ### 5.4 tabletop_py usage map

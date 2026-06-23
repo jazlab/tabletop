@@ -54,13 +54,12 @@ serial device paths — set `TEENSY_DEV` to match your hardware).
 | `tabletop_rig/config/commander.yaml` | `commander.launch.py` → Commander | all interface parameters |
 | `tabletop_rig/config/flir_synchronized.yaml` | `flir_synchronized.launch.py` | camera serials, trigger/chunk settings, poses |
 | `tabletop_rig/config/dual_controllers.yaml` | `dual_ur.launch.py` → controller_manager | left/right controller definitions |
-| `tabletop_rig/config/update_rate.yaml` | ur/dual_ur/multi_ur launch | ros2_control update rate (Hz) |
 | `tabletop_rig/config/optitrack.yaml` | `optitrack.launch.py` | server address, ports, QoS |
 | `tabletop_rig/config/rosbag.yaml` | `rosbag.launch.py` | recorded topics/services, bag size |
 | `tabletop_rig/config/object_reset/*.yaml` | Commander `reset_object` | reset-motion strategies (drawer/spin) |
 | `tabletop_tasks/config/<task>.yaml` | `tasks.launch.py` → `run_tasks` | task class + kwargs + trial generator |
-| `tabletop_description/config/*_calibration.yaml` | `(dual_)rsp.launch.py` | per-arm UR kinematics |
-| `tabletop_moveit_config/config/*.yaml` | `commander.launch.py`, `moveit.launch.py` | planners, limits, controllers |
+| `tabletop_description/config/*_calibration.yaml` | `dual_rsp.launch.py` | per-arm UR kinematics |
+| `tabletop_moveit_config/config/*.yaml` | `commander.launch.py`, `moveit.launch.py` | planners, limits |
 
 Every config file is now commented inline; open the file to see per-parameter
 documentation.

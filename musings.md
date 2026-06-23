@@ -12,7 +12,7 @@ Before diving into troubleshooting, here are the most common commands:
 source setup.bash           # Set up environment (add to .bashrc)
 tt-env-gen                   # Generate .env file (run after hardware changes)
 tt-compose build             # Build Docker images
-tt-compose up ursim_novnc rig_novnc  # Start simulator and rig
+tt-compose --profile=sim up  # Start the mock-hardware session
 
 # Inside container
 tt-build                     # Build tabletop packages
@@ -35,7 +35,7 @@ tt-launch tasks task:=foraging_ordered  # Run a task
     ```
 
     This will remove all containers, networks, images, and build cache associated
-    with the TableTop project (except the ursim image). After that, trying building
+    with the TableTop project. After that, trying building
     the containers again. If that doesn't work, wipe your computer, reinstall
     ubuntu, and try again (that's what I did anyway)
 
@@ -95,7 +95,7 @@ tt-launch tasks task:=foraging_ordered  # Run a task
 1. If you want to visualize the URDF, you can run:
 
     ```bash
-    ros2 launch tabletop_description view_robot.launch.py
+    ros2 launch tabletop_description dual_view_robot.launch.py
     ```
 
 2. If you want to run a demo with mock hardware, you can run:
@@ -133,6 +133,11 @@ This gets its own section because it's a pain in the ass.
     ```
 
     To stop it from restarting on boot, edit the `/etc/bluetooth/main.conf` file and set `AutoEnable=false`.
+
+    > **Note (deprecated):** items 2–3 and 7–9 below describe the old `flicd`
+    > daemon setup. The `flic` node now sniffs BLE directly with scapy, so
+    > `flicd` is no longer used. These notes are kept only for anyone reviving
+    > the daemon from `deprecated/flic-button/` (see `deprecated/README.md`).
 
 2. Getting the `flicd` server running in the `rig` container is a
     bitch. Forget about it, don't try to do it again. It's not worth it. Just run

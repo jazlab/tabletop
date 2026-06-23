@@ -1,7 +1,7 @@
 # tabletop_py
 
 ROS-independent Python utilities: eye-gaze estimation/tracking, the Flic
-button clients, and shared helpers. This package never imports ROS — it is
+button client, and shared helpers. This package never imports ROS — it is
 wrapped by `tabletop_rig` nodes and also exposes the `tt-gaze-*` / `tt-flic-*`
 command-line tools.
 
@@ -26,12 +26,12 @@ predict → visualize) plus EDF parsing and synchronization helpers.
 
 ## Flic buttons — `tabletop_py.flic`
 
-Clients for the Flic Bluetooth buttons used as the subject's response device.
-`client` speaks the Flic SDK protocol; `scapy_client` is a raw BLE sniffer.
+Client for the Flic Bluetooth buttons used as the subject's response device.
+`scapy_client` is a raw BLE sniffer that reports button presses with minimal
+latency. (The older `flicd`-daemon client and the `piano` demo were retired —
+see `deprecated/flic-button/`.)
 
 ::: tabletop_py.flic.scapy_client
-::: tabletop_py.flic.client
-::: tabletop_py.flic.piano
 
 ## Shared utilities — `tabletop_py.utils`
 

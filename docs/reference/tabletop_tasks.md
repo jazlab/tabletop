@@ -22,8 +22,5 @@ can depend on the subject's last response. See
 ## Trial generators — `tabletop_tasks.trial_generators`
 
 ::: tabletop_tasks.trial_generators.base
-::: tabletop_tasks.trial_generators.ordered_choice
 ::: tabletop_tasks.trial_generators.ordered_choice_alternating
-::: tabletop_tasks.trial_generators.random_choice
 ::: tabletop_tasks.trial_generators.random_choice_alternating
-::: tabletop_tasks.trial_generators.blocked_cup_drawer

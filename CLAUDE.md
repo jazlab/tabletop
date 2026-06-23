@@ -40,7 +40,7 @@ tt-build colcon -a     # --all
 # Build only external modules
 tt-build colcon -m     # --only-modules
 
-# Build/upload the Teensy & Flic firmware (PlatformIO)
+# Build/upload the Teensy firmware (PlatformIO)
 tt-build microros
 
 # Package the Foxglove MoveIt plugin (.foxe written to $TABLETOP_DIR by
@@ -56,13 +56,13 @@ full set.
 
 `tt-launch <target> [ros2 launch args…]`, run inside a container or via
 `tt-compose run --rm commander tt-launch …` from the host. Common targets:
-`commander`, `rig`, `tasks`, `ur`, `dual_ur`, `teensy`, `flic`, `eyelink`,
+`commander`, `rig`, `tasks`, `dual_ur`, `teensy`, `flic`, `eyelink`,
 `flir_no_sync`, `flir_synchronized`, `optitrack`, `rosbag`, `rviz`, `foxglove`,
 `moveit`.
 
 ```bash
 # Launch the main commander node
-tt-launch commander robot_mode:=mock   # mock | real | ursim
+tt-launch commander robot_mode:=mock   # mock | real
 
 # Launch the full rig (all hardware interfaces, per-subsystem toggles)
 tt-launch rig robot_mode:=mock teensy_simulate:=true
@@ -70,7 +70,7 @@ tt-launch rig robot_mode:=mock teensy_simulate:=true
 # Launch tasks (spins a commander on top of an already-running rig)
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 
-# Launch the UR driver stack (single or dual arm)
+# Launch the dual UR driver stack (both arms)
 tt-launch dual_ur robot_mode:=real     # or robot_mode:=mock
 
 # Launch visualization (renders to the noVNC display)
@@ -90,7 +90,6 @@ tt-build colcon --all
 
 # Start containers using profiles (from host)
 tt-compose --profile=sim up        # Simulation with mock hardware
-tt-compose --profile=ursim up      # UR Simulator
 tt-compose --profile=real up       # Real hardware
 
 # Show container status
@@ -103,7 +102,7 @@ tt-compose --profile=sim down
 tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
-The user-facing profiles are `sim`, `ursim`, and `real` (the `real` profile
+The user-facing profiles are `sim` and `real` (the `real` profile
 includes the FLIR cameras). Other profiles exist for narrower jobs: `builder`
 (the privileged build container used by `tt-build`), `commander` (temporary
 container spun up to run `tt-launch`), `dev` (the Dev Container), and `template`
@@ -155,9 +154,9 @@ src/
     │   ├── tabletop_interfaces/  # ROS message/service/action definitions
     │   ├── tabletop_description/ # URDF robot descriptions + UR calibration
     │   ├── tabletop_moveit_config/ # MoveIt planning configurations
-    │   └── tabletop_micro/       # Teensy + Flic firmware (COLCON_IGNOREd;
-    │       ├── tabletop_teensy/  #   built with PlatformIO via tt-build microros,
-    │       └── tabletop_flic_micro/ #   NOT colcon — implements interfaces in C)
+    │   └── tabletop_micro/       # Teensy firmware (COLCON_IGNOREd; built with
+    │       └── tabletop_teensy/  #   PlatformIO via tt-build microros, NOT colcon
+    │                             #   — implements tabletop_interfaces in C)
     └── modules/              # External dependencies (git submodules)
         ├── moveit2/          # Custom MoveIt fork
         ├── flir_camera_driver/   # Spinnaker-based FLIR driver
@@ -297,3 +296,8 @@ For a deeper conceptual map (runtime topic/service graph, launch hierarchy,
 parameter flow, and "where to look when X breaks"), see `docs/architecture.md`.
 Other useful docs: `docs/known-issues.md` (review findings), `musings.md`
 (battle-tested troubleshooting), and the guides under `docs/guide/`.
+
+Superseded subsystems (the old `flicd`-based Flic stack, the UR simulator, the
+Flic ESP32 firmware, unused MoveIt configs, the ROS graph tooling) are archived
+under `deprecated/` — see `deprecated/README.md`. Nothing there is built or on a
+code path; it is reference-only.

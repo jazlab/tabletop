@@ -26,7 +26,7 @@ walkthrough (the TableTop network, URCaps, remote control), see
 
 !!! tip "Apple Silicon"
     Enable **Use Rosetta for x86/amd64 emulation** in Docker Desktop to run the
-    `ursim` container.
+    x86 container images.
 
 !!! important "Docker permissions and Docker Hub login"
     These are part of Docker's standard installation and

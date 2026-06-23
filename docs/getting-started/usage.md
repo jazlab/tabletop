@@ -29,7 +29,6 @@ Services are grouped by Compose **profiles**. Bring up a whole session with
 | Profile | Brings up | Use case |
 | --- | --- | --- |
 | `sim` | mock UR, teensy-sim, flic-sim, eyelink-sim, rviz, foxglove, novnc | development with mock hardware |
-| `ursim` | UR simulator + novnc | virtual teach pendant |
 | `real` | ur, teensy, flic, eyelink, optitrack, flir, rviz, foxglove, novnc | real hardware |
 
 ```bash
@@ -111,6 +110,6 @@ tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:
 ```
 
 `Ctrl-C` stops a running task. The `task` argument is a config filename (without
-`.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock`, `ursim`, or
-`real`. See [Tasks & Experiments](../guide/tasks.md) for the available tasks and
-how to configure them.
+`.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock` or `real`. See
+[Tasks & Experiments](../guide/tasks.md) for the available tasks and how to
+configure them.

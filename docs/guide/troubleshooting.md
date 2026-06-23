@@ -56,7 +56,7 @@ tt-launch tasks task:=foraging_ordered     # run a task
 - **Visualize the URDF:**
 
     ```bash
-    ros2 launch tabletop_description view_robot.launch.py
+    ros2 launch tabletop_description dual_view_robot.launch.py
     ```
 
 - **Mock-hardware demo:**
@@ -81,8 +81,8 @@ tt-launch tasks task:=foraging_ordered     # run a task
 ## Flic buttons
 
 The current `flic` node sniffs BLE directly with scapy; the old `flicd` daemon
-container is **deprecated** (kept only under the `deprecated` profile). Most
-remaining pain is host Bluetooth.
+container has been **removed** (its definition is preserved in
+`deprecated/compose-services.yaml`). Most remaining pain is host Bluetooth.
 
 - **Free the Bluetooth adapter** (the host BlueZ stack can hold it):
 
@@ -105,8 +105,10 @@ remaining pain is host Bluetooth.
     btmgmt info                                       # adapter info
     ```
 
-- **FlicPiano.** For stress relief, `tabletop_py/flic/piano.py` plays notes from
-  button presses (needs the `mingus` package from the `dev` dependency group).
+- **FlicPiano.** For stress relief, the retired `deprecated/flic-button/piano.py`
+  plays notes from button presses (needs the `mingus` package from the `dev`
+  dependency group). It targets the old `flicd`-based client; see
+  `deprecated/README.md`.
 
 ## Teensy
 
