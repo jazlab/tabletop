@@ -31,6 +31,7 @@ import random
 
 import debugpy
 import rclpy
+import tabletop_py.flic.client
 from rclpy.action.server import (
     ActionServer,
     CancelResponse,
@@ -41,8 +42,6 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.time import Time
 from std_msgs.msg import Header
 from tabletop_interfaces.action import FlicResponseTime
-
-import tabletop_py.flic.client
 from tabletop_py.flic.client import (
     BluetoothControllerState,
     ButtonConnectionChannel,
@@ -50,6 +49,7 @@ from tabletop_py.flic.client import (
     FlicClient,
     LatencyMode,
 )
+
 from tabletop_rig.executors import AIOExecutor
 from tabletop_rig.nodes.base import BaseNode
 
