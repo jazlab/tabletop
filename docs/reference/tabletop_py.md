@@ -2,8 +2,8 @@
 
 ROS-independent Python utilities: eye-gaze estimation/tracking, the Flic
 button client, and shared helpers. This package never imports ROS — it is
-wrapped by `tabletop_rig` nodes and also exposes the `tt-gaze-*` / `tt-flic-*`
-command-line tools.
+wrapped by `tabletop_rig` nodes and also exposes the `tt-gaze-*` and
+`tt-flic-scapy` command-line tools.
 
 ## Gaze estimation — `tabletop_py.gaze`
 

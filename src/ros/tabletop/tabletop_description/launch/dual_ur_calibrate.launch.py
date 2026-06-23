@@ -9,8 +9,7 @@ Included Launch Files:
         (PushROSNamespace scoped to left/right)
 
 Example:
-    ros2 launch tabletop_description dual_ur_calibrate.launch.py \
-        robot_mode:=real
+    ros2 launch tabletop_description dual_ur_calibrate.launch.py
 """
 
 # Copyright (c) 2021 PickNik, Inc.
@@ -82,12 +81,6 @@ UR_TYPE_CHOICES = [
 
 def declare_arguments():
     declared_arguments = [
-        DeclareLaunchArgument(
-            "robot_mode",
-            default_value="real",
-            choices=["real"],
-            description="Robot to calibrate (real hardware only)",
-        ),
         DeclareLaunchArgument(
             "log_level",
             default_value="INFO",

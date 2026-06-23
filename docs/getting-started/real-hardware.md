@@ -213,13 +213,13 @@ With the network in place, set a static IP on the robot via the Teach Pendant:
 ### Installing and configuring the `external_control` URCap
 
 The `external_control` URCap is required to command the robot from the host
-machine (and therefore from the Docker containers). Copy the `*.urcap` file in
-`share/` to the robot's `/programs` directory over SSH (this needs SSH access to
-the robot as `root`):
+machine (and therefore from the Docker containers). Copy
+`share/externalcontrol-1.0.5.urcap` to the robot's `/programs` directory over
+SSH (this needs SSH access to the robot as `root`):
 
 ```bash
-scp share/*.urcap root@$LEFT_ROBOT_IP:/programs
-scp share/*.urcap root@$RIGHT_ROBOT_IP:/programs
+scp share/externalcontrol-1.0.5.urcap root@$LEFT_ROBOT_IP:/programs
+scp share/externalcontrol-1.0.5.urcap root@$RIGHT_ROBOT_IP:/programs
 ```
 
 Install the copied URCap on the robot using the Teach Pendant:
