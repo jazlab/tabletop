@@ -62,6 +62,14 @@ daemon. The `flic` Compose service simply needs `NET_ADMIN`.
   had no launch file. It was built with `tt-build microros -t flic_micro` (that
   target was removed from `bin/container/tt-build`).
 
+  Only the files unique to this firmware are kept here — `src/main.cpp` (the
+  firmware), `platformio.ini` (ESP32 board/deps), and `colcon.meta`. This is
+  therefore **not a buildable PlatformIO package on its own**: to actually build
+  it, copy the full package layout from `src/microros/tabletop_teensy/` (its
+  `.vscode/`, `include/`, `lib/`, `test/`, `pio_compiledb.py`, `.gitignore`, and
+  the `extra_packages/tabletop_interfaces` symlink) and drop these files in,
+  then build it the way the Teensy firmware is built.
+
 ## `ursim/` — UR5e simulator support
 
 `entrypoint.sh` was the entrypoint for the **`ursim`** Compose service

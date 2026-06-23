@@ -69,6 +69,23 @@ services:
     # stop_signal: SIGINT
     command: /app/entrypoint.sh
 
+  # Example: the daemon-based Flic node. The active `flic` service in
+  # compose.yaml now sniffs BLE directly with scapy and needs only NET_ADMIN,
+  # but when the flicd daemon was used the node waited for it via depends_on.
+  # This shows how the two were wired together.
+  flic:
+    extends: ros-base
+    container_name: tabletop-flic
+    profiles: !override [ deprecated ]
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      flicd:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    command: tt-launch flic simulate:=false
+
   # Base image + workspace bind mount that every ROS service extends. This is an
   # extends-only template (profile `template`); it is never run directly — the
   # `builder` service below performs builds, and each real service overrides the
