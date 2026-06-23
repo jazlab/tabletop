@@ -28,8 +28,7 @@ Config Files Loaded:
     manager. This rig normally executes trajectories through the UR driver,
     but the config is kept so MoveItConfigsBuilder finds a *_controllers.yaml
     (no startup warning) and the MoveIt execution manager stays available as
-    an option. The RCM controller variant (moveit_controllers_rcm.yaml) and
-    the chomp/stomp/cuMotion planning configs were retired; see
+    an option. The chomp/stomp/cuMotion planning configs were retired; see
     deprecated/moveit-config/.
 
 Example:

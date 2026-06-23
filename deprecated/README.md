@@ -19,7 +19,6 @@ source-of-reference files remain.
 | `flic-button/flic_node.py` | `tabletop_rig/.../nodes/deprecated/flic.py` | old ROS flic node (flicd-based) |
 | `flic-button/tabletop_flic_micro/` | `src/ros/tabletop/tabletop_micro/tabletop_flic_micro/` | incomplete ESP32 firmware |
 | `ursim/entrypoint.sh` | `docker/ursim/entrypoint.sh` | UR simulator support removed |
-| `moveit-config/moveit_controllers_rcm.yaml` | `tabletop_moveit_config/config/` | RCM controller variant, never loaded |
 | `moveit-config/kinematics.yaml` | `tabletop_moveit_config/config/kinematics.yaml` | old single-arm variant |
 | `moveit-config/tabletop.xrdf` | `tabletop_moveit_config/xrdf/tabletop.xrdf` | cuMotion/Isaac description, unused |
 | `ros-graph/tt-create-graph` | `bin/container/tt-create-graph` | graph tooling no longer maintained |
@@ -81,12 +80,6 @@ profile was removed. The service definition is preserved in
 
 ## `moveit-config/` — MoveIt configs that are no longer loaded
 
-- **`moveit_controllers_rcm.yaml`** — a remote-center-of-motion (RCM) variant
-  of the MoveIt trajectory-execution / controller-manager parameters. It was
-  never loaded. (The base `moveit_controllers.yaml` was kept in
-  `tabletop_moveit_config/config/` so `MoveItConfigsBuilder` finds a
-  `*_controllers.yaml` and the MoveIt execution manager stays available, even
-  though this rig normally executes through the UR driver.)
 - **`kinematics.yaml`** — the old single-`manipulator:` IK config, with several
   alternative solvers (KDL, cached KDL, `pick_ik`) commented out. The active
   `tabletop_moveit_config/config/kinematics.yaml` uses per-arm
