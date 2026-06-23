@@ -181,7 +181,7 @@ moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug
 | `tabletop_rig/config/object_reset/*.yaml` | Commander reset_object requests | reset motion parameters |
 | `tabletop_tasks/config/<task>.yaml` | tasks.launch.py → run_tasks coroutine | task class + kwargs + trial generator |
 | `tabletop_description/config/*_calibration.yaml` | dual_rsp.launch.py | per-arm UR kinematics |
-| `tabletop_moveit_config/config/*.yaml` | commander.launch.py, moveit.launch.py | planners, limits |
+| `tabletop_moveit_config/config/*.yaml` | commander.launch.py, moveit.launch.py | planners, limits, controllers |
 
 ### 4.3 Parameter flow (config → code)
 

@@ -19,16 +19,18 @@ Config Files Loaded:
     MoveItConfigsBuilder:
     - kinematics.yaml: IK solver config (robot_description_kinematics)
     - joint_limits.yaml: joint vel/accel limits (robot_description_planning)
+    - moveit_controllers.yaml: trajectory-execution / controller manager
     - ompl_planning.yaml: OMPL planning pipeline
     - pilz_industrial_motion_planner_planning.yaml: Pilz planning pipeline
     - pilz_cartesian_limits.yaml: Cartesian limits for Pilz LIN/CIRC
 
-    No *_controllers.yaml is shipped, so MoveItConfigsBuilder logs a benign
-    "no matches for config/*_controllers.yaml" warning and configures no
-    MoveIt trajectory-execution manager — the rig executes trajectories
-    through the UR driver, not MoveIt's controller manager. The old
-    moveit_controllers*.yaml and the chomp/stomp/cuMotion planning configs
-    were retired; see deprecated/moveit-config/.
+    moveit_controllers.yaml configures MoveIt's own trajectory-execution
+    manager. This rig normally executes trajectories through the UR driver,
+    but the config is kept so MoveItConfigsBuilder finds a *_controllers.yaml
+    (no startup warning) and the MoveIt execution manager stays available as
+    an option. The RCM controller variant (moveit_controllers_rcm.yaml) and
+    the chomp/stomp/cuMotion planning configs were retired; see
+    deprecated/moveit-config/.
 
 Example:
     ros2 launch tabletop_rig commander.launch.py robot_mode:=mock

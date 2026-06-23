@@ -19,8 +19,7 @@ source-of-reference files remain.
 | `flic-button/flic_node.py` | `tabletop_rig/.../nodes/deprecated/flic.py` | old ROS flic node (flicd-based) |
 | `flic-button/tabletop_flic_micro/` | `src/ros/tabletop/tabletop_micro/tabletop_flic_micro/` | incomplete ESP32 firmware |
 | `ursim/entrypoint.sh` | `docker/ursim/entrypoint.sh` | UR simulator support removed |
-| `moveit-config/moveit_controllers.yaml` | `tabletop_moveit_config/config/` | MoveIt execution manager unused |
-| `moveit-config/moveit_controllers_rcm.yaml` | `tabletop_moveit_config/config/` | RCM variant, never loaded |
+| `moveit-config/moveit_controllers_rcm.yaml` | `tabletop_moveit_config/config/` | RCM controller variant, never loaded |
 | `moveit-config/kinematics.yaml` | `tabletop_moveit_config/config/kinematics.yaml` | old single-arm variant |
 | `moveit-config/tabletop.xrdf` | `tabletop_moveit_config/xrdf/tabletop.xrdf` | cuMotion/Isaac description, unused |
 | `ros-graph/tt-create-graph` | `bin/container/tt-create-graph` | graph tooling no longer maintained |
@@ -74,13 +73,12 @@ profile was removed. The service definition is preserved in
 
 ## `moveit-config/` — MoveIt configs that are no longer loaded
 
-- **`moveit_controllers.yaml` / `moveit_controllers_rcm.yaml`** — MoveIt
-  trajectory-execution / controller-manager parameters (the `_rcm` file is a
-  remote-center-of-motion variant). This rig executes trajectories through the
-  **UR driver**, not MoveIt's own execution manager, so they were never
-  meaningfully used. `MoveItConfigsBuilder` auto-discovers `*_controllers.yaml`;
-  with none present it logs a benign "no matches" warning and configures no
-  execution manager (see `commander.launch.py`).
+- **`moveit_controllers_rcm.yaml`** — a remote-center-of-motion (RCM) variant
+  of the MoveIt trajectory-execution / controller-manager parameters. It was
+  never loaded. (The base `moveit_controllers.yaml` was kept in
+  `tabletop_moveit_config/config/` so `MoveItConfigsBuilder` finds a
+  `*_controllers.yaml` and the MoveIt execution manager stays available, even
+  though this rig normally executes through the UR driver.)
 - **`kinematics.yaml`** — the old single-`manipulator:` IK config, with several
   alternative solvers (KDL, cached KDL, `pick_ik`) commented out. The active
   `tabletop_moveit_config/config/kinematics.yaml` uses per-arm

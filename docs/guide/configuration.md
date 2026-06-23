@@ -59,7 +59,7 @@ serial device paths — set `TEENSY_DEV` to match your hardware).
 | `tabletop_rig/config/object_reset/*.yaml` | Commander `reset_object` | reset-motion strategies (drawer/spin) |
 | `tabletop_tasks/config/<task>.yaml` | `tasks.launch.py` → `run_tasks` | task class + kwargs + trial generator |
 | `tabletop_description/config/*_calibration.yaml` | `dual_rsp.launch.py` | per-arm UR kinematics |
-| `tabletop_moveit_config/config/*.yaml` | `commander.launch.py`, `moveit.launch.py` | planners, limits |
+| `tabletop_moveit_config/config/*.yaml` | `commander.launch.py`, `moveit.launch.py` | planners, limits, controllers |
 
 Every config file is now commented inline; open the file to see per-parameter
 documentation.
