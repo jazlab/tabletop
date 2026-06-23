@@ -339,7 +339,7 @@ build_foxglove() {
     # a relative -o path stays relative to the caller's directory.
     dest_dir=$(cd "$dest_dir" && pwd)
 
-    local module_dir="$TABLETOP_DIR/src/foxglove_msg_converter"
+    local module_dir="$TABLETOP_DIR/src/foxglove_moveit_msg_converter"
     builtin cd "$module_dir"
     npm install
     npm run package
