@@ -77,8 +77,6 @@ services:
     extends: ros-base
     container_name: tabletop-flic
     profiles: !override [ deprecated ]
-    cap_add:
-      - NET_ADMIN
     depends_on:
       flicd:
         condition: service_healthy
