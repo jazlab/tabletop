@@ -90,8 +90,9 @@ profile was removed. The service definition is preserved in
 
 ## `ros-graph/` — ROS graph generation tooling
 
-- **`tt-create-graph`** wrapped `ros2_graph` to render the live ROS 2
-  node/topic graph to `graph.md` (run after `tt-launch`, while nodes are up).
+- **`tt-create-graph`** wrapped `ros2_graph` python package (now removed from
+  `pyproject.toml`) to render the live ROS 2 node/topic graph to `graph.md`
+  (run after `tt-launch`, while nodes are up).
   Note: it `source`s `../../setup.bash` and `../utils.sh` relative to its old
   home `bin/container/`; to revive it, restore it there so those paths resolve.
 - **`ros_graph_style.yaml`** was the graph styling config it consumed.
