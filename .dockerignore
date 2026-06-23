@@ -1,6 +1,5 @@
 *
 !src/ros/**/package.xml
-src/microros/
 !docker/ros/entrypoint.sh
 !docker/ros/user-entrypoint.sh
 !docker/ros/fix-uid-gid.sh
