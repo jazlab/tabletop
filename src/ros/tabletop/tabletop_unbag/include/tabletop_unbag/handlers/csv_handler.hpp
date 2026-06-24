@@ -80,6 +80,7 @@ public:
   {
     return true;
   }
+  void prepare() override;
   void preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
   void begin_write() override;
   void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;

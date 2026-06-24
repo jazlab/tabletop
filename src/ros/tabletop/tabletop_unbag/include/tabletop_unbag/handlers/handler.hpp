@@ -64,6 +64,29 @@ public:
     return false;
   }
 
+  /// Whether this handler's per-message work is independent and therefore safe
+  /// to run on a shared pool of worker threads (true), or whether each message
+  /// must be processed in order on a single dedicated thread (false).
+  ///
+  /// The image handler returns true: every image is decoded and written to its
+  /// own file, so messages have no ordering or shared-state coupling. The CSV
+  /// handler returns false: all of a topic's rows go to one file and must keep
+  /// bag order, so the orchestrator gives it one consumer thread.
+  ///
+  /// Contract: a handler that returns true MUST make write() thread-safe, since
+  /// the pool calls it concurrently for the same handler instance.
+  virtual bool parallelizable_per_message() const
+  {
+    return false;
+  }
+
+  /// One-time setup run on the main thread before any worker thread starts.
+  /// Use it to do work that is unsafe to trigger concurrently from several
+  /// threads (e.g. loading a type-support shared library on first use).
+  virtual void prepare()
+  {
+  }
+
   /// Phase 1: observe a message during the preprocess pass.
   virtual void preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
   {

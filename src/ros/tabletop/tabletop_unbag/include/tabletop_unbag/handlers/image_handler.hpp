@@ -15,8 +15,10 @@
 #ifndef TABLETOP_UNBAG__HANDLERS__IMAGE_HANDLER_HPP_
 #define TABLETOP_UNBAG__HANDLERS__IMAGE_HANDLER_HPP_
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <string>
 
 #include "rcutils/types/uint8_array.h"
@@ -41,6 +43,11 @@ namespace tabletop_unbag
 /// existence (an already-saved timestamp is skipped); --overwrite deletes the
 /// topic's image directory up front so a re-run cannot leave a mix of old and
 /// new output formats behind.
+///
+/// write() is thread-safe: each call writes a distinct, timestamp-named file
+/// (encoded to a buffer, written to a temp file, then atomically renamed into
+/// place), so a pool of workers can decode images for the same topic in
+/// parallel and an interrupted write never leaves a half-written final file.
 class ImageHandler : public MessageHandler
 {
 public:
@@ -56,6 +63,13 @@ public:
 
   ImageHandler(TopicInfo topic, const std::string& output_dir, const UnbagOptions& options);
 
+  /// Images are independent files, so the unbagger may decode them on a shared
+  /// worker pool. write() is thread-safe to support that.
+  bool parallelizable_per_message() const override
+  {
+    return true;
+  }
+
   void begin_write() override;
   void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
 
@@ -66,8 +80,8 @@ private:
   std::filesystem::path image_dir_;
   bool overwrite_;
   std::string image_encoding_;
-  bool dir_ready_ = false;
-  bool decode_warned_ = false;
+  std::once_flag dir_once_;
+  std::atomic<bool> decode_warned_{ false };
 };
 
 }  // namespace tabletop_unbag

@@ -17,12 +17,16 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -169,29 +173,93 @@ ImageHandler::ImageHandler(TopicInfo topic, const std::string& output_dir, const
 
 void ImageHandler::begin_write()
 {
-  if (!overwrite_)
+  std::error_code ec;
+  if (overwrite_)
+  {
+    // --overwrite: clear the whole topic directory so a re-run with a different
+    // image encoding cannot leave a mix of old and new output formats behind.
+    if (fs::exists(image_dir_, ec))
+    {
+      fs::remove_all(image_dir_, ec);
+    }
+    return;
+  }
+
+  // Resume: sweep away any leftover ".part" temp files from a previous run that
+  // was interrupted mid-write. The corresponding final files (if any) are
+  // complete thanks to the atomic rename, so only the temps need cleaning.
+  if (!fs::exists(image_dir_, ec))
   {
     return;
   }
-  // --overwrite: clear the whole topic directory so a re-run with a different
-  // image encoding cannot leave a mix of old and new output formats behind.
-  std::error_code ec;
-  if (fs::exists(image_dir_, ec))
+  for (const auto& entry : fs::directory_iterator(image_dir_, ec))
   {
-    fs::remove_all(image_dir_, ec);
+    const std::string name = entry.path().filename().string();
+    if (name.size() >= 5 && name.compare(name.size() - 5, 5, ".part") == 0)
+    {
+      fs::remove(entry.path(), ec);
+    }
   }
 }
 
 void ImageHandler::ensure_dir()
 {
-  if (dir_ready_)
-  {
-    return;
-  }
-  std::error_code ec;
-  fs::create_directories(image_dir_, ec);
-  dir_ready_ = true;
+  // Many worker threads may reach here at once for the same topic; create the
+  // directory exactly once.
+  std::call_once(dir_once_, [this] {
+    std::error_code ec;
+    fs::create_directories(image_dir_, ec);
+  });
 }
+
+namespace
+{
+
+/// Encode `image` to `extension` (".jpg"/".png"/...) and write it to `path`
+/// atomically: encode to memory, write a uniquely-named temp file in the same
+/// directory, then rename it into place. A rename on the same filesystem is
+/// atomic, so an interrupted run never leaves a half-written final file that a
+/// later resume would mistake for complete. Returns false on encode failure.
+bool write_image_atomic(const fs::path& path, const std::string& extension, const cv::Mat& image)
+{
+  std::vector<uchar> encoded;
+  if (!cv::imencode(extension, image, encoded))
+  {
+    return false;
+  }
+
+  // Temp name is unique per (file, thread) so concurrent workers never collide.
+  std::ostringstream tmp_name;
+  tmp_name << '.' << path.filename().string() << '.' << std::this_thread::get_id() << ".part";
+  const fs::path tmp_path = path.parent_path() / tmp_name.str();
+
+  {
+    std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+      return false;
+    }
+    out.write(reinterpret_cast<const char*>(encoded.data()), static_cast<std::streamsize>(encoded.size()));
+    out.flush();
+    if (!out)
+    {
+      std::error_code ec;
+      fs::remove(tmp_path, ec);
+      return false;
+    }
+  }
+
+  std::error_code ec;
+  fs::rename(tmp_path, path, ec);
+  if (ec)
+  {
+    fs::remove(tmp_path, ec);
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
 
 void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 {
@@ -261,11 +329,11 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
   }
   catch (const std::exception& e)
   {
-    if (!decode_warned_)
+    // exchange() so exactly one worker prints the warning for this topic.
+    if (!decode_warned_.exchange(true))
     {
       std::cerr << "WARNING - Failed to decode an image on " << topic_.name << " (" << e.what()
                 << "); skipping further decode errors on this topic.\n";
-      decode_warned_ = true;
     }
     return;
   }
@@ -277,7 +345,7 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 
   ensure_dir();
   const fs::path path = image_dir_ / (basename + extension);
-  if (!cv::imwrite(path.string(), image))
+  if (!write_image_atomic(path, extension, image))
   {
     std::cerr << "WARNING - Failed to write image " << path.string() << "\n";
   }

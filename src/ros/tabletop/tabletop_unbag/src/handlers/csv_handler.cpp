@@ -390,6 +390,13 @@ void CsvHandler::ensure_type_support_loaded()
   members_ = static_cast<const introspection::MessageMembers*>(type_support->data);
 }
 
+void CsvHandler::prepare()
+{
+  // Load the introspection type-support library now, on the main thread, so the
+  // per-topic consumer threads never trigger concurrent library loads.
+  ensure_type_support_loaded();
+}
+
 void CsvHandler::note_column(const std::string& column)
 {
   if (seen_columns_.insert(column).second)
