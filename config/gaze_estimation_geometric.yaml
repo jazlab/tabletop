@@ -78,8 +78,9 @@ preprocess:
       # Rigid translation (meters) from the OptiTrack rigid-body origin to the LED/target position.
       rel_pos: [-0.002, -0.072, 0.0]
 
-# Train/validation/test split and batch sizes.
-data:
+# Dataloader settings for train/validation/test split and batch sizes.
+# Used by tabletop_py/gaze/utils.py::init_dataloaders.
+dataloaders:
   # Fraction of the dataset held out as the test set.
   test_size: 0.2
   # Number of K-fold cross-validation folds.
@@ -95,6 +96,11 @@ data:
   # Mini-batch size for test evaluation.
   test_batch_size: 8192
   # DataLoader worker processes.
+  num_workers: 8
+
+# Separate dataloader settings used at inference time by predict.py.
+test_dataloader:
+  batch_size: 8192
   num_workers: 8
 
 # Geometric model specification (GazeEstimationModelGeometric in models.py).
@@ -123,6 +129,23 @@ model:
   # Radius of the eyeball sphere (meters); ~12 mm is standard human anatomy.
   eye_radius: 0.012
 
+# torch.compile settings for accelerating inference via the Inductor backend.
+# Commented out in eyelink.py at runtime — applied during training only.
+compile:
+  # Whether to allow dynamic tensor shapes; false = assume fixed batch sizes for better optimization.
+  dynamic: false
+  # Torch compilation backend to use.
+  backend: inductor
+  options:
+    # Enable autotuning of kernel configurations.
+    max_autotune: True
+    # Enable CUDA graph capture for reducing kernel launch overhead.
+    triton.cudagraphs: True
+    # Use coordinate descent for tuning tiling parameters.
+    coordinate_descent_tuning: True
+    # Fuse epilogue operations into preceding kernels.
+    epilogue_fusion: true
+
 # Optimizer settings.
 optimizer:
   # Optimizer class from torch.optim.
@@ -149,22 +172,25 @@ train:
   max_folds: 1
 
 # Path to save/load model weights (.pt file).
-weights_path: saved_weights/model.pt
+# Supports $TABLETOP_DIR environment variable substitution.
+weights_path: $TABLETOP_DIR/saved_weights/model.pt
 
 # Output filename for test-set predictions.
 predictions:
   filename: predictions.csv
 
-# Visualization axis ranges.
+# Visualization settings used by tabletop_py/gaze/visualize.py.
 visualize:
-  eyelink_range:
+  animate_2d_dots:
     # X-axis range for 2D EyeLink pupil-position animation (raw units).
     min_x: -30000
     max_x: 30000
     # Y-axis range for 2D EyeLink animation (raw units).
     min_y: -30000
     max_y: 30000
-  markers_range:
+    # Animation frame rate (frames per second).
+    fr: 10
+  animate_3d_dots:
     # X-axis range for 3D marker/gaze-point animation (meters, world frame).
     min_x: 0.0
     max_x: 1.0
@@ -174,3 +200,7 @@ visualize:
     # Z-axis range (meters).
     min_z: 0.0
     max_z: 1.0
+    # If true, rotate gaze points from the EyeLink frame into the world frame before plotting.
+    rotate_to_world: true
+    # Animation frame rate (frames per second).
+    fr: 10
