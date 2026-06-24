@@ -20,6 +20,7 @@ from rclpy.callback_groups import (
     ReentrantCallbackGroup,
 )
 from rclpy.duration import Duration
+from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.qos import QoSPresetProfiles
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
@@ -159,9 +160,10 @@ class TeensyInterface(BaseInterface):
 
         Checks that:
         1. Sensor data is recent (within max_sensor_delay)
-        2. Both arms are locked
-        3. Safety laser is not broken
-        4. Conditions have been safe for required_time duration
+        2. The message-level safety gate passes (see _msg_safe_to_execute:
+           safety laser unbroken, plus both arms locked when
+           safe_to_execute.require_arm_locks is enabled)
+        3. Conditions have been safe for required_time duration
 
         Returns:
             True if all safety conditions are met, False otherwise.
@@ -198,22 +200,39 @@ class TeensyInterface(BaseInterface):
     def _msg_safe_to_execute(self, msg: TeensySensor) -> bool:
         """Check if a sensor message indicates safe conditions.
 
-        NOTE: only the safety-laser condition is currently enforced. The
-        arm-lock check (both arms locked) is commented out below and is
-        NOT applied (see docs/known-issues.md). Motion is therefore gated
-        solely on the safety laser being unbroken.
+        The safety laser must always be unbroken. Whether the arm-lock
+        state (both arms seated/locked) is additionally required is
+        controlled by the optional boolean parameter
+        ``safe_to_execute.require_arm_locks``:
+
+        - ``True``: motion is gated on BOTH arm locks being engaged AND the
+          safety laser being unbroken.
+        - ``False`` (default): motion is gated solely on the safety laser
+          being unbroken; the published arm-lock state is ignored.
+
+        The parameter is read defensively: if it is not declared (e.g. the
+        commander.yaml entry has not been deployed yet), it defaults to
+        ``False`` so behaviour is unchanged from the laser-only gate.
 
         Args:
             msg: The sensor message to evaluate.
 
         Returns:
-            True if the safety laser is unbroken (arm-lock state ignored).
+            True if the safety conditions are met for the configured gate.
         """
-        # return (
-        #     msg.is_left_arm_locked
-        #     and msg.is_right_arm_locked
-        #     and not msg.is_safety_laser_broken
-        # )
+        try:
+            require_arm_locks = bool(
+                self.param("safe_to_execute.require_arm_locks")
+            )
+        except ParameterNotDeclaredException:
+            require_arm_locks = False
+
+        if require_arm_locks:
+            return (
+                msg.is_left_arm_locked
+                and msg.is_right_arm_locked
+                and not msg.is_safety_laser_broken
+            )
         return not msg.is_safety_laser_broken
 
     def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
