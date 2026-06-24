@@ -39,7 +39,8 @@
     # Maps logical object_id strings to Bluetooth MAC addresses of the
     # corresponding Flic 2 buttons.  Looked up as flic.bd_addrs.<object_id>
     # by nodes/commander.py line 920.  big_object_7 and small_object_0 share
-    # the same MAC (90:88:a9:50:5f:b6) as big_object_3 — this is intentional.
+    # the same MAC (90:88:a9:50:5f:b6) as big_object_3 — this is currently
+    # only for testing purposes.
     flic:
       bd_addrs:
         big_object_0: 90:88:a9:50:5f:68
