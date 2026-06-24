@@ -318,7 +318,7 @@ class ManipulationContextManager(BaseInterface):
         return self._manipulator.manipulation_state
 
     @ensure_context
-    async def manually_atatch_object(self, object_id: str) -> None:
+    async def manually_attach_object(self, object_id: str) -> None:
         """Attach a non-grid object to the robot end-effector.
 
         Used when the robot already has an object grasped and the planning
