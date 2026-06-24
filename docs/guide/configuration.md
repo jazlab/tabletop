@@ -64,6 +64,18 @@ serial device paths — set `TEENSY_DEV` to match your hardware).
 Every config file is now commented inline; open the file to see per-parameter
 documentation.
 
+!!! tip "FLIR GenICam node reference"
+    The `blackfly_s.yaml` and `flir_synchronized.yaml` config files map ROS
+    parameter names to GenICam "node" paths on the camera (e.g.
+    `AcquisitionControl/TriggerMode`). The authoritative list of nodes for the
+    **BFS-U3-23S3** model used in this rig is the
+    [FLIR BFS-U3-23S3 GenICam node reference](https://softwareservices.flir.com/BFS-U3-23S3/latest/Model/public/index.html).
+    Node names, allowed values, and availability may differ for other Blackfly S
+    variants — consult the corresponding FLIR model page for other cameras.
+
+For a detailed breakdown of every parameter accepted by the `Commander` node and
+its interfaces, see [Node & Interface Parameters](parameters.md).
+
 ## The common / override pattern
 
 `commander.yaml` is the master parameter file for the `Commander` node. Its

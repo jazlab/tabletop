@@ -12,6 +12,8 @@ walkthrough (the TableTop network, URCaps, remote control), see
 | [Docker](https://docs.docker.com/engine/install/) | everything | official docs — complete the install **and** [post-install steps](https://docs.docker.com/engine/install/linux-postinstall/) (see the note below) |
 | [Bash](https://www.gnu.org/software/bash/) (recent, ≥ 4) | the `tt-*` scripts | preinstalled on Linux; Can be [installed via `brew`](https://formulae.brew.sh/formula/bash) on macOS, which ships with version 3.2 by default |
 | [uv](https://docs.astral.sh/uv/) | host Python env + `tt-env-gen` | official docs |
+| [git-lfs](https://git-lfs.com/) | large file assets stored in the repo | `sudo apt install git-lfs` (Ubuntu) or `brew install git-lfs` (macOS), then `git lfs install` |
+| [jq](https://jqlang.github.io/jq/) | some `tt-*` shell scripts | `sudo apt install jq` (Ubuntu) or `brew install jq` (macOS) |
 | [VS Code](https://code.visualstudio.com/) | Dev Container development | optional |
 | [NVIDIA driver](https://www.nvidia.com/en-us/drivers/) | GPU in containers | optional; install the driver for your distro + GPU per your vendor/distro instructions |
 | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional; needs the NVIDIA driver above |
@@ -42,8 +44,9 @@ walkthrough (the TableTop network, URCaps, remote control), see
         ```
 
         Group-membership changes only take effect after you **log out and log
-        back in** (or reboot) — your current shell will not see the new group.
-        Confirm with `groups`: the output should include `docker`.
+        back in**.  On some systems a full **reboot** may be required — a
+        simple log-out/log-in is not always sufficient.  Confirm with
+        `groups`: the output should include `docker`.
 
     - **Log in to Docker Hub** so you can pull the prebuilt TableTop images:
 
@@ -208,6 +211,17 @@ Container, which is unprivileged and does not mount `/dev`.
     this particular Teensy and our PlatformIO upload setup — the first attempt
     almost always builds successfully but fails to *upload*; the second attempt
     almost always succeeds. It is expected and nothing you need to act on.
+
+!!! note "PlatformIO Docker volume ownership"
+    The `platformio-core` Docker volume is created and owned by the first user
+    to run `tt-build microros`.  If a different user then tries to build, they
+    will get permission errors inside the container.  The fix is to delete the
+    volume and let it be recreated:
+
+    ```bash
+    docker volume rm platformio-core
+    tt-build microros
+    ```
 
 !!! note "Flic Micro firmware is incomplete"
     The Teensy is the only currently supported micro-controller.

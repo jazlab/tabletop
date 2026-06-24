@@ -17,7 +17,7 @@ source-of-reference files remain.
 | `flic-button/client.py` | `src/tabletop_py/flic/client.py` | flicd socket client → `scapy_client.py` |
 | `flic-button/piano.py` | `src/tabletop_py/flic/piano.py` | demo built on the flicd client |
 | `flic-button/flic_node.py` | `tabletop_rig/.../nodes/deprecated/flic.py` | old ROS flic node (flicd-based) |
-| `flic-button/tabletop_flic_micro/` | `src/ros/tabletop/tabletop_micro/tabletop_flic_micro/` | incomplete ESP32 firmware |
+| `flic-button/tabletop_flic_micro/` | `src/microros/tabletop_flic_micro/` (never existed as a full package; only partial files) | incomplete ESP32 firmware |
 | `ursim/entrypoint.sh` | `docker/ursim/entrypoint.sh` | UR simulator support removed |
 | `moveit-config/kinematics.yaml` | `tabletop_moveit_config/config/kinematics.yaml` | old single-arm variant |
 | `moveit-config/tabletop.xrdf` | `tabletop_moveit_config/xrdf/tabletop.xrdf` | cuMotion/Isaac description, unused |

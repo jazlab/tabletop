@@ -58,6 +58,28 @@ if you changed `FOXGLOVE_PORT` in `setup.bash`). See the
 [Foxglove documentation](https://docs.foxglove.dev/docs) for the full
 visualization workflow.
 
+### Layout configs
+
+Foxglove lets you save and restore panel arrangements as **layout** JSON files.
+To import a layout:
+
+1. Open Foxglove (web or desktop) and connect to the WebSocket bridge.
+2. Click the **layout** icon (top-left panel selector) → **Import from file…**
+3. Select a `.json` layout file and confirm.
+
+Layout JSON files are not currently checked into this repository — the
+maintainer's exported layouts exist only on the rig machine.  If you have
+exported layouts to commit, the suggested location is `share/foxglove/` (create
+the directory at the repository root).
+
+!!! warning "Keep Foxglove open and focused when a task starts"
+    The MoveIt planning scene is pushed as a burst of messages at task
+    initialisation.  If Foxglove is **not open and focused** (e.g. the browser
+    tab is backgrounded or the app is minimised) when the task starts, it will
+    miss those planning-scene updates and the 3-D scene will appear empty or
+    incomplete.  Re-open the connection **before** launching a task, or trigger
+    a scene refresh after connecting.
+
 ### MoveIt converter plugin (`.foxe`)
 
 To visualize MoveIt planning scenes, install the bundled Foxglove extension.
