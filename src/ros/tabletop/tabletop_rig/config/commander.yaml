@@ -39,7 +39,7 @@
     # Maps logical object_id strings to Bluetooth MAC addresses of the
     # corresponding Flic 2 buttons.  Looked up as flic.bd_addrs.<object_id>
     # by nodes/commander.py line 920.  big_object_7 and small_object_0 share
-    # the same MAC (90:88:a9:50:5f:b6) as big_object_3 — flag for review.
+    # the same MAC (90:88:a9:50:5f:b6) as big_object_3 — this is intentional.
     flic:
       bd_addrs:
         big_object_0: 90:88:a9:50:5f:68
@@ -125,6 +125,10 @@
         # Maximum age (seconds) of the last TeensySensor message before the
         # sensor is considered stale and safe_to_execute returns False.
         max_sensor_delay: 0.1
+        # When true, robot motion additionally requires BOTH arm locks engaged
+        # (not just the safety laser); default false preserves current
+        # laser-only behavior.
+        require_arm_locks: false
       # Poll interval (seconds) in TeensyInterface.lock_arms_and_wait /
       # start_reward_and_wait busy-wait loops.
       spin_period: 0.05
@@ -221,10 +225,6 @@
         # Maximum joint-position error (radians) allowed at the end of execution
         # before the result is considered a failure.
         allowed_end_tolerance: 0.01 # radians
-        # NOTE: moved_tolerance (below) is declared here in the config but has no
-        # confirmed reader in the current tabletop_rig Python source — may be unused
-        # or reserved for future use.
-        moved_tolerance: 0.02 # radians
       # Heuristic for detecting whether the robot actually grasped an object after
       # the ATTACH move step, by sampling joint effort on the elbow joint.
       test_object_attached:
@@ -369,17 +369,12 @@
       planning:
         # Default link used to evaluate end-effector poses for this arm.
         default_pose_link: left_eef
-      trajectory_cache:
-        # NOTE: base_link_name is declared here but has no confirmed reader in
-        # the current tabletop_rig Python source — may be reserved for future use.
-        base_link_name: left_base_link
       execution:
         # ROS 2 controller action name used to send trajectories to the left arm.
         joint_trajectory_controller: left_scaled_joint_trajectory_controller
       test_object_attached:
         # Joint whose effort is sampled for attachment detection on the left arm.
-        # NOTE: 'left_eblow_joint' appears to be a typo for 'left_elbow_joint'.
-        joint_name: left_eblow_joint
+        joint_name: left_elbow_joint
       # Path (file) where the left arm's persistent manipulation state is pickled
       # across sessions; $TABLETOP_CACHE_DIR set in setup.bash.
       persistent_state_path: $TABLETOP_CACHE_DIR/left_manipulation_state.pkl
@@ -444,17 +439,12 @@
       planning:
         # Default link used to evaluate end-effector poses for this arm.
         default_pose_link: right_eef
-      trajectory_cache:
-        # NOTE: base_link_name is declared here but has no confirmed reader in
-        # the current tabletop_rig Python source — may be reserved for future use.
-        base_link_name: right_base_link
       execution:
         # ROS 2 controller action name used to send trajectories to the right arm.
         joint_trajectory_controller: right_scaled_joint_trajectory_controller
       test_object_attached:
         # Joint whose effort is sampled for attachment detection on the right arm.
-        # NOTE: 'right_eblow_joint' appears to be a typo for 'right_elbow_joint'.
-        joint_name: right_eblow_joint
+        joint_name: right_elbow_joint
       # Path where the right arm's persistent manipulation state is pickled.
       persistent_state_path: $TABLETOP_CACHE_DIR/right_manipulation_state.pkl
       # Robot link to which the grasped object collision mesh is attached.
