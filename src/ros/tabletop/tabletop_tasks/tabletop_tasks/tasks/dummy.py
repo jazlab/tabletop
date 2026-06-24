@@ -436,7 +436,7 @@ class DummyTask(BaseTask):
             manipulator = ctx._manipulator
             moveit = manipulator._moveit
 
-            await ctx.manually_atatch_object(object_id)
+            await ctx.manually_attach_object(object_id)
 
             config = manipulator._get_reset_config(object_id)
             assert config is not None
