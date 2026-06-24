@@ -19,12 +19,12 @@ find_package(rosidl_runtime_cpp REQUIRED)
 find_package(rcpputils REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
 find_package(fastcdr REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_executable(
-  unbag src/main.cpp src/bag_converter.cpp src/message_flattener.cpp
-        src/image_exporter.cpp src/value_formatter.cpp)
+add_executable(unbag src/main.cpp src/unbagger.cpp src/handlers/csv_handler.cpp
+                     src/handlers/image_handler.cpp)
 
 target_include_directories(
   unbag PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -39,7 +39,8 @@ ament_target_dependencies(
   rosidl_runtime_cpp
   rcpputils
   rcutils
-  sensor_msgs)
+  sensor_msgs
+  cv_bridge)
 
 target_link_libraries(unbag fastcdr ${OpenCV_LIBS})
 
