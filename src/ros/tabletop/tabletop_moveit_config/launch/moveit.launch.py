@@ -204,14 +204,23 @@ def generate_launch_description():
         name="rviz2_moveit",
         output="log",
         parameters=[
-            # moveit_config.robot_description,
-            # moveit_config.robot_description_semantic,
-            # moveit_config.robot_description_kinematics,
-            # moveit_config.planning_pipelines,
-            # moveit_config.joint_limits,
-            moveit_config.to_dict(),  # TODO: Figure out which one to use
+            # to_dict() is correct here: the MoveIt RViz plugin needs the
+            # full config (robot description, semantic, kinematics, pipelines,
+            # joint limits, planning scene monitor) to enable interactive
+            # motion planning in the MoveIt panel. Using individual sub-dicts
+            # would silently omit planning_scene_monitor config and cause the
+            # plugin to fall back to defaults.
+            moveit_config.to_dict(),
             warehouse_ros_config,
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                # Silence "publish_robot_description_semantic is not
+                # initialized" warning: rviz2 reads this param from the
+                # MoveIt planning scene monitor config but does not need
+                # to publish it; setting False is correct for a pure
+                # visualization client.
+                "publish_robot_description_semantic": False,
+            },
         ],
         arguments=[
             "-d",

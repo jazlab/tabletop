@@ -101,6 +101,13 @@ controller_manager:
     # true.
     enforce_command_limits: false
 
+# joint_state_broadcaster has no per-controller configuration beyond its type.
+# fallback_controllers is declared explicitly as empty to silence the ros2_control
+# "fallback_controllers is not initialized" startup warning.
+joint_state_broadcaster:
+  ros__parameters:
+    fallback_controllers: []
+
 # ==================== LEFT ARM CONTROLLERS ====================
 
 left_speed_scaling_state_broadcaster:

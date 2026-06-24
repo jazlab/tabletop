@@ -111,9 +111,16 @@ def generate_launch_description():
             moveit_config.robot_description_kinematics,
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
-            # moveit_config.to_dict(), # TODO: Figure out which one to use
             warehouse_ros_config,
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                # Silence "publish_robot_description_semantic is not
+                # initialized" warning: rviz2 reads this param from the
+                # MoveIt planning scene monitor config but does not need
+                # to publish it; setting False is correct for a pure
+                # visualization client.
+                "publish_robot_description_semantic": False,
+            },
         ],
         arguments=[
             "-d",
