@@ -1397,6 +1397,3 @@ def main(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
-
-
-# TODO: Something is fucking wrong, help me
