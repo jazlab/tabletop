@@ -15,6 +15,8 @@
 #include "tabletop_unbag/unbagger.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <csignal>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -23,14 +25,21 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+
+#include <opencv2/core.hpp>
 
 #include "rosbag2_cpp/converter_options.hpp"
 #include "rosbag2_cpp/reader.hpp"
 #include "rosbag2_storage/metadata_io.hpp"
+#include "rosbag2_storage/serialized_bag_message.hpp"
+#include "rosbag2_storage/storage_filter.hpp"
 #include "rosbag2_storage/storage_options.hpp"
 
+#include "tabletop_unbag/concurrent_queue.hpp"
 #include "tabletop_unbag/handlers/csv_handler.hpp"
 #include "tabletop_unbag/handlers/handler.hpp"
 #include "tabletop_unbag/handlers/image_handler.hpp"
@@ -43,6 +52,37 @@ namespace tabletop_unbag
 
 namespace
 {
+
+/// Set by the SIGINT/SIGTERM handler. Polled by the reader loop so an
+/// interrupted run stops reading, closes its queues, drains the work already
+/// queued, flushes, and joins -- leaving valid, resumable output.
+std::atomic<bool> g_stop{ false };
+
+extern "C" void handle_stop_signal(int /*signum*/)
+{
+  g_stop.store(true);
+}
+
+using MsgPtr = std::shared_ptr<rosbag2_storage::SerializedBagMessage>;
+
+/// Which lifecycle method a pass invokes on its handlers.
+enum class PassKind
+{
+  Preprocess,
+  Write,
+};
+
+void process_one(MessageHandler* handler, const MsgPtr& msg, PassKind kind)
+{
+  if (kind == PassKind::Preprocess)
+  {
+    handler->preprocess(*msg->serialized_data, msg->recv_timestamp);
+  }
+  else
+  {
+    handler->write(*msg->serialized_data, msg->recv_timestamp);
+  }
+}
 
 using HandlerFactory =
     std::function<std::unique_ptr<MessageHandler>(TopicInfo, const std::string&, const UnbagOptions&)>;
@@ -101,17 +141,116 @@ void open_reader(rosbag2_cpp::Reader& reader, const std::string& bag_dir, const 
   reader.open(storage_options, converter_options);
 }
 
-/// Read every message in the bag once, invoking `fn` for each.
-template <typename Fn>
-void for_each_message(const std::string& bag_dir, const std::string& storage_id,
-                      const std::string& serialization_format, Fn&& fn)
+/// Run one streaming pass over the bag.
+///
+/// A single reader thread (this thread) pulls messages in bag order and routes
+/// each to a worker:
+///   * `serial_handlers` -- handlers that must process their topic in order on
+///     one thread (the CSV handlers: one file per topic, rows in bag order).
+///     Each gets its own bounded queue and consumer thread, so different CSV
+///     topics are written concurrently.
+///   * `pool_handlers` -- handlers whose per-message work is independent (the
+///     image handlers). Their messages go to a single shared queue drained by
+///     `pool_workers` threads, giving per-image parallelism across all image
+///     topics at once.
+///
+/// The queues are bounded, so when the (slow) image workers fall behind, the
+/// reader blocks on push() instead of buffering the bag in RAM -- memory stays
+/// bounded and the reader self-throttles to the bottleneck. When `filter_topics`
+/// is non-null it is pushed into the storage reader so non-selected topics are
+/// not even read (used to skip image payloads during the CSV preprocess pass).
+void run_pass(const std::string& bag_dir, const std::string& storage_id, const std::string& serialization_format,
+              const std::vector<std::string>* filter_topics,
+              const std::unordered_map<std::string, MessageHandler*>& serial_handlers,
+              const std::unordered_map<std::string, MessageHandler*>& pool_handlers, std::size_t pool_workers,
+              uint64_t total, const std::string& label, PassKind kind)
 {
+  constexpr std::size_t kSerialQueueCap = 1024;
+
+  // Per-topic serial queues and their consumer threads.
+  std::unordered_map<std::string, std::unique_ptr<ConcurrentQueue<MsgPtr>>> serial_queues;
+  std::vector<std::thread> serial_threads;
+  serial_threads.reserve(serial_handlers.size());
+  for (const auto& [topic, handler] : serial_handlers)
+  {
+    auto queue = std::make_unique<ConcurrentQueue<MsgPtr>>(kSerialQueueCap);
+    ConcurrentQueue<MsgPtr>* q = queue.get();
+    serial_queues.emplace(topic, std::move(queue));
+    serial_threads.emplace_back([q, handler, kind] {
+      while (auto item = q->pop())
+      {
+        process_one(handler, *item, kind);
+      }
+    });
+  }
+
+  // Shared pool for per-message-parallel handlers.
+  using PoolTask = std::pair<MessageHandler*, MsgPtr>;
+  const std::size_t pool_cap = std::max<std::size_t>(64, pool_workers * 4);
+  ConcurrentQueue<PoolTask> pool_queue(pool_cap);
+  std::vector<std::thread> pool_threads;
+  if (!pool_handlers.empty())
+  {
+    pool_threads.reserve(pool_workers);
+    for (std::size_t i = 0; i < pool_workers; ++i)
+    {
+      pool_threads.emplace_back([&pool_queue, kind] {
+        while (auto item = pool_queue.pop())
+        {
+          process_one(item->first, item->second, kind);
+        }
+      });
+    }
+  }
+
+  // Reader loop (this thread).
   rosbag2_cpp::Reader reader;
   open_reader(reader, bag_dir, storage_id, serialization_format);
+  if (filter_topics != nullptr)
+  {
+    rosbag2_storage::StorageFilter filter;
+    filter.topics = *filter_topics;
+    reader.set_filter(filter);
+  }
+
+  ProgressBar bar(total, label);
   while (reader.has_next())
   {
-    const auto msg = reader.read_next();
-    fn(*msg);
+    if (g_stop.load())
+    {
+      break;
+    }
+    MsgPtr msg = reader.read_next();
+    bar.tick();
+    const auto sit = serial_queues.find(msg->topic_name);
+    if (sit != serial_queues.end())
+    {
+      sit->second->push(msg);
+      continue;
+    }
+    const auto pit = pool_handlers.find(msg->topic_name);
+    if (pit != pool_handlers.end())
+    {
+      pool_queue.push(PoolTask{ pit->second, std::move(msg) });
+    }
+  }
+  bar.close();
+
+  // No more input: close the queues so consumers drain their backlog and exit,
+  // then join. This ordering is what makes interruption safe -- every message
+  // already handed to a worker is fully processed before we return to finish().
+  for (auto& [topic, queue] : serial_queues)
+  {
+    queue->close();
+  }
+  pool_queue.close();
+  for (auto& thread : serial_threads)
+  {
+    thread.join();
+  }
+  for (auto& thread : pool_threads)
+  {
+    thread.join();
   }
 }
 
@@ -132,11 +271,20 @@ const std::vector<std::string>& handler_names()
 
 void unbag(const std::string& bag_dir, const std::string& output_dir, const UnbagOptions& options)
 {
+  // We parallelize across images ourselves, so keep OpenCV's own per-image
+  // threading off to avoid oversubscribing the cores with our worker pool.
+  cv::setNumThreads(1);
+
+  // Stop gracefully on Ctrl-C / TERM (flush + join, see run_pass()).
+  std::signal(SIGINT, handle_stop_signal);
+  std::signal(SIGTERM, handle_stop_signal);
+
   // --- Infer storage / serialization / topics from the bag metadata. ---------
   std::string storage_id = "mcap";
   std::string serialization_format = "cdr";
   uint64_t total_messages = 0;
   std::unordered_map<std::string, std::string> topic_types;
+  std::unordered_map<std::string, uint64_t> topic_counts;
 
   rosbag2_storage::MetadataIo metadata_io;
   if (metadata_io.metadata_file_exists(bag_dir))
@@ -150,6 +298,7 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     for (const auto& topic : metadata.topics_with_message_count)
     {
       topic_types[topic.topic_metadata.name] = topic.topic_metadata.type;
+      topic_counts[topic.topic_metadata.name] = topic.message_count;
       if (!topic.topic_metadata.serialization_format.empty())
       {
         serialization_format = topic.topic_metadata.serialization_format;
@@ -241,23 +390,67 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     return;
   }
 
-  const bool any_preprocess =
-      std::any_of(handlers.begin(), handlers.end(), [](const auto& kv) { return kv.second->needs_preprocess(); });
-
-  // --- Phase 1: preprocess pass (only if some handler needs it). -------------
-  if (any_preprocess)
+  // Warm each handler's one-time setup (e.g. loading introspection type support)
+  // on this thread, before any worker threads start, to avoid concurrent library
+  // loads racing.
+  for (auto& [topic, handler] : handlers)
   {
-    ProgressBar bar(total_messages, "Preprocessing");
-    for_each_message(bag_dir, storage_id, serialization_format, [&](const auto& msg) {
-      bar.tick();
-      const auto it = handlers.find(msg.topic_name);
-      if (it == handlers.end() || !it->second->needs_preprocess())
-      {
-        return;
-      }
-      it->second->preprocess(*msg.serialized_data, msg.recv_timestamp);
-    });
-    bar.close();
+    handler->prepare();
+  }
+
+  // --- Partition handlers by how they should be driven. ----------------------
+  // serial_*  -> one consumer thread per topic (ordered, single output file).
+  // pool_*    -> shared worker pool (independent per-message output, e.g images).
+  std::unordered_map<std::string, MessageHandler*> serial_write;
+  std::unordered_map<std::string, MessageHandler*> pool_write;
+  std::unordered_map<std::string, MessageHandler*> serial_preprocess;
+  std::vector<std::string> preprocess_topics;
+  uint64_t preprocess_total = 0;
+  for (auto& [topic, handler] : handlers)
+  {
+    if (handler->parallelizable_per_message())
+    {
+      pool_write.emplace(topic, handler.get());
+    }
+    else
+    {
+      serial_write.emplace(topic, handler.get());
+    }
+    if (handler->needs_preprocess())
+    {
+      serial_preprocess.emplace(topic, handler.get());
+      preprocess_topics.push_back(topic);
+      preprocess_total += topic_counts.count(topic) != 0 ? topic_counts[topic] : 0;
+    }
+  }
+  if (preprocess_total == 0)
+  {
+    preprocess_total = total_messages;
+  }
+
+  std::size_t workers = options.jobs;
+  if (workers == 0)
+  {
+    const unsigned hw = std::thread::hardware_concurrency();
+    workers = hw == 0 ? 4 : hw;
+  }
+
+  const std::unordered_map<std::string, MessageHandler*> no_pool;
+
+  // --- Phase 1: preprocess pass (CSV column discovery). ----------------------
+  // Only the topics whose handler needs it are read -- the storage filter skips
+  // image payloads entirely, so this pass does not pay to read the bulk of the
+  // bag (the images) just to learn CSV columns.
+  if (!serial_preprocess.empty())
+  {
+    run_pass(bag_dir, storage_id, serialization_format, &preprocess_topics, serial_preprocess, no_pool, workers,
+             preprocess_total, "Preprocessing", PassKind::Preprocess);
+  }
+
+  if (g_stop.load())
+  {
+    std::cerr << "\nInterrupted during preprocessing; no output written (re-run to start over).\n";
+    return;
   }
 
   for (auto& [topic, handler] : handlers)
@@ -265,24 +458,20 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     handler->begin_write();
   }
 
-  // --- Phase 2: write pass. --------------------------------------------------
-  {
-    ProgressBar bar(total_messages, "Unbagging");
-    for_each_message(bag_dir, storage_id, serialization_format, [&](const auto& msg) {
-      bar.tick();
-      const auto it = handlers.find(msg.topic_name);
-      if (it == handlers.end())
-      {
-        return;
-      }
-      it->second->write(*msg.serialized_data, msg.recv_timestamp);
-    });
-    bar.close();
-  }
+  // --- Phase 2: write pass (all selected topics). ----------------------------
+  run_pass(bag_dir, storage_id, serialization_format, nullptr, serial_write, pool_write, workers, total_messages,
+           "Unbagging", PassKind::Write);
 
   for (auto& [topic, handler] : handlers)
   {
     handler->finish();
+  }
+
+  if (g_stop.load())
+  {
+    std::cerr << "\nInterrupted; flushed partial output for " << handlers.size()
+              << " topic(s). Re-run without --overwrite to resume.\n";
+    return;
   }
 
   std::cout << "Unbagged " << handlers.size() << " topic(s) from " << bag_dir << " into " << output_dir << "\n";

@@ -22,6 +22,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(fastcdr REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(Threads REQUIRED)
 
 add_executable(unbag src/main.cpp src/unbagger.cpp src/handlers/csv_handler.cpp
                      src/handlers/image_handler.cpp)
@@ -42,7 +43,7 @@ ament_target_dependencies(
   sensor_msgs
   cv_bridge)
 
-target_link_libraries(unbag fastcdr ${OpenCV_LIBS})
+target_link_libraries(unbag fastcdr ${OpenCV_LIBS} Threads::Threads)
 
 install(TARGETS unbag DESTINATION lib/${PROJECT_NAME})
 

@@ -52,6 +52,9 @@ void print_usage(const char* argv0)
                "                          run resumes where it left off.\n"
                "  --batch-size N          Messages buffered in memory before flushing to\n"
                "                          disk (default 1000).\n"
+               "  --jobs N                Worker threads for the shared image-decoding pool\n"
+               "                          (default: number of hardware threads). Each CSV\n"
+               "                          topic also runs on its own consumer thread.\n"
                "  --image-encoding ENC    Target encoding for saved images (default bgr8).\n"
                "  --storage-id ID         Storage plugin override (default: inferred,\n"
                "                          fallback mcap).\n"
@@ -154,6 +157,28 @@ int main(int argc, char** argv)
       catch (const std::exception&)
       {
         std::cerr << "ERROR - --batch-size requires a positive integer\n";
+        return 2;
+      }
+    }
+    else if (arg == "--jobs")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        const long long value = std::stoll(argv[++i]);
+        if (value <= 0)
+        {
+          throw std::out_of_range("jobs must be positive");
+        }
+        options.jobs = static_cast<std::size_t>(value);
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - --jobs requires a positive integer\n";
         return 2;
       }
     }

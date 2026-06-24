@@ -55,6 +55,11 @@ struct UnbagOptions
   /// Bounds peak memory and how much work an interruption can lose.
   std::size_t batch_size = 1000;
 
+  /// Number of worker threads in the shared pool that decodes images (and any
+  /// other per-message-parallel handler). 0 means "auto" (hardware
+  /// concurrency). Each CSV topic additionally gets its own consumer thread.
+  std::size_t jobs = 0;
+
   /// Target OpenCV/ROS encoding for saved images (e.g. "bgr8", "rgb8",
   /// "mono8"). Only used by the image handler.
   std::string image_encoding = "bgr8";
