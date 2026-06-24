@@ -1229,7 +1229,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             reset_request = copy(config.reset_request)
             reset_request.use_cache = False
             await self.plan_and_execute(
-                config.reset_request, cache_trajectories=False
+                reset_request, cache_trajectories=False
             )
         finally:
             if len(modified_collisions) > 0:
