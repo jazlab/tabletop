@@ -219,7 +219,7 @@ Container, which is unprivileged and does not mount `/dev`.
     volume and let it be recreated:
 
     ```bash
-    docker volume rm platformio-core
+    docker volume rm tabletop_platformio-core
     tt-build microros
     ```
 
