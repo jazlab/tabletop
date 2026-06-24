@@ -13,6 +13,25 @@ set -eo pipefail
 bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 source "$bin_dir/../../setup.bash"
 
+if [[ "${1-}" == "-h" || "${1-}" == "--help" ]]; then
+    cat <<EOF
+Usage: $0 <component> [options...]
+
+Host wrapper: runs tt-build inside the privileged 'builder' container.
+All arguments are forwarded verbatim to the container's tt-build.
+
+Components:
+  colcon     Build the ROS 2 workspace with colcon
+  microros   Build/upload the Teensy micro-controller firmware (PlatformIO)
+  foxglove   Package the Foxglove MoveIt message converter plugin (.foxe)
+
+Run '$0 <component> --help' for component-specific options.
+
+  -h, --help   Show this help message and exit
+EOF
+    exit 0
+fi
+
 builtin cd "$TABLETOP_DIR"
 
 # Regenerate .env and call `docker compose` directly (rather than via tt-compose)

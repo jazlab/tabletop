@@ -12,6 +12,28 @@ bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 source "$bin_dir/../../setup.bash"
 source "$bin_dir/../utils.sh"
 
+if [[ "${1-}" == "-h" || "${1-}" == "--help" ]]; then
+    cat <<EOF
+Usage: $0
+
+Factory reset FLIR cameras and reinitialize their udev symlinks.
+
+Steps performed:
+  1. Stop the running 'flir' container (if any)
+  2. Reload udev rules and trigger device re-enumeration
+  3. Regenerate .env with updated FLIR device paths
+  4. Run factory reset on cameras via 'tt-launch flir_no_sync factory_reset:=true'
+  5. Reload udev rules again
+  6. Regenerate .env once more
+  7. Restart the 'flir' container
+
+  -h, --help   Show this help message and exit
+
+Note: The factory reset step requires manual Ctrl+C when complete (see TODO in script).
+EOF
+    exit 0
+fi
+
 builtin cd "$TABLETOP_DIR"
 export COMPOSE_REMOVE_ORPHANS=true
 

@@ -1,9 +1,27 @@
 #!/usr/bin/env bash
 # Kill all running ROS-related processes
-# Usage: tt-kill-ros [pkill_options...]
+# Usage: tt-kill-ros [-h|--help] [pkill_options...]
 # Wraps: pgrep, pkill
 # Runs on: container
 # Notes: Kills all processes matching pattern "ros" by name or command line
+
+if [[ "${1-}" == "-h" || "${1-}" == "--help" ]]; then
+    cat <<EOF
+Usage: $0 [pkill_options...]
+
+Find and kill all running processes whose command line matches "ros".
+
+  First lists matching processes via pgrep, then kills them via pkill.
+  Any additional arguments are forwarded to pkill (e.g. -9 for SIGKILL).
+
+  -h, --help   Show this help message and exit
+
+Examples:
+  tt-kill-ros           Kill ROS processes with default signal (SIGTERM)
+  tt-kill-ros -9        Kill ROS processes with SIGKILL
+EOF
+    exit 0
+fi
 
 # Find and display all running ROS nodes
 pgrep -fa ros

@@ -12,8 +12,30 @@ source "$bin_dir/../../setup.bash"
 source "$bin_dir/../utils.sh"
 
 print_usage() {
-    echo "Usage: $0 [<launch_type>] [<launch_options>...]"
-    echo "launch_type: commander, rig, tasks, dual_ur, teensy, flic, eyelink, flir_no_sync, flir_synchronized, flir_calibrate, optitrack, rosbag, rosbag_convert, rviz, foxglove, moveit, discovery"
+    cat <<EOF
+Usage: $0 <launch_type> [ros2_launch_args...]
+
+Launch types:
+  commander          Commander orchestrator node (high-level rig control)
+  rig                Full rig (all hardware interfaces)
+  tasks              Experiment task nodes
+  dual_ur            Two UR5e arms driver
+  teensy             Teensy microcontroller (arm locks, safety laser, reward)
+  flic               Flic button response time measurement
+  eyelink            EyeLink eye tracker
+  flir_no_sync       FLIR camera drivers (no sync)
+  flir_synchronized  FLIR cameras with synchronized acquisition
+  flir_calibrate     FLIR camera calibration
+  optitrack          OptiTrack motion capture system
+  rosbag             ROS bag recorder
+  rosbag_convert     Rosbag-to-CSV conversion tool (alias: rosbag_to_csv)
+  rviz               RViz visualization
+  foxglove           Foxglove bridge for visualization
+  moveit             MoveIt interactive planning (standalone move_group + RViz)
+  discovery          FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var)
+
+Any additional arguments are forwarded to ros2 launch / ros2 run.
+EOF
 }
 
 # Case statement routes to one of three execution modes: EXEC (raw command), RUN (ros2 run), or LAUNCH (ros2 launch)
@@ -21,6 +43,11 @@ EXEC=
 RUN=
 LAUNCH=
 case $1 in
+    -h|--help)
+        print_usage
+        exit 0
+        ;;
+
     discovery)
         # FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var formatted as host:port)
         # This feature is deprecated, see ROS2 docs for details if desired

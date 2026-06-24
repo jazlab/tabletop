@@ -12,6 +12,35 @@ bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 source "$bin_dir/../../setup.bash"
 source "$bin_dir/../utils.sh"
 
+if [[ "${1-}" == "-h" || "${1-}" == "--help" ]]; then
+    cat <<EOF
+Usage: $0 [SUBCOMMAND] [OPTIONS...]
+
+Wrapper for 'docker compose' that auto-generates .env before each invocation
+and enriches the 'ps' subcommand output with a custom column format.
+
+All subcommands and options are forwarded to docker compose.
+
+Common subcommands:
+  up      Start services (use --profile=sim or --profile=real)
+  down    Stop and remove containers
+  ps      List containers (adds name/image/command/service/status columns)
+  logs    View output from containers
+  pull    Pull service images
+  run     Run a one-off command in a service container
+
+Profiles:
+  sim     Simulation stack (mock hardware)
+  real    Real hardware stack (includes FLIR cameras)
+  *       All services (useful with pull)
+
+  -h, --help   Show this help message and exit
+
+Run 'docker compose --help' for the full docker compose option list.
+EOF
+    exit 0
+fi
+
 builtin cd "$TABLETOP_DIR"
 
 tt-env-gen 1>/dev/null
