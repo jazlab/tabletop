@@ -653,15 +653,68 @@ class URInterface(BaseInterface):
                     )
                     await asyncio.sleep(reset_retry_delay)
 
+        # Clear the stop future so stop_program() can issue a fresh stop
+        # request on the next safety event.
+        self._stop_future = None
+
         self.log("URInterface successfully reset, ")
         await asyncio.sleep(post_reset_delay)
 
     def stop_program(self) -> None:
-        """Call the UR dashboard stop service asynchronously.
+        """Call the UR dashboard stop service asynchronously (thread-safe).
 
         Initiates a non-blocking stop request via the dashboard_client/stop
-        service. The result is not awaited.
+        service using rclpy's ``call_async``.  This method is intentionally
+        **not** an async coroutine: it is called from the Teensy sensor
+        callback (a ROS 2 subscription callback) to halt the robot as fast as
+        possible when the safety laser is broken, so it must be thread-safe
+        and must never block.  The asyncio-wrapped ``service_call_async``
+        helper used elsewhere in this file is **not** thread-safe from
+        subscription callbacks and must not be used here.
+
+        Result-checking lifecycle:
+        - In-flight: if a previous stop future is still pending, a new
+          request is suppressed (the robot is already being stopped).
+        - Failed: if the previous future completed with an exception or the
+          service returned ``success=False``, a fresh request is issued so
+          the stop is retried.
+        - Succeeded: no new request is sent until ``reset()`` clears
+          ``self._stop_future`` (prevents redundant stops while the robot
+          is already stopped and the operator is recovering).
         """
+        if self._stop_future is not None:
+            if not self._stop_future.done():
+                # A stop request is already in flight; do not flood the
+                # dashboard with duplicate requests.
+                self.log(
+                    "stop_program: stop future still pending, skipping",
+                    severity="DEBUG",
+                )
+                return
+            # Future is done — inspect the result.
+            exc = self._stop_future.exception()
+            if exc is not None:
+                self.log(
+                    f"stop_program: previous stop future raised "
+                    f"{type(exc).__name__}: {exc}; retrying",
+                    severity="WARN",
+                )
+            else:
+                result: Trigger.Response = self._stop_future.result()
+                if result.success:
+                    # Already stopped successfully; wait for reset() to
+                    # clear the future before issuing another stop.
+                    self.log(
+                        "stop_program: previous stop succeeded; "
+                        "waiting for reset() before retrying",
+                        severity="DEBUG",
+                    )
+                    return
+                self.log(
+                    f"stop_program: previous stop failed "
+                    f"({result.message!r}); retrying",
+                    severity="WARN",
+                )
         self._stop_future = self._stop_client.call_async(Trigger.Request())
 
     def destroy_interface(self):
