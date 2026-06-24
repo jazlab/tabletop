@@ -367,7 +367,7 @@ class SmoothPursuitTask(BaseTask):
         ) as manipulator:
             # TODO: FIX!!!!!!!!!!
             # await manipulator.fetch_object(self._object_id)
-            await manipulator.manually_atatch_object(self._object_id)
+            await manipulator.manually_attach_object(self._object_id)
 
             collisions_to_allow = self._get_allowed_collisions()
             modified_collisions = self.commander._moveit.allow_collision(

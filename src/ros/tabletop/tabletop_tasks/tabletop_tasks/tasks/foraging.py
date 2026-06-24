@@ -151,7 +151,6 @@ class ForagingTask(BaseObjectInteractionTask):
             On timeout, reaction_time is None and timeout is True.
         """
         self.log("Response phase")
-        # TODO: Remove!!!
         await self.commander.release_arm(arm)
 
         start_time = self.commander.ros_time()
