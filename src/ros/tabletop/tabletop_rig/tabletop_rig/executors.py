@@ -35,6 +35,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import inspect
+import logging
 import threading
 from collections.abc import AsyncGenerator, Callable
 from contextlib import (
@@ -65,6 +66,11 @@ from rclpy.waitable import NumberOfEntities, Waitable
 
 if TYPE_CHECKING:
     from rclpy.node import Node
+
+# Module logger. The executor runs blocking work in worker threads (and may
+# have no ROS node attached yet) so a node-bound ROS logger is not reliably
+# reachable from every code path; a plain stdlib logger is used instead.
+_logger = logging.getLogger(__name__)
 
 
 class WaitableEntityType(Protocol):
@@ -421,6 +427,14 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
         Registers a callback on the future to wake the executor when it
         completes, then spins with a wait condition that checks the future.
 
+        When the wait condition is met, ``_spin_impl`` raises
+        ``ConditionReachedException`` (and the surrounding TaskGroup re-raises
+        it as an ``ExceptionGroup``). That is the executor's normal way of
+        signalling "the future you waited for is done", so this method swallows
+        it and returns cleanly. A wrapped ``TimeoutException`` is normalised to
+        a plain ``TimeoutError`` so callers get the documented behaviour. Any
+        other exception is re-raised unchanged.
+
         Args:
             future: The ROS Future to wait for.
             timeout_sec: Maximum time to wait in seconds. If None, waits
@@ -430,10 +444,32 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
             TimeoutError: If timeout expires before future completes.
         """
         future.add_done_callback(lambda _: self.wake())
-        await self._spin_impl(
-            timeout_sec=timeout_sec,
-            wait_condition=lambda: future.done() or future.cancelled(),
-        )
+        try:
+            await self._spin_impl(
+                timeout_sec=timeout_sec,
+                wait_condition=lambda: future.done() or future.cancelled(),
+            )
+        except ConditionReachedException:
+            # The future completed; this is the expected exit path.
+            pass
+        except TimeoutException as e:
+            raise TimeoutError("spin_until_future_complete timed out") from e
+        except BaseExceptionGroup as eg:
+            # The spin TaskGroup wraps the terminating exception(s). Peel off
+            # the benign ConditionReachedException signals first, then handle a
+            # timeout, then re-raise anything genuine that remains.
+            _, rest = eg.split(ConditionReachedException)
+            if rest is None:
+                # Only condition signals: the future is done. Return cleanly.
+                return
+            timeouts, others = rest.split(TimeoutException)
+            if others is not None:
+                # Genuine exception(s) occurred; propagate them unchanged.
+                raise others
+            if timeouts is not None:
+                raise TimeoutError(
+                    "spin_until_future_complete timed out"
+                ) from timeouts
 
 
 class _AIOExecutor(_BaseAIOExecutor):
@@ -481,8 +517,8 @@ class _AIOExecutor(_BaseAIOExecutor):
                     ),
                 )
                 loop.call_soon_threadsafe(self._queue.put_nowait, ready)
-        except BaseException as e:
-            print(f"{type(e).__name__} in AIOExecutor._queue_producer: {e}")
+        except BaseException:
+            _logger.exception("Exception in AIOExecutor._queue_producer")
             raise
 
     async def _spin_impl(
@@ -730,8 +766,8 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
                     #     if not future.cancel():
                     #         future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
                     raise
-                except BaseException as e:
-                    print(e)
+                except BaseException:
+                    _logger.exception("Exception while waiting on wait set")
                     raise
                 if self._is_shutdown:
                     raise ShutdownException()

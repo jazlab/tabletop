@@ -52,7 +52,6 @@ from typing import Any
 
 import rclpy
 from flir_camera_msgs.msg import ImageMetaData
-from rclpy.executors import ConditionReachedException
 
 from tabletop_py.utils.common import yaml_dump_string
 from tabletop_rig.executors import AIOExecutor
@@ -428,11 +427,9 @@ async def main_async(args=None) -> int:
 
         try:
             task = executor.create_task(node.run_checks())
-            try:
-                await executor.spin_until_future_complete(task)
-            except* ConditionReachedException:
-                # Raised by the executor when the future completes.
-                pass
+            # Returns cleanly once ``task`` completes; the executor no longer
+            # leaks ConditionReachedException to callers.
+            await executor.spin_until_future_complete(task)
             results = task.result() or []
         finally:
             node.destroy_node()
