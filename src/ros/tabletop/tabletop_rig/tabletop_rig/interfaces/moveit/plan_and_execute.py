@@ -1031,7 +1031,7 @@ class PlanAndExecuteInterface(BaseInterface):
             "execution.allowed_duration_scaling"
         )
         allowed_duration_margin = self.param(
-            "execution.allowed_duration_scaling"
+            "execution.allowed_duration_margin"
         )
         if allowed_duration_scaling < 1:
             raise ValueError(
