@@ -34,6 +34,7 @@
       "instalZsh": false
     },
     "ghcr.io/devcontainers/features/git-lfs:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/schlich/devcontainer-features/starship:0": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/EliiseS/devcontainer-features/bash-profile:1": {

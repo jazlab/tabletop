@@ -1,4 +1,4 @@
-FROM debian:latest
+FROM debian:trixie
 
 # Keep downloaded packages to reduce build time
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && \

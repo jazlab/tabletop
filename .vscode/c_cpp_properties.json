@@ -17,17 +17,7 @@
         "limitSymbolsToIncludedHeaders": false
       },
       "compileCommands": [
-        "${workspaceFolder}/src/ros/tabletop/tabletop_micro/tabletop_teensy/compile_commands.json"
-      ]
-    },
-    {
-      "name": "pio_sniffer",
-      "browse": {
-        "databaseFilename": "${workspaceFolder}/.vscode/pio_ble_sniffer.browse.vc.db",
-        "limitSymbolsToIncludedHeaders": false
-      },
-      "compileCommands": [
-        "${workspaceFolder}/src/ros/tabletop/tabletop_micro/tabletop_ble_sniffer/compile_commands.json"
+        "${workspaceFolder}/src/microros/tabletop_teensy/compile_commands.json"
       ]
     }
   ],
