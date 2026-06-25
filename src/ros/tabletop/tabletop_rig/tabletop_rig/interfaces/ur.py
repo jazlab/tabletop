@@ -605,6 +605,13 @@ class URInterface(BaseInterface):
             )
             return False
 
+        # The robot is operational (program PLAYING again), regardless of
+        # whether reset() or the operator restarted it. Clear any completed
+        # stop future so the next safety event can issue a fresh stop_program()
+        # rather than being suppressed by a previously-succeeded stop. See
+        # stop_program() for the suppress-until-cleared lifecycle.
+        self._stop_future = None
+
         return True
 
     async def reset(self, timeout: Optional[float] = None):
