@@ -23,9 +23,39 @@ were removed. Every pre-existing known-issue was re-verified by *content*
 in `known-issues.md`). All newly-found substantive issues were added to
 `known-issues.md` under four new sections.
 
-> The only edits made so far are to `docs/known-issues.md` (re-verify +
-> expand) and this new file. No code has been changed yet — that is the
-> work below.
+> The original plan only edited `docs/known-issues.md` (re-verify + expand)
+> and this file. The code worktrees below have since been implemented and
+> mostly merged — see the progress snapshot.
+
+---
+
+## 1b. Progress snapshot (updated 2026-06-25)
+
+Most of Wave 1 is implemented and merged. **Do not redo merged work.**
+
+| Worktree | PR | Status |
+| --- | --- | --- |
+| WT-A · moveit interface bug fixes | #19 | ✅ merged |
+| WT-D · rename + task-logic TODOs | #21 | ✅ merged (rename + §6.3 decisions applied) |
+| WT-E · `commander.yaml` config | #22 | ✅ merged (added `require_arm_locks`) |
+| WT-F · gaze geometric config | #23 | ✅ merged |
+| WT-H · launch refactor | #29 | ✅ merged |
+| WT-J · build / dev-env | #24 | ✅ merged |
+| WT-K · `bin/` script help | #27 | ✅ merged |
+| WT-L · documentation | #28 | ✅ merged |
+| WT-B · executor robustness | #25 | 🔄 open (review addressed) |
+| WT-C · UR `stop_program` future | #20 | 🔄 open |
+| WT-G · Teensy firmware + safety gate | #30 | 🔄 open |
+| WT-M · eyelink/flic node TODOs | #26 | 🔄 open |
+
+Verified on `main`: WT-D kept `foraging.py`'s `release_arm` and removed its
+`# TODO: Remove!!!`, and intentionally retained `smooth_pursuit.py`'s
+fetch_object TODO — both per the §6.3 decisions. All §6 maintainer
+decisions are answered (see Section 6).
+
+**Wave 2 (WT-I)** is now unblocked (WT-A/WT-D/WT-H merged), but is sequenced
+*after* the four open Wave-1 PRs merge and the
+docs/CLAUDE.md/known-issues reconciliation pass.
 
 ---
 
