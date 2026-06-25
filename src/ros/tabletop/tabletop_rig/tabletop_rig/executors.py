@@ -35,6 +35,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import inspect
+import logging
 import threading
 from collections.abc import AsyncGenerator, Callable
 from contextlib import (
@@ -65,6 +66,11 @@ from rclpy.waitable import NumberOfEntities, Waitable
 
 if TYPE_CHECKING:
     from rclpy.node import Node
+
+# Module logger. The executor runs blocking work in worker threads (and may
+# have no ROS node attached yet) so a node-bound ROS logger is not reliably
+# reachable from every code path; a plain stdlib logger is used instead.
+_logger = logging.getLogger(__name__)
 
 
 class WaitableEntityType(Protocol):
@@ -421,6 +427,16 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
         Registers a callback on the future to wake the executor when it
         completes, then spins with a wait condition that checks the future.
 
+        When the wait condition is met, ``_spin_impl`` raises
+        ``ConditionReachedException`` -- bare in the base variant, or wrapped
+        in an ``ExceptionGroup`` by the optimized variant's ``TaskGroup``.
+        That is the executor's normal way of signalling "the future you waited
+        for is done", so ``except*`` swallows it -- it matches both the bare
+        and grouped forms -- and the method returns cleanly. A
+        ``TimeoutException`` is normalised to a plain ``TimeoutError``; any
+        genuine exception is unmatched by the handlers and propagates
+        unchanged.
+
         Args:
             future: The ROS Future to wait for.
             timeout_sec: Maximum time to wait in seconds. If None, waits
@@ -430,10 +446,25 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
             TimeoutError: If timeout expires before future completes.
         """
         future.add_done_callback(lambda _: self.wake())
-        await self._spin_impl(
-            timeout_sec=timeout_sec,
-            wait_condition=lambda: future.done() or future.cancelled(),
-        )
+        try:
+            await self._spin_impl(
+                timeout_sec=timeout_sec,
+                wait_condition=lambda: future.done() or future.cancelled(),
+            )
+        except* ConditionReachedException:
+            # The future completed; this is the expected exit path. ``except*``
+            # matches the signal whether it arrives bare or wrapped in a group,
+            # and any unmatched remainder keeps propagating. (No ``return``
+            # here: ``return`` is a syntax error inside ``except*``; falling
+            # through returns ``None`` all the same.)
+            pass
+        except* TimeoutException:
+            # Normalise to the documented plain ``TimeoutError``. A genuine
+            # exception raised alongside the timeout is unmatched and still
+            # propagates.
+            raise TimeoutError(
+                "spin_until_future_complete timed out"
+            ) from None
 
 
 class _AIOExecutor(_BaseAIOExecutor):
@@ -481,8 +512,8 @@ class _AIOExecutor(_BaseAIOExecutor):
                     ),
                 )
                 loop.call_soon_threadsafe(self._queue.put_nowait, ready)
-        except BaseException as e:
-            print(f"{type(e).__name__} in AIOExecutor._queue_producer: {e}")
+        except BaseException:
+            _logger.exception("Exception in AIOExecutor._queue_producer")
             raise
 
     async def _spin_impl(
@@ -730,8 +761,8 @@ class _AIOExecutorOptimized(_BaseAIOExecutor):
                     #     if not future.cancel():
                     #         future.result(timeout=WAIT_SET_CLEANUP_TIMEOUT_SEC)
                     raise
-                except BaseException as e:
-                    print(e)
+                except BaseException:
+                    _logger.exception("Exception while waiting on wait set")
                     raise
                 if self._is_shutdown:
                     raise ShutdownException()
