@@ -12,7 +12,20 @@ source "$bin_dir/../../setup.bash"
 source "$bin_dir/../utils.sh"
 
 print_usage() {
-    echo "Usage: $0 [-t|--tabletop-colcon] [-l|--logs] [-c|--tabletop-cache] [--all-colcon] [--ccache] [--everything]"
+    cat <<EOF
+Usage: $0 <option> [option...]
+
+Select one or more options to specify what to clean:
+  -t, --tabletop-colcon   Remove only tabletop package build/install directories
+  -l, --logs              Remove colcon and ROS log directories
+  -c, --tabletop-cache    Remove the tabletop cache directory
+      --all-colcon        Remove all colcon build/install directories, logs, and ccache
+      --ccache            Remove the C compiler cache (ccache)
+      --everything        Remove all caches, build artifacts, and logs
+  -h, --help              Show this help message and exit
+
+At least one option is required.
+EOF
 }
 
 if [[ "$#" < 1 ]]; then
@@ -54,6 +67,10 @@ while [[ "$#" -gt 0 ]]; do
         --everything)
             # Remove all caches, build artifacts, and logs
             all=true
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
             ;;
         *)
             print_error "Unknown argument: $1"

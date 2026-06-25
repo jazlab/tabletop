@@ -77,6 +77,27 @@ while [[ $# -gt 0 ]]; do
         -c|--clean)
             clean=true
             ;;
+        -h|--help)
+            cat <<EOF
+Usage: $0 [-c|--clean]
+
+Generate and validate the .env file from .env.example with auto-detection of
+host hardware (FLIR cameras, NVIDIA GPU, PulseAudio socket).
+
+Options:
+  -c, --clean   Remove the existing .env file and regenerate from .env.example
+  -h, --help    Show this help message and exit
+
+Environment variables set:
+  HOST_UID / HOST_GID          Current user's UID/GID
+  COMMANDER_RUNTIME            'nvidia' or 'runc' (based on GPU detection)
+  UV_EXTRA                     uv dependency extras (cpu or cu<CUDA_VERSION>)
+  FLIR_DEV_0 ... FLIR_DEV_N   Resolved paths to detected FLIR camera devices
+  PULSE_SERVER_MNT / PULSE_COOKIE_MNT   PulseAudio socket and cookie mounts
+  ROS_BAG_DIR_MNT              ROS bag directory mount (or /dev/null if unset)
+EOF
+            exit 0
+            ;;
         *)
             print_error "Unkown argument: $1"
             echo "Usage: $0 [-c|--clean]"

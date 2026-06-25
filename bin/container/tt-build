@@ -120,6 +120,10 @@ build_colcon() {
             -v|--verbose)
                 verbose=true
                 ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
             *)
                 print_error "Unknown argument $1"
                 print_usage
@@ -258,6 +262,10 @@ build_microros() {
                 target_arg="--target compiledb"
                 retries=1
                 ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
             *)
                 print_error "Error: Unknown argument '$1'"
                 print_usage
@@ -315,6 +323,10 @@ build_foxglove() {
                 fi
                 output=$2
                 shift
+                ;;
+            -h|--help)
+                print_usage
+                exit 0
                 ;;
             *)
                 print_error "Error: Unknown argument '$1'"
