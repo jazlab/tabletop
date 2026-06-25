@@ -1,0 +1,464 @@
+{
+  "configById": {
+    "Image!3mnp456": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "visible": true
+        },
+        "enableStats": false
+      },
+      "transforms": {
+        "frame:cam1": {
+          "visible": false
+        },
+        "frame:left_back_top_cam": {
+          "visible": false
+        },
+        "frame:left_bottom_cam": {
+          "visible": false
+        },
+        "frame:left_front_top_cam": {
+          "visible": false
+        }
+      },
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/left_back_top_cam/image_raw/compressed",
+        "synchronize": false
+      },
+      "foxglovePanelTitle": "",
+      "synchronize": false
+    },
+    "Image!1ow2iwg": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/right_back_top_cam/image_raw/compressed"
+      },
+      "synchronize": false
+    },
+    "Image!g8pjgy": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/left_front_top_cam/image_raw/compressed"
+      },
+      "synchronize": false
+    },
+    "Image!1tui7ry": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/right_front_top_cam/image_raw/compressed"
+      },
+      "synchronize": false
+    },
+    "Image!2pdtlbk": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "visible": true
+        }
+      },
+      "transforms": {
+        "frame:left_back_top_cam": {
+          "visible": false
+        }
+      },
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/left_bottom_cam/image_raw/compressed"
+      },
+      "synchronize": false
+    },
+    "Image!1wvmzpr": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "visible": true
+        }
+      },
+      "transforms": {
+        "frame:left_back_top_cam": {
+          "visible": false
+        }
+      },
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {
+        "imageTopic": "/cam_sync/right_bottom_cam/image_raw/compressed"
+      },
+      "synchronize": false
+    },
+    "3D!3s7cz8x": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 7.169718448167719,
+        "phi": 50.39634537811075,
+        "thetaOffset": -35.896328359769136,
+        "targetOffset": [
+          1.2632202520664482,
+          1.1349648315672962,
+          -4.300566793382734e-18
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "visible": false
+        }
+      },
+      "transforms": {},
+      "topics": {
+        "/robot_description": {
+          "visible": true,
+          "links": {
+            "eef_sphere": {
+              "visible": false
+            },
+            "eef": {
+              "visible": true
+            },
+            "eef_link": {
+              "visible": false
+            },
+            "right_eef_sphere": {
+              "visible": false
+            },
+            "left_eef_sphere": {
+              "visible": false
+            },
+            "right_eef_link": {
+              "visible": true
+            },
+            "right_tool0": {
+              "visible": true
+            }
+          },
+          "displayMode": "auto",
+          "showAxis": false
+        },
+        "/planning_scene": {
+          "visible": false
+        },
+        "/monitored_planning_scene": {
+          "visible": true
+        },
+        "/markers_viz": {
+          "visible": true,
+          "namespaces": {
+            "mocap4r2_markers": {
+              "visible": true
+            }
+          }
+        },
+        "/rigid_bodies_viz": {
+          "visible": true
+        },
+        "/predicted_markers_viz": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "drawBehind": false,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "5a8efbd7-1eaf-4bbc-9147-54f9184ae2d2",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "synchronize": false,
+      "fixedFrame": "world"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "drawerConfig": {
+    "tracks": []
+  },
+  "layout": {
+    "direction": "row",
+    "first": "3D!3s7cz8x",
+    "second": {
+      "first": {
+        "first": {
+          "first": "Image!3mnp456",
+          "second": "Image!1ow2iwg",
+          "direction": "row"
+        },
+        "second": {
+          "first": "Image!g8pjgy",
+          "second": "Image!1tui7ry",
+          "direction": "row"
+        },
+        "direction": "column"
+      },
+      "second": {
+        "first": "Image!2pdtlbk",
+        "second": "Image!1wvmzpr",
+        "direction": "row"
+      },
+      "direction": "column",
+      "splitPercentage": 66.62908680947012
+    }
+  }
+}

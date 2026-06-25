@@ -1,5 +1,5 @@
 # Periodic sensor snapshot from the Teensy microcontroller (topic: teensy/sensor).
-# Published by: teensy node (tabletop_micro firmware) or mock_teensy node at 100 Hz (SENSOR_PERIOD_MS=10).
+# Published by: teensy node (tabletop_teensy firmware) or mock_teensy node, published periodically.
 # Consumed by: TeensyInterface (tabletop_rig/interfaces/teensy.py) and Commander
 #              (_teensy_sensor_callback) for safety interlock decisions.
 

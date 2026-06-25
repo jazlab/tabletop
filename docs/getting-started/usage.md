@@ -58,6 +58,22 @@ if you changed `FOXGLOVE_PORT` in `setup.bash`). See the
 [Foxglove documentation](https://docs.foxglove.dev/docs) for the full
 visualization workflow.
 
+### Layout configs
+
+Foxglove lets you save and restore panel arrangements as **layout** JSON files.
+To import a layout:
+
+1. Open Foxglove (web or desktop) and connect to the WebSocket bridge.
+2. Click the **layout** icon (top-left panel selector) → **Import from file…**
+3. Select a `.json` layout file and confirm.
+
+Two sample layout JSON files have been provided in the `share/foxglove/`
+directory: `planning-scene-layout.json` and `cameras-layout.json`.
+The former includes a panel for the planning scene as well as six
+small panels for each Flir camera feed. The latter has the same
+six cameras but also a plotting panel to verify that the Teensy
+sync pulse is being seen on the camera meta-data topics.
+
 ### MoveIt converter plugin (`.foxe`)
 
 To visualize MoveIt planning scenes, install the bundled Foxglove extension.
@@ -77,6 +93,14 @@ Foxglove app by opening the extensions settings and adding the local `.foxe`; se
 the
 [Foxglove extensions guide](https://docs.foxglove.dev/docs/visualization/extensions/introduction)
 for the exact steps for your Foxglove version.
+
+!!! warning "Keep Foxglove open and focused when a task starts"
+    The MoveIt planning scene is pushed as a burst of messages at task
+    initialisation.  If Foxglove is **not open and focused** (e.g. the browser
+    tab is backgrounded or the app is minimised) when the task starts, it will
+    miss those planning-scene updates and the 3-D scene will appear empty or
+    incomplete.  Re-open the connection **before** launching a task, or trigger
+    a scene refresh after connecting.
 
 ## Dev Container (VS Code)
 
