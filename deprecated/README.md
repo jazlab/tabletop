@@ -25,6 +25,7 @@ source-of-reference files remain.
 | `ros-graph/ros_graph_style.yaml` | `config/ros_graph_style.yaml` | styling for `tt-create-graph` |
 | `docker/buildkitd.toml` | `docker/buildkitd.toml` | BuildKit GC config, unreferenced |
 | `compose-services.yaml` | extracted from `compose.yaml` | removed Compose service definitions |
+| `launch/rig.launch.py` | `tabletop_rig/launch/rig.launch.py` | monolithic aggregator superseded by per-service Compose profiles |
 
 ## `flic-button/` — the old `flicd`-based Flic button stack
 
@@ -114,3 +115,17 @@ them):
   `$FLIR_DEV_*`), superseded by the hardware-synchronized `flir` service. (The
   `flir_no_sync` *launch target* still exists and is used by `tt-flir-reset`; it
   is only the standalone Compose service that was removed.)
+
+## `launch/rig.launch.py` — monolithic rig aggregator
+
+`rig.launch.py` was a single launch file that conditionally included every rig
+subsystem (commander, dual UR driver, Teensy, Flic, Eyelink, FLIR, OptiTrack,
+RViz, rosbag) behind per-subsystem `*_launch` boolean arguments. It was the
+target of `tt-launch rig` and was included by `tasks.launch.py`.
+
+It became obsolete once each subsystem was given its own docker-compose service
+running its own dedicated launch file: there is no longer a single process that
+needs to aggregate all of them. The `tt-launch rig` target has been removed.
+
+`tasks.launch.py` now includes `commander.launch.py` and `rosbag.launch.py`
+directly instead of going through this aggregator.

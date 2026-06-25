@@ -9,8 +9,11 @@ trajectory_execution:
   allowed_goal_duration_margin: 0.5
   allowed_start_tolerance: 0.02 # radians
   allowed_stop_tolerance: 0.02 # radians/s
-  execution_duration_monitoring: true # May lead to unexpectedly aborted goals with scaled JTC
-  # TODO: Change to True maybe
+  # execution_duration_monitoring: monitors that trajectories complete within the
+  # allowed_execution_duration_scaling window. Kept true to catch stuck trajectories.
+  # If the scaled JTC occasionally aborts valid goals (e.g. during speed-scaling),
+  # set to false or increase allowed_execution_duration_scaling.
+  execution_duration_monitoring: true
 
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
