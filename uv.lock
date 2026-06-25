@@ -2674,6 +2674,7 @@ dependencies = [
     { name = "lark" },
     { name = "lmdb" },
     { name = "matplotlib" },
+    { name = "mingus" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pandas" },
@@ -2713,7 +2714,6 @@ cu130 = [
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
-    { name = "mingus" },
     { name = "pre-commit" },
     { name = "pyglet" },
 ]
@@ -2732,6 +2732,7 @@ requires-dist = [
     { name = "lark", specifier = ">=1.2.2" },
     { name = "lmdb", specifier = ">=1.5.1" },
     { name = "matplotlib", specifier = ">=3.10.5" },
+    { name = "mingus", specifier = ">=0.6.1" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "pandas", specifier = ">=2.3.1" },
@@ -2756,7 +2757,6 @@ provides-extras = ["cpu", "cu126", "cu128", "cu130"]
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel", specifier = ">=6.30.1" },
-    { name = "mingus", specifier = ">=0.6.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyglet", specifier = "<2" },
 ]
