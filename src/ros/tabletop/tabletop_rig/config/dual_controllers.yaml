@@ -303,7 +303,8 @@ right_joint_trajectory_controller:
       stopped_velocity_tolerance: 0.02
       goal_time: 0.0
       $(var right_tf_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.005 }
-      $(var right_tf_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.005 }
+      $(var right_tf_prefix)shoulder_lift_joint:
+        { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)elbow_joint: { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.005 }
@@ -330,7 +331,8 @@ right_scaled_joint_trajectory_controller:
       stopped_velocity_tolerance: 0.02
       goal_time: 0.0
       $(var right_tf_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.005 }
-      $(var right_tf_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.005 }
+      $(var right_tf_prefix)shoulder_lift_joint:
+        { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)elbow_joint: { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.005 }
       $(var right_tf_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.005 }

@@ -17,7 +17,6 @@ Usage: $0 <launch_type> [ros2_launch_args...]
 
 Launch types:
   commander          Commander orchestrator node (high-level rig control)
-  rig                Full rig (all hardware interfaces)
   tasks              Experiment task nodes
   dual_ur            Two UR5e arms driver
   teensy             Teensy microcontroller (arm locks, safety laser, reward)
@@ -127,11 +126,6 @@ case $1 in
         # EyeLink eye tracker
         export ROS_LOG_DIR="$ROS_LOG_DIR/eyelink"
         LAUNCH="tabletop_rig eyelink.launch.py"
-        ;;
-    rig)
-        # Full rig (all hardware interfaces)
-        export ROS_LOG_DIR="$ROS_LOG_DIR/rig"
-        LAUNCH="tabletop_rig rig.launch.py"
         ;;
     commander)
         # Commander orchestrator node (high-level rig control)
