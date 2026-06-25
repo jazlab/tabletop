@@ -298,6 +298,22 @@ Files: `tabletop_tasks/**` (task code, trial specs, trial generators),
 - **Conflicts with WT-A, WT-D (and WT-H's tasks usage).** Must run in
   **Wave 2**, rebased after those merge — see Section 4.
 
+### WT-N · arm-lock terminology (mechanism-agnostic rename) — **P3 (Wave 2)**
+
+Files: repo-wide — `tabletop_rig/interfaces/teensy.py`,
+`tabletop_rig/nodes/commander.py`, `tabletop_interfaces/**`, firmware
+comments, `commander.yaml`, `docs/**`.
+
+- From the PR #30 review (`teensy.py:277`): the "electromagnetic arm lock"
+  wording is inaccurate. The rig currently uses a **button per hand**
+  (unpressed = the subject's hand is free to move) plus a per-arm buzzer to
+  cue which hand to use; a physical arm lock may be added later. Reword the
+  arm-lock terminology across the repo to be agnostic to the mechanism used
+  to keep the hands in place / detect when they are free (covering both the
+  safety gate and task-evaluation/reward uses).
+- Large cross-cutting rename touching `commander.py` / tasks / interfaces —
+  schedule alongside Wave 2 and coordinate with WT-I to avoid churn.
+
 ---
 
 ## 4. Execution strategy (waves)
