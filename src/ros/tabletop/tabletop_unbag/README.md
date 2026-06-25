@@ -15,7 +15,7 @@ peak memory stays bounded by back-pressure on the work queues.
 
 Given a *bag directory* (the directory that holds the `.mcap` files and
 `metadata.yaml`), `unbag` writes one output per topic into an output directory
-(by default `<parent of BAG_DIR>/unbag_output`):
+(by default `<parent of BAG_DIR>/unbag`):
 
 * **Normal messages** are flattened into a per-topic CSV
   (`/eyelink/sample` → `eyelink_sample.csv`). Any message type works — there is
@@ -31,7 +31,7 @@ Given a *bag directory* (the directory that holds the `.mcap` files and
 ## Usage
 
 ```bash
-# Unbag everything into <parent of BAG_DIR>/unbag_output
+# Unbag everything into <parent of BAG_DIR>/unbag
 ros2 run tabletop_unbag unbag /path/to/session/bag
 
 # Choose the output directory
@@ -52,21 +52,31 @@ ros2 run tabletop_unbag unbag BAG_DIR --overwrite
 | Flag | Description |
 | --- | --- |
 | `BAG_DIR` (positional) | Directory containing the bag's `.mcap` files and `metadata.yaml`. Required. |
-| `-o, --output-dir DIR` | Where to write outputs. Default: `<parent of BAG_DIR>/unbag_output`. |
+| `-o, --output-dir DIR` | Where to write outputs. Default: `<parent of BAG_DIR>/unbag`. |
 | `--handlers H [H ...]` | Handlers to enable (`csv`, `image`). Topics whose type is not claimed by an enabled handler are skipped. Default: all. |
 | `--topics T [T ...]` | Only unbag these topics. Mutually exclusive with `--exclude-topics`. |
 | `--exclude-topics T ...` | Unbag all topics except these. Mutually exclusive with `--topics`. |
 | `--overwrite` | Delete previously unbagged output for the selected topics before writing. Without it, an interrupted run resumes. |
 | `--batch-size N` | Messages buffered in memory before flushing to disk (default 1000). |
 | `--jobs N` | Worker threads in the shared image-decoding pool (default: number of hardware threads). Each CSV topic additionally runs on its own consumer thread. |
+| `--opencv-threads N` | Threads OpenCV uses internally per image decode (default `1`). We already parallelize across images via `--jobs`, so `1` avoids oversubscribing cores; `0` lets OpenCV choose. Tune against `--jobs` for your machine. |
 | `--image-encoding ENC` | Target encoding for saved images (default `bgr8`). |
-| `--storage-id ID` | Storage plugin override (default: inferred from metadata, fallback `mcap`). |
-| `--serialization-format F` | Serialization override (default: inferred, fallback `cdr`). |
-| `-v, --verbose` | Log the handler chosen for each topic and topics skipped. |
+| `--storage-id ID` | Storage plugin override. Default: inferred from `metadata.yaml`; if that file is missing the bag is reindexed first and the id read back from the rebuilt metadata, then falling back to the installed default plugin (`mcap` on a stock Jazzy install). |
+| `-v, --verbose` | Log the handler chosen for each topic, topics skipped, and per-topic success/failure counts in the end-of-run summary. |
 
-The storage plugin and serialization format are inferred from the bag's
-`metadata.yaml`; the `--storage-id` / `--serialization-format` flags are only
-needed when that inference is unavailable or wrong.
+The storage plugin is inferred from the bag's `metadata.yaml`; if that file is
+missing or corrupted it is rebuilt with the rosbag2 reindexer and the storage id
+read back from the result. `--storage-id` is only needed when that inference is
+unavailable or wrong (and seeds the reindexer when no metadata exists). There is
+no `--serialization-format` flag: the reader determines each message's input
+serialization from the per-topic metadata, and the converter always targets CDR
+for the deserializers, so the format is not something the user picks.
+
+After the write pass, `unbag` prints a one-line summary of how many messages were
+successfully unbagged versus dropped (a decode/flatten/write failure), with a
+per-topic breakdown for any topic that had failures (and for every topic under
+`--verbose`). Failures are usually all-or-nothing per topic, so a partial count
+is a useful signal that something is off with that topic.
 
 ## Architecture
 

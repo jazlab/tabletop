@@ -1,16 +1,22 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #ifndef TABLETOP_UNBAG__OPTIONS_HPP_
 #define TABLETOP_UNBAG__OPTIONS_HPP_
@@ -60,17 +66,22 @@ struct UnbagOptions
   /// concurrency). Each CSV topic additionally gets its own consumer thread.
   std::size_t jobs = 0;
 
+  /// Number of threads OpenCV may use internally for a single image decode
+  /// (cv::setNumThreads). The default of 1 keeps OpenCV single-threaded because
+  /// we already parallelize across images via `jobs`, so letting OpenCV spawn
+  /// its own threads per decode would oversubscribe the cores. 0 lets OpenCV
+  /// choose. The optimal `opencv_threads` vs `jobs` split is machine- and
+  /// bag-dependent and is left for the user to tune empirically.
+  int opencv_threads = 1;
+
   /// Target OpenCV/ROS encoding for saved images (e.g. "bgr8", "rgb8",
   /// "mono8"). Only used by the image handler.
   std::string image_encoding = "bgr8";
 
   /// Override for the storage plugin id (e.g. "mcap"). std::nullopt means
-  /// "infer from the bag metadata".
+  /// "infer from the bag metadata" (reindexing the bag first if metadata.yaml
+  /// is missing, then falling back to the installed default storage plugin).
   std::optional<std::string> storage_id;
-
-  /// Override for the serialization format (e.g. "cdr"). std::nullopt means
-  /// "infer from the bag metadata".
-  std::optional<std::string> serialization_format;
 
   /// Emit extra per-topic logging.
   bool verbose = false;

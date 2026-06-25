@@ -1,16 +1,22 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #include "tabletop_unbag/unbagger.hpp"
 
@@ -24,7 +30,9 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -34,6 +42,8 @@
 
 #include "rosbag2_cpp/converter_options.hpp"
 #include "rosbag2_cpp/reader.hpp"
+#include "rosbag2_cpp/reindexer.hpp"
+#include "rosbag2_storage/default_storage_id.hpp"
 #include "rosbag2_storage/metadata_io.hpp"
 #include "rosbag2_storage/serialized_bag_message.hpp"
 #include "rosbag2_storage/storage_filter.hpp"
@@ -129,16 +139,79 @@ const HandlerKind* choose_handler(const std::string& ros_type, const std::set<st
   return nullptr;
 }
 
-void open_reader(rosbag2_cpp::Reader& reader, const std::string& bag_dir, const std::string& storage_id,
-                 const std::string& serialization_format)
+void open_reader(rosbag2_cpp::Reader& reader, const std::string& bag_dir, const std::string& storage_id)
 {
   rosbag2_storage::StorageOptions storage_options;
   storage_options.uri = bag_dir;
   storage_options.storage_id = storage_id;
+
+  // The reader determines each message's *input* serialization from the
+  // per-topic metadata, so we leave input_serialization_format empty.
+  //
+  // For the *output* format we request "cdr": our handlers parse the payload as
+  // PLAIN_CDR directly (the CSV flattener reads it with Fast CDR, the image
+  // handler with rclcpp::Serialization), so they are not serialization-agnostic.
+  // rosbag2 only inserts a converter when the requested output format differs
+  // from what is stored, so for the usual cdr-on-mcap bag this is a no-op; it is
+  // a safety net that converts to cdr if a bag were ever stored in another
+  // format. (It is not derived from the active RMW: the dependence is on our
+  // CDR-based deserializers, not on the installed middleware.)
   rosbag2_cpp::ConverterOptions converter_options;
-  converter_options.input_serialization_format = serialization_format;
-  converter_options.output_serialization_format = serialization_format;
+  converter_options.output_serialization_format = "cdr";
   reader.open(storage_options, converter_options);
+}
+
+/// Throw a std::system_error if `ec` is set, prefixing it with `what` and the
+/// offending `path`. Used to surface filesystem errors that the std::error_code
+/// overloads otherwise swallow.
+void throw_if_ec(const std::error_code& ec, const std::string& what, const fs::path& path)
+{
+  if (ec)
+  {
+    throw std::system_error(ec, what + ": " + path.string());
+  }
+}
+
+/// Rebuild a missing metadata.yaml from the bag's storage files using the
+/// rosbag2 reindexer, and return the storage id the metadata was written with.
+///
+/// The reindexer needs a storage id up front (it opens the storage plugin to
+/// read the files), which is the one thing it cannot infer. We use the caller's
+/// `--storage-id` override if given, otherwise the installed default storage
+/// plugin (mcap on a stock Jazzy install). After reindexing we re-read the
+/// freshly written metadata.yaml and return its storage_identifier, so the rest
+/// of unbag() proceeds exactly as it would for a bag that shipped with metadata.
+std::string reindex_and_detect_storage_id(const std::string& bag_dir, const std::optional<std::string>& storage_override)
+{
+  const std::string seed_storage_id = storage_override ? *storage_override : rosbag2_storage::get_default_storage_id();
+
+  std::cerr << "INFO - " << rosbag2_storage::MetadataIo::metadata_filename << " missing in " << bag_dir
+            << "; reindexing with storage id '" << seed_storage_id << "'.\n";
+
+  rosbag2_storage::StorageOptions storage_options;
+  storage_options.uri = bag_dir;
+  storage_options.storage_id = seed_storage_id;
+
+  try
+  {
+    rosbag2_cpp::Reindexer reindexer;
+    reindexer.reindex(storage_options);
+  }
+  catch (const std::exception& e)
+  {
+    throw std::runtime_error("Failed to reindex bag '" + bag_dir + "' with storage id '" + seed_storage_id +
+                             "'. Pass --storage-id to specify the storage plugin. (" + e.what() + ")");
+  }
+
+  rosbag2_storage::MetadataIo metadata_io;
+  if (!metadata_io.metadata_file_exists(bag_dir))
+  {
+    throw std::runtime_error("Reindexing did not produce a metadata file in '" + bag_dir +
+                             "'. Pass --storage-id to specify the storage plugin.");
+  }
+
+  const rosbag2_storage::BagMetadata metadata = metadata_io.read_metadata(bag_dir);
+  return metadata.storage_identifier.empty() ? seed_storage_id : metadata.storage_identifier;
 }
 
 /// Run one streaming pass over the bag.
@@ -159,8 +232,7 @@ void open_reader(rosbag2_cpp::Reader& reader, const std::string& bag_dir, const 
 /// bounded and the reader self-throttles to the bottleneck. When `filter_topics`
 /// is non-null it is pushed into the storage reader so non-selected topics are
 /// not even read (used to skip image payloads during the CSV preprocess pass).
-void run_pass(const std::string& bag_dir, const std::string& storage_id, const std::string& serialization_format,
-              const std::vector<std::string>* filter_topics,
+void run_pass(const std::string& bag_dir, const std::string& storage_id, const std::vector<std::string>* filter_topics,
               const std::unordered_map<std::string, MessageHandler*>& serial_handlers,
               const std::unordered_map<std::string, MessageHandler*>& pool_handlers, std::size_t pool_workers,
               uint64_t total, const std::string& label, PassKind kind)
@@ -205,7 +277,7 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
 
   // Reader loop (this thread).
   rosbag2_cpp::Reader reader;
-  open_reader(reader, bag_dir, storage_id, serialization_format);
+  open_reader(reader, bag_dir, storage_id);
   if (filter_topics != nullptr)
   {
     rosbag2_storage::StorageFilter filter;
@@ -271,22 +343,35 @@ const std::vector<std::string>& handler_names()
 
 void unbag(const std::string& bag_dir, const std::string& output_dir, const UnbagOptions& options)
 {
-  // We parallelize across images ourselves, so keep OpenCV's own per-image
-  // threading off to avoid oversubscribing the cores with our worker pool.
-  cv::setNumThreads(1);
+  // OpenCV's internal per-image threading. The default (--opencv-threads 1)
+  // keeps it single-threaded because we already parallelize across images via
+  // the worker pool (--jobs); letting OpenCV spawn threads per decode on top of
+  // that would oversubscribe the cores. The best split of --opencv-threads vs
+  // --jobs is machine- and bag-dependent and is left for the user to tune. 0
+  // (cv::setNumThreads(0)) tells OpenCV to choose for itself.
+  cv::setNumThreads(options.opencv_threads);
 
   // Stop gracefully on Ctrl-C / TERM (flush + join, see run_pass()).
   std::signal(SIGINT, handle_stop_signal);
   std::signal(SIGTERM, handle_stop_signal);
 
-  // --- Infer storage / serialization / topics from the bag metadata. ---------
-  std::string storage_id = "mcap";
-  std::string serialization_format = "cdr";
+  // --- Infer storage id + topics from the bag metadata. ----------------------
+  // The serialization format is *not* tracked here: the reader picks each
+  // message's input format from the per-topic metadata, and open_reader()
+  // requests cdr output for our deserializers (see open_reader()).
   uint64_t total_messages = 0;
   std::unordered_map<std::string, std::string> topic_types;
   std::unordered_map<std::string, uint64_t> topic_counts;
 
   rosbag2_storage::MetadataIo metadata_io;
+  if (!metadata_io.metadata_file_exists(bag_dir))
+  {
+    // No metadata.yaml: rebuild it with the reindexer so the bag is readable
+    // again, then carry on with the storage id detected from the new metadata.
+    reindex_and_detect_storage_id(bag_dir, options.storage_id);
+  }
+
+  std::string storage_id = rosbag2_storage::get_default_storage_id();
   if (metadata_io.metadata_file_exists(bag_dir))
   {
     const rosbag2_storage::BagMetadata metadata = metadata_io.read_metadata(bag_dir);
@@ -299,26 +384,19 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     {
       topic_types[topic.topic_metadata.name] = topic.topic_metadata.type;
       topic_counts[topic.topic_metadata.name] = topic.message_count;
-      if (!topic.topic_metadata.serialization_format.empty())
-      {
-        serialization_format = topic.topic_metadata.serialization_format;
-      }
     }
   }
+  // An explicit --storage-id always wins over the inferred value.
   if (options.storage_id)
   {
     storage_id = *options.storage_id;
-  }
-  if (options.serialization_format)
-  {
-    serialization_format = *options.serialization_format;
   }
 
   // Fall back to interrogating the opened bag if metadata was unavailable.
   if (topic_types.empty() || total_messages == 0)
   {
     rosbag2_cpp::Reader reader;
-    open_reader(reader, bag_dir, storage_id, serialization_format);
+    open_reader(reader, bag_dir, storage_id);
     if (topic_types.empty())
     {
       for (const auto& topic : reader.get_all_topics_and_types())
@@ -358,8 +436,11 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   }
 
   // --- Build one handler instance per selected, handled topic. ---------------
+  // Fail loudly if the output directory cannot be created -- otherwise the
+  // handlers would all fail later with confusing per-file errors.
   std::error_code ec;
   fs::create_directories(output_dir, ec);
+  throw_if_ec(ec, "Failed to create output directory", output_dir);
 
   std::map<std::string, std::unique_ptr<MessageHandler>> handlers;
   for (const auto& [topic, type] : topic_types)
@@ -443,8 +524,8 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   // bag (the images) just to learn CSV columns.
   if (!serial_preprocess.empty())
   {
-    run_pass(bag_dir, storage_id, serialization_format, &preprocess_topics, serial_preprocess, no_pool, workers,
-             preprocess_total, "Preprocessing", PassKind::Preprocess);
+    run_pass(bag_dir, storage_id, &preprocess_topics, serial_preprocess, no_pool, workers, preprocess_total,
+             "Preprocessing", PassKind::Preprocess);
   }
 
   if (g_stop.load())
@@ -459,13 +540,42 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   }
 
   // --- Phase 2: write pass (all selected topics). ----------------------------
-  run_pass(bag_dir, storage_id, serialization_format, nullptr, serial_write, pool_write, workers, total_messages,
-           "Unbagging", PassKind::Write);
+  run_pass(bag_dir, storage_id, nullptr, serial_write, pool_write, workers, total_messages, "Unbagging",
+           PassKind::Write);
 
   for (auto& [topic, handler] : handlers)
   {
     handler->finish();
   }
+
+  // --- End-of-run summary: successes vs failures, per topic and aggregate. ----
+  // The workers have joined (run_pass() returned), so reading stats() here is
+  // safe. A topic's failure is usually all-or-nothing -- a partial count is the
+  // signal worth investigating, so per-topic failing counts are always shown,
+  // with the fully-successful topics summarized in one line unless --verbose.
+  HandlerStats totals;
+  std::size_t topics_with_failures = 0;
+  for (const auto& [topic, handler] : handlers)
+  {
+    const HandlerStats s = handler->stats();
+    totals.succeeded += s.succeeded;
+    totals.failed += s.failed;
+    if (s.failed != 0)
+    {
+      ++topics_with_failures;
+    }
+    if (s.failed != 0 || options.verbose)
+    {
+      std::cerr << "  " << topic << ": " << s.succeeded << " ok, " << s.failed << " failed\n";
+    }
+  }
+  std::cerr << "Messages: " << totals.succeeded << " unbagged, " << totals.failed << " failed across "
+            << handlers.size() << " topic(s)";
+  if (topics_with_failures != 0)
+  {
+    std::cerr << " (" << topics_with_failures << " topic(s) had failures)";
+  }
+  std::cerr << ".\n";
 
   if (g_stop.load())
   {

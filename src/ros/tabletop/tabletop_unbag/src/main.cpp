@@ -1,16 +1,22 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #include <algorithm>
 #include <cctype>
@@ -39,7 +45,7 @@ void print_usage(const char* argv0)
                "                          metadata.yaml).\n\n"
                "Options:\n"
                "  -o, --output-dir DIR    Where to write outputs.\n"
-               "                          Default: <parent of BAG_DIR>/unbag_output\n"
+               "                          Default: <parent of BAG_DIR>/unbag\n"
                "  --handlers H [H ...]    Handlers to enable (e.g. csv image). Topics whose\n"
                "                          type is not claimed by an enabled handler are\n"
                "                          skipped. Default: all handlers.\n"
@@ -55,11 +61,14 @@ void print_usage(const char* argv0)
                "  --jobs N                Worker threads for the shared image-decoding pool\n"
                "                          (default: number of hardware threads). Each CSV\n"
                "                          topic also runs on its own consumer thread.\n"
+               "  --opencv-threads N      Threads OpenCV uses internally per image decode\n"
+               "                          (default 1). We already parallelize across images\n"
+               "                          via --jobs, so 1 avoids oversubscribing cores; tune\n"
+               "                          against --jobs on your machine. 0 lets OpenCV pick.\n"
                "  --image-encoding ENC    Target encoding for saved images (default bgr8).\n"
-               "  --storage-id ID         Storage plugin override (default: inferred,\n"
-               "                          fallback mcap).\n"
-               "  --serialization-format F  Serialization override (default: inferred,\n"
-               "                          fallback cdr).\n"
+               "  --storage-id ID         Storage plugin override (default: inferred from the\n"
+               "                          bag metadata, reindexing first if metadata.yaml is\n"
+               "                          missing; fallback to the installed default plugin).\n"
                "  -v, --verbose           Increase logging verbosity.\n"
                "  -h, --help              Show this help message and exit.\n";
 }
@@ -182,6 +191,29 @@ int main(int argc, char** argv)
         return 2;
       }
     }
+    else if (arg == "--opencv-threads")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        // 0 is allowed: it tells OpenCV to choose the thread count itself.
+        const long long value = std::stoll(argv[++i]);
+        if (value < 0)
+        {
+          throw std::out_of_range("opencv threads must be non-negative");
+        }
+        options.opencv_threads = static_cast<int>(value);
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - --opencv-threads requires a non-negative integer\n";
+        return 2;
+      }
+    }
     else if (arg == "--image-encoding")
     {
       if (i + 1 >= argc)
@@ -199,15 +231,6 @@ int main(int argc, char** argv)
         return 2;
       }
       options.storage_id = argv[++i];
-    }
-    else if (arg == "--serialization-format")
-    {
-      if (i + 1 >= argc)
-      {
-        std::cerr << "ERROR - " << arg << " requires a value\n";
-        return 2;
-      }
-      options.serialization_format = argv[++i];
     }
     else if (arg == "-v" || arg == "--verbose")
     {
@@ -276,7 +299,7 @@ int main(int argc, char** argv)
     {
       parent = ".";
     }
-    output_dir = (parent / "unbag_output").string();
+    output_dir = (parent / "unbag").string();
   }
 
   try
