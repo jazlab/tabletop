@@ -26,7 +26,12 @@ Given a *bag directory* (the directory that holds the `.mcap` files and
   (shorter messages leave trailing columns empty).
 * **Image topics** (`sensor_msgs/msg/Image`,
   `sensor_msgs/msg/CompressedImage`) are decoded and saved as image files under
-  a per-topic subdirectory (`<topic>/<sec>_<nanosec>.{jpg,png,tiff}`).
+  a per-topic subdirectory (`<topic>/<sec>_<nanosec>.{jpg,png,tiff}`). When more
+  than one frame shares a header stamp (e.g. synchronized cameras), the extra
+  frames are kept under a zero-padded suffix
+  (`<sec>_<nanosec>_<NNN>.<ext>`) assigned in bag-receive order, so no frame is
+  lost and the files still sort chronologically. `--image-format` controls the
+  output file format.
 
 ## Usage
 
@@ -41,6 +46,9 @@ ros2 run tabletop_unbag unbag /path/to/session/bag -o /path/to/out
 ros2 run tabletop_unbag unbag BAG_DIR --handlers csv
 ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-encoding mono8
 
+# Save every image as PNG (lossless) instead of keeping the source format
+ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-format png
+
 # Restrict / exclude topics (mutually exclusive)
 ros2 run tabletop_unbag unbag BAG_DIR --topics /joint_states /predicted_markers
 ros2 run tabletop_unbag unbag BAG_DIR --exclude-topics /rosout
@@ -48,6 +56,11 @@ ros2 run tabletop_unbag unbag BAG_DIR --exclude-topics /rosout
 # Re-run from scratch instead of resuming
 ros2 run tabletop_unbag unbag BAG_DIR --overwrite
 ```
+
+Handler-specific options are namespaced by handler (`--csv-*`, `--image-*`) so it
+is clear which handler each one affects; run-wide options have no prefix.
+
+**Common options**
 
 | Flag | Description |
 | --- | --- |
@@ -57,12 +70,23 @@ ros2 run tabletop_unbag unbag BAG_DIR --overwrite
 | `--topics T [T ...]` | Only unbag these topics. Mutually exclusive with `--exclude-topics`. |
 | `--exclude-topics T ...` | Unbag all topics except these. Mutually exclusive with `--topics`. |
 | `--overwrite` | Delete previously unbagged output for the selected topics before writing. Without it, an interrupted run resumes. |
-| `--batch-size N` | Messages buffered in memory before flushing to disk (default 1000). |
 | `--jobs N` | Worker threads in the shared image-decoding pool (default: number of hardware threads). Each CSV topic additionally runs on its own consumer thread. |
 | `--opencv-threads N` | Threads OpenCV uses internally per image decode (default `1`). We already parallelize across images via `--jobs`, so `1` avoids oversubscribing cores; `0` lets OpenCV choose. Tune against `--jobs` for your machine. |
-| `--image-encoding ENC` | Target encoding for saved images (default `bgr8`). |
 | `--storage-id ID` | Storage plugin override. Default: inferred from `metadata.yaml`; if that file is missing the bag is reindexed first and the id read back from the rebuilt metadata, then falling back to the installed default plugin (`mcap` on a stock Jazzy install). |
 | `-v, --verbose` | Log the handler chosen for each topic, topics skipped, and per-topic success/failure counts in the end-of-run summary. |
+
+**`csv` handler options**
+
+| Flag | Description |
+| --- | --- |
+| `--csv-batch-size N` | Rows buffered in memory before flushing to disk (default 1000). |
+
+**`image` handler options**
+
+| Flag | Description |
+| --- | --- |
+| `--image-encoding ENC` | Target *color* encoding for decoded images (default `bgr8`; e.g. `rgb8`, `mono8`). |
+| `--image-format FMT` | Output *file* format: `keep` \| `png` \| `jpg` \| `tiff` (default `keep`). `keep` preserves the source container (a `CompressedImage` keeps its compression, a raw `Image` is written as PNG); a specific format applies to every image topic (`png` avoids a lossy re-encode of compressed Bayer topics). |
 
 The storage plugin is inferred from the bag's `metadata.yaml`; if that file is
 missing or corrupted it is rebuilt with the rosbag2 reindexer and the storage id
@@ -121,8 +145,8 @@ lets it stay type-agnostic:
    data, and there is no reason to read (or decode) it just to learn columns.
 2. **`begin_write()`** — handlers apply the overwrite/resume policy.
 3. **Write pass** — `write()` is called once per message; handlers buffer and
-   flush in batches of `--batch-size`, so memory stays bounded no matter how
-   many messages a topic has.
+   flush in batches (the CSV handler's batch is sized by `--csv-batch-size`), so
+   memory stays bounded no matter how many messages a topic has.
 4. **`finish()`** — flush and close.
 
 **Interruption / resume.** Because output is flushed incrementally, an

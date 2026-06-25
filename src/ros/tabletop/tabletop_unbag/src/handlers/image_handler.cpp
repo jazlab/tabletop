@@ -24,6 +24,7 @@
 #include <cctype>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -152,6 +153,60 @@ std::string extension_for_compression(const std::string& compression_type, const
   return ".jpg";
 }
 
+/// Map an --image-format value to a file extension. "keep" returns "" (the
+/// caller keeps the source-derived extension). The value is assumed lowercased.
+std::string extension_for_image_format(const std::string& fmt)
+{
+  if (fmt.empty() || fmt == "keep")
+  {
+    return "";
+  }
+  if (fmt == "png")
+  {
+    return ".png";
+  }
+  if (fmt == "jpg" || fmt == "jpeg")
+  {
+    return ".jpg";
+  }
+  if (fmt == "tiff" || fmt == "tif")
+  {
+    return ".tiff";
+  }
+  std::cerr << "WARNING - Unknown --image-format '" << fmt << "'; keeping the source format.\n";
+  return "";
+}
+
+/// Parse the std_msgs/Header stamp (sec, nanosec) straight from the front of a
+/// CDR-serialized Image/CompressedImage buffer, without deserializing the
+/// payload. Layout: a 4-byte CDR encapsulation header (byte 1 selects
+/// endianness: the low bit set means little-endian PLAIN_CDR), then the message
+/// body 4-byte aligned. The first field is the Header's builtin_interfaces/Time
+/// { int32 sec; uint32 nanosec; }, so sec is at body offset 0 and nanosec at
+/// offset 4 -> absolute buffer offsets 4 and 8. Returns false if the buffer is
+/// too short to contain the stamp.
+bool parse_header_stamp(const rcutils_uint8_array_t& data, int32_t& sec, uint32_t& nanosec)
+{
+  if (data.buffer == nullptr || data.buffer_length < 12)
+  {
+    return false;
+  }
+  const uint8_t* b = data.buffer;
+  const bool little_endian = (b[1] & 0x01) != 0;
+  const auto read_u32 = [&](std::size_t off) -> uint32_t {
+    if (little_endian)
+    {
+      return static_cast<uint32_t>(b[off]) | (static_cast<uint32_t>(b[off + 1]) << 8) |
+             (static_cast<uint32_t>(b[off + 2]) << 16) | (static_cast<uint32_t>(b[off + 3]) << 24);
+    }
+    return (static_cast<uint32_t>(b[off]) << 24) | (static_cast<uint32_t>(b[off + 1]) << 16) |
+           (static_cast<uint32_t>(b[off + 2]) << 8) | static_cast<uint32_t>(b[off + 3]);
+  };
+  sec = static_cast<int32_t>(read_u32(4));
+  nanosec = read_u32(8);
+  return true;
+}
+
 /// Deserialize a concrete ROS message from a rosbag2 serialized buffer.
 template <typename MessageT>
 MessageT deserialize(const rcutils_uint8_array_t& data)
@@ -172,9 +227,46 @@ MessageT deserialize(const rcutils_uint8_array_t& data)
 ImageHandler::ImageHandler(TopicInfo topic, const std::string& output_dir, const UnbagOptions& options)
   : topic_(std::move(topic))
   , overwrite_(options.overwrite)
-  , image_encoding_(options.image_encoding.empty() ? "bgr8" : to_lower(options.image_encoding))
+  , image_encoding_(options.image.encoding.empty() ? "bgr8" : to_lower(options.image.encoding))
+  , image_format_(options.image.format.empty() ? "keep" : to_lower(options.image.format))
 {
   image_dir_ = fs::path(output_dir) / topic_to_basename(topic_.name);
+}
+
+uint64_t ImageHandler::note_for_write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
+{
+  (void)bag_time_ns;
+  int32_t sec = 0;
+  uint32_t nanosec = 0;
+  if (!parse_header_stamp(data, sec, nanosec))
+  {
+    // Can't read the stamp (malformed/short buffer); treat as a first
+    // occurrence. write() will deserialize and decide the name from the real
+    // stamp, so at worst this misses disambiguating a corrupt message.
+    return 0;
+  }
+  // Pack the stamp into its nanosecond value as a unique per-stamp key.
+  const int64_t key = static_cast<int64_t>(sec) * 1000000000LL + static_cast<int64_t>(nanosec);
+  const uint64_t occurrence = stamp_counts_[key]++;
+  if (occurrence >= 1)
+  {
+    duplicates_.fetch_add(1, std::memory_order_relaxed);
+  }
+  return occurrence;
+}
+
+std::string ImageHandler::make_basename(int32_t sec, uint32_t nanosec, uint64_t occurrence)
+{
+  std::string base = std::to_string(sec) + "_" + std::to_string(nanosec);
+  if (occurrence == 0)
+  {
+    // First (or only) frame at this stamp keeps the plain name. '.' sorts before
+    // '_', so it lexicographically precedes any duplicate suffix below.
+    return base;
+  }
+  std::ostringstream out;
+  out << base << "_" << std::setw(6) << std::setfill('0') << occurrence;
+  return out.str();
 }
 
 void ImageHandler::begin_write()
@@ -267,9 +359,11 @@ bool write_image_atomic(const fs::path& path, const std::string& extension, cons
 
 }  // namespace
 
-void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
+void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, uint64_t write_index)
 {
   (void)bag_time_ns;
+  // write_index is the per-stamp occurrence index assigned by note_for_write()
+  // in bag order; it disambiguates frames that share a header stamp.
 
   // Decode just enough to find the timestamp first, so a resume can skip an
   // already-saved image without paying for the pixel decode.
@@ -282,12 +376,16 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
     if (topic_.type == "sensor_msgs/msg/CompressedImage")
     {
       const auto msg = deserialize<sensor_msgs::msg::CompressedImage>(data);
-      basename = std::to_string(msg.header.stamp.sec) + "_" + std::to_string(msg.header.stamp.nanosec);
+      basename = make_basename(msg.header.stamp.sec, msg.header.stamp.nanosec, write_index);
 
       const auto [original_encoding, compressed_encoding, compression_type] = parse_compressed_image_format(msg.format);
       (void)original_encoding;
       const std::string src = to_lower(compressed_encoding);
       extension = extension_for_compression(compression_type, msg.format);
+      if (const std::string fmt_ext = extension_for_image_format(image_format_); !fmt_ext.empty())
+      {
+        extension = fmt_ext;  // --image-format overrides the source container
+      }
 
       if (!overwrite_ && fs::exists(image_dir_ / (basename + extension)))
       {
@@ -322,8 +420,12 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
     else  // sensor_msgs/msg/Image
     {
       const auto msg = deserialize<sensor_msgs::msg::Image>(data);
-      basename = std::to_string(msg.header.stamp.sec) + "_" + std::to_string(msg.header.stamp.nanosec);
+      basename = make_basename(msg.header.stamp.sec, msg.header.stamp.nanosec, write_index);
       extension = ".png";  // lossless default for raw images
+      if (const std::string fmt_ext = extension_for_image_format(image_format_); !fmt_ext.empty())
+      {
+        extension = fmt_ext;  // --image-format overrides the default
+      }
 
       if (!overwrite_ && fs::exists(image_dir_ / (basename + extension)))
       {

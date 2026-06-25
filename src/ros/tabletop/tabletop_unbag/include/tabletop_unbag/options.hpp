@@ -36,8 +36,40 @@ struct TopicInfo
   std::string type;  ///< e.g. "sensor_msgs/msg/JointState"
 };
 
+/// Options specific to the CSV handler. Surfaced on the command line under the
+/// `--csv-*` namespace (see main.cpp) and reflected here so handler-specific
+/// settings are grouped together rather than mixed into the top-level options.
+struct CsvOptions
+{
+  /// Number of rows the CSV handler buffers in memory before flushing to disk.
+  /// Bounds peak memory and how much work an interruption can lose.
+  std::size_t batch_size = 1000;
+};
+
+/// Options specific to the image handler. Surfaced under the `--image-*`
+/// namespace (see main.cpp).
+struct ImageOptions
+{
+  /// Target OpenCV/ROS *color* encoding for decoded images (e.g. "bgr8",
+  /// "rgb8", "mono8").
+  std::string encoding = "bgr8";
+
+  /// Output *file* format for saved images:
+  ///   "keep" - preserve the source container: a CompressedImage keeps its own
+  ///            compression (.jpg/.png/.tiff) and a raw Image is written as PNG
+  ///            (lossless). This is the default.
+  ///   "png"  - write every image as PNG (lossless; good for avoiding a
+  ///            lossy-on-lossy re-encode of compressed Bayer topics).
+  ///   "jpg"/"jpeg" - write every image as JPEG.
+  ///   "tiff" - write every image as TIFF.
+  /// A specific format applies to all image topics regardless of their source.
+  std::string format = "keep";
+};
+
 /// Options controlling an unbag run. Populated from the command line (main.cpp)
-/// and passed down to the handlers.
+/// and passed down to the handlers. Run-wide options live at the top level;
+/// options that only affect one handler live in the per-handler sub-structs
+/// (`csv`, `image`) so the grouping is explicit in code and on the CLI.
 struct UnbagOptions
 {
   /// Whitelist of topics to unbag. Mutually exclusive with exclude_topics;
@@ -57,10 +89,6 @@ struct UnbagOptions
   /// interrupted run left off.
   bool overwrite = false;
 
-  /// Number of messages a handler buffers in memory before flushing to disk.
-  /// Bounds peak memory and how much work an interruption can lose.
-  std::size_t batch_size = 1000;
-
   /// Number of worker threads in the shared pool that decodes images (and any
   /// other per-message-parallel handler). 0 means "auto" (hardware
   /// concurrency). Each CSV topic additionally gets its own consumer thread.
@@ -74,10 +102,6 @@ struct UnbagOptions
   /// bag-dependent and is left for the user to tune empirically.
   int opencv_threads = 1;
 
-  /// Target OpenCV/ROS encoding for saved images (e.g. "bgr8", "rgb8",
-  /// "mono8"). Only used by the image handler.
-  std::string image_encoding = "bgr8";
-
   /// Override for the storage plugin id (e.g. "mcap"). std::nullopt means
   /// "infer from the bag metadata" (reindexing the bag first if metadata.yaml
   /// is missing, then falling back to the installed default storage plugin).
@@ -85,6 +109,10 @@ struct UnbagOptions
 
   /// Emit extra per-topic logging.
   bool verbose = false;
+
+  /// Per-handler option groups.
+  CsvOptions csv;
+  ImageOptions image;
 };
 
 }  // namespace tabletop_unbag

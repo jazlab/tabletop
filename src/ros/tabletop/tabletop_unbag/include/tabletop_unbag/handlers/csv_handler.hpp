@@ -89,7 +89,7 @@ public:
   void prepare() override;
   void preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
   void begin_write() override;
-  void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
+  void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, uint64_t write_index) override;
   void finish() override;
 
   /// Rows flattened+written vs rows dropped (a message that failed to flatten).

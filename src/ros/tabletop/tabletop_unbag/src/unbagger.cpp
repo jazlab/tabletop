@@ -75,6 +75,15 @@ extern "C" void handle_stop_signal(int /*signum*/)
 
 using MsgPtr = std::shared_ptr<rosbag2_storage::SerializedBagMessage>;
 
+/// A message paired with the write index note_for_write() assigned it on the
+/// reader thread (in bag order). It is 0 in the preprocess pass, which does not
+/// call note_for_write().
+struct WorkItem
+{
+  MsgPtr msg;
+  uint64_t write_index = 0;
+};
+
 /// Which lifecycle method a pass invokes on its handlers.
 enum class PassKind
 {
@@ -82,15 +91,15 @@ enum class PassKind
   Write,
 };
 
-void process_one(MessageHandler* handler, const MsgPtr& msg, PassKind kind)
+void process_one(MessageHandler* handler, const WorkItem& item, PassKind kind)
 {
   if (kind == PassKind::Preprocess)
   {
-    handler->preprocess(*msg->serialized_data, msg->recv_timestamp);
+    handler->preprocess(*item.msg->serialized_data, item.msg->recv_timestamp);
   }
   else
   {
-    handler->write(*msg->serialized_data, msg->recv_timestamp);
+    handler->write(*item.msg->serialized_data, item.msg->recv_timestamp, item.write_index);
   }
 }
 
@@ -240,13 +249,13 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
   constexpr std::size_t kSerialQueueCap = 1024;
 
   // Per-topic serial queues and their consumer threads.
-  std::unordered_map<std::string, std::unique_ptr<ConcurrentQueue<MsgPtr>>> serial_queues;
+  std::unordered_map<std::string, std::unique_ptr<ConcurrentQueue<WorkItem>>> serial_queues;
   std::vector<std::thread> serial_threads;
   serial_threads.reserve(serial_handlers.size());
   for (const auto& [topic, handler] : serial_handlers)
   {
-    auto queue = std::make_unique<ConcurrentQueue<MsgPtr>>(kSerialQueueCap);
-    ConcurrentQueue<MsgPtr>* q = queue.get();
+    auto queue = std::make_unique<ConcurrentQueue<WorkItem>>(kSerialQueueCap);
+    ConcurrentQueue<WorkItem>* q = queue.get();
     serial_queues.emplace(topic, std::move(queue));
     serial_threads.emplace_back([q, handler, kind] {
       while (auto item = q->pop())
@@ -257,7 +266,7 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
   }
 
   // Shared pool for per-message-parallel handlers.
-  using PoolTask = std::pair<MessageHandler*, MsgPtr>;
+  using PoolTask = std::pair<MessageHandler*, WorkItem>;
   const std::size_t pool_cap = std::max<std::size_t>(64, pool_workers * 4);
   ConcurrentQueue<PoolTask> pool_queue(pool_cap);
   std::vector<std::thread> pool_threads;
@@ -297,13 +306,28 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
     const auto sit = serial_queues.find(msg->topic_name);
     if (sit != serial_queues.end())
     {
-      sit->second->push(msg);
+      // note_for_write() runs here, on the reader, in bag order; the write pass
+      // hands its return value back to write(). Serial handlers process in order
+      // and don't need it, but the call is uniform (and a cheap default).
+      uint64_t write_index = 0;
+      if (kind == PassKind::Write)
+      {
+        write_index = serial_handlers.at(msg->topic_name)->note_for_write(*msg->serialized_data, msg->recv_timestamp);
+      }
+      sit->second->push(WorkItem{ std::move(msg), write_index });
       continue;
     }
     const auto pit = pool_handlers.find(msg->topic_name);
     if (pit != pool_handlers.end())
     {
-      pool_queue.push(PoolTask{ pit->second, std::move(msg) });
+      // The pool processes images out of bag order, so the write index that
+      // disambiguates same-stamp frames must be assigned here, in bag order.
+      uint64_t write_index = 0;
+      if (kind == PassKind::Write)
+      {
+        write_index = pit->second->note_for_write(*msg->serialized_data, msg->recv_timestamp);
+      }
+      pool_queue.push(PoolTask{ pit->second, WorkItem{ std::move(msg), write_index } });
     }
   }
   bar.close();
@@ -555,18 +579,26 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   // with the fully-successful topics summarized in one line unless --verbose.
   HandlerStats totals;
   std::size_t topics_with_failures = 0;
+  std::size_t total_duplicates = 0;
   for (const auto& [topic, handler] : handlers)
   {
     const HandlerStats s = handler->stats();
+    const std::size_t dups = handler->duplicate_count();
     totals.succeeded += s.succeeded;
     totals.failed += s.failed;
+    total_duplicates += dups;
     if (s.failed != 0)
     {
       ++topics_with_failures;
     }
-    if (s.failed != 0 || options.verbose)
+    if (s.failed != 0 || dups != 0 || options.verbose)
     {
-      std::cerr << "  " << topic << ": " << s.succeeded << " ok, " << s.failed << " failed\n";
+      std::cerr << "  " << topic << ": " << s.succeeded << " ok, " << s.failed << " failed";
+      if (dups != 0)
+      {
+        std::cerr << ", " << dups << " duplicate-stamp frame(s) renamed";
+      }
+      std::cerr << "\n";
     }
   }
   std::cerr << "Messages: " << totals.succeeded << " unbagged, " << totals.failed << " failed across "
@@ -574,6 +606,10 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   if (topics_with_failures != 0)
   {
     std::cerr << " (" << topics_with_failures << " topic(s) had failures)";
+  }
+  if (total_duplicates != 0)
+  {
+    std::cerr << "; " << total_duplicates << " duplicate-stamp frame(s) renamed";
   }
   std::cerr << ".\n";
 

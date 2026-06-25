@@ -43,7 +43,7 @@ void print_usage(const char* argv0)
                "Positional arguments:\n"
                "  BAG_DIR                 Directory containing the bag (its .mcap files and\n"
                "                          metadata.yaml).\n\n"
-               "Options:\n"
+               "Common options:\n"
                "  -o, --output-dir DIR    Where to write outputs.\n"
                "                          Default: <parent of BAG_DIR>/unbag\n"
                "  --handlers H [H ...]    Handlers to enable (e.g. csv image). Topics whose\n"
@@ -56,8 +56,6 @@ void print_usage(const char* argv0)
                "  --overwrite             Delete previously unbagged output for the selected\n"
                "                          topics before writing. Without it, an interrupted\n"
                "                          run resumes where it left off.\n"
-               "  --batch-size N          Messages buffered in memory before flushing to\n"
-               "                          disk (default 1000).\n"
                "  --jobs N                Worker threads for the shared image-decoding pool\n"
                "                          (default: number of hardware threads). Each CSV\n"
                "                          topic also runs on its own consumer thread.\n"
@@ -65,12 +63,22 @@ void print_usage(const char* argv0)
                "                          (default 1). We already parallelize across images\n"
                "                          via --jobs, so 1 avoids oversubscribing cores; tune\n"
                "                          against --jobs on your machine. 0 lets OpenCV pick.\n"
-               "  --image-encoding ENC    Target encoding for saved images (default bgr8).\n"
                "  --storage-id ID         Storage plugin override (default: inferred from the\n"
                "                          bag metadata, reindexing first if metadata.yaml is\n"
                "                          missing; fallback to the installed default plugin).\n"
                "  -v, --verbose           Increase logging verbosity.\n"
-               "  -h, --help              Show this help message and exit.\n";
+               "  -h, --help              Show this help message and exit.\n\n"
+               "csv handler options:\n"
+               "  --csv-batch-size N      Rows buffered in memory before flushing to disk\n"
+               "                          (default 1000).\n\n"
+               "image handler options:\n"
+               "  --image-encoding ENC    Target color encoding for decoded images\n"
+               "                          (default bgr8; e.g. rgb8, mono8).\n"
+               "  --image-format FMT      Output file format: keep|png|jpg|tiff (default\n"
+               "                          keep). keep preserves the source container\n"
+               "                          (compressed keeps its format, raw -> png); a\n"
+               "                          specific format applies to all image topics (png\n"
+               "                          avoids a lossy re-encode of compressed topics).\n";
 }
 
 /// Consume the values following a list-valued flag, stopping at the next flag
@@ -147,7 +155,7 @@ int main(int argc, char** argv)
     {
       options.overwrite = true;
     }
-    else if (arg == "--batch-size")
+    else if (arg == "--csv-batch-size")
     {
       if (i + 1 >= argc)
       {
@@ -161,11 +169,11 @@ int main(int argc, char** argv)
         {
           throw std::out_of_range("batch size must be positive");
         }
-        options.batch_size = static_cast<std::size_t>(value);
+        options.csv.batch_size = static_cast<std::size_t>(value);
       }
       catch (const std::exception&)
       {
-        std::cerr << "ERROR - --batch-size requires a positive integer\n";
+        std::cerr << "ERROR - --csv-batch-size requires a positive integer\n";
         return 2;
       }
     }
@@ -221,7 +229,16 @@ int main(int argc, char** argv)
         std::cerr << "ERROR - " << arg << " requires a value\n";
         return 2;
       }
-      options.image_encoding = argv[++i];
+      options.image.encoding = argv[++i];
+    }
+    else if (arg == "--image-format")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      options.image.format = argv[++i];
     }
     else if (arg == "--storage-id")
     {

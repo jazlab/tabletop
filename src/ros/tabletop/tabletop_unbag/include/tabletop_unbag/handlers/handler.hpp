@@ -117,8 +117,30 @@ public:
   {
   }
 
+  /// Called by the reader thread in bag order, once per message in the write
+  /// pass, immediately before the message is dispatched to write(). It returns
+  /// an opaque per-message index that is handed back to write() unchanged.
+  ///
+  /// This exists because a parallelizable handler's write() runs on a shared
+  /// pool out of bag order, so it cannot derive anything that depends on order.
+  /// The image handler uses it to assign each message a per-timestamp
+  /// "occurrence index" (in receive-time order) so that frames sharing a header
+  /// stamp get distinct, order-preserving filenames. Handlers that need no such
+  /// index leave the default, which returns 0.
+  ///
+  /// Runs single-threaded on the reader, so an implementation may keep
+  /// unsynchronized state here; the returned value travels with the message and
+  /// is the only thing write() sees.
+  virtual uint64_t note_for_write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
+  {
+    (void)data;
+    (void)bag_time_ns;
+    return 0;
+  }
+
   /// Phase 2: write one message (typically buffered, flushed in batches).
-  virtual void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns) = 0;
+  /// `write_index` is the value note_for_write() returned for this message.
+  virtual void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, uint64_t write_index) = 0;
 
   /// Flush any buffered data and close outputs.
   virtual void finish()
@@ -134,6 +156,15 @@ public:
   virtual HandlerStats stats() const
   {
     return {};
+  }
+
+  /// Number of messages this handler wrote under a disambiguated name because
+  /// they collided with an earlier message (e.g. images sharing a header
+  /// stamp). 0 for handlers without such collisions. Reported in the run
+  /// summary; read after the write pass has joined its workers.
+  virtual std::size_t duplicate_count() const
+  {
+    return 0;
   }
 };
 

@@ -378,7 +378,7 @@ std::optional<std::size_t> inspect_existing_csv(const fs::path& path, const std:
 CsvHandler::CsvHandler(TopicInfo topic, const std::string& output_dir, const UnbagOptions& options)
   : topic_(std::move(topic))
   , overwrite_(options.overwrite)
-  , batch_size_(options.batch_size == 0 ? 1 : options.batch_size)
+  , batch_size_(options.csv.batch_size == 0 ? 1 : options.csv.batch_size)
 {
   csv_path_ = fs::path(output_dir) / (topic_to_basename(topic_.name) + ".csv");
   // bag_time_ns is always the first column.
@@ -522,8 +522,12 @@ void CsvHandler::flush_batch()
   batch_.clear();
 }
 
-void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
+void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, uint64_t write_index)
 {
+  // The CSV handler writes one row per message in bag order on its own consumer
+  // thread, so it does not need the reader-assigned write index.
+  (void)write_index;
+
   if (skip_rows_ > 0)
   {
     // Row already on disk from a previous run; skip to resume.
