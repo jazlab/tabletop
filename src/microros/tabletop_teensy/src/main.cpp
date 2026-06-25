@@ -289,7 +289,7 @@ bool sync_pulse_state;
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
 
-// --- ISR-shared debounce variables (volatile; access guarded by noInterrupts/interrupts) ---
+// --- ISR/timer-shared debounce variables (volatile) ---
 // NOTE: all ISR-latched timestamps are raw monotonic microseconds from
 // micros() (a single 32-bit hardware read, which is atomic on the Cortex-M7
 // and therefore interrupt-safe). The previous design latched the
@@ -302,30 +302,60 @@ builtin_interfaces__msg__Time sync_pulse_last_time_off;
 // micros() wraps every ~71.6 minutes; all comparisons below use unsigned
 // 32-bit subtraction so deltas remain correct across a single wrap.
 //
+// Ownership (who may read/write each variable):
+//   *_last_bounce_us  -- written by the ISR on every edge; read by the timer.
+//   *_last_event_us   -- written by the ISR only on a genuine onset edge (see
+//                        below); read by the timer. Both are snapshotted under
+//                        noInterrupts() in the timer.
+//   *_last_event_seq  -- bumped by the ISR on every onset; lets the timer detect
+//                        a new event and (re)compute the published epoch
+//                        timestamp exactly once per event instead of every tick.
+//   *_raw_state       -- ISR-private: the instantaneous (pre-debounce) pin level,
+//                        used to detect the not-active -> active onset edge.
+//   *_state_stable    -- timer-private after init: the debounced level. The ISR
+//                        no longer reads it (it uses *_raw_state instead), so the
+//                        timer can update it WITHOUT disabling interrupts.
+//
+// Onset detection (fixes the prior bug where every bounce edge overwrote
+// *_last_event_us, leaving it on the LAST bounce -- off by up to a bounce/tick
+// period): the ISR latches *_last_event_us only when the pin reads active, was
+// not already active (*_raw_state), AND the line had been quiet for at least the
+// debounce window (now_us - *_last_bounce_us >= DEBOUNCE_DELAY_US). The quiet-
+// before test is what rejects the rapid re-entries within a single bounce; only
+// the first edge of a genuinely new activation passes it. Only the two published
+// event timestamps (safety laser, button) carry event/raw/seq state; the arm
+// locks expose only a debounced boolean, so they keep just *_last_bounce_us.
+
 // Safety laser (SAFETY_LASER_STATE_PIN)
-// safety_laser_last_event_us: micros() when the beam was last newly broken
+// safety_laser_last_event_us: micros() when the beam was last newly broken (onset)
 volatile uint32_t safety_laser_last_event_us;
+// safety_laser_last_event_seq: ++ on each new break; drives the publish-time cache
+volatile uint32_t safety_laser_last_event_seq;
 // safety_laser_last_bounce_us: micros() of the most recent ISR call (any edge)
 volatile uint32_t safety_laser_last_bounce_us;
+// safety_laser_raw_state: ISR-private instantaneous pin level (pre-debounce)
+volatile uint8_t safety_laser_raw_state;
 // safety_laser_state_stable: debounced pin level after DEBOUNCE_DELAY quiet time
 volatile uint8_t safety_laser_state_stable;
 
 // Left arm restraint (LEFT_ARM_LOCK_STATE_PIN)
-// left_arm_last_event_us: micros() when arm was last newly seated
-volatile uint32_t left_arm_last_event_us;
 volatile uint32_t left_arm_last_bounce_us;
 volatile uint8_t left_arm_state_stable;
 
 // Right arm restraint (RIGHT_ARM_LOCK_STATE_PIN)
-// right_arm_last_event_us: micros() when arm was last newly seated
-volatile uint32_t right_arm_last_event_us;
 volatile uint32_t right_arm_last_bounce_us;
 volatile uint8_t right_arm_state_stable;
 
 // Response button (BUTTON_STATE_PIN)
-// button_last_event_us: micros() when button was last newly pressed
+// button_last_event_us: micros() when button was last newly pressed (onset)
 volatile uint32_t button_last_event_us;
+// button_last_event_seq: ++ on each new press; drives the publish-time cache
+volatile uint32_t button_last_event_seq;
+// button_last_bounce_us: micros() of the most recent ISR call (any edge)
 volatile uint32_t button_last_bounce_us;
+// button_raw_state: ISR-private instantaneous pin level (pre-debounce)
+volatile uint8_t button_raw_state;
+// button_state_stable: debounced pin level after DEBOUNCE_DELAY quiet time
 volatile uint8_t button_state_stable;
 
 // =============================================================================
@@ -479,52 +509,52 @@ static void camera_trigger_toggle_isr()
 }
 
 // safety_laser_broken_isr: CHANGE ISR for SAFETY_LASER_STATE_PIN.
-// Latches the monotonic micros() of any edge; also latches
-// safety_laser_last_event_us only on the first transition into the broken state.
-// micros() is a single 32-bit hardware read (atomic, interrupt-safe). The
-// conversion to ROS-epoch time happens in sensor_timer_callback(), outside any
-// ISR, so the (non-interrupt-safe) epoch sync can never be observed mid-update.
+// Latches the raw micros() of every edge (safety_laser_last_bounce_us) for the
+// debounce/window math, and latches safety_laser_last_event_us only on a genuine
+// onset: the pin now reads broken, was not already broken (safety_laser_raw_state),
+// and the line had been quiet for at least the debounce window. digitalReadFast()
+// is a single register read, so it is atomic and ISR-safe. The micros()->epoch
+// conversion happens in sensor_timer_callback(), outside any ISR, so the
+// (non-interrupt-safe) epoch sync can never be observed mid-update.
 static void safety_laser_broken_isr()
 {
   uint32_t now_us = micros();
-  if (safety_laser_state_stable != SAFETY_LASER_BROKEN_STATE)
+  uint8_t raw = digitalReadFast(SAFETY_LASER_STATE_PIN);
+  if (raw == SAFETY_LASER_BROKEN_STATE && safety_laser_raw_state != SAFETY_LASER_BROKEN_STATE &&
+      (now_us - safety_laser_last_bounce_us) >= DEBOUNCE_DELAY_US)
   {
     safety_laser_last_event_us = now_us;
+    safety_laser_last_event_seq++;
   }
+  safety_laser_raw_state = raw;
   safety_laser_last_bounce_us = now_us;
 }
-// left_arm_locked_isr: CHANGE ISR for LEFT_ARM_LOCK_STATE_PIN.
-// Latches the monotonic micros() of every edge; also latches left_arm_last_event_us
-// on the first transition into the locked (LOW) state.
+// left_arm_locked_isr: CHANGE ISR for LEFT_ARM_LOCK_STATE_PIN. Only the most
+// recent edge time is needed -- the arm-lock boolean is derived from the
+// debounced state in the timer and there is no published arm event timestamp.
 static void left_arm_locked_isr()
 {
-  uint32_t now_us = micros();
-  if (left_arm_state_stable != LEFT_ARM_LOCKED_STATE)
-  {
-    left_arm_last_event_us = now_us;
-  }
-  left_arm_last_bounce_us = now_us;
+  left_arm_last_bounce_us = micros();
 }
-// right_arm_locked_isr: CHANGE ISR for RIGHT_ARM_LOCK_STATE_PIN. Same pattern as left_arm_locked_isr.
+// right_arm_locked_isr: CHANGE ISR for RIGHT_ARM_LOCK_STATE_PIN. Same as left.
 static void right_arm_locked_isr()
 {
-  uint32_t now_us = micros();
-  if (right_arm_state_stable != RIGHT_ARM_LOCKED_STATE)
-  {
-    right_arm_last_event_us = now_us;
-  }
-  right_arm_last_bounce_us = now_us;
+  right_arm_last_bounce_us = micros();
 }
-// button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN.
-// Latches the monotonic micros() of every edge; also latches button_last_event_us
-// on the first transition into the pressed (LOW) state.
+// button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN. Same onset pattern as
+// safety_laser_broken_isr: latch button_last_event_us only on a genuine press
+// onset, after the line has been quiet for the debounce window.
 static void button_pressed_isr()
 {
   uint32_t now_us = micros();
-  if (button_state_stable != BUTTON_PRESSED_STATE)
+  uint8_t raw = digitalReadFast(BUTTON_STATE_PIN);
+  if (raw == BUTTON_PRESSED_STATE && button_raw_state != BUTTON_PRESSED_STATE &&
+      (now_us - button_last_bounce_us) >= DEBOUNCE_DELAY_US)
   {
     button_last_event_us = now_us;
+    button_last_event_seq++;
   }
+  button_raw_state = raw;
   button_last_bounce_us = now_us;
 }
 
@@ -606,7 +636,10 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     int64_t now_mono_ns = monotonic_nanos();
     int64_t now_epoch_ns = rmw_uros_epoch_nanos();
 
-    // Snapshot the ISR-latched micros() timestamps with interrupts disabled.
+    // Critical section: snapshot only the ISR-written latches. With the ISRs now
+    // tracking their own raw state, *_state_stable is no longer shared with any
+    // ISR, so the debounce update below runs OUTSIDE this block -- keeping the
+    // interrupts-disabled window down to a handful of word reads.
     noInterrupts();
     uint32_t safety_laser_bounce_us = safety_laser_last_bounce_us;
     uint32_t left_arm_bounce_us = left_arm_last_bounce_us;
@@ -614,10 +647,15 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     uint32_t button_bounce_us = button_last_bounce_us;
     uint32_t safety_laser_event_us = safety_laser_last_event_us;
     uint32_t button_event_us = button_last_event_us;
+    uint32_t safety_laser_event_seq = safety_laser_last_event_seq;
+    uint32_t button_event_seq = button_last_event_seq;
+    interrupts();
 
     // Update stable sensor state once the pin has been quiet for the debounce
     // delay. Elapsed time is computed in the micros() domain with unsigned
     // 32-bit subtraction, which is correct across a single micros() rollover.
+    // *_state_stable is touched only here (and once at init), so it needs no
+    // interrupt guard.
     uint32_t us_since_safety_laser_bounced = now_us - safety_laser_bounce_us;
     uint32_t us_since_left_arm_bounced = now_us - left_arm_bounce_us;
     uint32_t us_since_right_arm_bounced = now_us - right_arm_bounce_us;
@@ -642,7 +680,6 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     uint8_t left_arm_state_stable_snapshot = left_arm_state_stable;
     uint8_t right_arm_state_stable_snapshot = right_arm_state_stable;
     uint8_t button_state_stable_snapshot = button_state_stable;
-    interrupts();
 
     // Widening window: catch a transition that bounced AND resolved between two
     // sensor ticks. We compare the per-pin "time since last bounce" (already in
@@ -669,15 +706,39 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
         (right_arm_state_stable_snapshot == RIGHT_ARM_LOCKED_STATE) && (us_since_right_arm_bounced > window_us);
     sensor_msg.is_button_pressed = button_state_stable_snapshot == BUTTON_PRESSED_STATE;
 
-    // Safety laser/button last time broken/pressed: convert the monotonic
-    // micros() event latches to ROS-epoch time outside the ISR, using the
-    // now_epoch_ns / now_mono_ns pair sampled above as a common anchor.
-    int64_t safety_laser_last_time_broken_ns =
-        now_epoch_ns - (now_mono_ns - us_latch_to_monotonic_ns(safety_laser_event_us, now_us, now_mono_ns));
-    int64_t button_last_time_pressed_ns =
-        now_epoch_ns - (now_mono_ns - us_latch_to_monotonic_ns(button_event_us, now_us, now_mono_ns));
-    NS_TO_ROS_TIME(sensor_msg.safety_laser_last_time_broken, safety_laser_last_time_broken_ns);
-    NS_TO_ROS_TIME(sensor_msg.button_last_time_pressed, button_last_time_pressed_ns);
+    // Safety laser/button last time broken/pressed. The micros()->ROS-epoch
+    // conversion is computed ONCE per event and cached: recomputing it every tick
+    // (as before) made the nanosec field jitter by up to ~1 ms while idle, because
+    // now_us and now_mono_ns are sampled at slightly different instants with
+    // different quantization, so the reconstructed absolute time wobbled cycle to
+    // cycle. We detect a new event via the ISR-incremented sequence counter, then
+    // back-date it to its true micros() instant against the now_epoch_ns /
+    // now_mono_ns anchor; between events the cached value is republished verbatim,
+    // so the timestamp stays byte-identical until a real event occurs. reset_state
+    // bumps the sequence on every (re)connect, forcing a recompute against the
+    // freshly synchronized epoch.
+    static uint32_t cached_safety_laser_event_seq = 0;
+    static int64_t cached_safety_laser_last_time_broken_ns = 0;
+    static bool cached_safety_laser_valid = false;
+    if (!cached_safety_laser_valid || safety_laser_event_seq != cached_safety_laser_event_seq)
+    {
+      cached_safety_laser_last_time_broken_ns =
+          now_epoch_ns - (now_mono_ns - us_latch_to_monotonic_ns(safety_laser_event_us, now_us, now_mono_ns));
+      cached_safety_laser_event_seq = safety_laser_event_seq;
+      cached_safety_laser_valid = true;
+    }
+    static uint32_t cached_button_event_seq = 0;
+    static int64_t cached_button_last_time_pressed_ns = 0;
+    static bool cached_button_valid = false;
+    if (!cached_button_valid || button_event_seq != cached_button_event_seq)
+    {
+      cached_button_last_time_pressed_ns =
+          now_epoch_ns - (now_mono_ns - us_latch_to_monotonic_ns(button_event_us, now_us, now_mono_ns));
+      cached_button_event_seq = button_event_seq;
+      cached_button_valid = true;
+    }
+    NS_TO_ROS_TIME(sensor_msg.safety_laser_last_time_broken, cached_safety_laser_last_time_broken_ns);
+    NS_TO_ROS_TIME(sensor_msg.button_last_time_pressed, cached_button_last_time_pressed_ns);
 
     // Populate remaining sensor message
     GET_CURRENT_ROS_TIME(sensor_msg.header.stamp);
@@ -1026,17 +1087,25 @@ void reset_state()
   uint32_t now_us = micros();
   safety_laser_last_event_us = now_us;
   safety_laser_last_bounce_us = now_us;
-  left_arm_last_event_us = now_us;
   left_arm_last_bounce_us = now_us;
-  right_arm_last_event_us = now_us;
   right_arm_last_bounce_us = now_us;
   button_last_event_us = now_us;
   button_last_bounce_us = now_us;
 
-  safety_laser_state_stable = digitalReadFast(SAFETY_LASER_STATE_PIN);
+  // Bump the event sequence so the first publish of each (re)connect recomputes
+  // the cached epoch timestamp against the freshly synchronized ROS clock rather
+  // than republishing a value anchored to a stale sync.
+  safety_laser_last_event_seq++;
+  button_last_event_seq++;
+
+  // Seed both the ISR-private raw state and the debounced state from the live pin
+  // level so the first edge is judged against the real starting level.
+  safety_laser_raw_state = digitalReadFast(SAFETY_LASER_STATE_PIN);
+  button_raw_state = digitalReadFast(BUTTON_STATE_PIN);
+  safety_laser_state_stable = safety_laser_raw_state;
   left_arm_state_stable = digitalReadFast(LEFT_ARM_LOCK_STATE_PIN);
   right_arm_state_stable = digitalReadFast(RIGHT_ARM_LOCK_STATE_PIN);
-  button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
+  button_state_stable = button_raw_state;
   interrupts();
 }
 
