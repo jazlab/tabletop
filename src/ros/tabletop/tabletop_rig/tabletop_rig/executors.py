@@ -428,12 +428,14 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
         completes, then spins with a wait condition that checks the future.
 
         When the wait condition is met, ``_spin_impl`` raises
-        ``ConditionReachedException`` (and the surrounding TaskGroup re-raises
-        it as an ``ExceptionGroup``). That is the executor's normal way of
-        signalling "the future you waited for is done", so this method swallows
-        it and returns cleanly. A wrapped ``TimeoutException`` is normalised to
-        a plain ``TimeoutError`` so callers get the documented behaviour. Any
-        other exception is re-raised unchanged.
+        ``ConditionReachedException`` -- bare in the base variant, or wrapped
+        in an ``ExceptionGroup`` by the optimized variant's ``TaskGroup``.
+        That is the executor's normal way of signalling "the future you waited
+        for is done", so ``except*`` swallows it -- it matches both the bare
+        and grouped forms -- and the method returns cleanly. A
+        ``TimeoutException`` is normalised to a plain ``TimeoutError``; any
+        genuine exception is unmatched by the handlers and propagates
+        unchanged.
 
         Args:
             future: The ROS Future to wait for.
@@ -449,27 +451,20 @@ class _BaseAIOExecutor(Executor, metaclass=abc.ABCMeta):
                 timeout_sec=timeout_sec,
                 wait_condition=lambda: future.done() or future.cancelled(),
             )
-        except ConditionReachedException:
-            # The future completed; this is the expected exit path.
+        except* ConditionReachedException:
+            # The future completed; this is the expected exit path. ``except*``
+            # matches the signal whether it arrives bare or wrapped in a group,
+            # and any unmatched remainder keeps propagating. (No ``return``
+            # here: ``return`` is a syntax error inside ``except*``; falling
+            # through returns ``None`` all the same.)
             pass
-        except TimeoutException as e:
-            raise TimeoutError("spin_until_future_complete timed out") from e
-        except BaseExceptionGroup as eg:
-            # The spin TaskGroup wraps the terminating exception(s). Peel off
-            # the benign ConditionReachedException signals first, then handle a
-            # timeout, then re-raise anything genuine that remains.
-            _, rest = eg.split(ConditionReachedException)
-            if rest is None:
-                # Only condition signals: the future is done. Return cleanly.
-                return
-            timeouts, others = rest.split(TimeoutException)
-            if others is not None:
-                # Genuine exception(s) occurred; propagate them unchanged.
-                raise others
-            if timeouts is not None:
-                raise TimeoutError(
-                    "spin_until_future_complete timed out"
-                ) from timeouts
+        except* TimeoutException:
+            # Normalise to the documented plain ``TimeoutError``. A genuine
+            # exception raised alongside the timeout is unmatched and still
+            # propagates.
+            raise TimeoutError(
+                "spin_until_future_complete timed out"
+            ) from None
 
 
 class _AIOExecutor(_BaseAIOExecutor):
