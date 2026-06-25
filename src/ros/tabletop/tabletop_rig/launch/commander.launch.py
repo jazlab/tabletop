@@ -35,8 +35,6 @@ Example:
     ros2 launch tabletop_rig commander.launch.py robot_mode:=mock
 """
 
-import os
-
 import yaml
 from launch import (
     LaunchContext,
@@ -151,14 +149,6 @@ def declare_arguments():
             default_value="false",
             description="Whether to debug the commander",
             choices=["true", "false"],
-        ),
-        # ROS Warehouse
-        DeclareLaunchArgument(
-            "warehouse_sqlite_path",
-            default_value=os.path.join(
-                os.environ["TABLETOP_DIR"], "cache", "warehouse_ros.sqlite"
-            ),
-            description="Path where the warehouse database should be stored",
         ),
         # Commander sigterm timeout
         DeclareLaunchArgument(
@@ -296,7 +286,11 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
             mappings={"name": robot_name},
         )
         .planning_scene_monitor(
-            # publish_robot_description=True,
+            publish_planning_scene=True,
+            publish_geometry_updates=True,
+            publish_state_updates=True,
+            publish_transforms_updates=True,
+            publish_robot_description=False,
             publish_robot_description_semantic=True,
         )
         .moveit_cpp(
@@ -304,14 +298,6 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
         )
         .to_moveit_configs()
     )
-
-    # ROS Warehouse Config
-    # warehouse_ros_config = {
-    #     "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-    #     "warehouse_host": LaunchConfiguration("warehouse_sqlite_path").perform(
-    #         context
-    #     ),
-    # }
 
     # ROS args
     ros_args: list[str] = []
@@ -368,7 +354,6 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
         sigterm_timeout=sigterm_timeout,
         parameters=[
             moveit_config.to_dict(),
-            # warehouse_ros_config,
             ParameterFile(param_file, allow_substs=True),
             ParameterFile(overrides_file, allow_substs=True),
             {

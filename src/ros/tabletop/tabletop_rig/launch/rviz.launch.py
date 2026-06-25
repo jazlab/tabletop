@@ -16,8 +16,6 @@ Example:
     ros2 launch tabletop_rig rviz.launch.py robot_name:=tabletop
 """
 
-import os
-
 from launch import (
     LaunchDescription,
 )
@@ -43,13 +41,6 @@ def declare_arguments():
             "robot_name",
             default_value="tabletop",
             description="Robot name for MoveIt SRDF",
-        ),
-        DeclareLaunchArgument(
-            "warehouse_sqlite_path",
-            default_value=os.path.join(
-                os.environ["TABLETOP_CACHE_DIR"], "warehouse_ros.sqlite"
-            ),
-            description="Path where the warehouse database should be stored",
         ),
         DeclareLaunchArgument(
             "config_file",
@@ -90,11 +81,6 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
-    }
-
     wait_robot_description = Node(
         package="ur_robot_driver",
         executable="wait_for_robot_description",
@@ -106,21 +92,11 @@ def generate_launch_description():
         executable="rviz2",
         output="both",
         parameters=[
-            moveit_config.robot_description,
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
             moveit_config.planning_pipelines,
             moveit_config.joint_limits,
-            warehouse_ros_config,
-            {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-                # Silence "publish_robot_description_semantic is not
-                # initialized" warning: rviz2 reads this param from the
-                # MoveIt planning scene monitor config but does not need
-                # to publish it; setting False is correct for a pure
-                # visualization client.
-                "publish_robot_description_semantic": False,
-            },
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
         arguments=[
             "-d",

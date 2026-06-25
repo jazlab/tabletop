@@ -31,11 +31,12 @@
   ],
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
-      "instalZsh": false
+      "installZsh": false,
+      "upgradePackages": false
     },
     "ghcr.io/devcontainers/features/git-lfs:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/schlich/devcontainer-features/starship:0": {},
+    "ghcr.io/devcontainers-extra/features/starship:1": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/EliiseS/devcontainer-features/bash-profile:1": {
       "command": "source /tabletop/setup.bash",

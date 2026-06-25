@@ -36,8 +36,6 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
-    EqualsSubstitution,
-    IfElseSubstitution,
     LaunchConfiguration,
     LaunchLogDir,
     PathJoinSubstitution,
@@ -61,17 +59,6 @@ def declare_arguments():
         ),
         # Common
         DeclareLaunchArgument(
-            "robot_name",
-            default_value="tabletop",
-            description="Robot name for SRDF",
-        ),
-        DeclareLaunchArgument(
-            "robot_mode",
-            default_value="mock",
-            choices=["mock", "real"],
-            description="Whether to use the mock robot or real robot",
-        ),
-        DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",
             choices=["true", "false"],
@@ -93,7 +80,7 @@ def declare_arguments():
         # Bag
         DeclareLaunchArgument(
             "rosbag",
-            default_value="true",
+            default_value="false",
             choices=["true", "false"],
             description="Record rosbag?",
         ),
@@ -119,42 +106,17 @@ def generate_launch_description():
     from launch arguments, then directly includes commander.launch.py
     and (optionally) rosbag.launch.py.
 
-    When task is "null", the commander launches without running any task
-    coroutine, useful for debugging or manual operation.
-
     Returns:
         LaunchDescription containing all launch actions.
     """
     task = LaunchConfiguration("task")
 
-    coro_config = IfElseSubstitution(
-        EqualsSubstitution(task, "null"),
-        if_value="null",
-        else_value=PathJoinSubstitution(
-            [
-                FindPackageShare("tabletop_tasks"),
-                "config",
-                [task, ".yaml"],
-            ]
-        ),
-    )
-    coro_module = IfElseSubstitution(
-        EqualsSubstitution(task, "null"),
-        if_value="null",
-        else_value="tabletop_tasks",
-    )
-    coro_name = IfElseSubstitution(
-        EqualsSubstitution(task, "null"),
-        if_value="null",
-        else_value="run_tasks",
+    coro_config = PathJoinSubstitution(
+        [FindPackageShare("tabletop_tasks"), "config", [task, ".yaml"]]
     )
 
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
 
-    # Commander: included directly (not via rig.launch.py aggregator).
-    # GroupAction with scoped=True and forwarding=True is required so that
-    # commander.launch.py's RegisterEventHandler actions are visible to the
-    # top-level launch context (a plain scoped=False GroupAction breaks them).
     commander = GroupAction(
         [
             SetEnvironmentVariable(
@@ -172,15 +134,13 @@ def generate_launch_description():
                     ),
                 ),
                 launch_arguments={
-                    "robot_name": LaunchConfiguration("robot_name"),
-                    "robot_mode": LaunchConfiguration("robot_mode"),
                     "commander_log_level": LaunchConfiguration(
                         "commander_log_level"
                     ),
-                    "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "coro_module": coro_module,
-                    "coro_name": coro_name,
+                    "coro_module": "tabletop_tasks",
+                    "coro_name": "run_tasks",
                     "coro_config": coro_config,
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
                 }.items(),
             ),
         ],

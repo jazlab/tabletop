@@ -77,23 +77,13 @@ def declare_arguments():
 
     Returns:
         LaunchDescription containing argument declarations for RViz,
-        robot type, warehouse database, and simulation time settings.
+        robot type, and simulation time settings.
     """
     return [
         DeclareLaunchArgument(
             "robot_name",
             default_value="tabletop",
             description="Robot name for MoveIt SRDF",
-        ),
-        DeclareLaunchArgument(
-            "publish_robot_description_semantic",
-            default_value="true",
-            description="MoveGroup publishes robot description semantic",
-        ),
-        DeclareLaunchArgument(
-            "warehouse_sqlite_path",
-            default_value="/root/ws/.ros/warehouse_ros.sqlite",
-            description="Path where the warehouse database should be stored",
         ),
         DeclareLaunchArgument(
             "launch_rviz", default_value="true", description="Launch RViz?"
@@ -126,8 +116,8 @@ def declare_arguments():
 def generate_launch_description():
     """Generate the launch description for MoveIt motion planning.
 
-    Builds MoveIt configuration using MoveItConfigsBuilder, sets up
-    warehouse database connection, and creates nodes for motion planning.
+    Builds MoveIt configuration using MoveItConfigsBuilder and creates
+    nodes for motion planning.
     Uses event handlers to ensure move_group and RViz start only after
     robot description is available.
 
@@ -136,6 +126,8 @@ def generate_launch_description():
         event-triggered move_group and RViz nodes.
     """
     # MoveIt Config
+    # TODO: Make robot_name here configurable, like in commander.launch.py
+    # (should match the robot_name launch arg)
     moveit_config = (
         MoveItConfigsBuilder(
             robot_name="tabletop", package_name="tabletop_moveit_config"
@@ -145,21 +137,20 @@ def generate_launch_description():
             mappings={"name": LaunchConfiguration("robot_name")},
         )
         .planning_scene_monitor(
-            # publish_robot_description=True,
-            # publish_planning_scene=False,
-            # publish_geometry_updates=False,
-            publish_robot_description_semantic=True,
+            publish_planning_scene=False,
+            publish_geometry_updates=False,
+            publish_state_updates=False,
+            publish_transforms_updates=False,
+            publish_robot_description=False,
+            publish_robot_description_semantic=False,
         )
-        .planning_pipelines(
-            default_planning_pipeline="ompl",
-            pipelines=["ompl", "pilz_industrial_motion_planner"],
+        .moveit_cpp(
+            file_path="config/moveit_cpp.yaml",
         )
-        # .moveit_cpp(
-        #     file_path="config/moveit_cpp.yaml",
-        # )
         .to_moveit_configs()
     )
 
+    # Add back planning response adapters that we removed from the moveit config
     for pipeline in moveit_config.planning_pipelines.keys():
         if pipeline in ("planning_pipelines", "default_planning_pipeline"):
             continue
@@ -168,11 +159,6 @@ def generate_launch_description():
             "default_planning_response_adapters/ValidateSolution",
             "default_planning_response_adapters/DisplayMotionPath",
         ]
-
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": LaunchConfiguration("warehouse_sqlite_path"),
-    }
 
     wait_robot_description = Node(
         package="ur_robot_driver",
@@ -186,13 +172,7 @@ def generate_launch_description():
         output="screen",
         parameters=[
             moveit_config.to_dict(),
-            warehouse_ros_config,
-            {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-                "publish_robot_description_semantic": LaunchConfiguration(
-                    "publish_robot_description_semantic"
-                ),
-            },
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
         ros_arguments=["--log-level", LaunchConfiguration("log_level")],
         on_exit=[Shutdown()],
@@ -204,23 +184,11 @@ def generate_launch_description():
         name="rviz2_moveit",
         output="log",
         parameters=[
-            # to_dict() is correct here: the MoveIt RViz plugin needs the
-            # full config (robot description, semantic, kinematics, pipelines,
-            # joint limits, planning scene monitor) to enable interactive
-            # motion planning in the MoveIt panel. Using individual sub-dicts
-            # would silently omit planning_scene_monitor config and cause the
-            # plugin to fall back to defaults.
-            moveit_config.to_dict(),
-            warehouse_ros_config,
-            {
-                "use_sim_time": LaunchConfiguration("use_sim_time"),
-                # Silence "publish_robot_description_semantic is not
-                # initialized" warning: rviz2 reads this param from the
-                # MoveIt planning scene monitor config but does not need
-                # to publish it; setting False is correct for a pure
-                # visualization client.
-                "publish_robot_description_semantic": False,
-            },
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+            moveit_config.planning_pipelines,
+            moveit_config.joint_limits,
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
         arguments=[
             "-d",
