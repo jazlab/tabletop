@@ -1,16 +1,22 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #include "tabletop_unbag/handlers/image_handler.hpp"
 
@@ -285,7 +291,8 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 
       if (!overwrite_ && fs::exists(image_dir_ / (basename + extension)))
       {
-        return;  // already saved (resume)
+        succeeded_.fetch_add(1);  // already saved (resume)
+        return;
       }
 
       if (enc::isBayer(src) && src != image_encoding_)
@@ -320,7 +327,8 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 
       if (!overwrite_ && fs::exists(image_dir_ / (basename + extension)))
       {
-        return;  // already saved (resume)
+        succeeded_.fetch_add(1);  // already saved (resume)
+        return;
       }
       // cv_bridge knows the source encoding from msg.encoding, so it demosaics
       // raw Bayer images correctly here.
@@ -329,7 +337,10 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
   }
   catch (const std::exception& e)
   {
-    // exchange() so exactly one worker prints the warning for this topic.
+    // exchange() so exactly one worker prints the warning for this topic; the
+    // failed_ counter still accumulates every drop so the end-of-run summary
+    // shows how many messages on this topic were lost.
+    failed_.fetch_add(1);
     if (!decode_warned_.exchange(true))
     {
       std::cerr << "WARNING - Failed to decode an image on " << topic_.name << " (" << e.what()
@@ -340,6 +351,8 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 
   if (image.empty())
   {
+    // A successful decode that yielded no pixels still produces no file.
+    failed_.fetch_add(1);
     return;
   }
 
@@ -347,8 +360,11 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
   const fs::path path = image_dir_ / (basename + extension);
   if (!write_image_atomic(path, extension, image))
   {
+    failed_.fetch_add(1);
     std::cerr << "WARNING - Failed to write image " << path.string() << "\n";
+    return;
   }
+  succeeded_.fetch_add(1);
 }
 
 }  // namespace tabletop_unbag

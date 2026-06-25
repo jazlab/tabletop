@@ -1,16 +1,22 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #include "tabletop_unbag/handlers/csv_handler.hpp"
 
@@ -21,6 +27,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
@@ -521,11 +528,30 @@ void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
   {
     // Row already on disk from a previous run; skip to resume.
     --skip_rows_;
+    ++succeeded_;
     return;
   }
 
   ensure_type_support_loaded();
-  const FlatRow flat = flatten_message(members_, data);
+
+  FlatRow flat;
+  try
+  {
+    flat = flatten_message(members_, data);
+  }
+  catch (const std::exception& e)
+  {
+    // A single malformed message must not abort the whole topic; drop it,
+    // count it, and warn once (the rest of the rows are still written).
+    ++failed_;
+    if (!flatten_warned_)
+    {
+      flatten_warned_ = true;
+      std::cerr << "WARNING - Failed to flatten a message on " << topic_.name << " (" << e.what()
+                << "); skipping further flatten errors on this topic.\n";
+    }
+    return;
+  }
 
   std::unordered_map<std::string, std::string> values;
   values.reserve(flat.size() + 1);
@@ -553,6 +579,7 @@ void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
     }
   }
   buffer_line(std::move(line));
+  ++succeeded_;
 }
 
 void CsvHandler::finish()

@@ -1,21 +1,28 @@
 // Copyright 2026 Jazlab
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #ifndef TABLETOP_UNBAG__HANDLERS__IMAGE_HANDLER_HPP_
 #define TABLETOP_UNBAG__HANDLERS__IMAGE_HANDLER_HPP_
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -73,6 +80,14 @@ public:
   void begin_write() override;
   void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
 
+  /// Decode/write success vs failure counts for this topic. Read after the
+  /// write pass joins its workers; the counters are atomics because write()
+  /// runs concurrently on the shared image pool.
+  HandlerStats stats() const override
+  {
+    return { succeeded_.load(), failed_.load() };
+  }
+
 private:
   void ensure_dir();
 
@@ -82,6 +97,11 @@ private:
   std::string image_encoding_;
   std::once_flag dir_once_;
   std::atomic<bool> decode_warned_{ false };
+  // write() runs on the shared pool, so these are updated concurrently. A
+  // message counts as "succeeded" once its file is on disk (or was already
+  // present from a prior run); a decode or write failure counts as "failed".
+  std::atomic<std::size_t> succeeded_{ 0 };
+  std::atomic<std::size_t> failed_{ 0 };
 };
 
 }  // namespace tabletop_unbag
