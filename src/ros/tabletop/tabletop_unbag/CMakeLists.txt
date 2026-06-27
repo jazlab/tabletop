@@ -25,8 +25,9 @@ find_package(fastcdr REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(unbag src/main.cpp src/unbagger.cpp src/handlers/csv_handler.cpp
-                     src/handlers/image_handler.cpp)
+add_executable(
+  unbag src/main.cpp src/unbagger.cpp src/flatten.cpp
+        src/handlers/csv_handler.cpp src/handlers/image_handler.cpp)
 
 target_include_directories(
   unbag PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

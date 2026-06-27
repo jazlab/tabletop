@@ -20,25 +20,18 @@
 
 #include "tabletop_unbag/handlers/csv_handler.hpp"
 
-#include <fastcdr/Cdr.h>
-#include <fastcdr/FastBuffer.h>
-
 #include <array>
 #include <charconv>
 #include <cmath>
-#include <cstring>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
-
-#include "rclcpp/typesupport_helpers.hpp"
-#include "rosidl_typesupport_introspection_cpp/field_types.hpp"
-#include "rosidl_typesupport_introspection_cpp/identifier.hpp"
+#include <variant>
 
 namespace fs = std::filesystem;
-namespace introspection = rosidl_typesupport_introspection_cpp;
 
 namespace tabletop_unbag
 {
@@ -48,13 +41,16 @@ namespace
 
 // ---------------------------------------------------------------------------
 // Value formatting (pandas `DataFrame.to_csv` compatible). Lives here because
-// only the CSV handler formats values for CSV output.
+// only the CSV handler formats values for CSV output; the flattening itself is
+// shared (tabletop_unbag::MessageFlattener) and type-preserving.
 // ---------------------------------------------------------------------------
 
 /// Format a floating-point value the way pandas writes it: shortest decimal
 /// that round-trips (std::to_chars, the algorithm behind Python's repr(float)),
 /// a trailing ".0" kept on integral values ("1.0"), NaN as the empty string
-/// (pandas' default na_rep) and +/-inf as "inf"/"-inf".
+/// (pandas' default na_rep) and +/-inf as "inf"/"-inf". Templated on float vs
+/// double so each is rendered at its own precision (a float and the same bits
+/// widened to double do not share a shortest round-tripping text).
 template <typename T>
 std::string format_float(T value)
 {
@@ -107,217 +103,32 @@ std::string csv_quote(const std::string& field)
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Generic message flattening. Lives here because only the CSV handler flattens
-// messages into (column, value) pairs.
-// ---------------------------------------------------------------------------
-
-/// An ordered list of (column_name, formatted_value) pairs for one message.
-using FlatRow = std::vector<std::pair<std::string, std::string>>;
-
-/// Minimal wchar_t -> UTF-8 conversion (ROS wstrings are rare, but we must
-/// still consume them from the stream and represent them somehow).
-std::string wstring_to_utf8(const std::wstring& ws)
+/// Render one flattened typed value as pandas' `to_csv` would: booleans as
+/// `True`/`False`, integers by value, floats by shortest round-trip (at their
+/// own precision), strings RFC-4180 quoted.
+std::string format_flat_value(const FlatScalar& value)
 {
-  std::string out;
-  for (wchar_t wc : ws)
-  {
-    auto cp = static_cast<uint32_t>(wc);
-    if (cp < 0x80)
-    {
-      out.push_back(static_cast<char>(cp));
-    }
-    else if (cp < 0x800)
-    {
-      out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
-      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-    }
-    else if (cp < 0x10000)
-    {
-      out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-    }
-    else
-    {
-      out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
-      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-    }
-  }
-  return out;
-}
-
-void flatten_members(const introspection::MessageMembers* members, eprosima::fastcdr::Cdr& cdr,
-                     const std::string& prefix, FlatRow& out);
-
-/// Read a single (non-array) value of a member from the stream, either emitting
-/// a leaf (column, value) pair or recursing into a submessage.
-void read_one(const introspection::MessageMember& member, eprosima::fastcdr::Cdr& cdr, const std::string& name,
-              FlatRow& out)
-{
-  switch (member.type_id_)
-  {
-    case introspection::ROS_TYPE_MESSAGE:
-    {
-      const auto* sub = static_cast<const introspection::MessageMembers*>(member.members_->data);
-      flatten_members(sub, cdr, name, out);
-      break;
-    }
-    case introspection::ROS_TYPE_BOOLEAN:
-    {
-      bool value = false;
-      cdr.deserialize(value);
-      // pandas renders Python bools as "True"/"False".
-      out.emplace_back(name, value ? "True" : "False");
-      break;
-    }
-    case introspection::ROS_TYPE_FLOAT:
-    {
-      float value = 0.0F;
-      cdr.deserialize(value);
-      out.emplace_back(name, format_float(value));
-      break;
-    }
-    case introspection::ROS_TYPE_DOUBLE:
-    {
-      double value = 0.0;
-      cdr.deserialize(value);
-      out.emplace_back(name, format_float(value));
-      break;
-    }
-    case introspection::ROS_TYPE_LONG_DOUBLE:
-    {
-      long double value = 0.0L;
-      cdr.deserialize(value);
-      out.emplace_back(name, format_float(static_cast<double>(value)));
-      break;
-    }
-    case introspection::ROS_TYPE_CHAR:
-    case introspection::ROS_TYPE_OCTET:
-    case introspection::ROS_TYPE_UINT8:
-    {
-      uint8_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(static_cast<unsigned int>(value)));
-      break;
-    }
-    case introspection::ROS_TYPE_INT8:
-    {
-      int8_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(static_cast<int>(value)));
-      break;
-    }
-    case introspection::ROS_TYPE_WCHAR:
-    case introspection::ROS_TYPE_UINT16:
-    {
-      uint16_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_INT16:
-    {
-      int16_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_UINT32:
-    {
-      uint32_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_INT32:
-    {
-      int32_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_UINT64:
-    {
-      uint64_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_INT64:
-    {
-      int64_t value = 0;
-      cdr.deserialize(value);
-      out.emplace_back(name, std::to_string(value));
-      break;
-    }
-    case introspection::ROS_TYPE_STRING:
-    {
-      std::string value;
-      cdr.deserialize(value);
-      out.emplace_back(name, csv_quote(value));
-      break;
-    }
-    case introspection::ROS_TYPE_WSTRING:
-    {
-      std::wstring value;
-      cdr.deserialize(value);
-      out.emplace_back(name, csv_quote(wstring_to_utf8(value)));
-      break;
-    }
-    default:
-      throw std::runtime_error("Unsupported field type id " + std::to_string(static_cast<int>(member.type_id_)) +
-                               " for field '" + name + "'");
-  }
-}
-
-/// Recursively read all members of a (sub)message from the CDR stream.
-void flatten_members(const introspection::MessageMembers* members, eprosima::fastcdr::Cdr& cdr,
-                     const std::string& prefix, FlatRow& out)
-{
-  for (uint32_t i = 0; i < members->member_count_; ++i)
-  {
-    const introspection::MessageMember& member = members->members_[i];
-    const std::string name = prefix.empty() ? member.name_ : prefix + "." + member.name_;
-
-    if (member.is_array_)
-    {
-      // A fixed-size array has a known length and no length prefix on the wire;
-      // a (bounded or unbounded) sequence is length-prefixed.
-      const bool is_fixed_array = member.array_size_ != 0 && !member.is_upper_bound_;
-      size_t count = member.array_size_;
-      if (!is_fixed_array)
-      {
-        uint32_t sequence_length = 0;
-        cdr.deserialize(sequence_length);
-        count = sequence_length;
-      }
-      for (size_t index = 0; index < count; ++index)
-      {
-        read_one(member, cdr, name + "[" + std::to_string(index) + "]", out);
-      }
-    }
-    else
-    {
-      read_one(member, cdr, name, out);
-    }
-  }
-}
-
-/// Flatten one serialized message into ordered (column, value) pairs.
-FlatRow flatten_message(const introspection::MessageMembers* members, const rcutils_uint8_array_t& data)
-{
-  // rosbag2 stores ROS 2 messages as PLAIN_CDR (XCDRv1); read_encapsulation()
-  // consumes the 4-byte representation header and picks up its endianness.
-  eprosima::fastcdr::FastBuffer fastbuffer(reinterpret_cast<char*>(data.buffer), data.buffer_length);
-  eprosima::fastcdr::Cdr cdr(fastbuffer, eprosima::fastcdr::Cdr::DEFAULT_ENDIAN, eprosima::fastcdr::CdrVersion::XCDRv1);
-  cdr.read_encapsulation();
-
-  FlatRow row;
-  flatten_members(members, cdr, "", row);
-  return row;
+  return std::visit(
+      [](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, bool>)
+        {
+          return v ? "True" : "False";
+        }
+        else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>)
+        {
+          return std::to_string(v);
+        }
+        else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>)
+        {
+          return format_float(v);
+        }
+        else  // std::string (already UTF-8; wstrings were converted on flatten)
+        {
+          return csv_quote(v);
+        }
+      },
+      value);
 }
 
 /// Read the first line of `path` (up to but excluding the newline).
@@ -379,29 +190,18 @@ CsvHandler::CsvHandler(TopicInfo topic, const std::string& output_dir, const Unb
   : topic_(std::move(topic))
   , overwrite_(options.overwrite)
   , batch_size_(options.csv.batch_size == 0 ? 1 : options.csv.batch_size)
+  , flattener_(topic_.type)
 {
   csv_path_ = fs::path(output_dir) / (topic_to_basename(topic_.name) + ".csv");
   // bag_time_ns is always the first column.
   note_column("bag_time_ns");
 }
 
-void CsvHandler::ensure_type_support_loaded()
-{
-  if (members_ != nullptr)
-  {
-    return;
-  }
-  type_support_library_ = rclcpp::get_typesupport_library(topic_.type, introspection::typesupport_identifier);
-  const rosidl_message_type_support_t* type_support = rclcpp::get_message_typesupport_handle(
-      topic_.type, introspection::typesupport_identifier, *type_support_library_);
-  members_ = static_cast<const introspection::MessageMembers*>(type_support->data);
-}
-
 void CsvHandler::prepare()
 {
   // Load the introspection type-support library now, on the main thread, so the
   // per-topic consumer threads never trigger concurrent library loads.
-  ensure_type_support_loaded();
+  flattener_.prepare();
 }
 
 void CsvHandler::note_column(const std::string& column)
@@ -429,12 +229,10 @@ std::string CsvHandler::header_line() const
 void CsvHandler::preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 {
   (void)bag_time_ns;
-  ensure_type_support_loaded();
-  const FlatRow flat = flatten_message(members_, data);
-  for (const auto& [column, value] : flat)
+  const FlatRow flat = flattener_.flatten(data);
+  for (const auto& column : flat)
   {
-    (void)value;
-    note_column(column);
+    note_column(column.name);
   }
 }
 
@@ -536,12 +334,10 @@ void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, u
     return;
   }
 
-  ensure_type_support_loaded();
-
   FlatRow flat;
   try
   {
-    flat = flatten_message(members_, data);
+    flat = flattener_.flatten(data);
   }
   catch (const std::exception& e)
   {
@@ -560,11 +356,11 @@ void CsvHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, u
   std::unordered_map<std::string, std::string> values;
   values.reserve(flat.size() + 1);
   values["bag_time_ns"] = std::to_string(bag_time_ns);
-  for (const auto& [column, value] : flat)
+  for (const auto& column : flat)
   {
     // Duplicate columns within a message: last value wins (matches Python's
     // dict(gen_msg_values(msg))).
-    values[column] = value;
+    values[column.name] = format_flat_value(column.value);
   }
 
   std::string line;
