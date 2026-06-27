@@ -25,15 +25,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include "rcpputils/shared_library.hpp"
 #include "rcutils/types/uint8_array.h"
-#include "rosidl_typesupport_introspection_cpp/message_introspection.hpp"
 
+#include "tabletop_unbag/flatten.hpp"
 #include "tabletop_unbag/handlers/handler.hpp"
 #include "tabletop_unbag/options.hpp"
 
@@ -101,9 +99,6 @@ public:
   }
 
 private:
-  /// Load (once) the introspection type support for this topic's type.
-  void ensure_type_support_loaded();
-
   /// Record a column name, preserving first-seen order.
   void note_column(const std::string& column);
 
@@ -143,9 +138,9 @@ private:
   std::size_t failed_ = 0;
   bool flatten_warned_ = false;  ///< warn once per topic on flatten failure
 
-  // Cached introspection type support (kept alive by the shared library).
-  std::shared_ptr<rcpputils::SharedLibrary> type_support_library_;
-  const rosidl_typesupport_introspection_cpp::MessageMembers* members_ = nullptr;
+  // Shared generic message flattener (loads introspection type support, walks
+  // the CDR payload into typed (column, value) pairs).
+  MessageFlattener flattener_;
 };
 
 }  // namespace tabletop_unbag

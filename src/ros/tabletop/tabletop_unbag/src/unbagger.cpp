@@ -52,7 +52,9 @@
 #include "tabletop_unbag/concurrent_queue.hpp"
 #include "tabletop_unbag/handlers/csv_handler.hpp"
 #include "tabletop_unbag/handlers/handler.hpp"
+#include "tabletop_unbag/handlers/hdf5_handlers.hpp"
 #include "tabletop_unbag/handlers/image_handler.hpp"
+#include "tabletop_unbag/hdf5_writer.hpp"
 #include "tabletop_unbag/progress_bar.hpp"
 
 namespace fs = std::filesystem;
@@ -466,6 +468,22 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   fs::create_directories(output_dir, ec);
   throw_if_ec(ec, "Failed to create output directory", output_dir);
 
+  // HDF5 output goes into one file shared by every handler. The serial HDF5
+  // library is not thread-safe, so the writer serializes its own calls; the
+  // per-message decode/flatten still parallelizes in the handlers before they
+  // call in. Unlike the CSV backend, HDF5 rewrites the whole file rather than
+  // resuming, so an existing file requires --overwrite.
+  std::unique_ptr<Hdf5Writer> hdf5_writer;
+  if (options.format == OutputFormat::Hdf5)
+  {
+    const fs::path h5_path = fs::path(output_dir) / "unbag.h5";
+    if (!options.overwrite && fs::exists(h5_path))
+    {
+      throw std::runtime_error("HDF5 output " + h5_path.string() + " already exists; pass --overwrite to replace it.");
+    }
+    hdf5_writer = std::make_unique<Hdf5Writer>(h5_path.string(), options.hdf5.gzip_level, options.csv.batch_size);
+  }
+
   std::map<std::string, std::unique_ptr<MessageHandler>> handlers;
   for (const auto& [topic, type] : topic_types)
   {
@@ -486,7 +504,23 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     {
       std::cerr << "INFO - " << topic << " (" << type << ") -> " << kind->name << " handler\n";
     }
-    handlers.emplace(topic, kind->make(TopicInfo{ topic, type }, output_dir, options));
+    std::unique_ptr<MessageHandler> handler;
+    if (options.format == OutputFormat::Hdf5)
+    {
+      if (kind->name == ImageHandler::handler_name())
+      {
+        handler = std::make_unique<Hdf5ImageHandler>(TopicInfo{ topic, type }, *hdf5_writer, options);
+      }
+      else
+      {
+        handler = std::make_unique<Hdf5CsvHandler>(TopicInfo{ topic, type }, *hdf5_writer, options);
+      }
+    }
+    else
+    {
+      handler = kind->make(TopicInfo{ topic, type }, output_dir, options);
+    }
+    handlers.emplace(topic, std::move(handler));
   }
 
   if (handlers.empty())
@@ -570,6 +604,12 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   for (auto& [topic, handler] : handlers)
   {
     handler->finish();
+  }
+
+  // Flush and close the single HDF5 file (no-op for the CSV backend).
+  if (hdf5_writer)
+  {
+    hdf5_writer->close();
   }
 
   // --- End-of-run summary: successes vs failures, per topic and aggregate. ----

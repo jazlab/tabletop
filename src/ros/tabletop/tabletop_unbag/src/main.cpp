@@ -55,7 +55,11 @@ void print_usage(const char* argv0)
                "                          exclusive.)\n"
                "  --overwrite             Delete previously unbagged output for the selected\n"
                "                          topics before writing. Without it, an interrupted\n"
-               "                          run resumes where it left off.\n"
+               "                          run resumes where it left off (CSV); the HDF5\n"
+               "                          backend requires it to replace an existing file.\n"
+               "  --format FMT            Output backend: csv (per-topic CSV files + image\n"
+               "                          directories, the default) or hdf5 (a single\n"
+               "                          <output-dir>/unbag.h5 holding every topic).\n"
                "  --jobs N                Worker threads for the shared image-decoding pool\n"
                "                          (default: number of hardware threads). Each CSV\n"
                "                          topic also runs on its own consumer thread.\n"
@@ -78,7 +82,11 @@ void print_usage(const char* argv0)
                "                          keep). keep preserves the source container\n"
                "                          (compressed keeps its format, raw -> png); a\n"
                "                          specific format applies to all image topics (png\n"
-               "                          avoids a lossy re-encode of compressed topics).\n";
+               "                          avoids a lossy re-encode of compressed topics).\n"
+               "                          (CSV backend only; HDF5 stores decoded frames.)\n\n"
+               "hdf5 handler options:\n"
+               "  --hdf5-gzip-level N     gzip/deflate level 0-9 for image and column\n"
+               "                          datasets (default 4; 0 disables compression).\n";
 }
 
 /// Consume the values following a list-valued flag, stopping at the next flag
@@ -154,6 +162,50 @@ int main(int argc, char** argv)
     else if (arg == "--overwrite")
     {
       options.overwrite = true;
+    }
+    else if (arg == "--format")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      const std::string value = argv[++i];
+      if (value == "csv")
+      {
+        options.format = tabletop_unbag::OutputFormat::Csv;
+      }
+      else if (value == "hdf5" || value == "h5")
+      {
+        options.format = tabletop_unbag::OutputFormat::Hdf5;
+      }
+      else
+      {
+        std::cerr << "ERROR - --format must be 'csv' or 'hdf5'\n";
+        return 2;
+      }
+    }
+    else if (arg == "--hdf5-gzip-level")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        const long long value = std::stoll(argv[++i]);
+        if (value < 0 || value > 9)
+        {
+          throw std::out_of_range("gzip level must be 0-9");
+        }
+        options.hdf5.gzip_level = static_cast<int>(value);
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - --hdf5-gzip-level requires an integer 0-9\n";
+        return 2;
+      }
     }
     else if (arg == "--csv-batch-size")
     {
