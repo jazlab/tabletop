@@ -16,6 +16,10 @@ Two output backends are available, selected with `--format`:
   reads the bag **once** (no preprocess pass), which is the only effective fix
   for the cold-cache, bandwidth-bound first run — see [docs/performance.md](docs/performance.md).
 
+The package also ships a **rosbag2 storage plugin** (`-s hdf5`) that records
+straight into that same analysis-ready HDF5 layout, so you can skip the separate
+unbag step — see [Recording directly to HDF5](#recording-directly-to-hdf5-rosbag2-storage-plugin).
+
 It is **multithreaded**: a single reader thread feeds one consumer thread per
 CSV topic and a shared pool of worker threads that decode images in parallel, so
 the (CPU-bound) image transcoding scales across all cores. On a 24-core machine
@@ -129,6 +133,45 @@ per-topic breakdown for any topic that had failures (and for every topic under
 `--verbose`). Failures are usually all-or-nothing per topic, so a partial count
 is a useful signal that something is off with that topic.
 
+## Recording directly to HDF5 (rosbag2 storage plugin)
+
+Besides the offline `unbag` converter, the package registers a **rosbag2 storage
+plugin** with storage id `hdf5`. Recording with it writes the *same*
+analysis-ready HDF5 layout the converter produces (one group per topic, one
+dataset per flattened column, a stacked `(N,H,W,C)` dataset per image topic), so
+there is no separate unbag step — the recording **is** the analysis file.
+
+```bash
+# Record straight to analysis-ready HDF5
+ros2 bag record -s hdf5 -o my_session /joint_states /teensy/sensor ...
+
+# Or transcode an existing bag through the plugin (offline, deterministic)
+ros2 bag convert -i my_bag mcap -o out.yaml   # out.yaml: storage_id: hdf5
+```
+
+The output is `<bag>/<bag>_0.h5`, byte-for-byte the same datasets as
+`unbag --format hdf5` on the equivalent MCAP bag.
+
+**It is write-only.** The analysis-ready layout is lossy with respect to the
+original serialized message (it stores flattened columns and *decoded* frames,
+not the raw CDR), so the bag is **not round-trippable**: `ros2 bag play` / `info`
+that try to read messages back will fail with a clear "write-only" error
+(`ros2 bag info` still works — it reads the recorded `metadata.yaml`). If you
+need a replayable bag, record MCAP and run `unbag --format hdf5` afterward.
+
+**Caveats.**
+
+* Flattening and image **decode/debayer run in the recorder's write path**, which
+  is heavier than just appending serialized bytes (the MCAP plugin's job). For a
+  very high-rate camera this can back-pressure the recorder and risk dropped
+  messages; for those cases prefer recording MCAP and converting offline.
+* Only the `cdr` serialization format is supported (the standard ROS 2 default);
+  topics in another format are skipped with a warning.
+* Bagfile **splitting is not supported** (`--max-bag-size` / `--max-bag-duration`
+  with this plugin); the run is one HDF5 file.
+* This v1 uses the converter's defaults (gzip level 4, `bgr8` images); per-
+  recording overrides can be added via the storage config later.
+
 ## Architecture
 
 Each message type is routed to a **handler**. Handlers live in `handlers/` and
@@ -157,15 +200,20 @@ src/
 ├── flatten.cpp            # flattening + pandas-compatible value formatting
 ├── image_decode.cpp       # cv_bridge / Bayer decode (shared by both backends)
 ├── hdf5_writer.cpp        # HDF5 C API: lazy columns, extendable datasets, gzip
-└── handlers/
-    ├── csv_handler.cpp    # CSV rows (flatten) + resume / torn-line repair
-    ├── image_handler.cpp  # per-frame image files (thread-safe, atomic writes)
-    └── hdf5_handlers.cpp  # append rows / decoded frames into the shared Hdf5Writer
+├── handlers/
+│   ├── csv_handler.cpp    # CSV rows (flatten) + resume / torn-line repair
+│   ├── image_handler.cpp  # per-frame image files (thread-safe, atomic writes)
+│   └── hdf5_handlers.cpp  # append rows / decoded frames into the shared Hdf5Writer
+└── storage/
+    └── hdf5_storage.cpp   # rosbag2 storage plugin: record straight to HDF5
 ```
 
 Both backends share the same `MessageFlattener` (`flatten.*`) and image
 decode/debayer code (`image_decode.*`); only the sink differs (per-topic files
-vs. the single `Hdf5Writer`).
+vs. the single `Hdf5Writer`). To avoid compiling those shared sources twice,
+`flatten.cpp`, `image_decode.cpp`, `hdf5_writer.cpp` and `handlers/hdf5_handlers.cpp`
+are built once as an internal `unbag_core` static library that both the `unbag`
+CLI and the `rosbag2_storage_hdf5` plugin link against.
 
 ### The handler lifecycle (two passes, batched, resumable)
 

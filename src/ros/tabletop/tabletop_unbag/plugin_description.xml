@@ -1,0 +1,15 @@
+<library path="rosbag2_storage_hdf5">
+  <class
+    name="hdf5"
+    type="tabletop_unbag::Hdf5Storage"
+    base_class_type="rosbag2_storage::storage_interfaces::ReadWriteInterface"
+  >
+    <description>
+      rosbag2 storage plugin that records directly into an analysis-ready HDF5
+      file (the same layout as `unbag --format hdf5`): one group per topic, one
+      dataset per flattened column, and a stacked (N,H,W,C) dataset per image
+      topic. Write-only -- the analysis-ready layout is not round-trippable, so
+      playback/reading is not supported.
+    </description>
+  </class>
+</library>
