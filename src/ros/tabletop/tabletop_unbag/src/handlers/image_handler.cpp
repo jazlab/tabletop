@@ -22,31 +22,24 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstring>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <map>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
-#include <tuple>
 #include <utility>
 #include <vector>
 
-#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
 
-#include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include "rclcpp/serialization.hpp"
-#include "rclcpp/serialized_message.hpp"
+
+#include "tabletop_unbag/image_decode.hpp"
 
 namespace fs = std::filesystem;
-namespace enc = sensor_msgs::image_encodings;
 
 namespace tabletop_unbag
 {
@@ -58,81 +51,6 @@ std::string to_lower(std::string s)
 {
   std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return s;
-}
-
-std::string strip(const std::string& s)
-{
-  const auto begin = s.find_first_not_of(" \t\r\n");
-  if (begin == std::string::npos)
-  {
-    return "";
-  }
-  const auto end = s.find_last_not_of(" \t\r\n");
-  return s.substr(begin, end - begin + 1);
-}
-
-/// OpenCV color-conversion codes for demosaicing a Bayer mosaic to a viewable
-/// encoding. cv_bridge cannot do this for *compressed* images (it cannot tell a
-/// single-channel mosaic from mono8), so the Bayer cases are handled here. ROS
-/// and OpenCV name Bayer patterns from opposite corners (ROS bayer_rggb ==
-/// OpenCV BayerBG, etc.), which is why the corners look swapped.
-const std::map<std::pair<std::string, std::string>, int>& bayer_conversion_codes()
-{
-  static const std::map<std::pair<std::string, std::string>, int> codes = {
-    // 8-bit -> BGR
-    { { "bayer_rggb8", "bgr8" }, cv::COLOR_BayerBG2BGR },
-    { { "bayer_bggr8", "bgr8" }, cv::COLOR_BayerRG2BGR },
-    { { "bayer_gbrg8", "bgr8" }, cv::COLOR_BayerGR2BGR },
-    { { "bayer_grbg8", "bgr8" }, cv::COLOR_BayerGB2BGR },
-    // 8-bit -> RGB
-    { { "bayer_rggb8", "rgb8" }, cv::COLOR_BayerBG2RGB },
-    { { "bayer_bggr8", "rgb8" }, cv::COLOR_BayerRG2RGB },
-    { { "bayer_gbrg8", "rgb8" }, cv::COLOR_BayerGR2RGB },
-    { { "bayer_grbg8", "rgb8" }, cv::COLOR_BayerGB2RGB },
-    // 8-bit -> grayscale
-    { { "bayer_rggb8", "mono8" }, cv::COLOR_BayerBG2GRAY },
-    { { "bayer_bggr8", "mono8" }, cv::COLOR_BayerRG2GRAY },
-    { { "bayer_gbrg8", "mono8" }, cv::COLOR_BayerGR2GRAY },
-    { { "bayer_grbg8", "mono8" }, cv::COLOR_BayerGB2GRAY },
-    // 16-bit -> BGR
-    { { "bayer_rggb16", "bgr16" }, cv::COLOR_BayerBG2BGR },
-    { { "bayer_bggr16", "bgr16" }, cv::COLOR_BayerRG2BGR },
-    { { "bayer_gbrg16", "bgr16" }, cv::COLOR_BayerGR2BGR },
-    { { "bayer_grbg16", "bgr16" }, cv::COLOR_BayerGB2BGR },
-    // 16-bit -> RGB
-    { { "bayer_rggb16", "rgb16" }, cv::COLOR_BayerBG2RGB },
-    { { "bayer_bggr16", "rgb16" }, cv::COLOR_BayerRG2RGB },
-    { { "bayer_gbrg16", "rgb16" }, cv::COLOR_BayerGR2RGB },
-    { { "bayer_grbg16", "rgb16" }, cv::COLOR_BayerGB2RGB },
-    // 16-bit -> grayscale
-    { { "bayer_rggb16", "mono16" }, cv::COLOR_BayerBG2GRAY },
-    { { "bayer_bggr16", "mono16" }, cv::COLOR_BayerRG2GRAY },
-    { { "bayer_gbrg16", "mono16" }, cv::COLOR_BayerGR2GRAY },
-    { { "bayer_grbg16", "mono16" }, cv::COLOR_BayerGB2GRAY },
-  };
-  return codes;
-}
-
-/// Parse a CompressedImage.format string of the form
-/// "<original_encoding>; <compression_type> <compressed_encoding>".
-/// Returns (original_encoding, compressed_encoding, compression_type).
-std::tuple<std::string, std::string, std::string> parse_compressed_image_format(const std::string& fmt)
-{
-  const auto semicolon = fmt.find(';');
-  if (semicolon == std::string::npos)
-  {
-    return { strip(fmt), "", "" };
-  }
-  const std::string original_encoding = strip(fmt.substr(0, semicolon));
-  const std::string params = strip(fmt.substr(semicolon + 1));
-
-  const auto first_space = params.find(' ');
-  const std::string compression_type = first_space == std::string::npos ? params : strip(params.substr(0, first_space));
-  const auto last_space = params.rfind(' ');
-  const std::string compressed_encoding =
-      last_space == std::string::npos ? params : strip(params.substr(last_space + 1));
-
-  return { original_encoding, compressed_encoding, compression_type };
 }
 
 std::string extension_for_compression(const std::string& compression_type, const std::string& format)
@@ -175,51 +93,6 @@ std::string extension_for_image_format(const std::string& fmt)
   }
   std::cerr << "WARNING - Unknown --image-format '" << fmt << "'; keeping the source format.\n";
   return "";
-}
-
-/// Parse the std_msgs/Header stamp (sec, nanosec) straight from the front of a
-/// CDR-serialized Image/CompressedImage buffer, without deserializing the
-/// payload. Layout: a 4-byte CDR encapsulation header (byte 1 selects
-/// endianness: the low bit set means little-endian PLAIN_CDR), then the message
-/// body 4-byte aligned. The first field is the Header's builtin_interfaces/Time
-/// { int32 sec; uint32 nanosec; }, so sec is at body offset 0 and nanosec at
-/// offset 4 -> absolute buffer offsets 4 and 8. Returns false if the buffer is
-/// too short to contain the stamp.
-bool parse_header_stamp(const rcutils_uint8_array_t& data, int32_t& sec, uint32_t& nanosec)
-{
-  if (data.buffer == nullptr || data.buffer_length < 12)
-  {
-    return false;
-  }
-  const uint8_t* b = data.buffer;
-  const bool little_endian = (b[1] & 0x01) != 0;
-  const auto read_u32 = [&](std::size_t off) -> uint32_t {
-    if (little_endian)
-    {
-      return static_cast<uint32_t>(b[off]) | (static_cast<uint32_t>(b[off + 1]) << 8) |
-             (static_cast<uint32_t>(b[off + 2]) << 16) | (static_cast<uint32_t>(b[off + 3]) << 24);
-    }
-    return (static_cast<uint32_t>(b[off]) << 24) | (static_cast<uint32_t>(b[off + 1]) << 16) |
-           (static_cast<uint32_t>(b[off + 2]) << 8) | static_cast<uint32_t>(b[off + 3]);
-  };
-  sec = static_cast<int32_t>(read_u32(4));
-  nanosec = read_u32(8);
-  return true;
-}
-
-/// Deserialize a concrete ROS message from a rosbag2 serialized buffer.
-template <typename MessageT>
-MessageT deserialize(const rcutils_uint8_array_t& data)
-{
-  rclcpp::SerializedMessage serialized(data.buffer_length);
-  auto& rcl_msg = serialized.get_rcl_serialized_message();
-  std::memcpy(rcl_msg.buffer, data.buffer, data.buffer_length);
-  rcl_msg.buffer_length = data.buffer_length;
-
-  MessageT msg;
-  rclcpp::Serialization<MessageT> serializer;
-  serializer.deserialize_message(&serialized, &msg);
-  return msg;
 }
 
 }  // namespace
@@ -371,8 +244,8 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns,
   // write_index is the per-stamp occurrence index assigned by note_for_write()
   // in bag order; it disambiguates frames that share a header stamp.
 
-  // Decode just enough to find the timestamp first, so a resume can skip an
-  // already-saved image without paying for the pixel decode.
+  // Deserialize and read the timestamp first, so a resume can skip an already-
+  // saved image without paying for the (expensive) pixel decode.
   std::string basename;
   cv::Mat image;
   std::string extension;
@@ -386,7 +259,7 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns,
 
       const auto [original_encoding, compressed_encoding, compression_type] = parse_compressed_image_format(msg.format);
       (void)original_encoding;
-      const std::string src = to_lower(compressed_encoding);
+      (void)compressed_encoding;
       extension = extension_for_compression(compression_type, msg.format);
       if (const std::string fmt_ext = extension_for_image_format(image_format_); !fmt_ext.empty())
       {
@@ -399,29 +272,7 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns,
         return;
       }
 
-      if (enc::isBayer(src) && src != image_encoding_)
-      {
-        // cv_bridge would treat the single-channel mosaic as mono8; demosaic it
-        // ourselves using the Bayer-aware conversion codes.
-        const cv::Mat encoded(1, static_cast<int>(msg.data.size()), CV_8UC1, const_cast<uint8_t*>(msg.data.data()));
-        const cv::Mat mosaic = cv::imdecode(encoded, cv::IMREAD_UNCHANGED);
-        const auto& codes = bayer_conversion_codes();
-        const auto it = codes.find({ src, image_encoding_ });
-        if (it == codes.end())
-        {
-          std::cerr << "WARNING - Unsupported Bayer conversion " << src << " -> " << image_encoding_
-                    << "; saving raw mosaic.\n";
-          image = mosaic;
-        }
-        else
-        {
-          cv::cvtColor(mosaic, image, it->second);
-        }
-      }
-      else
-      {
-        image = cv_bridge::toCvCopy(msg, image_encoding_)->image;
-      }
+      image = decode_compressed_image(msg, image_encoding_);
     }
     else  // sensor_msgs/msg/Image
     {
@@ -438,9 +289,8 @@ void ImageHandler::write(const rcutils_uint8_array_t& data, int64_t bag_time_ns,
         succeeded_.fetch_add(1);  // already saved (resume)
         return;
       }
-      // cv_bridge knows the source encoding from msg.encoding, so it demosaics
-      // raw Bayer images correctly here.
-      image = cv_bridge::toCvCopy(msg, image_encoding_)->image;
+
+      image = decode_raw_image(msg, image_encoding_);
     }
   }
   catch (const std::exception& e)

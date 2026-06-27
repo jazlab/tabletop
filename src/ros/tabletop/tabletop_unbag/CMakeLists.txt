@@ -26,7 +26,7 @@ find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
 
 add_executable(
-  unbag src/main.cpp src/unbagger.cpp src/flatten.cpp
+  unbag src/main.cpp src/unbagger.cpp src/flatten.cpp src/image_decode.cpp
         src/handlers/csv_handler.cpp src/handlers/image_handler.cpp)
 
 target_include_directories(
