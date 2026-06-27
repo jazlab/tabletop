@@ -66,12 +66,36 @@ struct ImageOptions
   std::string format = "keep";
 };
 
+/// The output backend.
+///   Csv  - per-topic CSV files and per-topic image directories (the default,
+///          for backwards compatibility).
+///   Hdf5 - a single HDF5 file holding every topic (one group per topic; one
+///          dataset per flattened column; one stacked (N,H,W,C) dataset per
+///          image topic). Same flattening and debayering, different container.
+enum class OutputFormat
+{
+  Csv,
+  Hdf5,
+};
+
+/// Options specific to the HDF5 backend. Surfaced under the `--hdf5-*`
+/// namespace (see main.cpp).
+struct Hdf5Options
+{
+  /// gzip/deflate level (0-9) for image datasets and the flattened columns.
+  /// 0 disables compression. Higher is smaller but slower to write.
+  int gzip_level = 4;
+};
+
 /// Options controlling an unbag run. Populated from the command line (main.cpp)
 /// and passed down to the handlers. Run-wide options live at the top level;
 /// options that only affect one handler live in the per-handler sub-structs
-/// (`csv`, `image`) so the grouping is explicit in code and on the CLI.
+/// (`csv`, `image`, `hdf5`) so the grouping is explicit in code and on the CLI.
 struct UnbagOptions
 {
+  /// Output backend (CSV/image files vs. a single HDF5 file). Default Csv.
+  OutputFormat format = OutputFormat::Csv;
+
   /// Whitelist of topics to unbag. Mutually exclusive with exclude_topics;
   /// std::nullopt means "every topic".
   std::optional<std::vector<std::string>> topics;
@@ -113,6 +137,7 @@ struct UnbagOptions
   /// Per-handler option groups.
   CsvOptions csv;
   ImageOptions image;
+  Hdf5Options hdf5;
 };
 
 }  // namespace tabletop_unbag
