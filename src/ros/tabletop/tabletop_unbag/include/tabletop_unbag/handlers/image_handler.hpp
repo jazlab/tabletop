@@ -40,7 +40,9 @@ namespace tabletop_unbag
 /// Decodes the image messages of one topic and writes them to disk as image
 /// files, one per message, in a per-topic subdirectory of the output.
 ///
-/// Files are named "<sec>_<nanosec>.<ext>" from the message header stamp. Color
+/// Files are named "<sec>_<nanosec>.<ext>" from the message header stamp, with
+/// both stamp fields zero-padded to a fixed width (sec to 10 digits, nanosec to
+/// 9) so the files sort chronologically under a plain lexicographic sort. Color
 /// conversion goes through cv_bridge for uncompressed Image messages and for
 /// non-Bayer CompressedImage messages (so any target encoding cv_bridge
 /// supports works, not just bgr8). CompressedImage payloads that carry a Bayer
@@ -119,7 +121,9 @@ private:
 
   /// Build the on-disk basename (no extension) for a header stamp and its
   /// occurrence index: "<sec>_<nanosec>" for the first frame at a stamp, and
-  /// "<sec>_<nanosec>_<NNN>" (zero-padded) for later duplicates.
+  /// "<sec>_<nanosec>_<NNN>" (zero-padded) for later duplicates. Both stamp
+  /// fields are zero-padded to a fixed width (sec to 10 digits, nanosec to 9) so
+  /// the filenames sort chronologically under a plain lexicographic sort.
   static std::string make_basename(int32_t sec, uint32_t nanosec, uint64_t occurrence);
 
   TopicInfo topic_;

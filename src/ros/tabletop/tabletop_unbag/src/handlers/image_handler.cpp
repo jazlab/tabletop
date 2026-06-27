@@ -257,15 +257,21 @@ uint64_t ImageHandler::note_for_write(const rcutils_uint8_array_t& data, int64_t
 
 std::string ImageHandler::make_basename(int32_t sec, uint32_t nanosec, uint64_t occurrence)
 {
-  std::string base = std::to_string(sec) + "_" + std::to_string(nanosec);
+  // Zero-pad both stamp fields to a fixed width so a lexicographic sort of the
+  // filenames matches chronological order. Without padding, std::to_string
+  // renders each field at its natural width and shorter strings sort first, so
+  // e.g. nanosec 9 ("9") would sort after nanosec 10 ("10"). nanosec is always
+  // < 1e9 (<= 9 digits); sec is an int32 Unix epoch second, <= 10 digits for any
+  // value up to INT32_MAX (2147483647).
+  std::ostringstream out;
+  out << std::setfill('0') << std::setw(10) << sec << "_" << std::setw(9) << nanosec;
   if (occurrence == 0)
   {
     // First (or only) frame at this stamp keeps the plain name. '.' sorts before
     // '_', so it lexicographically precedes any duplicate suffix below.
-    return base;
+    return out.str();
   }
-  std::ostringstream out;
-  out << base << "_" << std::setw(6) << std::setfill('0') << occurrence;
+  out << "_" << std::setw(6) << occurrence;
   return out.str();
 }
 

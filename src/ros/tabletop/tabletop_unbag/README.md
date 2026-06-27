@@ -26,7 +26,9 @@ Given a *bag directory* (the directory that holds the `.mcap` files and
   (shorter messages leave trailing columns empty).
 * **Image topics** (`sensor_msgs/msg/Image`,
   `sensor_msgs/msg/CompressedImage`) are decoded and saved as image files under
-  a per-topic subdirectory (`<topic>/<sec>_<nanosec>.{jpg,png,tiff}`). When more
+  a per-topic subdirectory (`<topic>/<sec>_<nanosec>.{jpg,png,tiff}`). The `sec`
+  and `nanosec` fields are zero-padded to a fixed width (10 and 9 digits) so the
+  files sort chronologically under a plain lexicographic sort. When more
   than one frame shares a header stamp (e.g. synchronized cameras), the extra
   frames are kept under a zero-padded suffix
   (`<sec>_<nanosec>_<NNN>.<ext>`) assigned in bag-receive order, so no frame is
