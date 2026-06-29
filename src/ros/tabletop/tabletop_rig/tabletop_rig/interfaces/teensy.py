@@ -258,13 +258,15 @@ class TeensyInterface(BaseInterface):
         Args:
             msg: The incoming sensor message.
         """
-        warn_threshold = self.param("sensor_delay_warn_threshold")
+        warn_threshold: float = self.param("sensor_delay_warn_threshold")
+        ahead_threshold: float = self.param("sensor_ahead_threshold")
 
         received_time = self.node.ros_time()
         teensy_time = seconds_from_ros_time(msg.header.stamp)
         delay = received_time - teensy_time
-        clock_in_sync = delay >= 0
-        if not clock_in_sync:
+        clock_in_sync = True
+        if delay < -ahead_threshold:
+            clock_in_sync = False
             # Teensy timestamp is ahead of host time: the clocks are out of
             # sync, so the host-vs-teensy comparisons in safe_to_execute are
             # unreliable. Warn; the flag below latches safe_to_execute off

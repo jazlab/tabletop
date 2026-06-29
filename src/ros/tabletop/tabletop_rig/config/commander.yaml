@@ -136,6 +136,9 @@
       # Log a warning if the ROS receive latency of a TeensySensor message
       # exceeds this threshold (seconds).
       sensor_delay_warn_threshold: 0.05
+      # Teensy clock should be marked out of sync if it is ahead of the
+      # host time by more than this threshold (seconds).
+      sensor_ahead_threshold: 0.05
 
     # --- URInterface common defaults (interfaces/ur.py) ---
     # Applied to both left_ur_interface and right_ur_interface via fallback.
