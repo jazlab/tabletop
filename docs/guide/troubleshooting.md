@@ -18,8 +18,8 @@ tt-compose --profile=sim up                # start a simulation session
 # Inside a container (or Dev Container)
 tt-build colcon                            # build tabletop packages
 tt-build colcon --clean-tabletop           # clean rebuild
-tt-launch rig robot_mode:=mock             # launch with mock hardware
-tt-launch tasks task:=foraging_ordered     # run a task
+tt-launch commander robot_mode:=mock       # commander only (rig comes from the compose profile)
+tt-launch tasks task:=foraging_ordered     # run a task (starts a commander too)
 ```
 
 ## Docker
@@ -59,12 +59,17 @@ tt-launch tasks task:=foraging_ordered     # run a task
     ros2 launch tabletop_description dual_view_robot.launch.py
     ```
 
-- **Mock-hardware demo:**
+- **Mock-hardware demo:** there is no single `rig` launch anymore — bring up the
+  `sim` profile (mock UR, teensy-sim, flic-sim, eyelink-sim, rviz) and run a task
+  on top:
 
     ```bash
-    ros2 launch tabletop_rig rig.launch.py robot_mode:=mock \
-        teensy_simulate:=true flic_simulate:=true
+    tt-compose --profile=sim up
+    tt-compose run --rm commander tt-launch tasks task:=foraging_ordered
     ```
+
+    To launch one mock subsystem on its own instead, use its target directly,
+    e.g. `tt-launch teensy simulate:=true` or `tt-launch flic simulate:=true`.
 
 - **Commander executor.** Don't run the Commander on the `AIOExecutor` — its
   services intermittently stop responding. The Commander must use the

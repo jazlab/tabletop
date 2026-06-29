@@ -21,7 +21,7 @@ Usage: $0 <component> [options...]
 
 Components:
   colcon     Build the ROS 2 workspace with colcon
-  microros   Build/upload the Teensy & Flic micro-controller firmware (PlatformIO)
+  microros   Build/upload the Teensy micro-controller firmware (PlatformIO)
   foxglove   Package the Foxglove MoveIt message converter plugin (.foxe -> \$TABLETOP_DIR)
 
 colcon options:

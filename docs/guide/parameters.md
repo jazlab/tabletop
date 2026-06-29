@@ -57,8 +57,10 @@ deep-merged).  For example, `left_ur_interface.namespace` overrides
 | --- | --- |
 | `safe_to_execute.required_time` | Seconds the safety conditions must be continuously met before `safe_to_execute` returns `True`. |
 | `safe_to_execute.max_sensor_delay` | Maximum age (s) of the last `TeensySensor` message before the sensor is considered stale and `safe_to_execute` returns `False`. |
+| `safe_to_execute.require_arm_locks` | When `true`, motion additionally requires **both** arm locks engaged, not just the safety laser. Default `false` (laser-only) preserves the rig's historical behaviour. See [Hardware & Safety](hardware.md#safety-interlock). |
 | `spin_period` | Poll interval (s) in `lock_arms_and_wait` / `start_reward_and_wait` busy-wait loops. |
 | `sensor_delay_warn_threshold` | Log a warning when ROS receive latency of a `TeensySensor` message exceeds this value (s). |
+| `sensor_ahead_threshold` | Mark the Teensy clock out of sync if it runs ahead of host time by more than this value (s). |
 
 ---
 

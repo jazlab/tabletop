@@ -27,7 +27,7 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | Command | Description |
 | --- | --- |
 | `tt-build` | Build a component: `colcon` (workspace), `microros` (firmware), or `foxglove` (plugin) |
-| `tt-launch` | Launch ROS 2 nodes (commander, rig, tasks, …) |
+| `tt-launch` | Launch ROS 2 nodes (commander, tasks, dual_ur, …) |
 | `tt-kill-ros` | Kill all running ROS 2 processes |
 
 ## Common commands (`bin/common`)
@@ -43,7 +43,7 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | Component | Builds |
 | --- | --- |
 | `colcon` | the ROS 2 workspace (colcon) |
-| `microros` | the Teensy & Flic micro-controller firmware (PlatformIO) |
+| `microros` | the Teensy micro-controller firmware (PlatformIO) |
 | `foxglove` | the Foxglove MoveIt converter plugin (`.foxe` written to `$TABLETOP_DIR`) |
 
 !!! note "First build"
@@ -89,15 +89,37 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 `tt-launch` runs inside a container — open one with `tt-attach <service>` (or use
 the Dev Container), or run it as a one-shot from the host by prefixing it with
 `tt-compose run --rm commander`. `tt-launch <target> [ros2 launch args…]`.
-Targets: `commander`, `rig`, `tasks`, `dual_ur`, `teensy`, `flic`,
-`eyelink`, `flir_no_sync`, `flir_synchronized`, `flir_calibrate`, `optitrack`,
-`rosbag`, `rosbag_convert`, `rviz`, `foxglove`, `moveit`, `discovery`.
+Each target maps to a single launch file. Targets: `commander`, `tasks`,
+`dual_ur`, `teensy`, `flic`, `eyelink`, `flir_no_sync`, `flir_synchronized`,
+`flir_calibrate`, `optitrack`, `rosbag`, `rosbag_convert`, `rviz`, `foxglove`,
+`moveit`, `discovery`.
 
 ```bash
-tt-launch rig robot_mode:=mock teensy_simulate:=true
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 tt-launch commander robot_mode:=real
+tt-launch teensy simulate:=true
 ```
+
+!!! note "No aggregate `rig` target"
+    The old `tt-launch rig` (which started every subsystem at once via
+    `rig.launch.py`) was retired. Bring the rig up with a Compose profile
+    (`tt-compose --profile=sim up` / `=real`) — each subsystem runs in its own
+    service — then run `tt-launch tasks …` on top. See
+    [Usage → Starting containers](../getting-started/usage.md#starting-containers-profiles).
+
+## Bag conversion (`unbag`)
+
+To export a recorded session bag to per-topic CSVs and decoded images, use the
+standalone C++ exporter (built by `tt-build colcon`):
+
+```bash
+ros2 run tabletop_unbag unbag /path/to/session/bag        # → <parent>/unbag/
+```
+
+The older Python converter is still available as the `rosbag_convert` launch
+target. Both are covered in
+[Usage → Converting recorded bags](../getting-started/usage.md#converting-recorded-bags),
+with the full option set in `src/ros/tabletop/tabletop_unbag/README.md`.
 
 ## Python CLI tools
 

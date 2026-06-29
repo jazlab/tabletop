@@ -1,387 +1,168 @@
-# TODO / Known-Issues Fix Plan (2026-06-24)
+# TODO / Known-Issues Fix Plan
 
-This plan triages every open `TODO` comment in tracked source, every entry
-in `docs/known-issues.md`, and every item in the maintainer's `todo.md`,
-then groups the fixes into **independent worktrees** that can be tackled in
-parallel. It is the companion to the expanded `docs/known-issues.md`.
+This plan triaged every open `TODO` comment in tracked source, every entry in
+`docs/known-issues.md`, and every item in the maintainer's `todo.md`, then
+grouped the fixes into **independent worktrees** runnable in parallel. It is the
+companion to `docs/known-issues.md`.
 
-The work was triaged against `main` (commit `3e9d697`).
-
----
-
-## 1. Triage summary
-
-| Source | Items | Already fixed | Still open |
-| --- | --- | --- | --- |
-| `docs/known-issues.md` (pre-existing) | 14 | **0** | 14 |
-| `TODO`/`FIXME` comments in tracked source | ~28 | 0 | all (pending by nature) |
-| `todo.md` (functional + docs) | ~21 | 0 | all |
-
-**Nothing was found already-fixed**, so no comments or known-issue entries
-were removed. Every pre-existing known-issue was re-verified by *content*
-(the cited line numbers had drifted in several cases — they were refreshed
-in `known-issues.md`). All newly-found substantive issues were added to
-`known-issues.md` under four new sections.
-
-> The original plan only edited `docs/known-issues.md` (re-verify + expand)
-> and this file. The code worktrees below have since been implemented and
-> mostly merged — see the progress snapshot.
+Original triage was against `main` @ `3e9d697` (2026-06-24).
 
 ---
 
-## 1b. Progress snapshot (updated 2026-06-25)
+## 1. Status (updated 2026-06-29)
 
-Most of Wave 1 is implemented and merged. **Do not redo merged work.**
+**Wave 1 is fully merged into `main`** (PRs #19–#30), and the `tabletop_unbag`
+converter (PR #17, not originally in the plan) was added. The
+docs/CLAUDE.md/known-issues reconciliation pass (this PR) is what closes Wave 1.
 
 | Worktree | PR | Status |
 | --- | --- | --- |
 | WT-A · moveit interface bug fixes | #19 | ✅ merged |
-| WT-D · rename + task-logic TODOs | #21 | ✅ merged (rename + §6.3 decisions applied) |
-| WT-E · `commander.yaml` config | #22 | ✅ merged (added `require_arm_locks`) |
+| WT-C · UR `stop_program` future (P1) | #20 | ✅ merged |
+| WT-D · rename + task-logic decisions | #21 | ✅ merged |
+| WT-E · `commander.yaml` config | #22 | ✅ merged |
 | WT-F · gaze geometric config | #23 | ✅ merged |
-| WT-H · launch refactor | #29 | ✅ merged |
 | WT-J · build / dev-env | #24 | ✅ merged |
+| WT-B · executor robustness | #25 | ✅ merged |
+| WT-M · eyelink/flic node TODOs | #26 | ✅ merged |
 | WT-K · `bin/` script help | #27 | ✅ merged |
 | WT-L · documentation | #28 | ✅ merged |
-| WT-B · executor robustness | #25 | 🔄 open (review addressed) |
-| WT-C · UR `stop_program` future | #20 | 🔄 open |
-| WT-G · Teensy firmware + safety gate | #30 | 🔄 open |
-| WT-M · eyelink/flic node TODOs | #26 | 🔄 open |
+| WT-H · launch refactor | #29 | ✅ merged |
+| WT-G · Teensy firmware + safety gate | #30 | ✅ merged |
 
-Verified on `main`: WT-D kept `foraging.py`'s `release_arm` and removed its
-`# TODO: Remove!!!`, and intentionally retained `smooth_pursuit.py`'s
-fetch_object TODO — both per the §6.3 decisions. All §6 maintainer
-decisions are answered (see Section 6).
-
-**Wave 2 (WT-I)** is now unblocked (WT-A/WT-D/WT-H merged), but is sequenced
-*after* the four open Wave-1 PRs merge and the
-docs/CLAUDE.md/known-issues reconciliation pass.
+All Section 6 maintainer decisions were answered and applied. The per-worktree
+detail is preserved in [Section 4](#4-wave-1-worktrees-completed) for provenance.
 
 ---
 
-## 2. Priority tiers
-
-Per the request, ordering favours **quick/important bug fixes and
-documentation inconsistencies** over feature work.
-
-- **P1 — quick, high-confidence bug fixes & doc inconsistencies.** Small,
-  isolated, low-risk, no design decision required.
-- **P2 — important but gated.** Needs a maintainer decision, hardware
-  (firmware flash), or a bit more code; plus quick non-bug wins.
-- **P3 — feature updates / larger refactors.**
-- **P4 — optional cleanup** (cosmetic / "decide later" markers).
-
-Priority is independent of *wave*: wave is about file-conflict
-scheduling (Section 4), priority is about what to spend effort on first.
-
----
-
-## 3. Worktrees (each = one branch, disjoint file set)
-
-Every worktree below edits a **non-overlapping** set of files, so all of
-Wave 1 can run concurrently. Suggested branch names are `fix/<slug>`.
-
-### WT-A · moveit interface bug fixes — **P1**
-
-Files: `tabletop_rig/interfaces/moveit/plan_and_execute.py`,
-`tabletop_rig/interfaces/moveit/object_manipulation.py`
-
-- **KI "copy-paste param"** (`plan_and_execute.py:1033-1034`): change
-  `allowed_duration_margin = self.param("execution.allowed_duration_scaling")`
-  to read `"execution.allowed_duration_margin"`.
-- **KI "dropped `use_cache=False`"** (`object_manipulation.py:1231-1233`):
-  pass the `reset_request` copy (which has `use_cache=False`) to
-  `plan_and_execute(...)` instead of the original `config.reset_request`.
-- No decisions needed. ~2 small edits, ideally with a regression check that
-  the reset path no longer pulls a cached trajectory.
-
-### WT-B · executor robustness — **P1**
-
-Files: `tabletop_rig/executors.py`, `tabletop_rig/nodes/system_check.py`
-
-- **KI-1**: make `spin_until_future_complete` (or `_spin_impl`) catch the
-  `ConditionReachedException` it raises at `executors.py:823` so callers
-  don't receive an `ExceptionGroup`; then remove the
-  `except* ConditionReachedException` workaround at `system_check.py:433`
-  and confirm `system_check` still exits its wait cleanly.
-- **KI "code smell #3"**: replace the bare `print(...)` in `_queue_producer`
-  (`executors.py:485`) — and the `print(e)` at `:734` — with the node/ROS
-  logger.
-
-### WT-C · UR interface reliability — **P1 / P2**
-
-Files: `tabletop_rig/interfaces/ur.py`
-
-- **P1 — KI "code smell #2"**: `stop_program()` (`ur.py:659-665`) fires
-  `call_async` and never awaits/checks the future. This is an rclpy future,
-  which is distinct from asyncio futures in that it is thread-safe to call
-  `call_async` while it is not threadsafe to call the asyncio wrapped version
-  of the service call. The reason we use the native rclpy async service call
-  here and the asyncio-wrapped service calls elsewhere is because we want
-  stop_program to be both thread-safe and fast since it is called by the
-  teensy sensor message callback and is used to quickly stop the robot in
-  the event that the safety laser is broken and the robot is in the vicinity
-  of the subject. The result of this future can be checked on subsequent calls
-  to this function: if the future is not complete, do not send another stop_program request; if the future is complete and but it did not complete
-  successfully, then the service should be called again; if it did complete successfully, then the service should not be called again until the `reset`
-  method has been called.
-- **P2 — `todo.md` functional**: `safety_restart` recovery doesn't finish
-  (`is_in_remote_control` times out after safety returns to normal);
-  likely needs a dashboard reconnect in the recovery state machine.
-  Needs real-hardware reproduction. (I think I implemented this, make sure
-  I did but don't remove this from the known-issues or the fix-plan until
-  I've tested it on the real robot)
-
-### WT-D · API typo rename + task-logic TODOs — **P1 / P3**
-
-Files: `tabletop_rig/nodes/commander.py`,
-`tabletop_tasks/tasks/smooth_pursuit.py`,
-`tabletop_tasks/tasks/dummy.py`, `tabletop_tasks/tasks/foraging.py`
-
-- **P1 — KI "code smell #1"**: rename `Commander.manually_atatch_object`
-  → `manually_attach_object` and update the two call sites
-  (`smooth_pursuit.py:370`, `dummy.py:439`) in the same commit. (Get rid of deprecated alias.)
-- **P3 — `smooth_pursuit.py:368` `# TODO: FIX!!!`**: decide whether to
-  restore the real `await manipulator.fetch_object(...)` (currently
-  commented out in favour of the manual-attach workaround). Needs a
-  decision + bench test. Also the `plan_and_move("fetched")`
-  `# TODO: Maybe remove`.
-- **P3 — `foraging.py:154` `# TODO: Remove!!!`**: confirm whether the
-  unconditional `release_arm(arm)` at the top of the response phase should
-  stay; remove if it was debug scaffolding.
-
-> Owns **all** `tabletop_tasks/tasks/*` edits and `commander.py` in Wave 1
-> to keep those files single-writer.
-
-### WT-E · `commander.yaml` config decisions — **P2**
-
-Files: `tabletop_rig/config/commander.yaml`
-
-- **KI config #1** (`:382`, `:457`): fix `left_eblow_joint` /
-  `right_eblow_joint` → `*_elbow_joint` (confirm against
-  `tabletop_description` joint names first).
-- **KI config #2**: `trajectory_cache.base_link_name` (`:375`, `:450`) and
-  `execution.moved_tolerance` (`:227`) have no reader — decide: delete as
-  dead config, or wire up the intended `self.param(...)` read.
-- **KI config #3** (`:48,52,53`): `big_object_3` / `big_object_7` /
-  `small_object_0` share one Flic MAC — confirm distinct buttons (then
-  supply real MACs) or document as intentionally-shared/spare.
-
-> All three need a maintainer decision; pure config, no code.
-
-### WT-F · gaze geometric config alignment — **P1**
-
-Files: `config/gaze_estimation_geometric.yaml`
-
-- **KI config #4**: realign the `visualize:` block to the keys the code
-  reads (`animate_2d_dots` / `animate_3d_dots`, not `eyelink_range` /
-  `markers_range`) and rename the `data:` block to `dataloaders:` to match
-  `gaze/utils.py::init_dataloaders` — matching `gaze_estimation.yaml`.
-  Only needed if this config is fed to the visualize / MLP pipeline; verify
-  intended use before deleting vs. realigning.
-
-### WT-G · Teensy firmware + safety gate — **P2 (safety)**
-
-Files: `src/microros/tabletop_teensy/src/main.cpp`,
-`tabletop_rig/interfaces/teensy.py`
-
-- **SAFETY DECISION — KI bug "arm-lock disabled"** (`teensy.py:198-217`):
-  decide whether to re-enable the `is_left_arm_locked && is_right_arm_locked`
-  gate in `_msg_safe_to_execute`. Motion is currently gated on the safety
-  laser only.
-- **`todo.md` functional — debounce false "laser broken" on first trial**:
-  fix the debounce-initialisation in `main.cpp` (affects all debounced
-  sensors), and revisit the commander-side `safety_laser_last_time_broken`
-  handling (see follow-up note in WT-D's owner — coordinate, it lives in
-  `commander.py`).
-- **`todo.md` functional — ISR clock**: stop reading
-  `rmw_uros_epoch_nanos` inside the debounce ISRs; latch monotonic time.
-- **KI firmware #1** (`main.cpp:83`): resolve the `LEFT_ARM_LOCK_STATE_PIN`
-  `38 → 36` TODO vs `BUTTON_STATE_PIN 36` conflict (relocate one pin).
-- **KI firmware #2**: rename the `UNCRECOVERABLE_ERROR` enum →
-  `UNRECOVERABLE_ERROR` (cosmetic, do all uses at once).
-
-> Requires PlatformIO flashing + bench validation. The commander-side
-> safety-laser-time tweak touches `commander.py`; sequence it **after**
-> WT-D merges, or hand that one-line change to WT-D.
-
-### WT-J · build / developer-environment — **P1 (mingus) / P2**
-
-Files: `pyproject.toml`, `.devcontainer/devcontainer.json`,
-`docker-bake.hcl`, `.vscode/c_cpp_properties.json`, `compose.yaml`
-
-- **P1**: move `mingus` from `[dependency-groups].dev` (`pyproject.toml:49`)
-  into `[project].dependencies` — it's imported at runtime by
-  `SoundInterface`, so non-dev installs break today.
-- **P2**: add `"ghcr.io/devcontainers/features/github-cli:1": {}` to the
-  devcontainer `features`.
-- **P2**: make `docker-bake.hcl` multi-platform (`linux/amd64` +
-  `linux/arm64`); review the `jazlabtabletop/*` tags (no `:latest`).
-- **P2**: fix the `pio_teensy` path and drop the `pio_sniffer` config in
-  `.vscode/c_cpp_properties.json`.
-- **P4**: investigate the `SYS_NICE` cap `# TODO: see if needed`
-  (`compose.yaml:203`).
-
-> Each item is its own file — this worktree can be split further if desired.
-
-### WT-K · `bin/` script help — **P2 (quick win)**
-
-Files: `bin/host/*`, `bin/common/*`, `bin/container/*`
-
-- Add a `-h|--help` usage block to each `tt-*` script. Establish one shared
-  helper/pattern (e.g. in `bin/common`) and apply it consistently.
-
-### WT-L · documentation — **P1 (inconsistencies) / P2 (additive)**
-
-Files: `docs/**`, `src/ros/tabletop/tabletop_interfaces/msg/TeensySensor.msg`,
-`deprecated/README.md`, `share/**`
-
-- **P1 — `TeensySensor.msg`**: header credits "tabletop_micro firmware"
-  (real package: `tabletop_teensy` in `src/microros/`) and hard-codes
-  "100 Hz" (configurable). Fix the reference; drop the rate.
-- **P1 — `deprecated/README.md`**: reconcile the
-  `src/ros/tabletop/tabletop_micro/tabletop_flic_micro/` path reference.
-- **P2 — FLIR GenICam**: link the BFS-U3-23S3 node reference from the
-  camera-config docs (tie to `blackfly_s.yaml` / `flir_synchronized.yaml`).
-- **P2 — node/interface parameter docs**: surface the per-node parameters
-  (currently inline in `config/*.yaml`) into `docs/`.
-- **P2 — Foxglove**: export + commit the layout configs (two examples
-  currently only in a local `share/` dir), document import, add the
-  "must be open & focused at task start" planning-scene note.
-- **P2 — setup gaps**: add `git-lfs` + `jq` prerequisites; note possible
-  reboot after `usermod -aG docker`; note the `platformio-core` volume
-  ownership fix (delete volume, re-run `tt-build microros`).
-
-### WT-M · `tabletop_rig` node TODOs (eyelink + flic) — **P2 / P3**
-
-Files: `tabletop_rig/nodes/eyelink.py`, `tabletop_rig/nodes/flic.py`
-
-- **P2 (trivial)**: delete the content-free `eyelink.py:1402
-
-  # TODO: Something is fucking wrong, help me`, or convert to a real issue
-
-- **P2/P3**: investigate `eyelink.py:397 # TODO: Fix callback groups`
-  (concurrency correctness) and `:915` discard-stale-samples-before-collection.
-- **P3**: `flic.py:323 # TODO: Change to custom message`.
-
-### WT-H · launch refactor + bringup warnings — **P3**
-
-Files: `tabletop_rig/launch/rig.launch.py`,
-`tabletop_tasks/launch/tasks.launch.py`,
-`tabletop_rig/launch/rviz.launch.py`,
-`tabletop_moveit_config/launch/moveit.launch.py`,
-`tabletop_moveit_config/config/moveit_controllers.yaml`
-
-- Retire `rig.launch.py` to `deprecated/`; have `tasks.launch.py` include
-  `commander.launch.py` / `rosbag.launch.py` directly (resolves the
-  `# TODO: … unscoped …` markers at `rig.launch.py:310`,
-  `tasks.launch.py:99`).
-- Silence the benign bringup warnings (`fallback_controllers`,
-  `publish_robot_description_semantic`) — likely add the full MoveIt config
-  to the rviz node params.
-- Resolve the `moveit_config.to_dict()` "which one to use" TODOs
-  (`moveit.launch.py:212`, `rviz.launch.py:114`) and
-  `moveit_controllers.yaml:13`.
-
-> File-independent of Wave 1, so it *can* run alongside — kept P3 as it's a
-> refactor, not a bug fix.
-
-### WT-I · `robot_name` vs `group_name` refactor — **P3 (Wave 2)**
-
-Files: `tabletop_tasks/**` (task code, trial specs, trial generators),
-`tabletop_rig/nodes/commander.py`,
-`tabletop_rig/interfaces/moveit/object_manipulation.py`,
-`tabletop_rig/interfaces/moveit/plan_and_execute.py`
-
-- Make `robot_name` the task-facing parameter; keep `group_name` as a
-  property of the controlled robot (independent of the name).
-- **Conflicts with WT-A, WT-D (and WT-H's tasks usage).** Must run in
-  **Wave 2**, rebased after those merge — see Section 4.
-
-### WT-N · arm-lock terminology (mechanism-agnostic rename) — **P3 (Wave 2)**
-
-Files: repo-wide — `tabletop_rig/interfaces/teensy.py`,
-`tabletop_rig/nodes/commander.py`, `tabletop_interfaces/**`, firmware
-comments, `commander.yaml`, `docs/**`.
-
-- From the PR #30 review (`teensy.py:277`): the "electromagnetic arm lock"
-  wording is inaccurate. The rig currently uses a **button per hand**
-  (unpressed = the subject's hand is free to move) plus a per-arm buzzer to
-  cue which hand to use; a physical arm lock may be added later. Reword the
-  arm-lock terminology across the repo to be agnostic to the mechanism used
-  to keep the hands in place / detect when they are free (covering both the
-  safety gate and task-evaluation/reward uses).
-- Large cross-cutting rename touching `commander.py` / tasks / interfaces —
-  schedule alongside Wave 2 and coordinate with WT-I to avoid churn.
-
----
-
-## 4. Execution strategy (waves)
-
-**Wave 1 — run all in parallel** (disjoint files, no cross-conflicts):
-`WT-A, WT-B, WT-C, WT-D, WT-E, WT-F, WT-G, WT-J, WT-K, WT-L, WT-M` (and
-optionally `WT-H`). Recommended order to *merge* by value:
-
-1. P1 bug fixes: WT-A, WT-B, WT-C(P1 part), WT-D(rename), WT-F, WT-J(mingus)
-2. P1 doc inconsistencies: WT-L(`TeensySensor.msg`, `deprecated/README.md`)
-3. P2: WT-E, WT-G, WT-K, WT-J(rest), WT-L(rest), WT-M, WT-C(reconnect)
-4. P3: WT-D(task-logic), WT-H, WT-M(flic)
-
-**Wave 2 — after Wave 1 merges:** `WT-I` (rebase on the merged
-`commander.py` / moveit-interface / tasks changes), then mop up the **P4**
-"decide later" markers (Section 5) by riding along with whichever worktree
-owns each file.
-
-### Shared-file caveats (the only things that break naive parallelism)
-
-- `commander.py`: Wave-1 owner is **WT-D** (rename). WT-G's optional
-  commander-side safety-laser tweak and WT-I both also touch it — defer
-  both to after WT-D.
-- `object_manipulation.py` / `plan_and_execute.py`: WT-A (Wave 1) then
-  WT-I (Wave 2). WT-A is tiny, so WT-I rebases trivially.
-- `tabletop_tasks/tasks/*`: WT-D owns it in Wave 1; WT-I edits it in Wave 2.
-
----
-
-## 5. P4 — optional "decide later" markers
-
-Low-priority TODOs with no known breakage; fold into whichever worktree
-already owns the file, or sweep last:
-`compose.yaml:203` (SYS_NICE), `moveit_controllers.yaml:13`,
-`moveit.launch.py:212` / `rviz.launch.py:114` (`to_dict` choice),
-`interfaces/moveit/moveit.py:465`,
+## 2. Remaining work (re-prioritized)
+
+Wave 1 closed the quick bug fixes and doc inconsistencies. What's left is
+**maintainer validation**, two **Wave-2 refactors**, one deferred feature, and
+P4 cleanup. Re-prioritized by what unblocks the most / carries the most risk:
+
+### P1 — Maintainer validation (no further code expected, but must be verified)
+
+These have code on `main` but need real hardware before
+`docs/known-issues.md` can close them. **Do not delete the known-issue entries
+until verified.**
+
+1. **UR `safety_restart` recovery on the real robot.** Reconnect-in-recovery is
+   implemented (`interfaces/ur.py::_reconnect`); run a real safety event and
+   confirm the reset sequence completes (no `is_in_remote_control` timeout).
+   → known-issues Open §A1.
+2. **Teensy firmware #30 on the bench.** Flash and check: no first-trial false
+   "laser broken" (debounce init), ISR monotonic clock, and the configurable
+   arm-lock gate (`require_arm_locks`). → known-issues Open §A3.
+3. **Eyelink stale-sample drain on a live unit.** Confirm the
+   `tracker.resetData()` drain at retrieval start behaves as intended on
+   hardware (sim-only so far). → known-issues Open §A2.
+
+### P2 — Wave 2 refactors (cross-cutting; coordinate with each other)
+
+4. **WT-I · `robot_name` vs `group_name`.** Make `robot_name` the task-facing
+   parameter; keep `group_name` a property of the controlled robot. Touches
+   `tabletop_tasks/**`, `nodes/commander.py`,
+   `interfaces/moveit/{object_manipulation,plan_and_execute}.py`. Now unblocked
+   (its Wave-1 dependencies merged); rebase on current `main`.
+5. **WT-N · arm-lock terminology (mechanism-agnostic rename).** Reword the
+   inaccurate "electromagnetic arm lock" wording and the `SetArmLock` /
+   `*_arm_lock*` naming repo-wide (`interfaces/teensy.py`, `commander.py`,
+   `tabletop_interfaces/**`, firmware comments, `commander.yaml`, `docs/**`) to
+   be agnostic to the hold/detect mechanism (currently a button per hand).
+   Large cross-cutting rename — **coordinate with WT-I** to avoid churn on the
+   shared files (`commander.py`, tasks, interfaces).
+
+> Both WT-I and WT-N edit `commander.py` and the manipulation interfaces. Run
+> them back-to-back (or together) and rebase the second on the first; don't run
+> them blindly in parallel.
+
+### P3 — Deferred feature
+
+6. **`nodes/flic.py:323` → custom message.** Publish the Flic response on a
+   dedicated `tabletop_interfaces` message instead of a generic type. Needs a new
+   `.msg` + colcon rebuild. → known-issues Open §B5.
+
+### Quick doc/code reconciliation (gated on a trivial decision)
+
+7. **`tasks.launch.py` `rosbag` default.** The arg defaults to `"false"` but the
+   docstring/PR #29 say `true`. Decide the intended default, then fix the
+   `DeclareLaunchArgument` *or* the docstring so source is self-consistent (the
+   global docs already describe the code's actual behaviour). → known-issues
+   Open §E8.
+
+### P4 — "Decide later" markers (sweep with whichever worktree owns the file)
+
+`compose.yaml:203` (`SYS_NICE`), `interfaces/moveit/moveit.py:465`,
 `interfaces/moveit/plan_and_execute.py:628` (maybe revalidate),
-`interfaces/ur.py:542`, `object_manipulation.py:1759`
-(check presentation region), `gaze/preprocess.py:627`.
+`interfaces/ur.py:542`, `interfaces/moveit/object_manipulation.py:1759`
+(check presentation region). → known-issues Open §D.
+
+### Not scheduled — open design decision
+
+- **smooth-pursuit fetch vs. manual-attach.** `smooth_pursuit.py` keeps the
+  `manually_attach_object` workaround and its `# TODO: FIX!!!` intentionally;
+  whether to physically pick the object is a design call, not a bug. Revisit
+  only if the experiment design changes. → known-issues Open §B4.
 
 ---
 
-## 6. Decisions needed from the maintainer (blockers)
+## 3. Priority tiers (original definitions)
 
-These gate their worktrees and can be answered up front:
+- **P1** — quick, high-confidence bug fixes & doc inconsistencies (Wave 1, done).
+- **P2** — important but gated (decision / hardware / more code).
+- **P3** — feature updates / larger refactors.
+- **P4** — optional cleanup (cosmetic / "decide later" markers).
 
-1. **WT-G**: re-enable the arm-lock safety gate in `_msg_safe_to_execute`? (safety)
-2. **WT-E**: `base_link_name` / `moved_tolerance` — delete or wire up? Are
-   the three shared Flic MACs intentional?
-3. **WT-D**: restore real `fetch_object` in smooth-pursuit, or keep the
-   manual-attach workaround? Should `foraging.py`'s response-phase
-   `release_arm` stay?
-4. **WT-F**: is `gaze_estimation_geometric.yaml` still fed to the
-   visualize / MLP pipeline (realign) or dead (delete)?
+---
 
-Answers:
+## 4. Wave 1 worktrees (completed)
 
-1. Do not re-enable the arm-lock safety gate. Instead, make this configurable via a parameter to in commander.yaml, and set it to false so that current
-behavior is maintained.
-2. I think the base_link_name and moved_tolerance are no longer used, make
-sure that is the case, but then you can delete. The shared Flic addresses
-are intentional, leave those alone.
-3. Fetch object should not be restored for right now, but this should remain
-in the known-issues and the TODO comment should stay since this is a design
-decision whether or not to keep the smooth_pursuit_object in the grid or to
-manually attach at the beginning of the smooth pursuit task. The release_arm
-should be kept, and the TODO comment removed.
-4. The gaze_estimation_geometric config should match the MLP version in
-everything except the parameters relevant to model creation: Otherwise,
-everything else should be identical. Make sure that this is the case, then
-align gaze_estimation_geometric with gaze_estimation.
+Each worktree below was one branch over a disjoint file set, merged in the PR
+shown in Section 1. Retained for provenance; see the PRs and
+`docs/known-issues.md` "Resolved in Wave 1" for the exact changes.
+
+- **WT-A** (`#19`) — `plan_and_execute.py` margin param; `object_manipulation.py`
+  reset honours `use_cache=False`.
+- **WT-B** (`#25`) — `spin_until_future_complete` no longer leaks
+  `ConditionReachedException`; `executors.py` uses the logger, not `print`.
+- **WT-C** (`#20`) — `stop_program()` tracks its rclpy future across calls (P1).
+  The P2 `safety_restart` recovery is implemented but pending real-robot test
+  (now Section 2 · P1·1).
+- **WT-D** (`#21`) — `manually_atatch_object` → `manually_attach_object` (+ call
+  sites); `foraging.py` `release_arm` kept, its `# TODO: Remove!!!` removed;
+  `smooth_pursuit.py` fetch decision kept open by design.
+- **WT-E** (`#22`) — `*_elbow_joint` fix; deleted dead `base_link_name` /
+  `moved_tolerance`; added `safe_to_execute.require_arm_locks` (default false);
+  shared Flic MACs confirmed intentional.
+- **WT-F** (`#23`) — `gaze_estimation_geometric.yaml` realigned to
+  `gaze_estimation.yaml` (model block aside).
+- **WT-G** (`#30`) — configurable arm-lock gate, debounce-init fix, ISR
+  monotonic clock, pin-38 rationale, `UNRECOVERABLE_ERROR` rename. Bench
+  validation pending (Section 2 · P1·2).
+- **WT-H** (`#29`) — retired `rig.launch.py` to `deprecated/`; flattened
+  `tasks.launch.py` to include `commander`/`rosbag` directly; silenced the
+  `fallback_controllers` / `publish_robot_description_semantic` bringup warnings;
+  resolved the `to_dict()` and `execution_duration_monitoring` TODOs.
+- **WT-J** (`#24`) — `mingus` → runtime deps; gh-cli devcontainer feature;
+  multi-platform `docker-bake.hcl`; `c_cpp_properties.json` cleanup.
+- **WT-K** (`#27`) — `-h|--help` for the `tt-*` scripts.
+- **WT-L** (`#28`) — `TeensySensor.msg` header; `deprecated/README.md`;
+  `docs/guide/parameters.md`; FLIR GenICam reference; committed Foxglove layouts;
+  setup-doc gaps.
+- **WT-M** (`#26`) — eyelink TODOs resolved (stale-sample drain pending live
+  test, Section 2 · P1·3); `flic.py` custom-message TODO deferred (Section 2 · P3).
+
+---
+
+## 5. Maintainer decisions (answered & applied)
+
+1. **Arm-lock safety gate** — not force-re-enabled; made configurable via
+   `safe_to_execute.require_arm_locks` (default `false`). ✅ applied (#30/#22).
+2. **`base_link_name` / `moved_tolerance`** — confirmed unused, deleted. Shared
+   Flic MACs intentional, left alone. ✅ applied (#22).
+3. **smooth-pursuit `fetch_object`** — not restored; TODO + known-issue kept as a
+   design decision. `foraging.py` `release_arm` kept, its TODO removed.
+   ✅ applied (#21).
+4. **`gaze_estimation_geometric.yaml`** — aligned with `gaze_estimation.yaml`
+   except model-creation parameters. ✅ applied (#23).

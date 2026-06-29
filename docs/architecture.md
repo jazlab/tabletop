@@ -135,10 +135,13 @@ graph LR
 
 Key edges:
 
-- **Safety loop**: Teensy firmware publishes `teensy/sensor` at 100 Hz;
-  `TeensyInterface` (inside Commander) gates every robot motion through
-  `safe_to_execute`. Note: only the safety-laser field is currently
-  enforced — the arm-lock check is commented out (see `known-issues.md`).
+- **Safety loop**: Teensy firmware publishes `teensy/sensor` (at a configurable
+  rate); `TeensyInterface` (inside Commander) gates every robot motion through
+  `safe_to_execute`. The safety-laser field is always enforced; the arm-lock
+  check (both restraints seated) is gated by the
+  `safe_to_execute.require_arm_locks` parameter in `commander.yaml`, which
+  defaults to `false` (laser-only) — set it `true` to also require the arm
+  locks. See [Hardware & Safety](guide/hardware.md#safety-interlock).
 - **Hardware sync**: the Teensy emits a hardware trigger pulse wired to
   the FLIR cameras' Line0, so all cameras expose simultaneously; the
   synchronized driver stamps grouped frames identically.
@@ -150,23 +153,45 @@ Key edges:
 
 ### 4.1 Launch hierarchy
 
+There is **no monolithic aggregator launch file**. The old `rig.launch.py`
+(which bundled every subsystem behind `*_launch:=true|false` toggles) was
+retired to `deprecated/launch/rig.launch.py`; each subsystem now runs in its
+own Compose service, launched by its own `tt-launch <target>` (see §2.3). The
+only launch file that *includes* others is `tasks.launch.py`, which now pulls in
+just the commander and (optionally) the recorder:
+
 ```text
 tasks.launch.py (tabletop_tasks)         task:=<name> ⇒ coro_config=config/<name>.yaml
-└── rig.launch.py (tabletop_rig)         per-subsystem *_launch:=true|false toggles
-    ├── commander.launch.py              → commander node (+ moveit_cpp config)
-    ├── dual_ur.launch.py                → ur driver stack (both arms)
-    │   └── dual_rsp.launch.py (tabletop_description) → robot_state_publisher (URDF)
-    ├── teensy.launch.py                 → micro_ros_agent  | mock_teensy (simulate)
-    ├── flic.launch.py                   → flic node
-    ├── eyelink.launch.py                → eyelink node
-    ├── optitrack.launch.py              → mocap4r2 lifecycle driver
-    ├── flir.launch.py                   → per-camera CameraDriver components
-    ├── rviz.launch.py                   → rviz2 (waits for robot_description)
-    └── rosbag.launch.py                 → ros2 bag record (topics from rosbag.yaml)
+├── commander.launch.py (tabletop_rig)   → commander node (+ moveit_cpp config),
+│                                           runs run_tasks(coro_config)
+└── rosbag.launch.py (tabletop_rig)       → ros2 bag record (topics from rosbag.yaml)
+                                            [only if rosbag:=true — see note below]
 
-flir_synchronized.launch.py              → SynchronizedCameraDriver component (standalone)
-moveit.launch.py (tabletop_moveit_config)→ standalone move_group + rviz (debug only)
+# Each of the following is its own tt-launch target / Compose service:
+commander.launch.py        → commander node alone (no task)
+dual_ur.launch.py          → ur driver stack (both arms)
+    └── dual_rsp.launch.py (tabletop_description) → robot_state_publisher (URDF)
+teensy.launch.py           → micro_ros_agent | mock_teensy (simulate:=true)
+flic.launch.py             → flic node
+eyelink.launch.py          → eyelink node
+optitrack.launch.py        → mocap4r2 lifecycle driver
+flir.launch.py             → per-camera CameraDriver components (unsynchronized)
+flir_synchronized.launch.py→ SynchronizedCameraDriver component
+flir_calibrate.launch.py   → FLIR calibration capture
+rviz.launch.py             → rviz2 (waits for robot_description)
+rosbag.launch.py           → ros2 bag record (topics from rosbag.yaml)
+moveit.launch.py (tabletop_moveit_config) → standalone move_group + rviz (debug only)
 ```
+
+So a session is: a Compose profile brings up the device services
+(`dual_ur`, `teensy`, `flic`, `eyelink`, `optitrack`, `flir`, `rviz`), then
+`tt-launch tasks …` starts a commander (and, with `rosbag:=true`, a recorder)
+on top of them.
+
+> **Note — `rosbag` default.** `tasks.launch.py` declares `rosbag` with
+> `default_value="false"`, so recording is **off** unless you pass
+> `rosbag:=true`. The file's own docstring says the default is `true`; that
+> docstring is out of sync with the code (tracked in `known-issues.md`).
 
 ### 4.2 Config file → consumer map
 
@@ -213,11 +238,18 @@ graph TD
     DESC[tabletop_description] -.URDF via launch.-> RIG
     MVC[tabletop_moveit_config] -.SRDF/planner cfg via launch.-> RIG
     MODS[src/ros/modules/*<br/>external forks] -.runtime deps.-> RIG
+    UNBAG[tabletop_unbag<br/>C++ bag→CSV/image tool] -.reads recorded bags offline.-> BAG[(rosbag)]
 ```
 
 - `tabletop_py` never imports ROS. `tabletop_rig` is the only package
   that wraps it in ROS nodes. `tabletop_tasks` only consumes the
   `Commander`; it never touches devices directly.
+- `tabletop_unbag` is a **standalone** C++ `ament_cmake` package (built by the
+  normal `tt-build colcon`): it depends only on rosbag2 / sensor_msgs /
+  cv_bridge / Fast CDR, not on the other tabletop packages, and produces the
+  `unbag` executable for offline bag→CSV/image export. It is the dependency-light
+  port of `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`, the `rosbag_convert`
+  launch target); both still exist (see §5.5).
 - `src/microros/` is `COLCON_IGNORE`d — firmware is built by
   PlatformIO (`tt-build microros`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
@@ -304,19 +336,37 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 | `flic/scapy_client.py` | rig `nodes/flic.py` |
 | `gaze/*` (edf, preprocess, models, train…) | rig `nodes/eyelink.py` + offline CLI tools (`tt-gaze-*` entry points in `pyproject.toml`) |
 
+### 5.5 Data export (bag → CSV / images)
+
+Sessions are recorded as MCAP rosbags (`rosbag.launch.py`, topics from
+`rosbag.yaml`). Two converters turn a bag into per-topic CSVs and decoded image
+files; they share the same flattening semantics but are otherwise independent:
+
+| Converter | Invocation | Notes |
+| --- | --- | --- |
+| `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) | `tt-launch rosbag_convert` (≡ `ros2 run tabletop_rig rosbag_to_csv`) | Original Python version; needs rclpy + pandas. |
+| `tabletop_unbag` (`unbag`) | `ros2 run tabletop_unbag unbag BAG_DIR` | Standalone C++ port: no Python/pandas at runtime, multithreaded, streaming (bounded memory), resumable. CSV is byte-identical to the Python output (one intentional difference: fixed-size primitive arrays are expanded to indexed columns). |
+
+`unbag` routes each message type to a *handler* (CSV catch-all, image decode via
+cv_bridge), reading the CDR payload generically with
+`rosidl_typesupport_introspection_cpp` + Fast CDR. See
+`tabletop_unbag/README.md` and [Usage → Converting recorded bags](getting-started/usage.md#converting-recorded-bags)
+for the full option set.
+
 ## 6. Where to Look When Something Breaks
 
 | Symptom | Start here | Then |
 | --- | --- | --- |
 | `tt-*` command not found | `source setup.bash` | `bin/` PATH logic in setup.bash |
 | Container can't see camera/Teensy | `tt-env-gen` then `tt-compose ps` | `.env` `FLIR_DEV_*`/`TEENSY_DEV`, `compose.yaml` devices |
-| Robot won't move, no error | Teensy safety loop | `interfaces/teensy.py: safe_to_execute`, arm-lock hardware |
+| Robot won't move, no error | Teensy safety loop | `interfaces/teensy.py: safe_to_execute`; safety laser (and arm locks if `require_arm_locks:=true`) |
 | "Joint outside bounds" on start | robot was manually moved | [Troubleshooting → Robot](guide/troubleshooting.md#robot-ur5e) |
 | Planning fails / slow | trajectory cache + planner config | `interfaces/moveit/plan_and_execute.py`, `tabletop_moveit_config/config/` |
 | Pick/place stuck in weird state | manipulation state machine | `interfaces/moveit/object_manipulation.py` (`ManipulationState`) |
 | Cameras out of sync / missing frames | `ros2 run tabletop_rig system_check` | `flir_synchronized.yaml` trigger settings, Teensy sync pulse |
 | Flic button not responding | flic container logs | [Troubleshooting → Flic buttons](guide/troubleshooting.md#flic-buttons) |
 | Task behaves wrong | the task's YAML config | `tabletop_tasks/config/<task>.yaml` → task class kwargs |
+| CSV/images missing or malformed after a session | the bag exporter | `ros2 run tabletop_unbag unbag BAG_DIR -v` (per-topic failure counts); §5.5 |
 | Commander hangs on shutdown | signal handling notes | [Troubleshooting → Commander signal handling](guide/troubleshooting.md#commander-signal-handling) |
 | No sound in container | PulseAudio mount | `tt-env-gen` PULSE_* detection, `compose.yaml` commander mounts |
 
