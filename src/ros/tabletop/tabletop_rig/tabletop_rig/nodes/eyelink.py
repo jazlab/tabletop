@@ -210,8 +210,6 @@ class Eyelink(BaseNode):
         "smooth_pursuit.window": 0.1,  # seconds
         "smooth_pursuit.min_samples": 80,
         # "preprocess_overrides.clean.max_zscore": "null",
-        # "preprocess_overrides.reindex_and_interpolate.tolerance": "null",  # TODO: fix
-        # "preprocess_overrides.reindex_and_interpolate.tolerance": 0.003,  # TODO: fix
         # "preprocess_overrides.smooth.window": 0.05,  # seconds
         "gaze_estimation.enable": True,
         "gaze_estimation.frame_id": "optitrack",
@@ -277,6 +275,11 @@ class Eyelink(BaseNode):
         # self.tpe = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.stop_sample_retrieval_event = threading.Event()
         self.stop_sample_retrieval_event.set()
+
+        # Set by start_retrieval once hardware recording is confirmed active;
+        # the retrieval loop waits on it before draining the tracker's stale
+        # pre-recording buffer (see sample_retrieval_loop). Cleared on stop.
+        self._recording_active = threading.Event()
 
         self._goal_lock = threading.Lock()
         self._goal_ongoing = False
@@ -387,6 +390,12 @@ class Eyelink(BaseNode):
                 event_callbacks=event_callbacks,
             )
 
+        # Each entity gets its own MutuallyExclusiveCallbackGroup so the action
+        # server, the sample publisher's matched-event handler, and the gaze
+        # estimation timer can run concurrently on the multithreaded executor.
+        # In particular the action callback sleeps in a loop while the sample
+        # publisher keeps publishing; sharing one group would let the publish
+        # callback deadlock behind the sleeping action callback.
         self.smooth_pursuit_server = ActionServer(
             self,
             EyelinkSmoothPursuit,
@@ -394,7 +403,7 @@ class Eyelink(BaseNode):
             self.smooth_pursuit_callback,
             cancel_callback=self.smooth_pursuit_cancel_callback,
             goal_callback=self.smooth_pursuit_goal_callback,
-            callback_group=MutuallyExclusiveCallbackGroup(),  # TODO: Fix callback groups
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
 
         if hasattr(self, "gaze_estimation_model"):
@@ -620,6 +629,7 @@ class Eyelink(BaseNode):
         )
 
         self.message_queue.clear()
+        self._recording_active.clear()
 
         self.stop_sample_retrieval_event.clear()
         # self.sample_retrieval_future = self.tpe.submit(
@@ -642,6 +652,7 @@ class Eyelink(BaseNode):
         """
         self.log("Stopping sample retrieval loop")
         self.stop_sample_retrieval_event.set()
+        self._recording_active.clear()
         if hasattr(self, "sample_retrieval_future"):
             try:
                 self.sample_retrieval_future.result()
@@ -713,9 +724,14 @@ class Eyelink(BaseNode):
                 except Exception:
                     self._stop_sample_retrieval_loop()
                     raise
+
+                # Recording (or simulation) is up: release the retrieval loop so
+                # it can drain the tracker's stale pre-recording buffer.
+                self._recording_active.set()
             except Exception:
-                # self.tracker.stopRecording()  # TODO: maybe fix
-                self.tracker.stopRecording()  # TODO: maybe fix
+                # startRecording() succeeded before the inner failure, so stop it
+                # here to stay symmetric with stop_retrieval's cleanup.
+                self.tracker.stopRecording()
                 self._close_data_file(save=False)
                 raise
 
@@ -904,15 +920,24 @@ class Eyelink(BaseNode):
         min_pos = self.preprocess_config["clean"]["min_eye_pos"]
         max_pos = self.preprocess_config["clean"]["max_eye_pos"]
 
-        # Wait for the tracker to be connected
-        # while (
-        #     not self.simulate
-        #     and not self.stop_sample_retrieval_event.is_set()
-        #     and not self.tracker.isConnected()
-        # ):
-        #     self.ros_sleep(period)
-
-        # TODO: Discard old samples before starting collection
+        # Discard samples buffered before this recording session so leftover
+        # samples from a previous session don't leak into the new collection.
+        # message_queue (the ROS-side bounded queue) is already cleared in
+        # _start_sample_retrieval_loop(); this drops the tracker's internal
+        # hardware buffer. It runs once, here in the loop thread (the only thread
+        # that reads the tracker), after start_retrieval signals recording is
+        # active -- waiting on _recording_active avoids racing startRecording(),
+        # which runs on the calling thread. The stop-event check keeps the wait
+        # from hanging if retrieval is cancelled before recording comes up.
+        # Skipped under simulation (no hardware buffer).
+        # NOTE: the leftover-samples behaviour is timing-dependent; this drop
+        # needs validation against a live Eyelink unit (see PR #26 discussion).
+        if not self.simulate:
+            while not self._recording_active.wait(timeout=period):
+                if self.stop_sample_retrieval_event.is_set():
+                    break
+            if not self.stop_sample_retrieval_event.is_set():
+                self.tracker.resetData()
 
         while not self.stop_sample_retrieval_event.is_set():
             # Receive data from the tracker and convert to ROS message if valid
@@ -923,13 +948,9 @@ class Eyelink(BaseNode):
                 try:
                     self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
                 except RuntimeError as e:
-                    # TODO: Verify this fix. MAY need to explicitly get
-                    # the logger to do throttled logging
-                    # so that rclpy knows the "caller id" to throttle
-                    # self.get_logger().warning(
-                    #     f"No data from tracker with error: {e}",
-                    #     throttle_duration_sec=1,
-                    # )
+                    # self.log delegates to self.get_logger().warning(), which
+                    # carries a stable caller id, so throttle_duration_sec
+                    # throttles correctly here.
                     self.log(
                         f"No data from tracker with error: {e}",
                         severity="WARN",
@@ -1397,6 +1418,3 @@ def main(args=None):
     finally:
         print("Shutting down rclpy")
         rclpy.try_shutdown()  # type: ignore
-
-
-# TODO: Something is fucking wrong, help me
