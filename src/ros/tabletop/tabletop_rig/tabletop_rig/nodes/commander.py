@@ -801,12 +801,14 @@ class Commander(BaseNode):
                     and context._manipulator.manipulation_state
                     == ManipulationState.PRESENTED
                 ):
-                    context._ur.stop_program()
-                    # manipulator.stop_execution()
                     self.log(
                         f"Not safe to execute for {robot_name}, stopping execution",
                         severity="WARN",
                     )
+                    if self.param("simulate"):
+                        context._manipulator.stop_execution()
+                    else:
+                        context._ur.stop_program()
 
     def _safe_to_execute_condition(self) -> bool:
         return (
