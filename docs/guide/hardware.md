@@ -35,18 +35,21 @@ ros2 run tabletop_rig system_check
 
 ## Safety interlock
 
-The Teensy firmware publishes `teensy/sensor` (a `TeensySensor` message) at
-100 Hz. The `TeensyInterface` inside the Commander gates every robot motion
-through `safe_to_execute`, which requires the safety conditions to hold
+The Teensy firmware publishes `teensy/sensor` (a `TeensySensor` message) at a
+configurable rate. The `TeensyInterface` inside the Commander gates every robot
+motion through `safe_to_execute`, which requires the safety conditions to hold
 continuously for a configured time and the sensor message to be fresh.
 
-!!! warning "Arm-lock check currently disabled"
-    `safe_to_execute` presently enforces **only** the safety laser
+!!! warning "Arm-lock check is off by default"
+    By default `safe_to_execute` enforces **only** the safety laser
     (`is_safety_laser_broken`). The arm-lock check (both arms seated in the
-    restraints) is commented out in `interfaces/teensy.py:_msg_safe_to_execute`
-    and is **not** enforced, even though the firmware still publishes the
-    arm-lock state. See [Known Issues](../known-issues.md) (#17); re-enabling it
-    is a safety-relevant decision.
+    restraints) is gated by the `safe_to_execute.require_arm_locks` parameter in
+    `commander.yaml`, which defaults to `false` — so the arm-lock state the
+    firmware publishes is **not** enforced unless you set
+    `require_arm_locks: true`. Enabling it is a safety-relevant decision; the
+    laser-only default preserves the rig's historical behaviour. The mechanism
+    that holds / detects the hands (currently a button per hand, not a physical
+    lock) is being reworked — see [Known Issues](../known-issues.md).
 
 ## Firmware
 

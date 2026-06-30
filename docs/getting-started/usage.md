@@ -11,7 +11,7 @@ tt-build colcon --all             # full workspace incl. external modules (movei
 tt-build colcon                   # tabletop packages only (most common, after the first build)
 tt-build colcon --clean-tabletop  # clean rebuild of tabletop packages
 tt-build colcon -p tabletop_rig   # one package + its dependencies
-tt-build microros                 # Teensy & Flic firmware (PlatformIO)
+tt-build microros                 # Teensy firmware (PlatformIO)
 tt-build foxglove                 # Foxglove MoveIt plugin (.foxe -> $TABLETOP_DIR)
 ```
 
@@ -137,3 +137,49 @@ tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:
 `.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock` or `real`. See
 [Tasks & Experiments](../guide/tasks.md) for the available tasks and how to
 configure them.
+
+Pass `rosbag:=true` to also record the session to an MCAP bag (topics from
+`rosbag.yaml`); recording is off by default. See below for turning a recorded
+bag into analysis-ready files.
+
+## Converting recorded bags
+
+Sessions are recorded as MCAP rosbags. Use **`tabletop_unbag`** (`unbag`) to turn
+a bag into per-topic CSVs and decoded image files: nested fields become
+dot-separated columns (`pose.position.x`), sequences become bracket-indexed
+columns (`name[0]`), and image topics are decoded to image files.
+
+`unbag` is a standalone C++ exporter with no Python/pandas/rclpy runtime
+dependency. It is multithreaded, streams the bag (bounded memory, so it handles
+very large camera-heavy bags), and is resumable (an interrupted run leaves valid
+partial output and picks up where it left off). It is built by the normal
+`tt-build colcon`:
+
+```bash
+# Export everything into <parent of BAG_DIR>/unbag/
+ros2 run tabletop_unbag unbag /path/to/session/bag
+
+# Choose the output directory; only CSV (skip image topics)
+ros2 run tabletop_unbag unbag BAG_DIR -o /path/to/out --handlers csv
+
+# Restrict to some topics; save every image as lossless PNG
+ros2 run tabletop_unbag unbag BAG_DIR --topics /joint_states /eyelink/sample
+ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-format png
+
+# Re-run from scratch instead of resuming
+ros2 run tabletop_unbag unbag BAG_DIR --overwrite
+```
+
+CSV output is byte-for-byte identical to the legacy Python converter, with one
+intentional difference: fixed-size primitive arrays (e.g. `CameraInfo.k`) are
+expanded to indexed columns (`k[0]..k[8]`). The full flag set (handler
+selection, `--jobs`, `--csv-batch-size`, `--image-encoding`, resume/overwrite
+semantics) is documented in `src/ros/tabletop/tabletop_unbag/README.md`.
+
+!!! note "Legacy Python converter"
+    `tabletop_unbag` was ported from a Python converter
+    (`tabletop_rig.utils.rosbag`, `rosbag_to_csv`). That converter's `tt-launch`
+    target has been removed and it is slated for retirement — prefer `unbag`. It
+    currently survives only as the `ros2 run tabletop_rig rosbag_to_csv` entry
+    point and the import used by the gaze-calibration scripts (which will move to
+    `tabletop_unbag`; see `docs/fix-plan.md`).

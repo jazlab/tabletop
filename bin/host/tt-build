@@ -6,7 +6,7 @@
 # Environment: TABLETOP_DIR
 # Notes: Uses the privileged `builder` service (/dev + platformio-core mounts) so
 #        the same wrapper can build the colcon workspace, the Foxglove plugin,
-#        and the Teensy/Flic firmware.
+#        and the Teensy firmware.
 
 set -eo pipefail
 

@@ -55,27 +55,37 @@ full set.
 ### Running
 
 `tt-launch <target> [ros2 launch args…]`, run inside a container or via
-`tt-compose run --rm commander tt-launch …` from the host. Common targets:
-`commander`, `rig`, `tasks`, `dual_ur`, `teensy`, `flic`, `eyelink`,
-`flir_no_sync`, `flir_synchronized`, `optitrack`, `rosbag`, `rviz`, `foxglove`,
-`moveit`.
+`tt-compose run --rm commander tt-launch …` from the host. Each target maps to a
+single launch file (`tt-launch` is now purely a `ros2 launch` wrapper); there is
+no longer an aggregate `rig` target (the old `rig.launch.py` was retired to
+`deprecated/` — bring the rig up with compose profiles instead, see Docker
+below). Targets:
+`commander`, `tasks`, `dual_ur`, `teensy`, `flic`, `eyelink`,
+`flir_no_sync`, `flir_synchronized`, `flir_calibrate`, `optitrack`, `rosbag`,
+`rviz`, `foxglove`, `moveit`.
 
 ```bash
 # Launch the main commander node
 tt-launch commander robot_mode:=mock   # mock | real
 
-# Launch the full rig (all hardware interfaces, per-subsystem toggles)
-tt-launch rig robot_mode:=mock teensy_simulate:=true
-
-# Launch tasks (spins a commander on top of an already-running rig)
+# Launch tasks (spins a commander, optionally with rosbag recording, and
+# runs the task on top of an already-running rig started via a compose profile)
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 
 # Launch the dual UR driver stack (both arms)
 tt-launch dual_ur robot_mode:=real     # or robot_mode:=mock
 
+# Launch a single hardware subsystem (each runs in its own compose service)
+tt-launch teensy simulate:=true
+
 # Launch visualization (renders to the noVNC display)
 tt-launch rviz
 ```
+
+> The full rig is no longer launched from one target. Each subsystem
+> (`dual_ur`, `teensy`, `flic`, `eyelink`, `optitrack`, `flir*`, `rviz`) runs in
+> its own compose service; `tt-compose --profile=sim up` (or `=real`) starts the
+> whole set, then `tt-launch tasks …` runs a commander on top.
 
 ### Docker
 
@@ -158,7 +168,9 @@ src/
     │   ├── tabletop_tasks/       # Experiment task definitions
     │   ├── tabletop_interfaces/  # ROS message/service/action definitions
     │   ├── tabletop_description/ # URDF robot descriptions + UR calibration
-    │   └── tabletop_moveit_config/ # MoveIt planning configurations
+    │   ├── tabletop_moveit_config/ # MoveIt planning configurations
+    │   └── tabletop_unbag/       # C++ ament_cmake pkg: `unbag` bag→CSV/image
+    │                             #   exporter (offline analysis tool; see below)
     └── modules/              # External dependencies (git submodules)
         ├── moveit2/          # Custom MoveIt fork
         ├── flir_camera_driver/   # Spinnaker-based FLIR driver
@@ -177,6 +189,25 @@ firmware flashed by PlatformIO (`tt-build microros`), and
 side — `tabletop_rig` wraps `tabletop_py`, and the firmware implements
 `tabletop_interfaces` services (`SetArmLock`, `SetReward`, `SetSolenoid`,
 `SetSmartglass`, `Ping`) in C.
+
+### Bag export: `tabletop_unbag` (and the legacy Python converter)
+
+- `tabletop_unbag` — the **current** bag exporter: a standalone C++ `ament_cmake`
+  package (built by the normal `tt-build colcon`, **not** COLCON_IGNOREd)
+  providing the dependency-light `unbag` executable:
+  `ros2 run tabletop_unbag unbag BAG_DIR`. Generic message flattening to
+  per-topic CSV plus image-topic decode, but multithreaded, streaming (bounded
+  memory), and resumable, with no Python/pandas/rclpy at runtime. CSV output is
+  byte-for-byte identical to the old Python version (one intentional difference:
+  fixed-size primitive arrays like `CameraInfo.k` are expanded to indexed
+  columns). It is an **offline analysis tool**, not a runtime node. Full
+  details: `tabletop_unbag/README.md`.
+- `tabletop_rig/tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) — the **legacy**
+  Python converter it was ported from. Depends on rclpy/pandas. Its `tt-launch`
+  target was removed; it survives only as the `ros2 run tabletop_rig
+  rosbag_to_csv` entry point and the import used by the gaze-calibration scripts.
+  Slated for retirement in Wave 2 (move to `deprecated/`; gaze calibration to
+  call `tabletop_unbag` instead) — see `docs/fix-plan.md`. Prefer `unbag`.
 
 ### tabletop_rig Architecture
 

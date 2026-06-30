@@ -1,268 +1,226 @@
-# Known Issues Found During Documentation Review
+# Known Issues
 
-Discrepancies between code, configuration, and documentation found
-while building the architecture docs (2026-06), flagged for maintainer
-review. Items that have since been fixed in this branch have been removed;
-the remaining ones are open.
+Discrepancies between code, configuration, and documentation, plus tracked
+`TODO`s and pending functional work, flagged for maintainer review.
 
-> **2026-06-24 triage.** Every open item below was re-verified against
-> `main` (commit `3e9d697`) — all are still present; none were removed as
-> fixed. The list was then expanded with substantive `TODO` comments found
-> in tracked source and with the pending work captured in the maintainer's
-> `todo.md` (see the new sections: *Functional issues flagged in `todo.md`*,
-> *Source TODOs worth tracking*, *Build / developer-environment cleanups*,
-> and *Documentation gaps and inconsistencies*). A prioritized,
-> worktree-parallelizable fix plan lives in `docs/fix-plan.md`.
+> **2026-06-29 reconciliation.** All of **Wave 1** of the fix plan
+> (`docs/fix-plan.md`) has been merged into `main` (PRs #19–#30), and the
+> `tabletop_unbag` bag→CSV/image converter (PR #17) was added. This file has been
+> reconciled against that state:
+>
+> - Items fixed in Wave 1 moved to [Resolved in Wave 1](#resolved-in-wave-1-2026-06)
+>   with their PR numbers.
+> - The items that remain **open** — by design, or scheduled for Wave 2 — are
+>   listed first.
+> - Earlier deprecation-branch history is unchanged at the bottom.
+>
+> Each formerly-open item was re-verified by *content* against `main`, not just
+> by commit title.
+>
+> **2026-06-30 update (PR review).** The three items that were awaiting hardware
+> validation — UR `safety_restart` recovery, the Teensy safety firmware (#30),
+> and the Eyelink stale-sample drain — have been **confirmed on real hardware**
+> and are now resolved. The `tasks.launch.py` `rosbag` default was confirmed
+> intended `false` and the docstring fixed. Two new Wave-2 items were added
+> (Open §B5/§B6), and `tt-launch` was reduced to a pure `ros2 launch` wrapper
+> (the `rosbag_convert` and `discovery` targets were removed).
 
-## Likely bugs
+---
 
-1. **`AIOExecutor.spin_until_future_complete` leaks
-   `ConditionReachedException`.** `spin_until_future_complete`
-   (`tabletop_rig/executors.py:416`) drives `_spin_impl`, which raises
-   `ConditionReachedException` (`executors.py:823`) when its wait condition
-   is met but never catches it — so the exception propagates to the caller,
-   wrapped as an `ExceptionGroup` by the spin `TaskGroup`.
-   (`_spin_context_manager` no longer contains the once-commented-out
-   suppression at all.) `nodes/system_check.py:433` works around it with a
-   local `except* ConditionReachedException`; other future callers will hit
-   the same trap.
+## Open issues
 
-## Likely bugs (continued)
+### A. Open by design / deferred
 
-1. **Copy-paste parameter bug in
-    `interfaces/moveit/plan_and_execute.py:1033-1034`.**
-    `allowed_duration_margin = self.param("execution.allowed_duration_scaling")`
-    reads the *scaling* parameter for the *margin* variable (the
-    validation error message right below names the correct
-    `allowed_duration_margin` key). The configured margin is ignored.
+1. **smooth-pursuit teleports the object onto the gripper (design decision).**
+    `tasks/smooth_pursuit.py` still calls `manually_attach_object` instead of
+    `await manipulator.fetch_object(...)` (the real fetch is commented out, with
+    the `# TODO: FIX!!!` and follow-on `plan_and_move("fetched")`
+    `# TODO: Maybe remove` deliberately retained). Whether to keep the
+    smooth-pursuit object in the grid and physically pick it, or manually attach
+    it at task start, is an unresolved design decision — kept open intentionally.
 
-2. **Dropped `use_cache=False` in
-    `interfaces/moveit/object_manipulation.py:1229-1232`.** A copy of
-    `config.reset_request` is made and `use_cache` set to False
-    (`reset_request = copy(...)`), but `plan_and_execute` is then called
-    with the *original* `config.reset_request` — the no-cache intent is
-    silently lost (the call passes `cache_trajectories=False`, which
-    suppresses *writing* the cache but not *reading* a stale entry).
+2. **`nodes/flic.py:323` publishes the response on a generic message type**
+    (`# TODO: Change to custom message`). Deferred from the PR #26 cleanup: it is
+    a feature addition needing a new `tabletop_interfaces` `.msg` and a colcon
+    rebuild, out of scope for a comment cleanup.
 
-3. **Arm-lock safety check disabled in `interfaces/teensy.py`.**
-    `_msg_safe_to_execute` (`teensy.py:198-217`) has the arm-lock condition
-    (`is_left_arm_locked and is_right_arm_locked`) commented out and
-    returns only `not msg.is_safety_laser_broken`. So robot motion is
-    gated solely on the safety laser; the subject's arms being seated in
-    the restraints is published by the firmware (`TeensySensor`) but NOT
-    enforced. The method's docstring previously claimed both arms were
-    checked — corrected to match the implementation. Confirm whether the
-    arm-lock gate should be re-enabled (safety-relevant).
+### B. Larger refactors (Wave 2)
 
-## Config review (config documentation pass)
+3. **`group_name` vs `robot_name` conflation.** Tasks, trial specs, and trial
+    generators pass `group_name` where they should pass `robot_name` (the
+    commander looks up a manipulation context manager by robot name, not MoveIt
+    group name; they happen to be equal today). Make `robot_name` the task-facing
+    parameter and keep `group_name` a property of the controlled robot. Touches
+    `tabletop_tasks` plus the `ObjectManipulationInterface` /
+    `PlanAndExecuteInterface` plumbing — see `fix-plan.md` WT-I.
 
-1. **Typo'd joint name in `commander.yaml` `test_object_attached`.**
-    `left_manipulation_interface.test_object_attached.joint_name` is
-    `left_eblow_joint` and the right arm is `right_eblow_joint`
-    (`commander.yaml:382`, `:457`). The correct UR joint is
-    `*_elbow_joint` (cf. `tabletop_description` initial-position configs
-    and `dual_view_robot.launch.py`). `object_manipulation.py:1422`
-    reads this `test_object_attached` config, so the attach self-test
-    would reference a non-existent joint. The config now carries an
-    inline NOTE; the value itself was left unchanged.
+4. **Arm-lock terminology is mechanism-specific.** The rig currently uses a
+    **button per hand** (unpressed = the hand is free) plus a per-arm buzzer to
+    cue which hand to use; a physical arm lock may be added later. The wording
+    "electromagnetic arm lock" (e.g. `interfaces/teensy.py`) and the
+    `SetArmLock` / `*_arm_lock*` naming across `tabletop_interfaces`, firmware,
+    `commander.yaml`, and docs is inaccurate. The safety gate is now
+    *configurable* (`safe_to_execute.require_arm_locks`, see Resolved §B3) but
+    still uses this naming. Reword repo-wide to be agnostic to the hold/detect
+    mechanism — see `fix-plan.md` WT-N.
 
-2. **Unread config parameters in `commander.yaml`.**
-    `*_manipulation_interface.trajectory_cache.base_link_name` and
-    `common_manipulation_interface.execution.moved_tolerance` are never
-    read in `tabletop_rig` (no matching `self.param(...)`). Either dead
-    config or a missing code read — confirm intent.
+5. **Safe-execution should gate on the presentation region, not the manipulation
+    state.** The current safety stop checks whether the arm is in the `PRESENT`
+    manipulation state to decide whether motion must be prevented. But while the
+    object is actually being presented the arm is still in the `FETCHED` state,
+    so the subject can be within reach during that window. Gate safe-execution on
+    whether the arm has **acquired the presentation region** (cf. the
+    `object_manipulation.py:1759 # TODO: Check if robot is in presentation
+    region` marker in §C), not on the manipulation-state label alone.
+    Safety-relevant — see `fix-plan.md` WT-O.
 
-3. **Duplicate Flic button MAC in `commander.yaml`.** `flic.bd_addrs`
-    maps `big_object_3`, `big_object_7`, and `small_object_0` all to
-    `90:88:a9:50:5f:b6` (`commander.yaml:48,52,53`). If these are meant
-    to be distinct physical buttons this is a copy-paste error; if
-    intentional (spare/unassigned), ignore.
+6. **Retire the legacy Python bag converter.** Move
+    `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) to `deprecated/`, and stop
+    the gaze-estimation calibration scripts from importing it to convert bags
+    themselves. Instead, the operator unbags the gaze/marker data with
+    `tabletop_unbag` (`unbag`) first, and calibration consumes the resulting CSVs.
+    (The `rosbag_convert` `tt-launch` target was already removed; the entry point
+    and the calibration import remain until this lands.) See `fix-plan.md` WT-P.
 
-4. **`config/gaze_estimation_geometric.yaml` visualize keys don't match
-    `visualize.py`.** The file uses `visualize.eyelink_range` /
-    `visualize.markers_range`, but `gaze/visualize.py` reads
-    `visualize.animate_2d_dots` / `visualize.animate_3d_dots` (as in
-    `gaze_estimation.yaml`). The preprocess section was realigned to the
-    nested structure in this branch, but the visualize wrappers are still
-    stale. The same file also uses a `data:` block where the shared pipeline
-    (`gaze/utils.py::init_dataloaders`) reads `dataloaders:` (as in
-    `gaze_estimation.yaml`) — realign if this config is ever fed to the MLP
-    training pipeline.
+### C. Low-priority "decide later" markers (P4)
 
-## Firmware review (firmware documentation pass)
+Investigate or delete; no known breakage. Still present after Wave 1:
 
-1. **Potential pin conflict in Teensy firmware.**
-    `src/microros/tabletop_teensy/src/main.cpp`: `LEFT_ARM_LOCK_STATE_PIN`
-    is `38` with a `// TODO: change back to 36`, but `BUTTON_STATE_PIN` is
-    already `36`. Acting on the TODO without relocating the button pin would
-    map both to pin 36.
+- `compose.yaml:203` — `SYS_NICE # TODO: see if needed` on the commander service.
+- `interfaces/moveit/moveit.py:465` — `# TODO: Should probably use this`.
+- `interfaces/moveit/plan_and_execute.py:628` — `# TODO: Maybe revalidate`.
+- `interfaces/ur.py:542` — `# TODO: See if this is necessary`.
+- `interfaces/moveit/object_manipulation.py:1759` — `# TODO: Check if robot is
+  in presentation region`.
 
-2. **Misspelled enum `UNCRECOVERABLE_ERROR` in Teensy firmware.**
-    The `agent_states` member is spelled `UNCRECOVERABLE_ERROR` (used
-    consistently, so functionally harmless) while a nearby LED blink-pattern
-    comment refers to `UNRECOVERABLE_ERROR`. Cosmetic; rename for clarity.
+(The `moveit_controllers.yaml`, `moveit.launch.py` / `rviz.launch.py` `to_dict()`,
+and `gaze/preprocess.py` markers from the previous list were resolved — see
+Resolved §F.)
 
-## Code smells / API warts
+---
 
-1. **Typo'd public API method: `Commander.manually_atatch_object`**
-   (`nodes/commander.py`). Renaming it is NOT doc-safe: it is called
-   under the typo'd spelling by `tabletop_tasks/tasks/smooth_pursuit.py:370`
-   and `tabletop_tasks/tasks/dummy.py:439`. Fix requires renaming the
-   method and both call sites together (or adding an alias).
+## Resolved in Wave 1 (2026-06)
 
-2. **`interfaces/ur.py` `stop_program()`** fires `call_async` and
-   never awaits or checks the returned future — failures are silent.
+Every item below was open at the 2026-06-24 triage and is now fixed on `main`.
+Grouped by the original section, with the merging PR.
 
-3. **`executors.py` `_queue_producer`** reports exceptions via bare
-    `print` instead of the node/ROS logger.
+### A. Likely bugs
 
-## Outdated documentation (fixed where doc-only; listed for awareness)
+- **Executor leaked `ConditionReachedException`** → **#25.**
+  `AIOExecutor.spin_until_future_complete` now catches the signal internally
+  (bare or `ExceptionGroup`-wrapped) and returns cleanly; the
+  `system_check.py` `except*` workaround was removed.
+- **Copy-paste parameter bug** (`plan_and_execute.py`) → **#19.**
+  `allowed_duration_margin` now reads `execution.allowed_duration_margin`.
+- **Dropped `use_cache=False` on reset** (`object_manipulation.py`) → **#19.**
+  The `use_cache=False` copy of `reset_request` is now the one passed to
+  `plan_and_execute`, so the reset path no longer reads a stale cached
+  trajectory.
 
-1. **`CLAUDE.md` architecture section (corrected).** It previously listed
-   `interfaces/dashboard.py` (actual file: `interfaces/ur.py`), placed
-   `tabletop_teensy` directly under `src/ros/tabletop/` (actual:
-   `src/microros/tabletop_teensy`, COLCON_IGNOREd
-   PlatformIO firmware), and omitted the `interfaces/moveit/` cache siblings
-   (`trajectory_cache_kdtree.py` / `trajectory_cache_lmdb.py`) and
-   `requests.py`. These have since been corrected.
+### B. Config
 
-## Functional issues flagged in `todo.md` (2026-06-24 triage)
+1. **Typo'd joint name** in `commander.yaml` `test_object_attached` → **#22.**
+   `left_eblow_joint` / `right_eblow_joint` corrected to `*_elbow_joint`.
+2. **Unread config parameters** → **#22.** `trajectory_cache.base_link_name` and
+   `execution.moved_tolerance` were confirmed to have no reader and were deleted
+   as dead config.
+3. **Arm-lock safety check** (`teensy.py::_msg_safe_to_execute`) → **#30 / #22.**
+   Per the maintainer decision, the gate was **not** force-re-enabled; instead it
+   is now configurable via `safe_to_execute.require_arm_locks` in
+   `commander.yaml`, defaulting to `false` (laser-only) to preserve existing
+   behaviour. (Validated on real hardware; mechanism-agnostic rename is Open §B4.)
+4. **Duplicate Flic MAC** for `big_object_3` / `big_object_7` / `small_object_0`
+   → **intentional.** Confirmed by the maintainer as deliberately shared
+   (spare/unassigned); left unchanged.
+5. **`gaze_estimation_geometric.yaml` keys out of sync** → **#23.** Realigned to
+   `gaze_estimation.yaml`: `data:` → `dataloaders:`, and the `visualize:` block
+   now uses `animate_2d_dots` / `animate_3d_dots`. The two configs are now
+   identical except the `model:` block (model-creation parameters).
 
-Pulled from the maintainer's `todo.md`. None were fixed at triage time;
-listed here so they live alongside the rest of the open issues.
+### C. Firmware
 
-1. **Teensy spuriously reports the safety laser broken on the first
-    trial.** Right after the Teensy node starts (or on a task's first
-    trial) `is_safety_laser_broken` reads true until the laser is manually
-    broken and un-broken once. Suspected debounce-initialisation bug in the
-    firmware (`main.cpp`); if so, the same flaw affects the other debounced
-    sensors. The commander-side `safety_laser_last_time_broken` handling may
-    also need revisiting. Safety-relevant — see the ISR note below.
+1. **Teensy pin "conflict"** (`LEFT_ARM_LOCK_STATE_PIN`) → **#30.** Resolved as
+   *intentional*: pin 38 is deliberate because pin 36 is `BUTTON_STATE_PIN`; the
+   stale `// TODO: change back to 36` was removed and the rationale documented.
+2. **Misspelled enum `UNCRECOVERABLE_ERROR`** → **#30.** Renamed to
+   `UNRECOVERABLE_ERROR` throughout.
 
-2. **Debounce ISRs read epoch-synchronised time.** The debounced-sensor
-    ISRs in `main.cpp` timestamp using the ROS-epoch-synchronised clock
-    (`rmw_uros_epoch_nanos`), which is not interrupt-safe — the epoch sync
-    can be mid-update when the ISR fires. Latch a monotonic time in the ISR
-    and convert outside it if confirmed.
+### D. Code smells / API warts
 
-3. **UR `safety_restart` recovery doesn't finish.** The `safety_restart`
-    dashboard service works, but the rest of the reset sequence fails once
-    safety mode returns to normal (`/left/dashboard_client/is_in_remote_control
-    service call timed out!`). The driver likely has to reconnect afterwards
-    (`interfaces/ur.py` recovery state machine).
+1. **`Commander.manually_atatch_object`** → **#21.** Renamed to
+   `manually_attach_object`; both call sites (`smooth_pursuit.py`, `dummy.py`)
+   updated in the same commit; the deprecated alias was not kept.
+2. **`ur.py::stop_program()` ignored its future** → **#20.** Now tracks the
+   rclpy future across calls (skip while pending, retry on failure, suppress
+   until `reset()`).
+3. **`executors.py` bare `print`** → **#25.** Exceptions now go through the
+   node/ROS logger.
 
-4. **Unverified bringup parameter warnings.** rviz/UR bringup logs
-    `joint_state_broadcaster.fallback_controllers is not initialized`
-    (ros2_control) and `publish_robot_description_semantic is not
-    initialized` (rviz). Believed benign — the rviz node is likely missing
-    the full MoveIt config in its parameters — but confirm and silence.
+### E. Functional issues from `todo.md`
 
-5. **`group_name` vs `robot_name` conflation.** Tasks, trial specs, and
-    trial generators pass `group_name` where they should pass `robot_name`
-    (the commander looks up a manipulation context manager by robot name,
-    not MoveIt group name; they happen to be equal today). Make `robot_name`
-    the task-facing parameter and keep `group_name` as a property of the
-    controlled robot. Touches `tabletop_tasks` plus the
-    `ObjectManipulationInterface` / `PlanAndExecuteInterface` plumbing — a
-    larger refactor.
+1. **First-trial false "laser broken"** → **#30** (debounce-init fix; **validated
+   on real hardware** 2026-06-30).
+2. **Debounce ISRs read epoch-synced time** → **#30** (latched monotonic time;
+   validated with the firmware bench check above).
+3. **UR `safety_restart` recovery** → **#20** + recovery-state-machine reconnect
+   (`ur.py::_reconnect`); **validated on the real robot** 2026-06-30.
+4. **Unverified bringup parameter warnings** → **#29.** `fallback_controllers`
+   silenced via an explicit empty list in `dual_controllers.yaml`;
+   `publish_robot_description_semantic` set `False` on the rviz/moveit
+   visualization nodes (and `True` only on the commander).
+5. **`group_name` vs `robot_name`** → still open, Wave 2 (Open §B3).
+6. **Retire `rig.launch.py`; flatten `tasks.launch.py`** → **#29.**
+   `rig.launch.py` moved to `deprecated/launch/`; `tasks.launch.py` now includes
+   `commander.launch.py` / `rosbag.launch.py` directly; the `tt-launch rig`
+   target and the unscoped-group `TODO`s were removed.
 
-6. **Retire `rig.launch.py`; flatten `tasks.launch.py`.** Each launch file
-    now runs in its own compose service, so `rig.launch.py` (which bundles
-    `commander.launch.py` + others) should move to `deprecated/`, and
-    `tasks.launch.py` should include `commander.launch.py` /
-    `rosbag.launch.py` directly instead of via `rig.launch.py`. The
-    `# TODO: … unscoped …` markers at `rig.launch.py:310` and
-    `tasks.launch.py:99` are part of this.
+### F. Source TODOs and P4 markers
 
-## Source TODOs worth tracking (2026-06-24 scan)
+- **`foraging.py` response-phase `release_arm`** → **#21.** Per decision, the
+  unconditional `release_arm(arm)` was kept and the `# TODO: Remove!!!` removed.
+- **Eyelink node TODOs** (`:397` callback groups, `:915` stale samples, `:926`
+  "verify this fix", `:213/717` tuning, `:1402` content-free) → **#26.** All
+  resolved (callback-group rationale documented; stale-sample drain implemented
+  and **validated on a live Eyelink** 2026-06-30; dead comments removed).
+- **`moveit_controllers.yaml:13`**, **`moveit.launch.py` / `rviz.launch.py`
+  `to_dict()`** → **#29** (kept with documented rationale).
+- **`gaze/preprocess.py` marker** → resolved (no TODO remains in that file).
 
-Substantive `TODO`s found in tracked source (trivial "decide later" markers
-are bundled at the end). All still present.
+### G. Build / developer-environment
 
-1. **`tasks/foraging.py:154` `# TODO: Remove!!!`** sits directly above an
-    unconditional `await self.commander.release_arm(arm)` at the top of the
-    response phase — looks like temporary/debug behaviour that should not
-    ship. Confirm intended response-phase arm handling.
+All → **#24:** `mingus` moved to `[project].dependencies`; the GitHub CLI
+devcontainer feature added; `docker-bake.hcl` made multi-platform
+(`linux/amd64` + `linux/arm64`); `.vscode/c_cpp_properties.json` `pio_teensy`
+path fixed and the stale `pio_sniffer` config removed.
 
-2. **`tasks/smooth_pursuit.py:368` `# TODO: FIX!!!`** — the real
-    `await manipulator.fetch_object(...)` is commented out and replaced by
-    the typo'd `manually_atatch_object` workaround (see *Code smells* #1).
-    So smooth-pursuit never actually picks the object up; it teleports it
-    onto the gripper. The follow-on `plan_and_move("fetched")` carries a
-    `# TODO: Maybe remove`.
+### H. Documentation gaps
 
-3. **Eyelink node TODOs (`nodes/eyelink.py`).** `:397`
-    `# TODO: Fix callback groups` (possible concurrency-correctness issue),
-    `:915` discard stale samples before collection (data quality), `:926`
-    "verify this fix", `:213-214` / `:717-718` commented tuning, and a
-    content-free `:1402 # TODO: Something is fucking wrong, help me` at
-    end-of-file that should be removed or turned into a real ticket.
+- **`TeensySensor.msg` header** (wrong package, hard-coded "100 Hz") → **#28.**
+- **`deprecated/README.md` stale paths** → **#28 / #29** (flic-micro path and the
+  new `launch/rig.launch.py` entry).
+- **`bin/` scripts had no `-h|--help`** → **#27.**
+- **Per-node/interface parameters not in published docs** → **#28**
+  (`docs/guide/parameters.md`).
+- **Missing FLIR GenICam reference**, **Foxglove layouts not in repo**, **setup
+  gaps** (git-lfs/jq, reboot after `usermod -aG docker`, platformio-core volume
+  ownership) → **#28** (`share/foxglove/*.json`, setup/usage docs).
+- **`tabletop_unbag` (PR #17) undocumented globally** → resolved in this PR:
+  added to `CLAUDE.md`, `architecture.md` (§5.5), `cli.md`, and
+  `usage.md` (*Converting recorded bags*); package detail stays in
+  `tabletop_unbag/README.md`.
+- **`CLAUDE.md` / docs stale after the launch refactor** (the retired
+  `tt-launch rig` target, the "arm-lock commented out" safety note, the
+  "Teensy & Flic firmware" label) → resolved in this PR.
+- **`tasks.launch.py` `rosbag` default doc/code drift** → resolved in this PR:
+  the intended default is `false`, so the docstring was corrected to match the
+  `default_value="false"` declaration (recording off unless `rosbag:=true`).
+- **`tt-launch` simplified to a pure `ros2 launch` wrapper** → resolved in this
+  PR (per review): the `rosbag_convert`/`rosbag_to_csv` target and the unused
+  FastDDS `discovery` target were removed, and with them the `EXEC`/`RUN`
+  dispatch machinery. Docs (`CLAUDE.md`, `cli.md`, `usage.md`, `architecture.md`)
+  updated to match. (`discovery` was removed outright, not deprecated.)
 
-4. **`nodes/flic.py:323` `# TODO: Change to custom message`** — the Flic
-    response is published on a generic message type.
-
-5. **Low-priority "decide later" markers** (investigate or delete, no known
-    breakage): `compose.yaml:203` `SYS_NICE` cap, `moveit_controllers.yaml:13`,
-    the duplicated `moveit_config.to_dict()` "which one to use" TODOs in
-    `moveit.launch.py:212` / `rviz.launch.py:114`,
-    `interfaces/moveit/moveit.py:465`,
-    `interfaces/moveit/plan_and_execute.py:628` ("maybe revalidate"),
-    `interfaces/ur.py:542`, `object_manipulation.py:1759` ("check
-    presentation region"), and `tabletop_py/gaze/preprocess.py:627`.
-
-## Build / developer-environment cleanups (2026-06-24, from `todo.md`)
-
-1. **`mingus` is in the wrong dependency group.** `pyproject.toml:49` lists
-    `mingus` under `[dependency-groups].dev`, but it is imported at runtime
-    by `SoundInterface` — move it into `[project].dependencies`.
-
-2. **Devcontainer is missing the GitHub CLI feature.** Add
-    `"ghcr.io/devcontainers/features/github-cli:1": {}` to
-    `.devcontainer/devcontainer.json` `features`.
-
-3. **`docker-bake.hcl` is single-platform.** Add multi-platform targets
-    (`linux/amd64` + `linux/arm64`) and review the image tags (the
-    `jazlabtabletop/*` tags have no `:latest`).
-
-4. **`.vscode/c_cpp_properties.json` IntelliSense paths are stale.** Point
-    the `pio_teensy` configuration at the correct path and remove the
-    `pio_sniffer` configuration (the BLE-sniffer firmware was retired to
-    `deprecated/`).
-
-## Documentation gaps and inconsistencies (2026-06-24, from `todo.md`)
-
-1. **`TeensySensor.msg` header is inaccurate.** It credits the
-    "tabletop_micro firmware" (the firmware package is `tabletop_teensy` in
-    `src/microros/`) and hard-codes the "100 Hz" publish rate, which is
-    configurable. Fix the package reference and drop the rate.
-
-2. **`deprecated/README.md` references a stale path.** It cites
-    `src/ros/tabletop/tabletop_micro/tabletop_flic_micro/`; reconcile with
-    the actual original path / current `deprecated/` location.
-
-3. **`bin/` scripts have no `-h|--help`.** `tt-build`, `tt-compose`,
-    `tt-launch`, … print no usage. Add a help option to each.
-
-4. **Per-node/interface parameters aren't in the published docs.** Most are
-    documented only inline in the `config/*.yaml` files; surface them in
-    `docs/` (descriptions can be copied from the configs).
-
-5. **Missing FLIR GenICam reference.** Link the BFS-U3-23S3 node reference
-    (<https://softwareservices.flir.com/BFS-U3-23S3/latest/Model/public/index.html>)
-    from the camera-config docs, tying it to `blackfly_s.yaml` /
-    `flir_synchronized.yaml`.
-
-6. **Foxglove layouts aren't in the repo or docs.** Export the layout
-    configs, commit them (the two examples currently live only in a local
-    `share/` dir), document how to import them, and add the note that
-    Foxglove must be open and focused at task start to receive all
-    planning-scene updates.
-
-7. **Setup-doc gaps.** Add `git-lfs` and `jq` to the prerequisites, note
-    that a full reboot may be needed after adding the user to the `docker`
-    group, and note that the `platformio-core` Docker volume is owned by the
-    first user to create it (fix: delete the volume and re-run
-    `tt-build microros`).
+---
 
 ## Resolved in the deprecation/cleanup branch
 

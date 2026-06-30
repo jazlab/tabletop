@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Route and launch ROS 2 nodes/services in container (wraps ros2 launch, ros2 run, and raw commands)
+# Route and launch ROS 2 nodes/services in container (wraps ros2 launch)
 # Usage: tt-launch [<launch_type>] [<launch_options>...]
 # Runs on: container
 # Environment: ROS_LOG_DIR, FOXGLOVE_PORT
-# Logic: Case statement routes launch_type to appropriate ros2 launch/run/exec command; sets per-launch log directories
+# Logic: Case statement routes launch_type to a ros2 launch command; sets per-launch log directories
 
 set -eo pipefail
 
@@ -27,19 +27,15 @@ Launch types:
   flir_calibrate     FLIR camera calibration
   optitrack          OptiTrack motion capture system
   rosbag             ROS bag recorder
-  rosbag_convert     Rosbag-to-CSV conversion tool (alias: rosbag_to_csv)
   rviz               RViz visualization
   foxglove           Foxglove bridge for visualization
   moveit             MoveIt interactive planning (standalone move_group + RViz)
-  discovery          FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var)
 
-Any additional arguments are forwarded to ros2 launch / ros2 run.
+Any additional arguments are forwarded to ros2 launch.
 EOF
 }
 
-# Case statement routes to one of three execution modes: EXEC (raw command), RUN (ros2 run), or LAUNCH (ros2 launch)
-EXEC=
-RUN=
+# Case statement selects the package + launch file to hand to `ros2 launch`.
 LAUNCH=
 case $1 in
     -h|--help)
@@ -47,25 +43,6 @@ case $1 in
         exit 0
         ;;
 
-    discovery)
-        # FastDDS discovery server (requires ROS_DISCOVERY_SERVER env var formatted as host:port)
-        # This feature is deprecated, see ROS2 docs for details if desired
-        # https://docs.ros.org/en/jazzy/Tutorials/Advanced/Discovery-Server/Discovery-Server.html
-        if [[ -z "$ROS_DISCOVERY_SERVER" ]]; then
-            print_warning "ROS_DISCOVERY_SERVER environment variable not set"
-            print_warning "Not launching discovery server"
-            EXEC="sleep infinity"
-            set -- " "
-        else
-            export ROS_LOG_DIR="$ROS_LOG_DIR/discovery"
-            IFS=':' read -ra SERVER <<< "$ROS_DISCOVERY_SERVER"
-            if [[ "${#SERVER[@]}" != 2 ]]; then
-                print_error "Incorrect ROS_DISCOVERY_SERVER format: $ROS_DISCOVERY_SERVER"
-                exit 1
-            fi
-            EXEC="fastdds discovery --server-id 0 --udp-address ${SERVER[0]} --udp-port ${SERVER[1]}"
-        fi
-        ;;
     foxglove)
         # Foxglove bridge for visualization
         export ROS_LOG_DIR="$ROS_LOG_DIR/foxglove"
@@ -142,11 +119,6 @@ case $1 in
         export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag"
         LAUNCH="tabletop_rig rosbag.launch.py"
         ;;
-    rosbag_convert|rosbag_to_csv)
-        # Rosbag conversion tool
-        export ROS_LOG_DIR="$ROS_LOG_DIR/rosbag_convert"
-        RUN="tabletop_rig rosbag_to_csv"
-        ;;
     *)
         print_error "launch_type $1 unsupported"
         print_usage
@@ -156,13 +128,4 @@ esac
 
 shift
 
-# Execute based on which mode was set by the case statement
-if [[ -n "$EXEC" ]]; then
-    exec $EXEC "$@"
-elif [[ -n "$RUN" ]]; then
-    exec ros2 run $RUN "$@"
-elif [[ -n "$LAUNCH" ]]; then
-    exec ros2 launch $LAUNCH "$@"
-else
-    print_error "This should never happen"
-fi
+exec ros2 launch $LAUNCH "$@"
