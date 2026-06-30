@@ -144,16 +144,16 @@ bag into analysis-ready files.
 
 ## Converting recorded bags
 
-Sessions are recorded as MCAP rosbags. Two exporters turn a bag into per-topic
-CSVs and decoded image files. They share the same generic flattening (nested
-fields → `pose.position.x` columns, sequences → `name[0]` columns; image topics
-are decoded to image files), so you can use whichever fits your environment.
+Sessions are recorded as MCAP rosbags. Use **`tabletop_unbag`** (`unbag`) to turn
+a bag into per-topic CSVs and decoded image files: nested fields become
+dot-separated columns (`pose.position.x`), sequences become bracket-indexed
+columns (`name[0]`), and image topics are decoded to image files.
 
-**`tabletop_unbag` (`unbag`, recommended)** — a standalone C++ exporter with no
-Python/pandas/rclpy runtime dependency. It is multithreaded, streams the bag
-(bounded memory, so it handles very large camera-heavy bags), and is resumable
-(an interrupted run leaves valid partial output and picks up where it left off).
-It is built by the normal `tt-build colcon`:
+`unbag` is a standalone C++ exporter with no Python/pandas/rclpy runtime
+dependency. It is multithreaded, streams the bag (bounded memory, so it handles
+very large camera-heavy bags), and is resumable (an interrupted run leaves valid
+partial output and picks up where it left off). It is built by the normal
+`tt-build colcon`:
 
 ```bash
 # Export everything into <parent of BAG_DIR>/unbag/
@@ -170,16 +170,16 @@ ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-format png
 ros2 run tabletop_unbag unbag BAG_DIR --overwrite
 ```
 
-CSV output is byte-for-byte identical to the Python converter, with one
+CSV output is byte-for-byte identical to the legacy Python converter, with one
 intentional difference: fixed-size primitive arrays (e.g. `CameraInfo.k`) are
 expanded to indexed columns (`k[0]..k[8]`). The full flag set (handler
 selection, `--jobs`, `--csv-batch-size`, `--image-encoding`, resume/overwrite
 semantics) is documented in `src/ros/tabletop/tabletop_unbag/README.md`.
 
-**Python converter (`rosbag_convert`)** — the original `rosbag_to_csv` module,
-still available as a launch target. Requires rclpy + pandas (already present in
-the commander image):
-
-```bash
-tt-launch rosbag_convert        # ≡ ros2 run tabletop_rig rosbag_to_csv
-```
+!!! note "Legacy Python converter"
+    `tabletop_unbag` was ported from a Python converter
+    (`tabletop_rig.utils.rosbag`, `rosbag_to_csv`). That converter's `tt-launch`
+    target has been removed and it is slated for retirement — prefer `unbag`. It
+    currently survives only as the `ros2 run tabletop_rig rosbag_to_csv` entry
+    point and the import used by the gaze-calibration scripts (which will move to
+    `tabletop_unbag`; see `docs/fix-plan.md`).

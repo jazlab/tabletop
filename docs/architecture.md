@@ -190,8 +190,7 @@ on top of them.
 
 > **Note — `rosbag` default.** `tasks.launch.py` declares `rosbag` with
 > `default_value="false"`, so recording is **off** unless you pass
-> `rosbag:=true`. The file's own docstring says the default is `true`; that
-> docstring is out of sync with the code (tracked in `known-issues.md`).
+> `rosbag:=true`.
 
 ### 4.2 Config file → consumer map
 
@@ -248,8 +247,8 @@ graph TD
   normal `tt-build colcon`): it depends only on rosbag2 / sensor_msgs /
   cv_bridge / Fast CDR, not on the other tabletop packages, and produces the
   `unbag` executable for offline bag→CSV/image export. It is the dependency-light
-  port of `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`, the `rosbag_convert`
-  launch target); both still exist (see §5.5).
+  port of (and supersedes) the legacy Python `tabletop_rig/utils/rosbag.py`
+  (`rosbag_to_csv`) — see §5.5.
 - `src/microros/` is `COLCON_IGNORE`d — firmware is built by
   PlatformIO (`tt-build microros`), not colcon, but it *implements*
   the `tabletop_interfaces` services in C.
@@ -339,13 +338,13 @@ run.py: run_tasks(commander, config_file)     ← coroutine injected via
 ### 5.5 Data export (bag → CSV / images)
 
 Sessions are recorded as MCAP rosbags (`rosbag.launch.py`, topics from
-`rosbag.yaml`). Two converters turn a bag into per-topic CSVs and decoded image
-files; they share the same flattening semantics but are otherwise independent:
+`rosbag.yaml`). **`tabletop_unbag`** turns a bag into per-topic CSVs and decoded
+image files:
 
 | Converter | Invocation | Notes |
 | --- | --- | --- |
-| `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) | `tt-launch rosbag_convert` (≡ `ros2 run tabletop_rig rosbag_to_csv`) | Original Python version; needs rclpy + pandas. |
-| `tabletop_unbag` (`unbag`) | `ros2 run tabletop_unbag unbag BAG_DIR` | Standalone C++ port: no Python/pandas at runtime, multithreaded, streaming (bounded memory), resumable. CSV is byte-identical to the Python output (one intentional difference: fixed-size primitive arrays are expanded to indexed columns). |
+| `tabletop_unbag` (`unbag`) | `ros2 run tabletop_unbag unbag BAG_DIR` | Current tool. Standalone C++: no Python/pandas at runtime, multithreaded, streaming (bounded memory), resumable. CSV is byte-identical to the legacy Python output (one intentional difference: fixed-size primitive arrays are expanded to indexed columns). |
+| `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) | `ros2 run tabletop_rig rosbag_to_csv` | **Legacy.** The Python version `unbag` was ported from; its `tt-launch` target was removed and it is slated for retirement (Wave 2 — gaze calibration to use `tabletop_unbag`; see `fix-plan.md`). |
 
 `unbag` routes each message type to a *handler* (CSV catch-all, image decode via
 cv_bridge), reading the CDR payload generically with

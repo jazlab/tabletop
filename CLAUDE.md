@@ -56,12 +56,13 @@ full set.
 
 `tt-launch <target> [ros2 launch args…]`, run inside a container or via
 `tt-compose run --rm commander tt-launch …` from the host. Each target maps to a
-single launch file; there is no longer an aggregate `rig` target (the old
-`rig.launch.py` was retired to `deprecated/` — bring the rig up with compose
-profiles instead, see Docker below). Targets:
+single launch file (`tt-launch` is now purely a `ros2 launch` wrapper); there is
+no longer an aggregate `rig` target (the old `rig.launch.py` was retired to
+`deprecated/` — bring the rig up with compose profiles instead, see Docker
+below). Targets:
 `commander`, `tasks`, `dual_ur`, `teensy`, `flic`, `eyelink`,
 `flir_no_sync`, `flir_synchronized`, `flir_calibrate`, `optitrack`, `rosbag`,
-`rosbag_convert`, `rviz`, `foxglove`, `moveit`, `discovery`.
+`rviz`, `foxglove`, `moveit`.
 
 ```bash
 # Launch the main commander node
@@ -189,24 +190,24 @@ side — `tabletop_rig` wraps `tabletop_py`, and the firmware implements
 `tabletop_interfaces` services (`SetArmLock`, `SetReward`, `SetSolenoid`,
 `SetSmartglass`, `Ping`) in C.
 
-### Bag export: `tabletop_unbag` vs. the Python converter
+### Bag export: `tabletop_unbag` (and the legacy Python converter)
 
-There are **two** rosbag→CSV exporters, and they are not interchangeable:
-
-- `tabletop_rig/tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) — the original
-  Python converter, run via `tt-launch rosbag_convert` (alias `rosbag_to_csv`,
-  i.e. `ros2 run tabletop_rig rosbag_to_csv`). Depends on rclpy/pandas. Left
-  untouched.
-- `tabletop_unbag` — a standalone C++ `ament_cmake` package (built by the normal
-  `tt-build colcon`, **not** COLCON_IGNOREd) providing the dependency-light
-  `unbag` executable: `ros2 run tabletop_unbag unbag BAG_DIR`. It is a port of
-  the Python converter — generic message flattening to per-topic CSV plus
-  image-topic decode — but multithreaded, streaming (bounded memory), and
-  resumable, with no Python/pandas/rclpy at runtime. CSV output is
-  byte-for-byte identical to the Python version (one intentional difference:
+- `tabletop_unbag` — the **current** bag exporter: a standalone C++ `ament_cmake`
+  package (built by the normal `tt-build colcon`, **not** COLCON_IGNOREd)
+  providing the dependency-light `unbag` executable:
+  `ros2 run tabletop_unbag unbag BAG_DIR`. Generic message flattening to
+  per-topic CSV plus image-topic decode, but multithreaded, streaming (bounded
+  memory), and resumable, with no Python/pandas/rclpy at runtime. CSV output is
+  byte-for-byte identical to the old Python version (one intentional difference:
   fixed-size primitive arrays like `CameraInfo.k` are expanded to indexed
-  columns). It is an **offline analysis tool**, not a runtime node, and is not
-  wired into a `tt-launch` target. Full details: `tabletop_unbag/README.md`.
+  columns). It is an **offline analysis tool**, not a runtime node. Full
+  details: `tabletop_unbag/README.md`.
+- `tabletop_rig/tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) — the **legacy**
+  Python converter it was ported from. Depends on rclpy/pandas. Its `tt-launch`
+  target was removed; it survives only as the `ros2 run tabletop_rig
+  rosbag_to_csv` entry point and the import used by the gaze-calibration scripts.
+  Slated for retirement in Wave 2 (move to `deprecated/`; gaze calibration to
+  call `tabletop_unbag` instead) — see `docs/fix-plan.md`. Prefer `unbag`.
 
 ### tabletop_rig Architecture
 

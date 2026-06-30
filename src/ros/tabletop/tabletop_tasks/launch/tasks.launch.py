@@ -13,7 +13,7 @@ Launch Arguments:
     robot_mode: Robot connection mode.
         Options: "mock" (default), "real"
     rosbag: Whether to record a rosbag.
-        Options: "true" (default), "false"
+        Options: "true", "false" (default)
 
 Usage:
     # Run with default foraging task

@@ -10,47 +10,28 @@ Discrepancies between code, configuration, and documentation, plus tracked
 >
 > - Items fixed in Wave 1 moved to [Resolved in Wave 1](#resolved-in-wave-1-2026-06)
 >   with their PR numbers.
-> - The items that remain **open** — by design, or pending hardware validation,
->   or scheduled for Wave 2 — are listed first.
+> - The items that remain **open** — by design, or scheduled for Wave 2 — are
+>   listed first.
 > - Earlier deprecation-branch history is unchanged at the bottom.
 >
 > Each formerly-open item was re-verified by *content* against `main`, not just
 > by commit title.
+>
+> **2026-06-30 update (PR review).** The three items that were awaiting hardware
+> validation — UR `safety_restart` recovery, the Teensy safety firmware (#30),
+> and the Eyelink stale-sample drain — have been **confirmed on real hardware**
+> and are now resolved. The `tasks.launch.py` `rosbag` default was confirmed
+> intended `false` and the docstring fixed. Two new Wave-2 items were added
+> (Open §B5/§B6), and `tt-launch` was reduced to a pure `ros2 launch` wrapper
+> (the `rosbag_convert` and `discovery` targets were removed).
 
 ---
 
 ## Open issues
 
-### A. Implemented but pending hardware/bench validation
+### A. Open by design / deferred
 
-These have code on `main` but must be exercised on real hardware before they are
-considered closed; **do not remove them until validated**.
-
-1. **UR `safety_restart` recovery — verify on the real robot.** The recovery
-    state machine now reconnects the dashboard after a safety event
-    (`interfaces/ur.py::_reconnect`, called from the reset sequence around the
-    `restart_safety` service), which is the fix the original report
-    (`is_in_remote_control` timing out after safety returns to normal) called
-    for. PR #20 also made `stop_program()` track its async future across calls.
-    Awaiting a real-hardware run before closing.
-
-2. **Eyelink stale-sample drain — verify on a live Eyelink.** PR #26 drains the
-    tracker's internal pre-recording buffer once at retrieval start
-    (`tracker.resetData()` gated on a new `_recording_active` event), so samples
-    buffered before `startRecording()` no longer leak into a new session. The
-    behaviour is timing-dependent and was only sim-stress-tested; it still needs
-    validation against a live Eyelink unit.
-
-3. **Teensy safety firmware (PR #30) — bench-validate after flashing.** Three
-    firmware changes landed together and need a flash + bench check: the
-    first-trial false "safety laser broken" **debounce-initialisation** fix, the
-    move to a **monotonic ISR clock** (no longer reading `rmw_uros_epoch_nanos`
-    inside the debounce ISRs), and the now-**configurable arm-lock gate** (see
-    Resolved §B3). Firmware is not exercised by CI.
-
-### B. Open by design / deferred
-
-4. **smooth-pursuit teleports the object onto the gripper (design decision).**
+1. **smooth-pursuit teleports the object onto the gripper (design decision).**
     `tasks/smooth_pursuit.py` still calls `manually_attach_object` instead of
     `await manipulator.fetch_object(...)` (the real fetch is commented out, with
     the `# TODO: FIX!!!` and follow-on `plan_and_move("fetched")`
@@ -58,14 +39,14 @@ considered closed; **do not remove them until validated**.
     smooth-pursuit object in the grid and physically pick it, or manually attach
     it at task start, is an unresolved design decision — kept open intentionally.
 
-5. **`nodes/flic.py:323` publishes the response on a generic message type**
+2. **`nodes/flic.py:323` publishes the response on a generic message type**
     (`# TODO: Change to custom message`). Deferred from the PR #26 cleanup: it is
     a feature addition needing a new `tabletop_interfaces` `.msg` and a colcon
     rebuild, out of scope for a comment cleanup.
 
-### C. Larger refactors (Wave 2)
+### B. Larger refactors (Wave 2)
 
-6. **`group_name` vs `robot_name` conflation.** Tasks, trial specs, and trial
+3. **`group_name` vs `robot_name` conflation.** Tasks, trial specs, and trial
     generators pass `group_name` where they should pass `robot_name` (the
     commander looks up a manipulation context manager by robot name, not MoveIt
     group name; they happen to be equal today). Make `robot_name` the task-facing
@@ -73,17 +54,35 @@ considered closed; **do not remove them until validated**.
     `tabletop_tasks` plus the `ObjectManipulationInterface` /
     `PlanAndExecuteInterface` plumbing — see `fix-plan.md` WT-I.
 
-7. **Arm-lock terminology is mechanism-specific.** The rig currently uses a
+4. **Arm-lock terminology is mechanism-specific.** The rig currently uses a
     **button per hand** (unpressed = the hand is free) plus a per-arm buzzer to
     cue which hand to use; a physical arm lock may be added later. The wording
     "electromagnetic arm lock" (e.g. `interfaces/teensy.py`) and the
     `SetArmLock` / `*_arm_lock*` naming across `tabletop_interfaces`, firmware,
     `commander.yaml`, and docs is inaccurate. The safety gate is now
-    *configurable* (`safe_to_execute.require_arm_locks`, §B3 below) but still
-    uses this naming. Reword repo-wide to be agnostic to the hold/detect
+    *configurable* (`safe_to_execute.require_arm_locks`, see Resolved §B3) but
+    still uses this naming. Reword repo-wide to be agnostic to the hold/detect
     mechanism — see `fix-plan.md` WT-N.
 
-### D. Low-priority "decide later" markers (P4)
+5. **Safe-execution should gate on the presentation region, not the manipulation
+    state.** The current safety stop checks whether the arm is in the `PRESENT`
+    manipulation state to decide whether motion must be prevented. But while the
+    object is actually being presented the arm is still in the `FETCHED` state,
+    so the subject can be within reach during that window. Gate safe-execution on
+    whether the arm has **acquired the presentation region** (cf. the
+    `object_manipulation.py:1759 # TODO: Check if robot is in presentation
+    region` marker in §C), not on the manipulation-state label alone.
+    Safety-relevant — see `fix-plan.md` WT-O.
+
+6. **Retire the legacy Python bag converter.** Move
+    `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) to `deprecated/`, and stop
+    the gaze-estimation calibration scripts from importing it to convert bags
+    themselves. Instead, the operator unbags the gaze/marker data with
+    `tabletop_unbag` (`unbag`) first, and calibration consumes the resulting CSVs.
+    (The `rosbag_convert` `tt-launch` target was already removed; the entry point
+    and the calibration import remain until this lands.) See `fix-plan.md` WT-P.
+
+### C. Low-priority "decide later" markers (P4)
 
 Investigate or delete; no known breakage. Still present after Wave 1:
 
@@ -97,17 +96,6 @@ Investigate or delete; no known breakage. Still present after Wave 1:
 (The `moveit_controllers.yaml`, `moveit.launch.py` / `rviz.launch.py` `to_dict()`,
 and `gaze/preprocess.py` markers from the previous list were resolved — see
 Resolved §F.)
-
-### E. Documentation ↔ code inconsistencies (confirm intent)
-
-8. **`tasks.launch.py` `rosbag` default disagrees with itself.** The launch arg
-    is declared `default_value="false"` (so recording is **off** unless
-    `rosbag:=true` is passed), but the file's module docstring states the default
-    is `"true"`, and the PR #29 description also said "default: true". The global
-    docs now describe the *code* behaviour (off by default). Confirm the intended
-    default: if recording should be on by default, change the
-    `DeclareLaunchArgument`; otherwise fix the docstring. (Surfaced during the
-    2026-06-29 reconciliation — a doc/code drift, not necessarily a bug.)
 
 ---
 
@@ -140,7 +128,7 @@ Grouped by the original section, with the merging PR.
    Per the maintainer decision, the gate was **not** force-re-enabled; instead it
    is now configurable via `safe_to_execute.require_arm_locks` in
    `commander.yaml`, defaulting to `false` (laser-only) to preserve existing
-   behaviour. (Bench validation tracked in Open §A3; terminology in Open §C7.)
+   behaviour. (Validated on real hardware; mechanism-agnostic rename is Open §B4.)
 4. **Duplicate Flic MAC** for `big_object_3` / `big_object_7` / `small_object_0`
    → **intentional.** Confirmed by the maintainer as deliberately shared
    (spare/unassigned); left unchanged.
@@ -170,16 +158,17 @@ Grouped by the original section, with the merging PR.
 
 ### E. Functional issues from `todo.md`
 
-1. **First-trial false "laser broken"** → **#30** (debounce-init fix; bench
-   validation tracked in Open §A3).
-2. **Debounce ISRs read epoch-synced time** → **#30** (latched monotonic time).
-3. **UR `safety_restart` recovery** → implemented (#20 + recovery-state-machine
-   reconnect); real-hardware validation tracked in Open §A1.
+1. **First-trial false "laser broken"** → **#30** (debounce-init fix; **validated
+   on real hardware** 2026-06-30).
+2. **Debounce ISRs read epoch-synced time** → **#30** (latched monotonic time;
+   validated with the firmware bench check above).
+3. **UR `safety_restart` recovery** → **#20** + recovery-state-machine reconnect
+   (`ur.py::_reconnect`); **validated on the real robot** 2026-06-30.
 4. **Unverified bringup parameter warnings** → **#29.** `fallback_controllers`
    silenced via an explicit empty list in `dual_controllers.yaml`;
    `publish_robot_description_semantic` set `False` on the rviz/moveit
    visualization nodes (and `True` only on the commander).
-5. **`group_name` vs `robot_name`** → still open, Wave 2 (Open §C6).
+5. **`group_name` vs `robot_name`** → still open, Wave 2 (Open §B3).
 6. **Retire `rig.launch.py`; flatten `tasks.launch.py`** → **#29.**
    `rig.launch.py` moved to `deprecated/launch/`; `tasks.launch.py` now includes
    `commander.launch.py` / `rosbag.launch.py` directly; the `tt-launch rig`
@@ -191,8 +180,8 @@ Grouped by the original section, with the merging PR.
   unconditional `release_arm(arm)` was kept and the `# TODO: Remove!!!` removed.
 - **Eyelink node TODOs** (`:397` callback groups, `:915` stale samples, `:926`
   "verify this fix", `:213/717` tuning, `:1402` content-free) → **#26.** All
-  resolved (callback-group rationale documented; stale-sample drain implemented,
-  see Open §A2; dead comments removed).
+  resolved (callback-group rationale documented; stale-sample drain implemented
+  and **validated on a live Eyelink** 2026-06-30; dead comments removed).
 - **`moveit_controllers.yaml:13`**, **`moveit.launch.py` / `rviz.launch.py`
   `to_dict()`** → **#29** (kept with documented rationale).
 - **`gaze/preprocess.py` marker** → resolved (no TODO remains in that file).
@@ -222,6 +211,14 @@ path fixed and the stale `pio_sniffer` config removed.
 - **`CLAUDE.md` / docs stale after the launch refactor** (the retired
   `tt-launch rig` target, the "arm-lock commented out" safety note, the
   "Teensy & Flic firmware" label) → resolved in this PR.
+- **`tasks.launch.py` `rosbag` default doc/code drift** → resolved in this PR:
+  the intended default is `false`, so the docstring was corrected to match the
+  `default_value="false"` declaration (recording off unless `rosbag:=true`).
+- **`tt-launch` simplified to a pure `ros2 launch` wrapper** → resolved in this
+  PR (per review): the `rosbag_convert`/`rosbag_to_csv` target and the unused
+  FastDDS `discovery` target were removed, and with them the `EXEC`/`RUN`
+  dispatch machinery. Docs (`CLAUDE.md`, `cli.md`, `usage.md`, `architecture.md`)
+  updated to match. (`discovery` was removed outright, not deprecated.)
 
 ---
 

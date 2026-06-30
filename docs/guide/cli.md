@@ -89,10 +89,10 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 `tt-launch` runs inside a container — open one with `tt-attach <service>` (or use
 the Dev Container), or run it as a one-shot from the host by prefixing it with
 `tt-compose run --rm commander`. `tt-launch <target> [ros2 launch args…]`.
-Each target maps to a single launch file. Targets: `commander`, `tasks`,
+Each target maps to a single launch file — `tt-launch` is a thin `ros2 launch`
+wrapper. Targets: `commander`, `tasks`,
 `dual_ur`, `teensy`, `flic`, `eyelink`, `flir_no_sync`, `flir_synchronized`,
-`flir_calibrate`, `optitrack`, `rosbag`, `rosbag_convert`, `rviz`, `foxglove`,
-`moveit`, `discovery`.
+`flir_calibrate`, `optitrack`, `rosbag`, `rviz`, `foxglove`, `moveit`.
 
 ```bash
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
@@ -116,8 +116,8 @@ standalone C++ exporter (built by `tt-build colcon`):
 ros2 run tabletop_unbag unbag /path/to/session/bag        # → <parent>/unbag/
 ```
 
-The older Python converter is still available as the `rosbag_convert` launch
-target. Both are covered in
+`unbag` supersedes the legacy Python `rosbag_to_csv` converter (whose
+`tt-launch` target was removed; it is slated for retirement). See
 [Usage → Converting recorded bags](../getting-started/usage.md#converting-recorded-bags),
 with the full option set in `src/ros/tabletop/tabletop_unbag/README.md`.
 
