@@ -47,8 +47,9 @@ node sees every other node regardless of which container it runs in.
 setup.bash ──(sourced by every script & container entrypoint)──▶ env vars
     │            TABLETOP_DIR, COLCON_WS, ROS_LOG_DIR, ROBOT_IP…
     ▼
-tt-env-gen ──▶ .env  (from .env.example; detects GPU, FLIR devices,
-    │                 Teensy serial, PulseAudio socket)
+tt-env-gen ──▶ .env  (from .env.example; detects FLIR devices and the
+    │                 PulseAudio socket; derives the GPU vars from the
+    │                 user-set COMMANDER_RUNTIME)
     ▼
 tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
                 runtimes, mounts)
@@ -59,14 +60,18 @@ tt-compose ──▶ docker compose (compose.yaml reads .env for devices,
   venv (`.venv` host / `.venv.container` container), sources ROS, and
   puts `bin/common` + `bin/host` or `bin/container` on `PATH`.
 - `.env` must be regenerated (`tt-env-gen`) whenever hardware changes
-  (cameras/Teensy plugged in) because device paths are baked into it.
+  (cameras/Teensy plugged in) because device paths are baked into it, and
+  whenever `COMMANDER_RUNTIME` changes because `UV_EXTRA` and the `NVIDIA_*`
+  variables are derived from it. The container runtime is opt-in, not
+  autodetected — see
+  [Configuration](guide/configuration.md#gpu-access-nvidia-container-runtime).
 
 ### 2.2 `bin/` scripts — what each one actually runs
 
 | Script | Where | Under the hood |
 | --- | --- | --- |
 | `host/tt-compose` | host | `tt-env-gen` (if no `.env`) then `docker compose "$@"` |
-| `host/tt-env-gen` | host | regenerates `.env` from `.env.example`; scans `/dev/flir/`, `nvidia-smi`, PulseAudio |
+| `host/tt-env-gen` | host | regenerates `.env` from `.env.example`; scans `/dev/flir/` and PulseAudio; expands `COMMANDER_RUNTIME` into `UV_EXTRA`/`NVIDIA_*` |
 | `host/tt-build` | host | `tt-env-gen` then `docker compose run --rm builder tt-build "$@"` |
 | `host/tt-attach` | host | `tt-env-gen` then `docker compose run --rm <svc> [/entrypoint.sh] bash` (or `exec` with `-e`); does **not** start the service |
 | `host/tt-flir-reset` | host | `tt-env-gen` → stop flir svc → reload udev → `docker compose run --rm flir tt-launch flir_no_sync factory_reset:=true` → restart |
@@ -85,7 +90,7 @@ scripts; it is documented as Ubuntu 24.04 procedures in
 | Service | Profile(s) | Command | Devices / special |
 | --- | --- | --- | --- |
 | `ros-base` | template | — (extends-only) | bind-mounts repo at `/tabletop`; parent of all ROS services, never run directly |
-| `commander` | commander | `tt-launch commander` | GPU runtime if available, PulseAudio, bags mount |
+| `commander` | commander | `tt-launch commander` | `$COMMANDER_RUNTIME` (GPU when set to `nvidia`), PulseAudio, bags mount |
 | `ur` / `ur-mock` | real / sim | `tt-launch dual_ur robot_mode:=real\|mock` | rtprio ulimits |
 | `teensy` / `teensy-sim` | real / sim | `tt-launch teensy simulate:=false\|true` | `$TEENSY_DEV` serial |
 | `flic` / `flic-sim` | real / sim | `tt-launch flic simulate:=false\|true` | `NET_ADMIN` (BLE sniffing) |

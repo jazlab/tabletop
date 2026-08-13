@@ -10,13 +10,15 @@ page maps each config file to what consumes it; see
 `tt-env-gen` generates `.env` from `.env.example`. It **validates** required
 variables and **auto-detects** a few:
 
-- **Auto-detected:** NVIDIA GPU (`COMMANDER_RUNTIME`, CUDA vars), FLIR cameras
-  (`FLIR_DEV_0..N` from `/dev/flir/*` udev symlinks), and the PulseAudio socket
-  (`PULSE_*`).
-- **Set by you:** serial device paths (currently only `TEENSY_DEV`) are
-  **not** auto-detected — edit them to match your hardware. Regenerate with
+- **Auto-detected:** FLIR cameras (`FLIR_DEV_0..N` from `/dev/flir/*` udev
+  symlinks) and the PulseAudio socket (`PULSE_*`).
+- **Set by you:** serial device paths (currently only `TEENSY_DEV`) and the
+  container runtime (`COMMANDER_RUNTIME`, plus `CUDA_VERSION`) are **not**
+  auto-detected — edit them to match your hardware. Regenerate with
   `tt-env-gen` (or `tt-env-gen --clean` to start fresh) after any hardware
   change.
+- **Derived:** `tt-env-gen` computes `UV_EXTRA` and the `NVIDIA_*` variables
+  from `COMMANDER_RUNTIME`, so re-run it after editing that value.
 
 `compose.yaml` reads these for device mounts, runtimes, and volumes.
 
@@ -27,25 +29,72 @@ variables and **auto-detects** a few:
 | `NOVNC_DISPLAY` | X11 display number for the noVNC server | `:20.0` |
 | `NOVNC_WIDTH` / `NOVNC_HEIGHT` | X11 display width / height (pixels) | `1920` / `1080` |
 | `NOVNC_PORT` | Localhost port serving the noVNC interface | `8080` |
-| `CUDA_VERSION` | CUDA version suffix for PyTorch (must match your GPU driver) | `130` |
-| `BIND_CONSISTENCY` | Docker bind-mount consistency mode | `cached` |
+| `COMMANDER_RUNTIME` | Container runtime for the `commander` and `dev` services — `nvidia` for GPU access, `runc` for CPU only | `runc` |
+| `CUDA_VERSION` | CUDA version suffix for PyTorch (must match your GPU driver); required only when `COMMANDER_RUNTIME=nvidia` | `130` |
+| `BIND_CONSISTENCY` | Docker bind-mount consistency mode (macOS/Windows only, ignored on Linux) | `cached` |
 | `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
 | `FLIR_MAX_DEVS` | Maximum number of FLIR cameras mapped into containers | `6` |
 
 `tt-env-gen` validates that these are present (it does **not** auto-detect
-serial device paths — set `TEENSY_DEV` to match your hardware).
+serial device paths or the container runtime — set `TEENSY_DEV` and
+`COMMANDER_RUNTIME` to match your hardware).
 
 ### Auto-generated variables (by `tt-env-gen`)
 
 `tt-env-gen` automatically detects and configures:
 
-- **NVIDIA GPU** — detects `nvidia-smi`; sets `COMMANDER_RUNTIME=nvidia` and the
-  `NVIDIA_*` / CUDA variables (clears them if no GPU is present).
 - **FLIR cameras** — detects `/dev/flir/*` udev symlinks and maps them to
   `FLIR_DEV_0..N` (up to `FLIR_MAX_DEVS`).
 - **PulseAudio** — detects the PulseAudio socket and configures the `PULSE_*`
   mount variables for audio passthrough (falls back to `/dev/null` if not
   found).
+- **GPU variables** — derived from the `COMMANDER_RUNTIME` you set (see below),
+  not from probing the host: `UV_EXTRA` and the `NVIDIA_*` variables.
+
+### GPU access (NVIDIA container runtime)
+
+GPU access is **opt-in**: the runtime is not auto-detected, so a fresh `.env`
+runs the `commander` and `dev` containers on plain `runc` with CPU-only PyTorch
+wheels until you say otherwise. To enable it:
+
+1. Install the [NVIDIA driver](https://www.nvidia.com/en-us/drivers/) and the
+   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+   on the host, so Docker has an `nvidia` runtime to use.
+2. Edit `.env` (**not** `.env.example`):
+
+    ```bash
+    COMMANDER_RUNTIME=nvidia
+    CUDA_VERSION=130          # match your driver; see pyproject.toml for the
+                              # available cu* extras (126, 128, 130)
+    ```
+
+3. Re-run `tt-env-gen` so the derived variables are refreshed, then recreate the
+   containers:
+
+    ```bash
+    tt-env-gen
+    tt-compose --profile=<sim|real> up --force-recreate
+    ```
+
+`tt-env-gen` accepts only `nvidia` or `runc` and errors out on anything else
+(or on `nvidia` with an empty `CUDA_VERSION`). Setting `nvidia` **without** the
+NVIDIA Container Toolkit installed leaves `.env` valid but makes Docker fail to
+start the `commander`/`dev` containers with an unknown-runtime error — see
+[Troubleshooting](troubleshooting.md#environment-configuration).
+
+| `COMMANDER_RUNTIME` | `UV_EXTRA` | `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` |
+| --- | --- | --- |
+| `nvidia` | `--extra cu$CUDA_VERSION` | `all` / `all` |
+| `runc` | `--extra cpu` | empty / empty |
+
+!!! warning "Upgrading from an autodetecting `.env`"
+    Earlier versions of `tt-env-gen` probed `nvidia-smi` and wrote
+    `COMMANDER_RUNTIME` into the *Dynamic Configuration* block at the bottom of
+    `.env`. If your `.env` predates this change, the variable is still down
+    there holding whatever autodetection last decided. Set the value you want in
+    that file (or run `tt-env-gen --clean` to regenerate from the current
+    `.env.example` — this discards your other `.env` edits) and re-run
+    `tt-env-gen`.
 
 ## Parameter files (config → consumer)
 

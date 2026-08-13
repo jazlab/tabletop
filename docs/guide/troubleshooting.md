@@ -176,6 +176,22 @@ container has been **removed** (its definition is preserved in
   `.env` and `tt-compose ps`.
 - **`.env` missing/corrupt** → `tt-env-gen --clean` regenerates it from
   `.env.example`.
+- **No GPU inside the commander / Dev Container** (`nvidia-smi` missing, torch
+  reports no CUDA) → GPU access is opt-in and **not** autodetected. Set
+  `COMMANDER_RUNTIME=nvidia` (and a `CUDA_VERSION` your driver supports) in
+  `.env`, re-run `tt-env-gen` so `UV_EXTRA`/`NVIDIA_*` are regenerated, then
+  recreate the container (`tt-compose --profile=<sim|real> up
+  --force-recreate`) — a running container keeps the runtime it started with.
+  See [Configuration](configuration.md#gpu-access-nvidia-container-runtime).
+- **`unknown or invalid runtime name: nvidia`** → `COMMANDER_RUNTIME=nvidia`
+  but the [NVIDIA Container
+  Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+  isn't installed/registered with Docker. Install it (`docker info | grep -i
+  runtimes` should list `nvidia`) or set `COMMANDER_RUNTIME=runc` and re-run
+  `tt-env-gen`.
+- **`COMMANDER_RUNTIME must be set to 'runc' or 'nvidia'`** (or the matching
+  `CUDA_VERSION` error) → `tt-env-gen` validating `.env`; fix the value in
+  `.env`, not in `.env.example`.
 - Prefer the `tt-compose` wrapper over raw `docker compose` — it sets up the
   environment for you.
 

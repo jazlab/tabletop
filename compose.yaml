@@ -7,8 +7,11 @@
 # Profiles: real / sim (full sessions); commander, builder, dev
 # (single-purpose, usually started indirectly by tt-launch/tt-build); template
 # (the ros-base extends-only template, never run directly). .env (from
-# tt-env-gen) supplies the $VARS below (device paths, GPU runtime, PulseAudio
-# mounts). Retired services (ursim, flicd, flir-no-sync) were removed; their
+# tt-env-gen) supplies the $VARS below (device paths, container runtime,
+# PulseAudio mounts); $COMMANDER_RUNTIME is set by hand in .env (runc by
+# default, nvidia to opt into GPU access) and is not autodetected — see
+# docs/guide/configuration.md. Retired services (ursim, flicd, flir-no-sync)
+# were removed; their
 # definitions are preserved in deprecated/compose-services.yaml.
 name: tabletop
 
@@ -218,9 +221,10 @@ services:
     restart: unless-stopped
     command: tt-launch eyelink simulate:=true
 
-  # The orchestrator: runs the Commander node (in-process MoveIt). GPU runtime
-  # if available, PulseAudio sockets for reward sounds, bags mount. Longer
-  # stop grace period for clean shutdown. Usually launched on top of a session.
+  # The orchestrator: runs the Commander node (in-process MoveIt). Runs under
+  # $COMMANDER_RUNTIME (GPU only when you set it to nvidia in .env), PulseAudio
+  # sockets for reward sounds, bags mount. Longer stop grace period for clean
+  # shutdown. Usually launched on top of a session.
   commander:
     extends: ros-base
     container_name: tabletop-commander
