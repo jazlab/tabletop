@@ -25,16 +25,28 @@ repos:
       - id: requirements-txt-fixer
       - id: pretty-format-json
         args: [--autofix, --no-sort-keys]
+        # Notebooks are JSON, so this hook matches them by default and would
+        # reformat them at indent=2 — fighting nbstripout, which rewrites them
+        # via nbformat at indent=1. Leave .ipynb to nbstripout alone.
+        exclude_types: [jupyter]
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/openstack/bashate
     rev: 2.1.1
     hooks:
       - id: bashate
-  # - repo: https://github.com/kynan/nbstripout
-  #   rev: 0.9.0
-  #   hooks:
-  #     - id: nbstripout
+  # Clears outputs and execution counts from notebooks so committed .ipynb
+  # files stay diffable and small (embedded plot PNGs otherwise dominate the
+  # repo). Also drops the two metadata fields that vary per machine and
+  # generate spurious diffs; kernelspec.name is kept so tooling still knows
+  # these are Python 3 notebooks.
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
+        args:
+          - --extra-keys
+          - metadata.kernelspec.display_name metadata.language_info.version
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.14.14
