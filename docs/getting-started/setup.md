@@ -16,7 +16,7 @@ walkthrough (the TableTop network, URCaps, remote control), see
 | [jq](https://jqlang.github.io/jq/) | some `tt-*` shell scripts | `sudo apt install jq` (Ubuntu) or `brew install jq` (macOS) |
 | [VS Code](https://code.visualstudio.com/) | Dev Container development | optional |
 | [NVIDIA driver](https://www.nvidia.com/en-us/drivers/) | GPU in containers | optional; install the driver for your distro + GPU per your vendor/distro instructions |
-| [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional; needs the NVIDIA driver above |
+| [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional; needs the NVIDIA driver above, **and** `COMMANDER_RUNTIME=nvidia` in your `.env` — see [GPU](#gpu-nvidia-container-runtime) |
 | PipeWire/PulseAudio | reward sounds | see [Audio](#audio-reward-sounds) |
 | CPU governor software (e.g. [cpufrequtils](https://manpages.ubuntu.com/manpages/noble/man1/cpufreq-info.1.html)) | disabling CPU speed scaling for real-time control (real hardware) | optional; any mechanism that pins the `performance` governor works — `cpufrequtils` is just one example. See [Real Hardware Setup](real-hardware.md#cpu-governor-real-time-control) |
 
@@ -78,14 +78,22 @@ source setup.bash
 #    calibration pipeline on the host machine and need support for a
 #    different CUDA version than the default one available through PyPI.
 #    Otherwise you can run it in the Devcontainer or using the commander
-#    container, both of which use the NVIDIA Container Runtime if available.
+#    container, both of which use the NVIDIA Container Runtime only when you
+#    opt in with COMMANDER_RUNTIME=nvidia in .env (step 5).
 uv sync            # or: uv sync --extra cu130
 
-# 4. Generate the .env file (detects GPU / FLIR cameras / PulseAudio)
+# 4. Generate the .env file (detects FLIR cameras / PulseAudio)
 tt-env-gen
 
-# 5. Edit .env to fill in your personal preferences (e.g. noVNC / Foxglove ports)
+# 5. Edit .env to fill in your personal preferences (e.g. noVNC / Foxglove
+#    ports) and your hardware: TEENSY_DEV, and COMMANDER_RUNTIME=nvidia if you
+#    want the containers to have GPU access (see "GPU" below — it defaults to
+#    runc and is NOT auto-detected).
 nano .env          # or whatever editor you prefer
+
+# 5b. Re-run tt-env-gen so the variables derived from your edits (UV_EXTRA,
+#     NVIDIA_*) are regenerated to match.
+tt-env-gen
 
 # 6. Pull the prebuilt Docker images from Docker Hub (needs `docker login`).
 #    `--profile='*'` selects every service so all images are pulled.
@@ -130,7 +138,8 @@ and may pass selected values into the containers. Keeping these substitutions
 in `.env` — rather than in your shell — is what lets the Dev Container be built
 directly from VS Code while still resolving every `$VAR` in `compose.yaml`.
 Re-run `tt-env-gen` whenever you plug or unplug hardware, since device paths are
-baked into `.env`.
+baked into `.env`, and whenever you edit `COMMANDER_RUNTIME`, since `UV_EXTRA`
+and the `NVIDIA_*` variables are derived from it.
 
 ## Docker images
 
@@ -170,6 +179,40 @@ cameras, the `performance` CPU governor for real-time control, the **TableTop
 network**, and the UR5e robot itself. All of this — with command examples for an
 Ubuntu 24.04 **host machine** — is documented in
 [Real Hardware Setup](real-hardware.md).
+
+### GPU (NVIDIA container runtime)
+
+GPU access for the `commander` and Dev Container is **opt-in and not
+auto-detected**. A fresh `.env` ships `COMMANDER_RUNTIME=runc`, which runs those
+containers on the default Docker runtime with CPU-only PyTorch wheels — even on
+a machine with a working NVIDIA GPU.
+
+To use the GPU, install the NVIDIA driver and
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+from the [Requirements](#requirements) table, then edit **`.env`** (never
+`.env.example`):
+
+```bash
+COMMANDER_RUNTIME=nvidia
+CUDA_VERSION=130     # match your driver; see pyproject.toml for the available
+                     # cu* extras (126, 128, 130)
+```
+
+and re-run `tt-env-gen`, which turns those into the `UV_EXTRA` (`--extra
+cu130`) and `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` (`all`)
+values that `compose.yaml` consumes:
+
+```bash
+tt-env-gen
+```
+
+Already-running containers keep the old runtime, so recreate them
+(`tt-compose --profile=<sim|real> up --force-recreate`) after switching. Set it
+back to `runc` to go CPU-only. `tt-env-gen` rejects any other value, and errors
+if `COMMANDER_RUNTIME=nvidia` is paired with an empty `CUDA_VERSION`. Full
+details, including the upgrade note for `.env` files written by the older
+autodetecting `tt-env-gen`, are in
+[Configuration](../guide/configuration.md#gpu-access-nvidia-container-runtime).
 
 ### Audio (reward sounds)
 

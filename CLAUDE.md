@@ -118,7 +118,9 @@ includes the FLIR cameras). Other profiles exist for narrower jobs: `builder`
 container spun up to run `tt-launch`), `dev` (the Dev Container), and `template`
 (the `ros-base` extends-only base image, never run directly). `tt-env-gen`
 regenerates `.env` (from `.env.example`) whenever hardware changes — device
-paths are baked into it.
+paths are baked into it. The `commander` and `dev` services run under
+`$COMMANDER_RUNTIME`, which you set in `.env` (`runc` by default, `nvidia` for
+GPU access); it is not autodetected.
 
 ### Testing
 
@@ -299,7 +301,10 @@ process from the Commander.
 
 - `compose.yaml` - Docker service definitions (profiles, devices, mounts)
 - `.env.example` → `.env` - environment variables; `.env` is **generated** by
-  `tt-env-gen` (never edit `.env` by hand for auto-detected values)
+  `tt-env-gen` (never edit `.env` by hand for auto-detected values). User-set
+  values do belong there: `TEENSY_DEV` and `COMMANDER_RUNTIME` (`runc` default
+  / `nvidia` to opt into GPU access — not autodetected; re-run `tt-env-gen`
+  after changing it so `UV_EXTRA`/`NVIDIA_*` are regenerated)
 - `setup.bash` - single source of environment truth, sourced by every script and
   container entrypoint; detects host-vs-container via `TABLETOP_CONTAINER` and
   selects the uv venv (`.venv` host / `.venv.container` container)

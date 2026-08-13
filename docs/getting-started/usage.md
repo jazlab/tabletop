@@ -109,6 +109,12 @@ choose **Reopen in Container**. Inside, `tt-build` and `tt-launch` work directly
 To open a shell in a non-dev service instead, use `tt-attach <service>` (see
 [CLI & Tooling](../guide/cli.md)).
 
+!!! note "GPU access in the Dev Container"
+    The Dev Container runs under `$COMMANDER_RUNTIME`, which defaults to `runc`
+    (CPU-only). If you need the GPU inside it, set `COMMANDER_RUNTIME=nvidia`
+    in `.env`, re-run `tt-env-gen`, and rebuild/reopen the container — see
+    [Setup → GPU](setup.md#gpu-nvidia-container-runtime).
+
 !!! note
     Source changes for nodes running in *other* containers require restarting
     or rebuilding those containers to take effect.

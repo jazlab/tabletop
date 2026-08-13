@@ -4,7 +4,7 @@
 # Wraps: dotenv (via embedded helper functions)
 # Runs on: host
 # Environment: TABLETOP_DIR
-# Logic: Detects FLIR cameras via udev symlinks, NVIDIA GPU/CUDA, PulseAudio socket; validates required vars
+# Logic: Detects FLIR cameras via udev symlinks and the PulseAudio socket; derives the NVIDIA/uv vars from the user-set COMMANDER_RUNTIME; validates required vars
 
 QUOTE_STYLE=never
 
@@ -67,7 +67,7 @@ dotenv_set() {
     local key=$1
     local value=$2
 
-    dotenv --file $file --quote $QUOTE_STYLE set -- "$key" "$value"
+    dotenv --file $file --quote $QUOTE_STYLE set -- "$key" "$value" 1> /dev/null
 }
 
 
@@ -82,7 +82,12 @@ while [[ $# -gt 0 ]]; do
 Usage: $0 [-c|--clean]
 
 Generate and validate the .env file from .env.example with auto-detection of
-host hardware (FLIR cameras, NVIDIA GPU, PulseAudio socket).
+host hardware (FLIR cameras, PulseAudio socket).
+
+The container runtime is NOT auto-detected: set COMMANDER_RUNTIME=nvidia (plus
+CUDA_VERSION) in .env yourself to give the commander and dev containers GPU
+access, or leave it at runc for CPU only. Re-run this script after changing it
+so the derived UV_EXTRA / NVIDIA_* variables below are updated to match.
 
 Options:
   -c, --clean   Remove the existing .env file and regenerate from .env.example
@@ -90,8 +95,10 @@ Options:
 
 Environment variables set:
   HOST_UID / HOST_GID          Current user's UID/GID
-  COMMANDER_RUNTIME            'nvidia' or 'runc' (based on GPU detection)
-  UV_EXTRA                     uv dependency extras (cpu or cu<CUDA_VERSION>)
+  UV_EXTRA                     uv dependency extras (cpu or cu<CUDA_VERSION>,
+                               from COMMANDER_RUNTIME)
+  NVIDIA_VISIBLE_DEVICES / NVIDIA_DRIVER_CAPABILITIES
+                               'all' when COMMANDER_RUNTIME=nvidia, else empty
   FLIR_DEV_0 ... FLIR_DEV_N   Resolved paths to detected FLIR camera devices
   PULSE_SERVER_MNT / PULSE_COOKIE_MNT   PulseAudio socket and cookie mounts
   ROS_BAG_DIR_MNT              ROS bag directory mount (or /dev/null if unset)
@@ -118,7 +125,7 @@ dotenv_get_required NOVNC_DISPLAY
 dotenv_get_required NOVNC_WIDTH
 dotenv_get_required NOVNC_HEIGHT
 dotenv_get_required NOVNC_PORT
-dotenv_get_required CUDA_VERSION
+dotenv_get_required COMMANDER_RUNTIME
 dotenv_get_required BIND_CONSISTENCY
 dotenv_get_required TEENSY_DEV
 dotenv_get_required FLIR_MAX_DEVS
@@ -139,19 +146,22 @@ else
     dotenv_set ROS_BAG_DIR_CONTAINER /bags
 fi
 
-# Detect NVIDIA GPU and set runtime/CUDA configuration
-if command -v nvidia-smi >/dev/null 2>&1; then
-    dotenv_set COMMANDER_RUNTIME nvidia
+# Derive the NVIDIA/CUDA configuration from the user-set COMMANDER_RUNTIME
+if [[ "$COMMANDER_RUNTIME" = "nvidia" ]]; then
+    if ! dotenv_get_required CUDA_VERSION; then
+        print_error "COMMANDER_RUNTIME is set to 'nvidia' but CUDA_VERSION is not provided"
+        exit 1
+    fi
     dotenv_set UV_EXTRA "--extra cu$CUDA_VERSION"
     dotenv_set NVIDIA_VISIBLE_DEVICES all
     dotenv_set NVIDIA_DRIVER_CAPABILITIES all
-    # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
-else
-    dotenv_set COMMANDER_RUNTIME runc
+elif [[ "$COMMANDER_RUNTIME" = "runc" ]]; then
     dotenv_set UV_EXTRA "--extra cpu"
     dotenv_set NVIDIA_VISIBLE_DEVICES ""
     dotenv_set NVIDIA_DRIVER_CAPABILITIES ""
-    # export INSTALL_CUDA=true # Used for building isaac cumotion library, if applicable
+else
+    print_error "COMMANDER_RUNTIME must be set to 'runc' or 'nvidia'"
+    exit 1
 fi
 
 # Auto-detect FLIR cameras via /dev/flir symlinks created by udev rules
