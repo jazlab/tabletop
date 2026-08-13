@@ -60,6 +60,13 @@ lines, Google-style docstrings); pre-commit runs the linters automatically on
 commit. Please follow the
 [ROS 2 contribution guidelines](https://docs.ros.org/en/jazzy/The-ROS2-Project/Contributing.html).
 
+Notebooks under `notebooks/` are committed **without outputs** — `nbstripout`
+clears cell outputs and execution counts on commit, so embedded plots don't
+bloat the repo or produce unreadable diffs. If a commit is rejected with
+`nbstripout ... files were modified by this hook`, the notebook has just been
+stripped in place: `git add` it again and re-commit. Re-running the notebook
+locally to restore the outputs is fine; they just don't get committed.
+
 ## License
 
 [MIT](LICENSE)
