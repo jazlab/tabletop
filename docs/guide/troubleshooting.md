@@ -89,7 +89,32 @@ The current `flic` node sniffs BLE directly with scapy; the old `flicd` daemon
 container has been **removed** (its definition is preserved in
 `deprecated/compose-services.yaml`). Most remaining pain is host Bluetooth.
 
-- **Free the Bluetooth adapter** (the host BlueZ stack can hold it):
+- **`No such device` on startup / no `/flic` node in the ROS graph.** The host
+  has no `hci0`: the Bluetooth hardware is present but the kernel drivers never
+  initialized it, so there is no controller for the node to open. Check the host
+  first — this is not a container problem:
+
+    ```bash
+    ls /sys/class/bluetooth/     # empty means no adapter; expect hci0
+    ```
+
+    If it is empty, load the drivers (`btusb` plus your vendor module —
+    `btintel` for Intel AX2xx, `btrtl`/`btbcm`/`btmtk` for others) and restart
+    the container:
+
+    ```bash
+    sudo modprobe btusb
+    sudo modprobe btintel
+    ls /sys/class/bluetooth/                 # hci0 should now appear
+    tt-compose --profile=real restart flic
+    ```
+
+    Full walkthrough, including how to make it stick across reboots:
+    [Real Hardware → Bluetooth adapter](../getting-started/real-hardware.md#bluetooth-adapter-flic-buttons).
+
+- **Free the Bluetooth adapter** (the host BlueZ stack can hold it). This is the
+  *other* failure mode: `hci0` exists, but something else owns it — the node
+  takes exclusive HCI user-channel access and cannot share:
 
     ```bash
     sudo systemctl stop bluetooth

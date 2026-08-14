@@ -19,6 +19,12 @@ For the one-time setup of the EyeLink and OptiTrack host computers (and the
 network that connects them to the host), see
 [Real Hardware Setup](../getting-started/real-hardware.md#eyelink-and-optitrack-computers).
 
+The `flic` node opens the **host's** Bluetooth controller (`hci0` by default,
+selected by its `device_id` parameter) rather than a device mounted into the
+container, so that controller must exist and be free before the `real` profile
+starts — see
+[Real Hardware → Bluetooth adapter](../getting-started/real-hardware.md#bluetooth-adapter-flic-buttons).
+
 MoveIt runs **in-process** inside the Commander (`moveit_py`), not as a separate
 `move_group` node — planning is in-process; execution is dispatched to the UR
 `controller_manager` action servers.
