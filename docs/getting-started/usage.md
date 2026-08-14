@@ -44,6 +44,24 @@ tt-compose --profile=sim logs -f [<service>]
 tt-compose --profile=sim down
 ```
 
+!!! tip "Pre-flight check before `--profile=real`"
+    The `real` profile expects its host devices to already be present — the
+    containers do not create them. A quick check before bringing the rig up
+    saves a round of confusing container failures:
+
+    ```bash
+    ls /sys/class/bluetooth/   # hci0 — Bluetooth adapter for the flic node
+    ls /dev/flir/              # one symlink per FLIR camera
+    ls /dev/ttyACM*            # Teensy serial device (must match TEENSY_DEV in .env)
+    ```
+
+    A missing `hci0` is the common one: the Bluetooth hardware can be present
+    while the kernel drivers were never loaded, and the `flic` container then
+    fails with `No such device` and no `/flic` node ever joins the ROS graph.
+    See
+    [Real Hardware → Bluetooth adapter](real-hardware.md#bluetooth-adapter-flic-buttons)
+    for the fix, and re-run `tt-env-gen` if a camera or the Teensy is missing.
+
 Open the noVNC desktop (RViz, UR sim teach pendant) at
 <http://localhost:8080/vnc.html> (replacing 8080 with
 whatever port is set by `NOVNC_PORT` in `.env`) or

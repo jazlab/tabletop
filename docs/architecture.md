@@ -363,6 +363,7 @@ for the full option set.
 | Planning fails / slow | trajectory cache + planner config | `interfaces/moveit/plan_and_execute.py`, `tabletop_moveit_config/config/` |
 | Pick/place stuck in weird state | manipulation state machine | `interfaces/moveit/object_manipulation.py` (`ManipulationState`) |
 | Cameras out of sync / missing frames | `ros2 run tabletop_rig system_check` | `flir_synchronized.yaml` trigger settings, Teensy sync pulse |
+| `flic` fails with `No such device`, no `/flic` node | `ls /sys/class/bluetooth` on the **host** | no `hci0` — load `btusb`/`btintel`, see [Real Hardware → Bluetooth adapter](getting-started/real-hardware.md#bluetooth-adapter-flic-buttons) |
 | Flic button not responding | flic container logs | [Troubleshooting → Flic buttons](guide/troubleshooting.md#flic-buttons) |
 | Task behaves wrong | the task's YAML config | `tabletop_tasks/config/<task>.yaml` → task class kwargs |
 | CSV/images missing or malformed after a session | the bag exporter | `ros2 run tabletop_unbag unbag BAG_DIR -v` (per-topic failure counts); §5.5 |

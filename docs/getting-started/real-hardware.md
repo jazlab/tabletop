@@ -59,6 +59,66 @@ PlatformIO also ships
 the custom Teensy rule above replaces them. After plugging or unplugging a
 device, re-run `tt-env-gen` so Docker re-maps it.
 
+### Bluetooth adapter (Flic buttons)
+
+The `flic` node sniffs BLE by opening a raw HCI socket on the host's Bluetooth
+controller — `hci0` by default (the node's `device_id` parameter selects
+`hciN`). Because all containers share the host network stack, the controller
+must already exist **on the host** before you start the `real` profile.
+Confirm it does:
+
+```bash
+ls /sys/class/bluetooth/     # expect: hci0
+```
+
+If that directory is empty, the adapter has not been initialized and the `flic`
+container will fail with `No such device` (and no `/flic` node will appear in
+the ROS graph). Having the hardware physically present is not enough — the
+kernel drivers must be loaded and bound to it. Check what the kernel saw:
+
+```bash
+lsusb | grep -i bluetooth                    # is the controller enumerated?
+dmesg | grep -iE 'bluetooth|btusb|btintel'   # did a driver bind to it?
+rfkill list bluetooth                        # soft/hard blocked?
+```
+
+Load the drivers manually if they are missing — `btusb` is the generic USB
+transport, plus the vendor module for your controller:
+
+```bash
+sudo modprobe btusb
+sudo modprobe btintel      # Intel (e.g. AX200/AX201/AX211)
+# other vendors: btrtl (Realtek), btbcm (Broadcom), btmtk (MediaTek)
+
+sudo rfkill unblock bluetooth   # only if rfkill reported a soft block
+ls /sys/class/bluetooth/        # hci0 should now be listed
+```
+
+Then restart the Flic container so the client re-opens the adapter:
+
+```bash
+tt-compose --profile=real restart flic
+```
+
+!!! note "Usually a one-off, but verify across a reboot"
+    Once the modules have been loaded, the kernel normally autoloads them on
+    subsequent boots and `hci0` comes back on its own. Reboot and re-run the
+    `ls /sys/class/bluetooth/` check to confirm. If the adapter does **not**
+    come back, force the modules to load at boot:
+
+    ```bash
+    sudo tee /etc/modules-load.d/bluetooth.conf > /dev/null <<'EOF'
+    btusb
+    btintel
+    EOF
+    ```
+
+This is a host/Linux initialization issue rather than a TableTop one, so the
+same check applies to any distribution — only the driver-loading commands are
+Ubuntu-flavoured. Note that a *present* `hci0` can still be unusable if the host
+BlueZ stack is holding it; see
+[Troubleshooting → Flic buttons](../guide/troubleshooting.md#flic-buttons).
+
 ### USB buffer size (FLIR cameras)
 
 FLIR cameras stream large frames and need a bigger USBFS buffer than the kernel
