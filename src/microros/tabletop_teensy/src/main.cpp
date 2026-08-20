@@ -29,6 +29,7 @@
 #include <micro_ros_platformio.h>
 #include <micro_ros_utilities/string_utilities.h>
 #include <micro_ros_utilities/type_utilities.h>
+#include <rcl/error_handling.h>
 #include <rcl/rcl.h>
 #include <rclc/executor.h>
 #include <rclc/rclc.h>
@@ -154,12 +155,22 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define AGENT_RECONNECT_TIMEOUT_MS 20
 // EXECUTOR_SPIN_TIMEOUT_MS: max time rclc_executor_spin_some() may block per loop iteration
 #define EXECUTOR_SPIN_TIMEOUT_MS 50
-// AGENT_SYNC_PERIOD_MS: how often ROS time is re-synchronized in AGENT_CONNECTED state
-#define AGENT_SYNC_PERIOD_MS 200
-// AGENT_SYNC_TIMEOUT_MS: per-call timeout for rmw_uros_sync_session()
-#define AGENT_SYNC_TIMEOUT_MS 1
-// AGENT_SYNC_MAX_RETRIES: consecutive sync failures before triggering disconnection
-#define AGENT_SYNC_MAX_RETRIES 3
+// AGENT_LIVENESS_PERIOD_MS: how often a connected client verifies that the
+// agent still answers. This follows the upstream micro-ROS reconnection
+// example instead of using clock synchronization as a liveness probe.
+#define AGENT_LIVENESS_PERIOD_MS 200
+// AGENT_LIVENESS_TIMEOUT_MS: per-attempt timeout for the connected-session ping.
+// One millisecond (the old time-sync timeout) is too short for a reliable USB
+// serial liveness decision under host scheduling jitter.
+#define AGENT_LIVENESS_TIMEOUT_MS 100
+// AGENT_LIVENESS_MAX_RETRIES: consecutive missed pings before reconnecting.
+#define AGENT_LIVENESS_MAX_RETRIES 3
+// AGENT_SYNC_PERIOD_MS: clock maintenance is independent of liveness. A failed
+// resync leaves the last valid offset in place and is retried later.
+#define AGENT_SYNC_PERIOD_MS 10000
+// AGENT_SYNC_TIMEOUT_MS: bounded clock-maintenance timeout. Initial session
+// synchronization still uses 1000 ms in init_client().
+#define AGENT_SYNC_TIMEOUT_MS 10
 // SENSOR_PERIOD_MS: sensor_timer period; sets publish rate to ~100 Hz
 #define SENSOR_PERIOD_MS 10
 // SYNC_PULSE_BASE_PERIOD_MS: nominal inter-pulse interval (~1 s)
@@ -272,8 +283,8 @@ tabletop_interfaces__srv__SetSolenoid_Request set_solenoid_request;
 tabletop_interfaces__srv__SetSolenoid_Response set_solenoid_response;
 
 // State tracking
-// agent_sync_retries: counts consecutive failed rmw_uros_sync_session() calls
-uint8_t agent_sync_retries;
+// agent_liveness_retries: counts consecutive failed connected-session pings.
+uint8_t agent_liveness_retries;
 
 // agent_state machine used by loop():
 //   WAITING_AGENT      -- probing for micro-ROS agent; builtin LED steady ON
@@ -391,7 +402,7 @@ uint8_t right_arm_state_stable;
 // =============================================================================
 // Macro definitions
 // RCCHECK: evaluates fn; on rcl failure prints the error string and returns false.
-// Used inside bool-returning init/deinit functions.
+// Used inside bool-returning initialization helpers.
 #define RCCHECK(fn)                                                                                                    \
   {                                                                                                                    \
     rcl_ret_t temp_rc = fn;                                                                                            \
@@ -408,6 +419,18 @@ uint8_t right_arm_state_stable;
     if ((temp_rc != RCL_RET_OK))                                                                                       \
     {                                                                                                                  \
       printf("Error: %s\n", rcl_get_error_string().str);                                                               \
+    }                                                                                                                  \
+  }
+
+// RCBESTEFFORT: attempt non-critical maintenance or teardown and clear any
+// error so subsequent rcl calls are not contaminated. During teardown this
+// gives every entity a chance to finalize after transport loss.
+#define RCBESTEFFORT(fn)                                                                                               \
+  {                                                                                                                    \
+    rcl_ret_t temp_rc = fn;                                                                                            \
+    if ((temp_rc != RCL_RET_OK))                                                                                       \
+    {                                                                                                                  \
+      rcl_reset_error();                                                                                               \
     }                                                                                                                  \
   }
 // STRING_SET: snprintf into a rosidl string struct, then updates its size field.
@@ -1089,7 +1112,7 @@ void reset_state()
   set_sync_pulse(false);
   set_solenoid(false);
 
-  agent_sync_retries = 0;
+  agent_liveness_retries = 0;
   sync_pulse_last_time_on.sec = 0;
   sync_pulse_last_time_on.nanosec = 0;
   sync_pulse_last_time_off.sec = 0;
@@ -1233,8 +1256,10 @@ bool init_client()
 // deinit_client: tears down all micro-ROS entities after a session ends.
 // Order: detach ISRs -> reset_state -> set destroy timeout to 0 ->
 //        fini publishers, timers, services, executor, node, support.
-// Returns true on success; transition target is WAITING_AGENT or UNRECOVERABLE_ERROR.
-bool deinit_client()
+// Teardown is deliberately best-effort: after transport loss, fini calls may
+// report errors even though local cleanup can continue. Always return to
+// WAITING_AGENT so the board can establish a fresh session.
+void deinit_client()
 {
   // Detach interrupt service routines
   detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
@@ -1247,29 +1272,27 @@ bool deinit_client()
 
   // Destroy session
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
-  RCCHECK(rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0));
+  RCBESTEFFORT(rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0));
 
   // Destroy entities
-  RCCHECK(rcl_publisher_fini(&sensor_publisher, &node));
-  RCCHECK(rcl_publisher_fini(&log_publisher, &node));
-  RCCHECK(rcl_timer_fini(&sync_pulse_base_timer));
-  RCCHECK(rcl_timer_fini(&sync_pulse_start_timer));
-  RCCHECK(rcl_timer_fini(&sync_pulse_end_timer));
-  RCCHECK(rcl_timer_fini(&sensor_timer));
-  RCCHECK(rcl_timer_fini(&reward_timer));
-  RCCHECK(rcl_timer_fini(&arm_buzzer_timer));
-  RCCHECK(rcl_service_fini(&ping_service, &node));
-  RCCHECK(rcl_service_fini(&set_arm_lock_service, &node));
-  RCCHECK(rcl_service_fini(&set_smartglass_service, &node));
-  RCCHECK(rcl_service_fini(&set_reward_service, &node));
-  RCCHECK(rcl_service_fini(&set_solenoid_service, &node));
-  RCCHECK(rclc_executor_fini(&executor));
-  RCCHECK(rcl_node_fini(&node));
-  RCCHECK(rclc_support_fini(&support));
+  RCBESTEFFORT(rcl_publisher_fini(&sensor_publisher, &node));
+  RCBESTEFFORT(rcl_publisher_fini(&log_publisher, &node));
+  RCBESTEFFORT(rcl_timer_fini(&sync_pulse_base_timer));
+  RCBESTEFFORT(rcl_timer_fini(&sync_pulse_start_timer));
+  RCBESTEFFORT(rcl_timer_fini(&sync_pulse_end_timer));
+  RCBESTEFFORT(rcl_timer_fini(&sensor_timer));
+  RCBESTEFFORT(rcl_timer_fini(&reward_timer));
+  RCBESTEFFORT(rcl_timer_fini(&arm_buzzer_timer));
+  RCBESTEFFORT(rcl_service_fini(&ping_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_arm_lock_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_smartglass_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_reward_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_solenoid_service, &node));
+  RCBESTEFFORT(rclc_executor_fini(&executor));
+  RCBESTEFFORT(rcl_node_fini(&node));
+  RCBESTEFFORT(rclc_support_fini(&support));
 
   printf("Client deinitialized\n");
-
-  return true;
 }
 
 // =============================================================================
@@ -1348,9 +1371,9 @@ void setup()
 // loop: runs continuously after setup(); drives the agent_state machine.
 //   WAITING_AGENT      -- polls rmw_uros_ping_agent() every AGENT_RECONNECT_PERIOD_MS.
 //   AGENT_AVAILABLE    -- calls init_client(); transitions to CONNECTED or DISCONNECTED.
-//   AGENT_CONNECTED    -- slow-blinks LED, re-syncs ROS time every AGENT_SYNC_PERIOD_MS,
-//                         spins executor; disconnects on sync failure or executor error.
-//   AGENT_DISCONNECTED -- calls deinit_client(); transitions to WAITING_AGENT or ERROR.
+//   AGENT_CONNECTED    -- slow-blinks LED, pings for liveness, periodically
+//                         re-syncs ROS time, and spins the executor.
+//   AGENT_DISCONNECTED -- best-effort teardown, then returns to WAITING_AGENT.
 //   UNRECOVERABLE_ERROR -- fast-blinks LED; Teensy reboot required.
 void loop()
 {
@@ -1369,11 +1392,12 @@ void loop()
       break;
     case AGENT_CONNECTED:
       EXECUTE_EVERY_N_MS(BLINK_CONNECTED_PERIOD_MS, digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););
-      EXECUTE_EVERY_N_MS(AGENT_SYNC_PERIOD_MS,
-                         agent_sync_retries = (RMW_RET_OK == rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)) ?
-                                                  0 :
-                                                  agent_sync_retries + 1;);
-      if ((agent_sync_retries >= AGENT_SYNC_MAX_RETRIES) ||
+      EXECUTE_EVERY_N_MS(AGENT_LIVENESS_PERIOD_MS,
+                         agent_liveness_retries = (RMW_RET_OK == rmw_uros_ping_agent(AGENT_LIVENESS_TIMEOUT_MS, 1)) ?
+                                                      0 :
+                                                      agent_liveness_retries + 1;);
+      EXECUTE_EVERY_N_MS(AGENT_SYNC_PERIOD_MS, RCBESTEFFORT(rmw_uros_sync_session(AGENT_SYNC_TIMEOUT_MS)););
+      if ((agent_liveness_retries >= AGENT_LIVENESS_MAX_RETRIES) ||
           (RCL_RET_OK != rclc_executor_spin_some(&executor, RCL_MS_TO_NS(EXECUTOR_SPIN_TIMEOUT_MS))))
       {
         agent_state = AGENT_DISCONNECTED;
@@ -1381,7 +1405,8 @@ void loop()
       break;
     case AGENT_DISCONNECTED:
       digitalWrite(LED_BUILTIN, LOW);
-      agent_state = deinit_client() ? WAITING_AGENT : UNRECOVERABLE_ERROR;
+      deinit_client();
+      agent_state = WAITING_AGENT;
       break;
     case UNRECOVERABLE_ERROR:
       EXECUTE_EVERY_N_MS(BLINK_ERROR_PERIOD_MS, digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)););

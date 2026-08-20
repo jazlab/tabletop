@@ -38,6 +38,7 @@ import concurrent.futures
 import functools
 import importlib
 import inspect
+import threading
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
 from types import TracebackType
@@ -57,6 +58,7 @@ from rclpy.executors import (
 from rclpy.experimental.events_executor import EventsExecutor
 from rclpy.signals import SignalHandlerOptions
 from tabletop_interfaces.msg import TeensySensor
+from ur_dashboard_msgs.msg import SafetyMode
 
 from tabletop_rig.exceptions import (
     ActionClientError,
@@ -67,7 +69,10 @@ from tabletop_rig.exceptions import (
     ManipulationContextExitedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
+    RigExecutionSafetyError,
+    RigSafetyError,
     ServiceClientError,
+    URSafetyViolationError,
 )
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.interfaces.eyelink import EyelinkInterface
@@ -81,6 +86,21 @@ from tabletop_rig.interfaces.sound import SoundInterface
 from tabletop_rig.interfaces.teensy import TeensyInterface
 from tabletop_rig.interfaces.ur import URInterface
 from tabletop_rig.nodes.base import BaseNode
+
+_FATAL_UR_SAFETY_MODES = {
+    getattr(SafetyMode, name): name
+    for name in (
+        "PROTECTIVE_STOP",
+        "SAFEGUARD_STOP",
+        "SYSTEM_EMERGENCY_STOP",
+        "ROBOT_EMERGENCY_STOP",
+        "VIOLATION",
+        "FAULT",
+        "AUTOMATIC_MODE_SAFEGUARD_STOP",
+        "SYSTEM_THREE_POSITION_ENABLING_STOP",
+    )
+    if hasattr(SafetyMode, name)
+}
 
 
 def ensure_context(fn):
@@ -123,10 +143,11 @@ def ensure_context(fn):
 def handle_interruptions(coro_fn):
     """Decorator for methods requiring safety-checked robot execution.
 
-    Wraps coroutines that execute robot motions to handle common error
-    cases with automatic recovery:
+    Wraps coroutines that execute robot motions to handle common errors:
     - NotSafeToExecuteError: Locks arms and waits for safety
-    - ExecutionInterruptedError: Resets dashboard and retries
+    - Laser-related execution errors: Restores the real UR controller and
+      retries from measured state
+    - Non-laser real execution errors: Latches a fatal rig-wide fault
 
     Args:
         coro_fn: Async method to wrap.
@@ -137,6 +158,7 @@ def handle_interruptions(coro_fn):
 
     @functools.wraps(coro_fn)
     async def wrapper(self: "ManipulationContextManager", *args, **kwargs):
+        self._raise_if_rig_safety_faulted()
         max_attempts = self.param("interruptions.max_attempts")
         if max_attempts < 1:
             raise ValueError(
@@ -144,25 +166,52 @@ def handle_interruptions(coro_fn):
             )
         remaining = max_attempts
 
-        if not self._safe_to_execute_condition():
+        async def wait_until_safe(phase: str) -> None:
+            """Apply the safety gate immediately before each motion attempt."""
+            self._raise_if_rig_safety_faulted()
+            if self._safe_to_execute_condition():
+                return
             assert (
                 self._manipulator.manipulation_state
                 == ManipulationState.PRESENTED
             )
             self.log(
-                f"Not safe to execute before running '{coro_fn.__name__}'. "
+                f"Not safe to execute {phase} '{coro_fn.__name__}'. "
                 f"Locking arms and waiting for safety.",
                 severity="WARN",
             )
             await self._teensy.lock_arms_and_wait(
                 condition=self._safe_to_execute_condition
             )
+            self._raise_if_rig_safety_faulted()
 
         excs: list[Exception] = []
         while remaining > 0:
+            await self._recover_after_laser_stop()
+            # The beam can break while the UR dashboard is being restored or
+            # between attempts. Re-apply the stable-clear gate immediately
+            # before every retry instead of relying on the original call's
+            # one-time check.
+            await wait_until_safe("before attempting")
+            attempt_laser_generation = self._laser_break_generation_value()
             try:
                 return await coro_fn(self, *args, **kwargs)
             except ExecutionError as e:
+                # A real controller execution failure leaves the measured arm
+                # state indeterminate. Stop the whole rig instead of retrying
+                # this motion or running cleanup paths from a stale state. A
+                # laser-related failure is recoverable even when the beam has
+                # already cleared: the generation counter preserves that
+                # evidence independently of the controller-restart flag.
+                self._raise_if_rig_safety_faulted()
+                laser_event_observed = (
+                    self._laser_stop_pending()
+                    or not self._safe_to_execute_condition()
+                    or self._laser_break_generation_value()
+                    != attempt_laser_generation
+                )
+                if not self._simulate and not laser_event_observed:
+                    raise self._rig_execution_fault_handler(e) from e
                 excs.append(e)
                 self.log(
                     f"Caught exception while running '{coro_fn.__name__}' | "
@@ -179,6 +228,7 @@ def handle_interruptions(coro_fn):
                 if remaining <= 0:
                     break
 
+                await self._recover_after_laser_stop()
                 if isinstance(
                     e,
                     (
@@ -187,20 +237,7 @@ def handle_interruptions(coro_fn):
                         ExecutionStoppedError,
                     ),
                 ):
-                    if not self._safe_to_execute_condition():
-                        assert (
-                            self._manipulator.manipulation_state
-                            == ManipulationState.PRESENTED
-                        )
-                        self.log(
-                            f"Not safe to execute during interruption handling "
-                            f"while running '{coro_fn.__name__}'. Locking arms "
-                            f"and waiting for safety.",
-                            severity="WARN",
-                        )
-                        await self._teensy.lock_arms_and_wait(
-                            condition=self._safe_to_execute_condition
-                        )
+                    await wait_until_safe("during interruption handling for")
 
                 if isinstance(
                     e,
@@ -260,6 +297,10 @@ class ManipulationContextManager(BaseInterface):
         simulate: bool,
         moveit_interface: MoveItInterface,
         teensy_interface: TeensyInterface,
+        rig_safety_fault_getter: Callable[[], RigSafetyError | None],
+        rig_execution_fault_handler: Callable[
+            [ExecutionError], RigSafetyError
+        ],
         ur_interface_name: str,
         manipulation_interface_name: str,
         parameter_fallback_prefix: Optional[str] = None,
@@ -283,6 +324,13 @@ class ManipulationContextManager(BaseInterface):
         )
 
         self._teensy = teensy_interface
+        self._simulate = simulate
+        self._rig_safety_fault_getter = rig_safety_fault_getter
+        self._rig_execution_fault_handler = rig_execution_fault_handler
+        self._laser_stop_requested = threading.Event()
+        self._laser_state_lock = threading.Lock()
+        self._laser_is_broken: bool | None = None
+        self._laser_break_generation = 0
 
         self._initial_reset = False
         self._entered_context = False
@@ -292,10 +340,148 @@ class ManipulationContextManager(BaseInterface):
         self._exited_context = False
 
     def _safe_to_execute_condition(self) -> bool:
-        return (
+        return self._rig_safety_fault_getter() is None and (
             self._manipulator.manipulation_state != ManipulationState.PRESENTED
             or self._teensy.safe_to_execute
         )
+
+    def _raise_if_rig_safety_faulted(self) -> None:
+        fault = self._rig_safety_fault_getter()
+        if fault is not None:
+            raise fault
+
+    def _laser_stop_pending(self) -> bool:
+        """Whether this arm's UR program was stopped for a laser event."""
+        return self._laser_stop_requested.is_set()
+
+    def observe_laser_state(self, is_broken: bool) -> int:
+        """Record every clear-to-broken edge and return its generation.
+
+        The generation is deliberately independent of whether this arm is
+        executing. A break can occur while its UR program is being restored,
+        when there is no active trajectory for the callback to cancel.
+        """
+        with self._laser_state_lock:
+            if is_broken and self._laser_is_broken is not True:
+                self._laser_break_generation += 1
+            self._laser_is_broken = is_broken
+            return self._laser_break_generation
+
+    def _laser_break_generation_value(self) -> int:
+        """Return the latest observed laser-break generation."""
+        with self._laser_state_lock:
+            return self._laser_break_generation
+
+    def _complete_laser_recovery_if_unchanged(self, generation: int) -> bool:
+        """Acknowledge recovery only if no newer break was observed."""
+        with self._laser_state_lock:
+            if self._laser_break_generation != generation:
+                return False
+            self._laser_stop_requested.clear()
+            return True
+
+    def request_laser_safety_stop(self) -> bool:
+        """Stop this arm once and remember that dashboard recovery is needed.
+
+        Returns True only for the callback that issued the stop, preventing the
+        100 Hz Teensy stream from flooding the dashboard service and logs.
+        """
+        if self._laser_stop_requested.is_set():
+            return False
+        self._laser_stop_requested.set()
+        if self._simulate:
+            self._manipulator.stop_execution()
+        else:
+            self._ur.stop_program()
+        return True
+
+    async def _recover_after_laser_stop(self) -> None:
+        """Restore the UR external-control program after the laser clears.
+
+        The laser callback intentionally stops the dashboard program, which
+        deactivates the scaled trajectory controller. Waiting for the beam to
+        clear is therefore insufficient: the program must be replayed before
+        the next trajectory goal is submitted.
+        """
+        max_recovery_attempts = self.param(
+            "interruptions.max_controller_recovery_attempts"
+        )
+        if max_recovery_attempts < 1:
+            raise ValueError(
+                "'interruptions.max_controller_recovery_attempts' parameter "
+                "must be at least 1"
+            )
+
+        recovery_attempt = 0
+        while self._laser_stop_requested.is_set():
+            if not self._safe_to_execute_condition():
+                await self._teensy.lock_arms_and_wait(
+                    condition=self._safe_to_execute_condition
+                )
+            self._raise_if_rig_safety_faulted()
+
+            # Snapshot after the stable-clear wait. If the generation changes
+            # at any point during dashboard recovery, the restored program is
+            # stopped again and the complete recovery is repeated.
+            recovery_generation = self._laser_break_generation_value()
+
+            if self._simulate:
+                if self._safe_to_execute_condition() and (
+                    self._complete_laser_recovery_if_unchanged(
+                        recovery_generation
+                    )
+                ):
+                    return
+                continue
+
+            recovery_attempt += 1
+            if recovery_attempt > max_recovery_attempts:
+                error = ExecutionStoppedError(
+                    "Laser controller recovery did not remain safe and ready "
+                    f"after {max_recovery_attempts} attempts",
+                    group_name=self._manipulator.group_name,
+                )
+                raise self._rig_execution_fault_handler(error) from error
+
+            self.log(
+                "Safety laser clear and stable; verifying UR program and "
+                "controller readiness before resuming motion",
+                severity="WARN",
+            )
+            if not await self._ur.is_ready():
+                await self._ur.reset()
+
+            controller_ready = await self._ur.is_ready()
+            safety_ready = self._safe_to_execute_condition()
+            generation_unchanged = (
+                self._laser_break_generation_value() == recovery_generation
+            )
+            if (
+                controller_ready
+                and safety_ready
+                and generation_unchanged
+                and self._complete_laser_recovery_if_unchanged(
+                    recovery_generation
+                )
+            ):
+                return
+
+            # reset() may have replayed external_control.urp before a newer
+            # break was observed. Stop it again before waiting/retrying so no
+            # trajectory can be accepted from a stale recovery cycle.
+            if controller_ready:
+                self._ur.stop_program()
+            reasons = []
+            if not controller_ready:
+                reasons.append("UR controller not ready")
+            if not safety_ready:
+                reasons.append("safety conditions not stable")
+            if not generation_unchanged:
+                reasons.append("newer laser break observed")
+            self.log(
+                "Laser recovery must restart: " + ", ".join(reasons),
+                severity="WARN",
+            )
 
     @property
     @ensure_context
@@ -499,6 +685,7 @@ class ManipulationContextManager(BaseInterface):
             asyncio.TimeoutError: If reset not completed within timeout.
         """
         self.log("Resetting manipulation")
+        self._raise_if_rig_safety_faulted()
 
         max_attempts = self.param("reset.max_attempts")
         if max_attempts < 1:
@@ -511,6 +698,7 @@ class ManipulationContextManager(BaseInterface):
         excs: list[Exception] = []
         while remaining > 0:
             try:
+                self._raise_if_rig_safety_faulted()
                 if (
                     self._manipulator.manipulation_state
                     == ManipulationState.PRESENTED
@@ -687,7 +875,8 @@ class ManipulationContextManager(BaseInterface):
                     return False
 
                 raise ManipulationContextExitedError(
-                    "Succesfully handled recoverable errors"
+                    "Successfully handled recoverable errors",
+                    recovered_error=exc_value,
                 ) from exc_value
 
             return False
@@ -756,6 +945,12 @@ class Commander(BaseNode):
 
         self._moveit = MoveItInterface(self, "moveit_interface")
 
+        self._rig_safety_fault_lock = threading.Lock()
+        self._rig_safety_fault: RigSafetyError | None = None
+        self._rig_safety_monitor_armed = False
+        self._rig_safety_event: asyncio.Event | None = None
+        self._rig_safety_loop: asyncio.AbstractEventLoop | None = None
+
         # self._urs: dict[str, URInterface] = {}
         # self._manipulators: dict[str, ObjectManipulationInterface] = {}
         self._manipulation_contexts: dict[str, ManipulationContextManager] = {}
@@ -769,6 +964,10 @@ class Commander(BaseNode):
                 simulate=self.param("simulate"),
                 moveit_interface=self._moveit,
                 teensy_interface=self._teensy,
+                rig_safety_fault_getter=self._get_rig_safety_fault,
+                rig_execution_fault_handler=functools.partial(
+                    self._handle_rig_execution_fault, robot_name
+                ),
                 ur_interface_name=interface_names["ur_interface_name"],
                 manipulation_interface_name=interface_names[
                     "manipulation_interface_name"
@@ -779,11 +978,109 @@ class Commander(BaseNode):
             # self._manipulators[robot_name] = manipulation_interface
             self._manipulation_contexts[robot_name] = manipulation_context
 
+        # The io/status controller publishes safety changes immediately. Keep
+        # subscriptions at Commander scope so one arm can abort the complete
+        # dual-arm session without service polling or execution-timeout delay.
+        self._safety_mode_subscriptions = []
+        for robot_name, context in self._manipulation_contexts.items():
+            ur_namespace = str(context._ur.param("namespace")).strip("/")
+            topic = f"/{ur_namespace}_io_and_status_controller/safety_mode"
+            self._safety_mode_subscriptions.append(
+                self.create_subscription(
+                    SafetyMode,
+                    topic,
+                    functools.partial(
+                        self._ur_safety_mode_callback, robot_name
+                    ),
+                    10,
+                )
+            )
+
         self._initial_reset = False
         self._entered_context = False
         self._exited_context = False
 
         self.log("Commander initialized")
+
+    def _get_rig_safety_fault(self) -> RigSafetyError | None:
+        with self._rig_safety_fault_lock:
+            return self._rig_safety_fault
+
+    def _latch_rig_safety_fault(self, fault: RigSafetyError) -> RigSafetyError:
+        """Latch one fatal fault and immediately stop both robot programs."""
+        with self._rig_safety_fault_lock:
+            if not self._rig_safety_monitor_armed:
+                return fault
+            if self._rig_safety_fault is not None:
+                return self._rig_safety_fault
+            self._rig_safety_fault = fault
+            loop = self._rig_safety_loop
+            event = self._rig_safety_event
+
+        self.log(
+            f"FATAL RIG SAFETY FAULT: {fault}. Automatic recovery is "
+            "disabled for this session; inspect the robots and restart "
+            "Commander explicitly.",
+            severity="ERROR",
+        )
+        self.stop_all_execution()
+        for context in self._manipulation_contexts.values():
+            if not self.param("simulate"):
+                context._ur.stop_program()
+
+        if loop is not None and event is not None:
+            loop.call_soon_threadsafe(event.set)
+        return fault
+
+    def stop_all_execution(self) -> None:
+        """Immediately cancel active trajectory goals for both arms.
+
+        This is deliberately synchronous and safe to call repeatedly so signal
+        and safety paths can stop motion before awaiting coroutine cleanup.
+        """
+        for context in self._manipulation_contexts.values():
+            context._manipulator.stop_execution()
+
+    def _handle_rig_execution_fault(
+        self, robot_name: str, error: ExecutionError
+    ) -> RigSafetyError:
+        """Make a real trajectory execution failure fatal rig-wide."""
+        return self._latch_rig_safety_fault(
+            RigExecutionSafetyError(robot_name, error)
+        )
+
+    @property
+    def rig_safety_faulted(self) -> bool:
+        """Whether this Commander session has latched a fatal rig fault."""
+        return self._get_rig_safety_fault() is not None
+
+    def raise_if_rig_safety_faulted(self) -> None:
+        """Raise the latched fatal rig safety error, if present."""
+        fault = self._get_rig_safety_fault()
+        if fault is not None:
+            raise fault
+
+    async def wait_for_rig_safety_fault(self) -> None:
+        """Wait until either arm reports a fatal safety fault, then raise it."""
+        event = self._rig_safety_event
+        if event is None:
+            raise RuntimeError("Commander safety monitor is not active")
+        self.raise_if_rig_safety_faulted()
+        await event.wait()
+        self.raise_if_rig_safety_faulted()
+        raise RuntimeError("Safety fault event set without a latched fault")
+
+    def _ur_safety_mode_callback(
+        self, robot_name: str, msg: SafetyMode
+    ) -> None:
+        """Latch UR stop/fault modes and immediately stop both manipulators."""
+        mode_name = _FATAL_UR_SAFETY_MODES.get(msg.mode)
+        if mode_name is None:
+            return
+
+        self._latch_rig_safety_fault(
+            URSafetyViolationError(robot_name, mode_name)
+        )
 
     def _teensy_sensor_callback(self, msg: TeensySensor) -> None:
         """Handle Teensy sensor updates for safety monitoring.
@@ -794,6 +1091,13 @@ class Commander(BaseNode):
         Args:
             msg: Current sensor state from the Teensy.
         """
+        # Record raw beam edges for every arm before deciding whether an
+        # active trajectory needs to be stopped. This preserves breaks that
+        # occur while a UR program is being restored and no trajectory is
+        # currently marked executing.
+        for context in self._manipulation_contexts.values():
+            context.observe_laser_state(bool(msg.is_safety_laser_broken))
+
         if not self._teensy.safe_to_execute:
             for robot_name, context in self._manipulation_contexts.items():
                 if (
@@ -801,17 +1105,15 @@ class Commander(BaseNode):
                     and context._manipulator.manipulation_state
                     == ManipulationState.PRESENTED
                 ):
-                    self.log(
-                        f"Not safe to execute for {robot_name}, stopping execution",
-                        severity="WARN",
-                    )
-                    if self.param("simulate"):
-                        context._manipulator.stop_execution()
-                    else:
-                        context._ur.stop_program()
+                    if context.request_laser_safety_stop():
+                        self.log(
+                            f"Not safe to execute for {robot_name}, "
+                            "stopping UR program once",
+                            severity="WARN",
+                        )
 
     def _safe_to_execute_condition(self) -> bool:
-        return (
+        return not self.rig_safety_faulted and (
             all(
                 (
                     x._manipulator.manipulation_state
@@ -1039,6 +1341,47 @@ class Commander(BaseNode):
             )
         return self._manipulation_contexts[robot_name]
 
+    @ensure_context
+    async def manipulation_preflight(
+        self, *, num_seeds: int = 32
+    ) -> dict[str, Any]:
+        """Plan-only validation of manipulation branches for every mount.
+
+        The implementation refuses to run unless Commander is in mock mode.
+        """
+        from tabletop_rig.manipulation_preflight import run_preflight
+
+        return await run_preflight(self, num_seeds=num_seeds)
+
+    @ensure_context
+    def apply_manipulation_preflight(
+        self,
+        *,
+        report_name: str = "manipulation_preflight.yaml",
+        allow_real_use: bool = False,
+    ) -> dict[str, Any]:
+        """Apply mock branches in simulation and report compatible objects."""
+        from tabletop_rig.manipulation_preflight import load_compatible_results
+
+        results = load_compatible_results(
+            self,
+            report_name=report_name,
+            allow_real_use=allow_real_use,
+        )
+        for context in self._manipulation_contexts.values():
+            manipulator = context._manipulator
+            manipulator._set_preflight_pre_fetch_branches(
+                results["branches_by_group"].get(manipulator.group_name, {})
+            )
+        self.log(
+            f"Applied manipulation preflight {report_name}: "
+            f"{len(results['available_object_ids'])} PASS, "
+            f"{len(results['unavailable_object_ids'])} UNAVAILABLE, "
+            f"{len(results['stale_object_ids'])} stale/missing, "
+            f"mode={'mock' if self.param('simulate') else 'real'}"
+        )
+        return results
+
     async def __aenter__(self) -> Self:
         """Enter the async context manager.
 
@@ -1055,6 +1398,8 @@ class Commander(BaseNode):
         if self._exited_context:
             raise RuntimeError("Commander context manager already exited")
 
+        self._rig_safety_loop = asyncio.get_running_loop()
+        self._rig_safety_event = asyncio.Event()
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(
@@ -1064,9 +1409,13 @@ class Commander(BaseNode):
                 for context in self._manipulation_contexts.values():
                     tg.create_task(context._ur.reset())
         except BaseException:
+            self._rig_safety_loop = None
+            self._rig_safety_event = None
             self.destroy_node()
             raise
 
+        with self._rig_safety_fault_lock:
+            self._rig_safety_monitor_armed = True
         self._entered_context = True
         return self
 
@@ -1090,6 +1439,8 @@ class Commander(BaseNode):
             True if a recoverable error was handled, False otherwise.
         """
         self.log("Exiting commander context manager")
+        with self._rig_safety_fault_lock:
+            self._rig_safety_monitor_armed = False
         try:
             await self._teensy.set_sync_pulse_solenoid(activate=False)
         except BaseException as e:
@@ -1102,6 +1453,48 @@ class Commander(BaseNode):
 
         self._entered_context = False
         self._exited_context = True
+
+
+async def _wait_for_task_or_safety_fault(
+    commander: Commander, task: asyncio.Task
+) -> None:
+    """Run a Commander coroutine until it finishes or a UR fault occurs."""
+    safety_task = asyncio.create_task(commander.wait_for_rig_safety_fault())
+    try:
+        done, _ = await asyncio.wait(
+            (task, safety_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        if safety_task in done:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            await safety_task
+
+        safety_task.cancel()
+        try:
+            await safety_task
+        except asyncio.CancelledError:
+            pass
+        await task
+    except asyncio.CancelledError:
+        # Stop controller goals before allowing task cancellation cleanup to
+        # run. Awaiting the task here keeps that cleanup inside the live
+        # Commander context and prevents asyncio.run() from discovering an
+        # orphan task during shutdown.
+        commander.stop_all_execution()
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        raise
+    finally:
+        if not safety_task.done():
+            safety_task.cancel()
 
 
 async def debug_commander(
@@ -1160,14 +1553,19 @@ async def asyncio_runner(
     try:
         async with commander:
             task = asyncio.create_task(coro_fn(commander, config))
+
+            def stop_and_cancel() -> None:
+                commander.stop_all_execution()
+                task.cancel()
+
             cancel_future.add_done_callback(
                 lambda _: (
-                    loop.call_soon_threadsafe(task.cancel)
+                    loop.call_soon_threadsafe(stop_and_cancel)
                     if loop.is_running()
                     else None
                 )
             )
-            await task
+            await _wait_for_task_or_safety_fault(commander, task)
     except asyncio.CancelledError:
         pass
     except BaseException as e:

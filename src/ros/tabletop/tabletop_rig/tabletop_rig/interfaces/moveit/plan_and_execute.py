@@ -431,7 +431,7 @@ class PlanAndExecuteInterface(BaseInterface):
         """
         self.log("Validating trajectory", severity="DEBUG")
 
-        if not self._moveit.is_path_valid(trajectory):
+        if not self._moveit.is_path_valid(trajectory, verbose=False):
             raise TrajectoryError(
                 TrajectoryErrorCodes.INVALID_TRAJECTORY,
                 group_name=trajectory.joint_model_group_name,
@@ -625,8 +625,10 @@ class PlanAndExecuteInterface(BaseInterface):
                 trajectory = self._post_process_trajectory(
                     plan_response.trajectory, request
                 )
-                # TODO: Maybe revalidate
-                # self._validate_trajectory(trajectory)
+                # TOTG and Ruckig may move waypoints away from the path that
+                # the planning pipeline validated. Always collision-check the
+                # exact trajectory that will be sent to the controller.
+                self._validate_trajectory(trajectory)
                 return trajectory
             except PlanningError as e:
                 self.log(
@@ -1009,16 +1011,24 @@ class PlanAndExecuteInterface(BaseInterface):
                 "One of 'goal', 'goals', or 'request' must be provided"
             )
 
+        def plan_serialized() -> PlanResponseT:
+            # MoveItPy and its shared PlanningSceneMonitor can enter native
+            # planners and validators from different Python worker threads.
+            # Keep those operations single-threaded across both arms.
+            with self._moveit.planning_lock:
+                if isinstance(request, PlanRequest):
+                    return self._plan_impl(request, cancel_event=cancel_event)
+                if isinstance(request, ConcatPlanRequest):
+                    return self._plan_concat_impl(
+                        request, cancel_event=cancel_event
+                    )
+                raise TypeError(
+                    f"Unsupported planning request: {type(request)}"
+                )
+
         cancel_event = threading.Event()
         try:
-            if isinstance(request, PlanRequest):
-                return await asyncio.to_thread(
-                    self._plan_impl, request, cancel_event=cancel_event
-                )
-            elif isinstance(request, ConcatPlanRequest):
-                return await asyncio.to_thread(
-                    self._plan_concat_impl, request, cancel_event=cancel_event
-                )
+            return await asyncio.to_thread(plan_serialized)
         finally:
             cancel_event.set()
 

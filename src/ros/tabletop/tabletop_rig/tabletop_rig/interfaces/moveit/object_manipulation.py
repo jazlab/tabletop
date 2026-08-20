@@ -342,6 +342,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     _reset_configs: dict[str, ObjectResetConfig]
     _saved_return_states: dict[str, tuple[ManipulationState, RobotState]]
     _last_pre_reset_state: RobotState | None
+    _preflight_pre_fetch_branches: dict[str, dict[str, float]]
     _persistent_state_path: str
 
     def __init__(
@@ -375,6 +376,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         self._saved_return_states = {}
         self._last_pre_reset_state = None
+        self._preflight_pre_fetch_branches = {}
 
         path: str = self.param("persistent_state_path")
         path = os.path.expandvars(os.path.expanduser(path))
@@ -708,6 +710,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self,
         state: ManipulationState,
         object_id: Optional[str],
+        *,
+        use_object_override: bool = True,
     ) -> PlanGoalT:
         """Get the planning goal for the given manipulation state.
 
@@ -738,12 +742,37 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             assert state == saved_state
             return goal
 
+        if (
+            state == ManipulationState.PRE_FETCH
+            and use_object_override
+            and object_id in self._preflight_pre_fetch_branches
+        ):
+            robot_state = self._moveit.get_current_state()
+            robot_state.joint_positions = self._preflight_pre_fetch_branches[
+                object_id
+            ]
+            robot_state.update()
+            return robot_state
+
         goal_name = _STATE_GOAL_NAME_MAP[state]
         param_name = f"manipulation_state_goals.object_overrides.{object_id}.{goal_name}"
         goal_config: dict[str, Any]
-        if object_id is not None:
+        if object_id is not None and use_object_override:
             try:
                 goal_config = self.param(param_name)
+
+                # POST_RETURN reuses the "pre_fetch" goal name. A
+                # joint_positions PRE_FETCH override is useful for choosing
+                # a specific IK branch during fetch, but RobotState goals are
+                # not valid for POST_RETURN. In that case, fall back to the
+                # normal global Cartesian pre_fetch goal for the return path.
+                if (
+                    state == ManipulationState.POST_RETURN
+                    and goal_config["type"] == "joint_positions"
+                ):
+                    param_name = f"manipulation_state_goals.{goal_name}"
+                    goal_config = self.param(param_name)
+
             except ParameterNotDeclaredException:
                 param_name = f"manipulation_state_goals.{goal_name}"
                 goal_config = self.param(param_name)
@@ -783,6 +812,64 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unknown manipulation_state_goal type for parameter "
                     f"{param_name}: {goal_type}"
                 )
+
+    def _set_preflight_pre_fetch_branches(
+        self, branches: dict[str, dict[str, float]]
+    ) -> None:
+        """Install fingerprint-validated PRE_FETCH branches for task use."""
+        joint_names = set(self._moveit.get_joint_names(self.group_name))
+        normalized: dict[str, dict[str, float]] = {}
+        for object_id, positions in branches.items():
+            if object_id not in self.reachable_object_ids:
+                raise ValueError(
+                    f"Preflight branch {object_id} is not reachable by "
+                    f"{self.group_name}"
+                )
+            if set(positions) != joint_names:
+                raise ValueError(
+                    f"Preflight branch {object_id} has incorrect joints"
+                )
+            normalized[object_id] = {
+                name: float(value) for name, value in positions.items()
+            }
+        self._preflight_pre_fetch_branches = normalized
+
+    def _transition_collisions_to_allow(
+        self, object_id: str, next_state: ManipulationState
+    ) -> list[tuple[str, str]]:
+        """Return the temporary ACM entries used for a mount transition.
+
+        Keeping this calculation separate lets planning-only checks use the
+        exact same contact allowances as the executing state machine.
+        """
+        collisions_to_allow: list[tuple[str, str]] = []
+
+        if next_state in (
+            ManipulationState.PRE_ATTACH,
+            ManipulationState.ATTACH,
+            ManipulationState.POST_ATTACH,
+            ManipulationState.DETACH,
+            ManipulationState.POST_DETACH,
+            ManipulationState.POST_RETURN,
+        ):
+            collisions_to_allow.extend(self.allowed_mount_collisions)
+
+        match next_state:
+            case (
+                ManipulationState.PRE_ATTACH
+                | ManipulationState.ATTACH
+                | ManipulationState.POST_DETACH
+                | ManipulationState.POST_RETURN
+            ):
+                collisions_to_allow.extend(
+                    [(object_id, x) for x in self.touch_links]
+                )
+            case ManipulationState.POST_ATTACH | ManipulationState.DETACH:
+                collisions_to_allow.extend(
+                    [(object_id, x) for x in self.mount_collision_ids]
+                )
+
+        return collisions_to_allow
 
     async def _fetch_or_return_transition(
         self, object_id: str, next_state: ManipulationState
@@ -841,6 +928,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         goal = self._get_state_goal(next_state, object_id)
         request = PlanRequest(goal=goal)
+        if next_state == ManipulationState.FETCHED:
+            request.max_attempts = self.param("planning.fetched_max_attempts")
 
         if next_state in (
             ManipulationState.PRE_ATTACH,
@@ -870,33 +959,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 "detach_velocity_scaling_factor"
             )
 
-        collisions_to_allow: list[tuple[str, str]] = []
+        collisions_to_allow = self._transition_collisions_to_allow(
+            object_id, next_state
+        )
         modified_collisions: list[tuple[str, str]] = []
-
-        if next_state in (
-            ManipulationState.PRE_ATTACH,
-            ManipulationState.ATTACH,
-            ManipulationState.POST_ATTACH,
-            ManipulationState.DETACH,
-            ManipulationState.POST_DETACH,
-            ManipulationState.POST_RETURN,
-        ):
-            collisions_to_allow.extend(self.allowed_mount_collisions)
-
-        match next_state:
-            case (
-                ManipulationState.PRE_ATTACH
-                | ManipulationState.ATTACH
-                | ManipulationState.POST_DETACH
-                | ManipulationState.POST_RETURN
-            ):
-                collisions_to_allow.extend(
-                    [(object_id, x) for x in self.touch_links]
-                )
-            case ManipulationState.POST_ATTACH | ManipulationState.DETACH:
-                collisions_to_allow.extend(
-                    [(object_id, x) for x in self.mount_collision_ids]
-                )
 
         if len(collisions_to_allow) > 0:
             modified_collisions = self._moveit.allow_collision(
@@ -945,6 +1011,49 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             return None
         else:
             return cache_kwargs
+
+    async def _move_to_fetch_recovery_waypoint(
+        self,
+        object_id: str,
+        failed_state: ManipulationState,
+    ) -> None:
+        """Move through a safe waypoint before one stage-level fetch retry.
+
+        Normal cache/direct motion remains unchanged. This path runs only after
+        all ordinary planning attempts for PRE_FETCH or FETCHED are exhausted.
+        """
+        config: dict[str, Any] = self.param("fetch_recovery")
+        max_attempts = int(config["max_attempts"])
+        if max_attempts < 1:
+            raise ValueError("fetch_recovery.max_attempts must be at least 1")
+
+        if failed_state == ManipulationState.PRE_FETCH:
+            goal: PlanGoalT = str(config["pre_fetch_transit_goal"])
+            description = f"transit goal {goal!r}"
+        elif failed_state == ManipulationState.FETCHED:
+            offset = [float(x) for x in config["fetched_clearance_offset"]]
+            if len(offset) != 3:
+                raise ValueError(
+                    "fetch_recovery.fetched_clearance_offset must have 3 values"
+                )
+            goal = self._grid_object_pose_stamped_with_offset(
+                object_id, offset
+            )
+            description = f"object-relative clearance offset {offset}"
+        else:
+            raise ValueError(
+                f"Unsupported fetch recovery state: {failed_state.name}"
+            )
+
+        self.log(
+            f"Planning to {description} before one retry of "
+            f"{failed_state.name} for {object_id}",
+            severity="WARN",
+        )
+        await self.plan_and_execute(
+            PlanRequest(goal=goal, max_attempts=max_attempts),
+            cache_trajectories=True,
+        )
 
     async def _fetch_object_impl(
         self,
@@ -1011,24 +1120,38 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     object_id, next_state
                 )
             except PlanningError:
-                if next_state != ManipulationState.POST_FETCH:
-                    raise
-
-                # If post-fetch fails, try moving to fetched
-                self.log(
-                    "Failed to plan to POST_FETCH, skipping to FETCHED",
-                    severity="WARN",
-                )
-                next_state = ManipulationState.FETCHED
-                try:
+                recovery_enabled = bool(self.param("fetch_recovery.enable"))
+                if recovery_enabled and next_state in (
+                    ManipulationState.PRE_FETCH,
+                    ManipulationState.FETCHED,
+                ):
+                    await self._move_to_fetch_recovery_waypoint(
+                        object_id, next_state
+                    )
+                    # The retry is deliberately outside another catch block:
+                    # each fetch attempt receives exactly one staged recovery.
                     kwargs = await self._fetch_or_return_transition(
                         object_id, next_state
                     )
-                except (ExecutionInterruptedError, ExecutionStoppedError):
-                    # If execution is interrupted here, we set the manipulation
-                    # state to POST_FETCH so that we don't get stuck trying to
-                    # return the object
-                    self._manipulation_state = ManipulationState.POST_FETCH
+                elif next_state == ManipulationState.POST_FETCH:
+                    # If post-fetch fails, try moving directly to fetched.
+                    self.log(
+                        "Failed to plan to POST_FETCH, skipping to FETCHED",
+                        severity="WARN",
+                    )
+                    next_state = ManipulationState.FETCHED
+                    try:
+                        kwargs = await self._fetch_or_return_transition(
+                            object_id, next_state
+                        )
+                    except (
+                        ExecutionInterruptedError,
+                        ExecutionStoppedError,
+                    ):
+                        # Preserve a returnable state if execution is stopped.
+                        self._manipulation_state = ManipulationState.POST_FETCH
+                        raise
+                else:
                     raise
 
             self._manipulation_state = next_state
@@ -1845,7 +1968,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                         object_id, cache_trajectories=cache_trajectories
                     )
 
-        if reset_to_idle:
+        if reset_to_idle and not self.param("skip_idle_on_return"):
+            # Respect the global no-extra-IDLE-motion policy during recovery
+            # and finite-task cleanup as well as normal object returns.
             goal = self._get_state_goal(ManipulationState.IDLE, object_id=None)
             await self._plan_and_move_impl(
                 goal=goal, cache_trajectories=cache_trajectories

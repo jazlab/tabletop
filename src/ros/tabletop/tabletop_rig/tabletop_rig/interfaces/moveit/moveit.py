@@ -28,6 +28,7 @@ access to restricted areas with collision walls.
 import hashlib
 import json
 import os
+import threading
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
@@ -197,6 +198,11 @@ class MoveItInterface(BaseInterface):
         self.grid_objects_by_idx = {}
 
         self._exclusive_regions = {}
+
+        # MoveItPy planning and path validation share native state. Serialize
+        # those operations across both arm interfaces while allowing planned
+        # controller executions to remain concurrent.
+        self.planning_lock = threading.Lock()
 
         # self._init_collision_detector()
 
@@ -868,6 +874,12 @@ class MoveItInterface(BaseInterface):
                     hash_algorithm.update(
                         json.dumps(kwargs[key], sort_keys=True).encode("utf-8")
                     )
+
+        # Robot collision padding changes path validity and must invalidate
+        # trajectories planned under the previous padding configuration.
+        hash_algorithm.update(
+            json.dumps(self.param("link_padding"), sort_keys=True).encode()
+        )
 
         # Base link pose
         if include_robot:

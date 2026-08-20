@@ -175,9 +175,13 @@ build_colcon() {
         tt-clean --tabletop-colcon
     fi
 
-    # Install python dependencies with uv (respects UV_EXTRA from environment)
+    # Install Python dependencies with uv. Default to CPU PyTorch if the
+    # environment was not generated yet; CUDA/cuDNN requires explicit opt-in.
     print_status "Installing python dependencies with uv"
-    uv sync $UV_EXTRA
+    local uv_extra="${UV_EXTRA:---extra cpu}"
+    local uv_extra_args=()
+    read -r -a uv_extra_args <<< "$uv_extra"
+    uv sync "${uv_extra_args[@]}"
     source "$TABLETOP_DIR/$UV_PROJECT_ENVIRONMENT/bin/activate"
 
     # Build ROS 2 packages with colcon

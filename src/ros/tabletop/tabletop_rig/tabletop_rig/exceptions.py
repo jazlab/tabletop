@@ -78,6 +78,45 @@ class ROSSleepError(Exception):
     """
 
 
+class RigSafetyError(Exception):
+    """Base class for faults that make automatic rig motion unsafe."""
+
+
+class URSafetyViolationError(RigSafetyError):
+    """Raised when either UR reports a fatal safety mode during a session.
+
+    Unlike recoverable planning errors, UR stop, emergency, violation, and
+    fault modes abort the complete dual-arm experiment. Recovery is deliberately
+    left to the operator and the next explicit Commander startup.
+    """
+
+    def __init__(self, robot_name: str, safety_mode: str) -> None:
+        self.robot_name = robot_name
+        self.safety_mode = safety_mode
+        super().__init__(
+            f"{robot_name} entered UR safety mode {safety_mode}; "
+            "both arms were stopped and the experiment was aborted"
+        )
+
+
+class RigExecutionSafetyError(RigSafetyError):
+    """Raised after a real arm starts a trajectory but cannot complete it.
+
+    The physical joint state is no longer trustworthy after a controller
+    execution failure. The complete dual-arm session is therefore stopped
+    and left for explicit operator recovery instead of issuing a reset path.
+    """
+
+    def __init__(self, robot_name: str, error: Exception) -> None:
+        self.robot_name = robot_name
+        self.execution_error = error
+        super().__init__(
+            f"{robot_name} trajectory execution failed with "
+            f"{type(error).__name__}: {error}; both arms were stopped and "
+            "automatic motion recovery was disabled"
+        )
+
+
 class ServiceClientError(Exception):
     """Raised when a ROS service client call fails.
 
@@ -374,3 +413,18 @@ class ManipulationContextExitedError(Exception):
     successfully recovered and exited the async context. It signals that
     recovery was completed and the context has been cleaned up.
     """
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        recovered_error: BaseException | None = None,
+    ) -> None:
+        """Record the error that caused context recovery.
+
+        Keeping the original error available lets task orchestration retry
+        planning-only failures without treating controller or safety faults as
+        ordinary trial misses.
+        """
+        self.recovered_error = recovered_error
+        super().__init__(msg)

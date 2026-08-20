@@ -33,6 +33,7 @@ from rclpy.impl.rcutils_logger import RcutilsLogger
 from rpyutils.import_c_library import importlib
 from tabletop_rig.exceptions import (
     ManipulationContextExitedError,
+    PlanningError,
     StateTransitionError,
 )
 from tabletop_rig.nodes import Commander
@@ -45,6 +46,17 @@ from tabletop_tasks.trial_generators.base import (
     TrialFeedback,
     TrialSpec,
 )
+
+
+def _planning_error_only(error: BaseException | None) -> bool:
+    """Return True only when every recovered leaf is a planning error."""
+    if isinstance(error, PlanningError):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return bool(error.exceptions) and all(
+            _planning_error_only(child) for child in error.exceptions
+        )
+    return False
 
 
 class BaseTask(LoggerMixin, metaclass=ABCMeta):
@@ -228,7 +240,7 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             tg.create_task(self.commander.lock_arm("both"))
             tg.create_task(self.commander.occlude_smartglass())
 
-    async def _run_one_trial(
+    async def _run_one_trial_attempt(
         self, trial_spec: TrialSpec
     ) -> TrialFeedback | None:
         """Execute a single trial with object manipulation.
@@ -288,7 +300,51 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             if presented and not unpresented:
                 assert self._trial_lock.locked()
                 self._trial_lock.release()
-            return None
+            raise
+
+    async def _run_one_trial(
+        self, trial_spec: TrialSpec
+    ) -> TrialFeedback | None:
+        """Run a trial with at most one immediate planning-failure restart.
+
+        The retry is local to this task invocation, so the generator does not
+        advance or enqueue the trial for later. A second failure is reported as
+        normal failed feedback, leaving the object eligible for future trials.
+        """
+        for attempt in range(2):
+            try:
+                return await self._run_one_trial_attempt(trial_spec)
+            except ManipulationContextExitedError as error:
+                if not _planning_error_only(error.recovered_error):
+                    self.log(
+                        f"Trial {trial_spec.trial_number} recovery was not "
+                        "planning-only; not restarting it automatically",
+                        severity="ERROR",
+                    )
+                    return None
+
+                if attempt == 1:
+                    self.log(
+                        f"Trial {trial_spec.trial_number} for "
+                        f"{trial_spec.object_id} failed planning after its one "
+                        "immediate retry; continuing without blacklisting the "
+                        "object",
+                        severity="ERROR",
+                    )
+                    return None
+
+                self.log(
+                    f"Trial {trial_spec.trial_number} for "
+                    f"{trial_spec.object_id} failed planning; restarting the "
+                    "same trial immediately (retry 1/1)",
+                    severity="WARN",
+                )
+                # Let any currently presented opposite-arm trial finish before
+                # the restart. This changes only the failure path.
+                async with self._trial_lock:
+                    pass
+
+        raise AssertionError("bounded trial retry loop exited unexpectedly")
 
     async def _run_trials_asynchronously(self):
         """Run trials concurrently across multiple robot groups.
@@ -353,4 +409,37 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
 
         Override this method in subclasses for custom task structures.
         """
-        await self._run_trials_asynchronously()
+        cancelled = False
+        try:
+            await self._run_trials_asynchronously()
+        except asyncio.CancelledError:
+            # Commander cancellation has already stopped both trajectory
+            # goals. Do not start new lock/return/IDLE motions after Ctrl-C.
+            cancelled = True
+            raise
+        finally:
+            if cancelled:
+                self.log(
+                    "Task cancelled; skipping motion cleanup after stopping "
+                    "active robot executions",
+                    severity="WARN",
+                )
+            else:
+                # A following trial normally returns the previous object to its
+                # mount. Finite tasks have no following trial, so leave the rig
+                # in the same safe, idle state explicitly.
+                await self._occlude_and_lock()
+                if self.commander.rig_safety_faulted:
+                    self.log(
+                        "Skipping manipulation reset because a fatal UR safety "
+                        "fault is latched; operator recovery is required.",
+                        severity="ERROR",
+                    )
+                else:
+                    for group_name in self.commander.robot_names:
+                        async with self.commander.manipulation_context(
+                            group_name
+                        ) as manipulator:
+                            await manipulator.reset_manipulation(
+                                reset_to_idle=True
+                            )

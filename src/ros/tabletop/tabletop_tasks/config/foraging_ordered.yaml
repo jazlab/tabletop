@@ -1,3 +1,12 @@
+manipulation_preflight:
+  report_name: manipulation_preflight.yaml
+  # Explicitly install fingerprint-compatible PASS branches on hardware.
+  # This restores the deterministic paths used by the stable baseline run.
+  allow_real_use: true
+  # Only fingerprint-compatible PASS objects enter the trial generator.
+  # Re-run preflight after moving or recalibrating mounts.
+  exclude_unvalidated: true
+
 tasks:
   - class: ForagingTask
     kwargs:
@@ -40,11 +49,13 @@ tasks:
               - small_object_22
               - small_object_23
               - small_object_24
-              - big_object_5 # - small_object_25
+              # big_object_5 is excluded after repeatable FETCHED -> PRE_RETURN
+              # failures in both extended mock task soaks.
               - small_object_26
               - big_object_6 # - small_object_27
               - small_object_28
-              - big_object_7 # - small_object_29
+              # big_object_7 is excluded after repeatable POST_FETCH -> FETCHED
+              # failures in the extended mock task soak.
           poses:
             - position: [0.9525, 0.4, 0.6]
               rpy: [0.0, 0.0, -1.5707]

@@ -62,6 +62,48 @@ config is commented inline; the class definitions in
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
 
+## Manipulation preflight and real commissioning
+
+After moving or recalibrating mounts, regenerate the branch report in mock
+mode only:
+
+```bash
+tt-preflight run
+```
+
+The command prints a physical-grid PASS / UNAVAILABLE summary when it finishes.
+To display the most recently saved report again without repeating the search:
+
+```bash
+tt-preflight results
+```
+
+The report under `.cache/tabletop/` is reused while every object pose and
+manipulation-setting fingerprint remains unchanged. Task startup excludes
+`UNAVAILABLE`, stale, and missing objects. Branch search and the cycle harness
+always refuse `robot_mode:=real`.
+
+After verifying a fresh mock report, prepare separate, ignored
+real-commissioning configs with:
+
+```bash
+tt-preflight prepare-real
+```
+
+This creates a two-trial smoke test, a finite all-accessible test, and the
+normal long-running task under `.cache/tabletop/`. Re-run it only after the
+foraging configuration or preflight results change. Real-mode loading rejects
+reports that are not marked `mock_planning_only` or whose current fingerprints
+do not match. Generated real configurations explicitly install compatible PASS
+branches and exclude unavailable, stale, or missing mounts. PRE_FETCH can
+therefore reuse the deterministic branch and trajectory cache used by the
+stable baseline; a cache miss still runs normal collision-checked planning.
+
+When a finite object-interaction task ends, it occludes the glass, locks both
+arms, returns staged objects to their mounts, and skips the unnecessary final
+IDLE motion. Ctrl-C remains different: it cancels both active controller goals
+immediately and deliberately starts no cleanup motion.
+
 !!! tip "Robot already holding an object?"
     If the arm starts a session holding a grid object, tell the commander which
     grid index it holds: `tt-launch tasks initial_object:=5,0 …` (or just put

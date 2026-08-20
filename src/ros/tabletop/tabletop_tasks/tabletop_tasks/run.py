@@ -27,6 +27,7 @@ Example:
 """
 
 import importlib
+from copy import deepcopy
 
 import yaml
 from tabletop_rig.nodes import Commander
@@ -62,6 +63,43 @@ async def run_tasks(commander: Commander, config_file: str) -> None:
     # Load task configuration from YAML file
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
+
+    preflight_config = config.pop("manipulation_preflight", None)
+    if preflight_config is not None:
+        report_name = preflight_config.get(
+            "report_name", "manipulation_preflight.yaml"
+        )
+        preflight = commander.apply_manipulation_preflight(
+            report_name=report_name,
+            allow_real_use=preflight_config.get("allow_real_use", False),
+        )
+        if preflight_config.get("exclude_unvalidated", True):
+            config = deepcopy(config)
+            available = preflight["available_object_ids"]
+            for task_config in config["tasks"]:
+                generator_kwargs = (
+                    task_config.get("kwargs", {})
+                    .get("trial_generator", {})
+                    .get("kwargs", {})
+                )
+                grouped_ids = generator_kwargs.get("grouped_object_ids")
+                if grouped_ids is None:
+                    continue
+                for group_name, object_ids in grouped_ids.items():
+                    excluded = [x for x in object_ids if x not in available]
+                    grouped_ids[group_name] = [
+                        x for x in object_ids if x in available
+                    ]
+                    if excluded:
+                        commander.log(
+                            f"Task preflight excluded {group_name} objects: "
+                            f"{excluded}",
+                            severity="WARN",
+                        )
+                    if not grouped_ids[group_name]:
+                        raise RuntimeError(
+                            f"Task preflight left no objects for {group_name}"
+                        )
 
     print(f"Tasks config: {yaml_dump_string(config, width=80)}")
 

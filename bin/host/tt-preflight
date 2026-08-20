@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Run and inspect mock manipulation preflight, and prepare guarded real configs.
+
+set -eo pipefail
+
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+
+builtin cd "$TABLETOP_DIR"
+
+usage() {
+    cat <<'EOF'
+Usage: tt-preflight COMMAND
+
+Commands:
+  run           Run the mock/planning-only manipulation preflight
+  results       Print the saved physical-grid results and failure reasons
+  prepare-real  Create/update guarded real-use task configs under .cache/tabletop
+
+The run command never executes trajectories and explicitly uses robot_mode:=mock.
+EOF
+}
+
+case "${1-}" in
+    run)
+        shift
+        exec tt-compose run --rm commander \
+            tt-launch commander \
+            robot_mode:=mock \
+            coro_module:=tabletop_rig.manipulation_preflight \
+            coro_name:=run "$@"
+        ;;
+    results|prepare-real)
+        command=$1
+        shift
+        exec tt-compose run --rm commander \
+            python3 -m tabletop_rig.manipulation_preflight_cli \
+            "$command" "$@"
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

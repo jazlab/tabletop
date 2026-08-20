@@ -105,6 +105,7 @@ nav:
       - CLI & Tooling: guide/cli.md
       - Configuration: guide/configuration.md
       - Tasks & Experiments: guide/tasks.md
+      - Manipulation Reliability: guide/manipulation-reliability.md
       - Hardware & Safety: guide/hardware.md
       - Troubleshooting: guide/troubleshooting.md
   - API Reference:

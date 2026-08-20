@@ -190,11 +190,25 @@
         # Fallback pipeline if fast_pipeline fails (e.g. OMPL RRT*).
         fallback_pipeline: aps_rrt_star
         # Default maximum planning attempts per request (overridable per-request).
-        default_max_attempts: 3
+        default_max_attempts: 5
+        # Hard attached-object transitions can need more OMPL samples.
+        fetched_max_attempts: 5
         # Exponential backoff multiplier applied to planning timeouts on retry.
         default_exp_backoff_factor: 2.0
         # Cap on the backoff delay (seconds) between planning retries.
         max_backoff_time: 1.0
+      # Conditional recovery used only after normal fetch planning is exhausted.
+      # It does not alter successful paths or their execution speed.
+      fetch_recovery:
+        enable: true
+        # Planning attempts for the one recovery-waypoint move.
+        max_attempts: 5
+        # Existing arm-specific SRDF state used to escape a difficult direct
+        # previous-mount -> PRE_FETCH transition.
+        pre_fetch_transit_goal: idle
+        # Extra outward/upward clearance while an object is attached before
+        # retrying the common FETCHED goal.
+        fetched_clearance_offset: [0.22, 0.0, -0.18]
       trajectory_cache:
         # Root directory for cached trajectories; $TABLETOP_CACHE_DIR is set in setup.bash.
         base_dir: $TABLETOP_CACHE_DIR/trajectory_cache
@@ -248,7 +262,7 @@
       # to reduce impact forces during release.
       detach_velocity_scaling_factor: 0.3
       # If true, skip moving to the idle pose when returning from the presented state.
-      skip_idle_on_return: false
+      skip_idle_on_return: true
       # If true, skip moving to the fetched pose when fetching an object that is
       # already beyond the pre_fetch waypoint.
       skip_fetched_on_fetch: false
@@ -510,6 +524,9 @@
         # Maximum times a manipulation action is retried after an interruption
         # (e.g. safety stop, execution rejection) before raising an exception.
         max_attempts: 3
+        # Maximum UR program/controller restoration cycles for one laser
+        # interruption. A new beam break during restoration restarts the cycle.
+        max_controller_recovery_attempts: 5
       reset:
         # Maximum times the reset coroutine is retried before giving up.
         max_attempts: 5

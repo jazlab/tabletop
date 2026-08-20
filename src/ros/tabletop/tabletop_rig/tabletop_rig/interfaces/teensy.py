@@ -19,6 +19,7 @@ from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
     ReentrantCallbackGroup,
 )
+from rclpy.client import Client
 from rclpy.duration import Duration
 from rclpy.exceptions import ParameterNotDeclaredException
 from rclpy.qos import QoSPresetProfiles
@@ -30,9 +31,10 @@ from tabletop_interfaces.srv import (
     SetSolenoid,
 )
 
+from tabletop_rig.exceptions import ServiceCallTimeoutError
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import BaseNode
-from tabletop_rig.utils.ros import seconds_from_ros_time
+from tabletop_rig.utils.ros import SrvTypeRequest, seconds_from_ros_time
 
 
 def noop(msg: TeensySensor) -> None:
@@ -114,6 +116,15 @@ class TeensyInterface(BaseInterface):
         # off until the clocks resync (see _teensy_sensor_callback).
         self._teensy_clock_in_sync = True
         self._teensy_sensor_lock = threading.Lock()
+
+        # Temporary real-rig diagnostics. The firmware can publish a brief
+        # fail-safe BROKEN state for any laser input edge without updating the
+        # debounced last-break timestamp. Logging both signals lets us
+        # distinguish short edges/noise from sustained beam breaks without
+        # changing the safety gate.
+        self._last_laser_state: Optional[bool] = None
+        self._last_laser_event_stamp: Optional[tuple[int, int]] = None
+        self._laser_state_changed_time: Optional[float] = None
 
         if additional_subscription_callback is None:
             self._additional_subscription_callback = noop
@@ -284,6 +295,12 @@ class TeensyInterface(BaseInterface):
                 throttle_duration_sec=2,
             )
 
+        self._log_laser_diagnostic(
+            msg,
+            received_time=received_time,
+            sensor_delay=delay,
+        )
+
         # Determine if the monkey is safe
         with self._teensy_sensor_lock:
             self._last_teensy_sensor = msg
@@ -296,7 +313,119 @@ class TeensyInterface(BaseInterface):
         # Call additional callback if provided
         self._additional_subscription_callback(msg)
 
+    def _log_laser_diagnostic(
+        self,
+        msg: TeensySensor,
+        *,
+        received_time: float,
+        sensor_delay: float,
+    ) -> None:
+        """Log laser transitions and published last-break timestamp changes.
+
+        ``is_safety_laser_broken`` is deliberately fail-safe in the Teensy
+        firmware: any recent input edge can assert it briefly. The published
+        ``safety_laser_last_time_broken`` timestamp changes only after a
+        debounced break is confirmed. Reporting both makes a short edge
+        distinguishable from a sustained physical break in post-run logs.
+
+        This method is diagnostic only and does not affect safety state.
+        """
+        laser_state = bool(msg.is_safety_laser_broken)
+        event_stamp = (
+            msg.safety_laser_last_time_broken.sec,
+            msg.safety_laser_last_time_broken.nanosec,
+        )
+        sensor_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+
+        previous_state = self._last_laser_state
+        previous_event_stamp = self._last_laser_event_stamp
+        initial = previous_state is None
+        state_changed = not initial and laser_state != previous_state
+        event_stamp_changed = (
+            previous_event_stamp is not None
+            and event_stamp != previous_event_stamp
+        )
+
+        if not (initial or state_changed or event_stamp_changed):
+            return
+
+        triggers = []
+        if initial:
+            triggers.append("initial")
+        if state_changed:
+            triggers.append("state_transition")
+        if event_stamp_changed:
+            triggers.append("last_break_timestamp")
+
+        previous_state_name = (
+            "UNKNOWN"
+            if previous_state is None
+            else ("BROKEN" if previous_state else "CLEAR")
+        )
+        state_name = "BROKEN" if laser_state else "CLEAR"
+        if self._laser_state_changed_time is None:
+            previous_state_duration = "n/a"
+        else:
+            previous_state_duration = f"{max(0.0, received_time - self._laser_state_changed_time):.4f}"
+
+        if previous_event_stamp is None:
+            previous_event_stamp_text = "none"
+        else:
+            previous_event_stamp_text = (
+                f"{previous_event_stamp[0]}.{previous_event_stamp[1]:09d}"
+            )
+
+        message = (
+            "[LASER_DIAG] "
+            f"trigger={'+'.join(triggers)} "
+            f"state={state_name} previous_state={previous_state_name} "
+            f"previous_state_duration_sec={previous_state_duration} "
+            f"last_break_changed={event_stamp_changed} "
+            f"last_break_stamp={event_stamp[0]}.{event_stamp[1]:09d} "
+            f"previous_last_break_stamp={previous_event_stamp_text} "
+            f"sensor_stamp={sensor_stamp[0]}.{sensor_stamp[1]:09d} "
+            f"sensor_delay_sec={sensor_delay:.6f} "
+            f"left_arm_locked={msg.is_left_arm_locked} "
+            f"right_arm_locked={msg.is_right_arm_locked}"
+        )
+        # rclpy requires one fixed severity per logging call site. Keep the
+        # INFO and WARN paths on separate lines so a CLEAR -> BROKEN laser
+        # transition cannot raise "Logger severity cannot be changed".
+        if laser_state or event_stamp_changed:
+            self.log(message, severity="WARN")
+        else:
+            self.log(message, severity="INFO")
+
+        if initial or state_changed:
+            self._laser_state_changed_time = received_time
+        self._last_laser_state = laser_state
+        self._last_laser_event_stamp = event_stamp
+
     # Service clients
+
+    async def _call_idempotent(
+        self, srv_request: SrvTypeRequest, srv_client: Client
+    ) -> None:
+        """Call a safe-to-repeat Teensy setter, retrying one lost request.
+
+        A micro-ROS session can disappear after a request is sent but before its
+        response arrives. The firmware reconnects independently; one retry lets
+        the commander survive that rediscovery window. Callers must only use
+        this helper for operations whose repeated execution has the same effect.
+        """
+        try:
+            await self.node.service_call_async(
+                srv_request=srv_request, srv_client=srv_client
+            )
+        except ServiceCallTimeoutError:
+            self.log(
+                f"{srv_client.service_name} timed out; retrying once after "
+                "Teensy session recovery",
+                severity="WARN",
+            )
+            await self.node.service_call_async(
+                srv_request=srv_request, srv_client=srv_client
+            )
 
     async def set_arm_lock(
         self, arm: Literal["left", "right", "both"], lock: bool
@@ -319,7 +448,7 @@ class TeensyInterface(BaseInterface):
         left_arm = arm in ("left", "both")
         right_arm = arm in ("right", "both")
 
-        await self.node.service_call_async(
+        await self._call_idempotent(
             srv_request=SetArmLock.Request(
                 left_arm=left_arm, right_arm=right_arm, lock=lock
             ),
@@ -373,7 +502,7 @@ class TeensyInterface(BaseInterface):
                 False makes it translucent/opaque (occludes the view).
         """
         self.log(f"Smartglass {'reveal' if reveal else 'occlude'}")
-        await self.node.service_call_async(
+        await self._call_idempotent(
             srv_request=SetSmartglass.Request(reveal=reveal),
             srv_client=self._set_smartglass_client,
         )
@@ -388,7 +517,7 @@ class TeensyInterface(BaseInterface):
             activate: True to start the sync pulse solenoid, False to stop
         """
         self.log(f"Solenoid {'activate' if activate else 'deactivate'}")
-        await self.node.service_call_async(
+        await self._call_idempotent(
             srv_request=SetSolenoid.Request(activate=activate),
             srv_client=self._set_solenoid_client,
         )
