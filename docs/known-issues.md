@@ -21,8 +21,9 @@ Discrepancies between code, configuration, and documentation, plus tracked
 > validation — UR `safety_restart` recovery, the Teensy safety firmware (#30),
 > and the Eyelink stale-sample drain — have been **confirmed on real hardware**
 > and are now resolved. The `tasks.launch.py` `rosbag` default was confirmed
-> intended `false` and the docstring fixed. Two new Wave-2 items were added
-> (Open §B5/§B6), and `tt-launch` was reduced to a pure `ros2 launch` wrapper
+> intended `false` and the docstring fixed. Two new Wave-2 items were added;
+> WT-P remains Open §B5 and WT-O is now Resolved §E5. `tt-launch` was reduced
+> to a pure `ros2 launch` wrapper
 > (the `rosbag_convert` and `discovery` targets were removed).
 
 ---
@@ -64,17 +65,7 @@ Discrepancies between code, configuration, and documentation, plus tracked
     still uses this naming. Reword repo-wide to be agnostic to the hold/detect
     mechanism — see `fix-plan.md` WT-N.
 
-5. **Safe-execution should gate on the presentation region, not the manipulation
-    state.** The current safety stop checks whether the arm is in the `PRESENT`
-    manipulation state to decide whether motion must be prevented. But while the
-    object is actually being presented the arm is still in the `FETCHED` state,
-    so the subject can be within reach during that window. Gate safe-execution on
-    whether the arm has **acquired the presentation region** (cf. the
-    `object_manipulation.py:1759 # TODO: Check if robot is in presentation
-    region` marker in §C), not on the manipulation-state label alone.
-    Safety-relevant — see `fix-plan.md` WT-O.
-
-6. **Retire the legacy Python bag converter.** Move
+5. **Retire the legacy Python bag converter.** Move
     `tabletop_rig/utils/rosbag.py` (`rosbag_to_csv`) to `deprecated/`, and stop
     the gaze-estimation calibration scripts from importing it to convert bags
     themselves. Instead, the operator unbags the gaze/marker data with
@@ -90,8 +81,6 @@ Investigate or delete; no known breakage. Still present after Wave 1:
 - `interfaces/moveit/moveit.py:465` — `# TODO: Should probably use this`.
 - `interfaces/moveit/plan_and_execute.py:628` — `# TODO: Maybe revalidate`.
 - `interfaces/ur.py:542` — `# TODO: See if this is necessary`.
-- `interfaces/moveit/object_manipulation.py:1759` — `# TODO: Check if robot is
-  in presentation region`.
 
 (The `moveit_controllers.yaml`, `moveit.launch.py` / `rviz.launch.py` `to_dict()`,
 and `gaze/preprocess.py` markers from the previous list were resolved — see
@@ -168,8 +157,13 @@ Grouped by the original section, with the merging PR.
    silenced via an explicit empty list in `dual_controllers.yaml`;
    `publish_robot_description_semantic` set `False` on the rviz/moveit
    visualization nodes (and `True` only on the commander).
-5. **`group_name` vs `robot_name`** → still open, Wave 2 (Open §B3).
-6. **Retire `rig.launch.py`; flatten `tasks.launch.py`** → **#29.**
+5. **Presentation-entry laser gap (WT-O)** → resolved 2026-08-20. Commander
+   now gates on an explicit presentation-region scope beginning before entry
+   motion and ending after successful exit. Interrupted entry/exit retains the
+   scope and collision lease through recovery. Validated with focused safety
+   tests and 100 consecutive simulated interruption/recovery cycles.
+6. **`group_name` vs `robot_name`** → still open, Wave 2 (Open §B3).
+7. **Retire `rig.launch.py`; flatten `tasks.launch.py`** → **#29.**
    `rig.launch.py` moved to `deprecated/launch/`; `tasks.launch.py` now includes
    `commander.launch.py` / `rosbag.launch.py` directly; the `tt-launch rig`
    target and the unscoped-group `TODO`s were removed.

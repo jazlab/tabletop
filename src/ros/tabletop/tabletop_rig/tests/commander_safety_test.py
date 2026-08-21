@@ -647,6 +647,7 @@ def _make_laser_context(*, ready_side_effect=False):
     context._manipulator = SimpleNamespace(
         stop_execution=MagicMock(),
         manipulation_state=ManipulationState.PRESENTED,
+        presentation_region_active=True,
         group_name="right_manipulator",
     )
     is_ready = (
@@ -747,6 +748,92 @@ def test_idle_context_observes_laser_edges_without_stopping_program():
     for context in contexts.values():
         assert context._laser_break_generation_value() == 2
         context._ur.stop_program.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "manipulation_state",
+    [ManipulationState.FETCHED, ManipulationState.PRESENTED],
+)
+def test_laser_stops_active_presentation_region_motion(manipulation_state):
+    commander = object.__new__(Commander)
+    context = _make_laser_context(ready_side_effect=True)
+    context._manipulator.manipulation_state = manipulation_state
+    context._manipulator.presentation_region_active = True
+    context._manipulator.executing = True
+    commander._manipulation_contexts = {"right_manipulator": context}
+    commander._teensy = SimpleNamespace(safe_to_execute=False)
+    commander.log = MagicMock()
+    msg = TeensySensor(is_safety_laser_broken=True)
+
+    commander._teensy_sensor_callback(msg)
+    commander._teensy_sensor_callback(msg)
+
+    context._ur.stop_program.assert_called_once_with()
+    assert context._laser_stop_pending()
+
+
+def test_laser_does_not_stop_fetched_motion_outside_presentation_region():
+    commander = object.__new__(Commander)
+    context = _make_laser_context(ready_side_effect=True)
+    context._manipulator.manipulation_state = ManipulationState.FETCHED
+    context._manipulator.presentation_region_active = False
+    context._manipulator.executing = True
+    commander._manipulation_contexts = {"right_manipulator": context}
+    commander._teensy = SimpleNamespace(safe_to_execute=False)
+    commander.log = MagicMock()
+    msg = TeensySensor(is_safety_laser_broken=True)
+
+    commander._teensy_sensor_callback(msg)
+
+    context._ur.stop_program.assert_not_called()
+    assert not context._laser_stop_pending()
+
+
+def test_one_hundred_simulated_presentation_interruptions_recover():
+    commander = object.__new__(Commander)
+    context = _make_laser_context(ready_side_effect=True)
+    context._manipulator.presentation_region_active = True
+    commander._manipulation_contexts = {"right_manipulator": context}
+    commander._teensy = SimpleNamespace(safe_to_execute=True)
+    commander.log = MagicMock()
+    error = ExecutionStoppedError(
+        "simulated laser stop", group_name="right_manipulator"
+    )
+
+    async def run_cycles():
+        for cycle in range(100):
+            attempts = 0
+            context._manipulator.manipulation_state = (
+                ManipulationState.FETCHED
+                if cycle % 2 == 0
+                else ManipulationState.PRESENTED
+            )
+
+            @handle_interruptions
+            async def interrupted_motion(active_context):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    active_context._manipulator.executing = True
+                    commander._teensy.safe_to_execute = False
+                    broken = TeensySensor(is_safety_laser_broken=True)
+                    commander._teensy_sensor_callback(broken)
+                    active_context._manipulator.executing = False
+                    commander._teensy.safe_to_execute = True
+                    clear = TeensySensor(is_safety_laser_broken=False)
+                    commander._teensy_sensor_callback(clear)
+                    raise error
+                return cycle
+
+            assert await interrupted_motion(context) == cycle
+            assert attempts == 2
+            assert not context._laser_stop_pending()
+
+    asyncio.run(run_cycles())
+
+    assert context._laser_break_generation_value() == 100
+    assert context._ur.stop_program.call_count == 100
+    context._ur.reset.assert_not_awaited()
 
 
 def test_laser_rebreak_during_controller_reset_restarts_recovery():
@@ -855,6 +942,192 @@ def test_controller_recovery_cycles_are_bounded():
     assert exc_info.value is fault
     assert context._ur.reset.await_count == 2
     assert context._laser_stop_pending()
+
+
+def test_safe_to_execute_uses_region_scope_not_fetched_state():
+    context = _make_laser_context(ready_side_effect=True)
+    context._rig_safety_fault_getter = MagicMock(return_value=None)
+    context._teensy = SimpleNamespace(safe_to_execute=False)
+    context._manipulator.manipulation_state = ManipulationState.FETCHED
+
+    context._manipulator.presentation_region_active = True
+    assert not ManipulationContextManager._safe_to_execute_condition(context)
+
+    context._manipulator.presentation_region_active = False
+    assert ManipulationContextManager._safe_to_execute_condition(context)
+
+
+def test_cancelled_presentation_entry_retains_region_scope():
+    manipulator = _make_presentation_manipulator()
+    manipulator.plan_and_execute.side_effect = asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert manipulator.presentation_region_active
+    assert manipulator._presentation_region_acquired
+    manipulator._moveit.release_exclusive_region.assert_not_called()
+
+
+def test_unexpected_presentation_failure_retains_region_scope():
+    manipulator = _make_presentation_manipulator()
+    manipulator.plan_and_execute.side_effect = RuntimeError(
+        "ambiguous failure"
+    )
+
+    with pytest.raises(RuntimeError, match="ambiguous failure"):
+        asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert manipulator.presentation_region_active
+    assert manipulator._presentation_region_acquired
+    manipulator._moveit.release_exclusive_region.assert_not_called()
+
+
+def test_startup_attached_object_is_safety_gated_until_returned():
+    manipulator = _make_presentation_manipulator(
+        ManipulationState.UNINITIALIZED
+    )
+    manipulator._current_manipulation_id = None
+    manipulator._init_attached_object = MagicMock(
+        return_value="small_object_0"
+    )
+
+    async def observe_reset(*args, **kwargs):
+        assert manipulator.presentation_region_active
+        raise RuntimeError("stop after observing startup gate")
+
+    manipulator._reset_object_impl = AsyncMock(side_effect=observe_reset)
+
+    with pytest.raises(RuntimeError, match="startup gate"):
+        asyncio.run(
+            manipulator._reset_manipulation_impl(
+                reset_to_idle=False, cache_trajectories=False
+            )
+        )
+
+    assert manipulator._manipulation_state == ManipulationState.NEEDS_RESET
+    assert manipulator.presentation_region_active
+    assert not manipulator._presentation_region_acquired
+
+
+def _make_presentation_manipulator(
+    state: ManipulationState = ManipulationState.FETCHED,
+):
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._simulate = True
+    manipulator._manipulation_state = state
+    manipulator._current_manipulation_id = "small_object_0"
+    manipulator._presentation_region_active = threading.Event()
+    manipulator._presentation_region_acquired = False
+    manipulator.log = MagicMock()
+    manipulator._validate_target_object = MagicMock()
+    manipulator._get_state_goal = MagicMock(return_value="presentation-goal")
+    manipulator.plan_and_execute = AsyncMock()
+    manipulator._moveit = SimpleNamespace(
+        acquire_exclusive_region=MagicMock(),
+        release_exclusive_region=MagicMock(),
+    )
+    params = {
+        "group_name": "right_manipulator",
+        "presentation_region.region_id": "presentation_region",
+        "presentation_region.robot_collision_ids": ["right_gripper"],
+        "presentation_region.region_collision_ids": ["region_wall"],
+        "skip_idle_on_return": True,
+    }
+    manipulator.param = MagicMock(side_effect=params.__getitem__)
+    return manipulator
+
+
+def test_interrupted_presentation_entry_retains_region_for_retry():
+    manipulator = _make_presentation_manipulator()
+    error = ExecutionStoppedError(
+        "laser stopped entry", group_name="right_manipulator"
+    )
+    manipulator.plan_and_execute.side_effect = error
+
+    with pytest.raises(ExecutionStoppedError):
+        asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert manipulator.presentation_region_active
+    assert manipulator._presentation_region_acquired
+    assert manipulator._manipulation_state == ManipulationState.FETCHED
+    manipulator._moveit.release_exclusive_region.assert_not_called()
+
+    manipulator.plan_and_execute = AsyncMock()
+    asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert manipulator._manipulation_state == ManipulationState.PRESENTED
+    assert manipulator.presentation_region_active
+    manipulator._moveit.acquire_exclusive_region.assert_called_once()
+
+
+def test_presentation_planning_failure_releases_region():
+    manipulator = _make_presentation_manipulator()
+    manipulator.plan_and_execute.side_effect = PlanningError(
+        "no entry path", "right_manipulator"
+    )
+
+    with pytest.raises(PlanningError):
+        asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert not manipulator.presentation_region_active
+    assert not manipulator._presentation_region_acquired
+    manipulator._moveit.release_exclusive_region.assert_called_once_with(
+        "presentation_region", group_name="right_manipulator"
+    )
+
+
+def test_interrupted_unpresentation_retains_region_until_successful_exit():
+    manipulator = _make_presentation_manipulator(ManipulationState.PRESENTED)
+    manipulator._presentation_region_active.set()
+    manipulator._presentation_region_acquired = True
+    error = ExecutionStoppedError(
+        "laser stopped exit", group_name="right_manipulator"
+    )
+    manipulator.plan_and_execute.side_effect = error
+
+    with pytest.raises(ExecutionStoppedError):
+        asyncio.run(manipulator._unpresent_object_impl("small_object_0"))
+
+    assert manipulator.presentation_region_active
+    assert manipulator._manipulation_state == ManipulationState.PRESENTED
+    manipulator._moveit.release_exclusive_region.assert_not_called()
+
+    manipulator.plan_and_execute = AsyncMock()
+    asyncio.run(manipulator._unpresent_object_impl("small_object_0"))
+
+    assert not manipulator.presentation_region_active
+    assert manipulator._manipulation_state == ManipulationState.NEEDS_RESET
+    manipulator._moveit.release_exclusive_region.assert_called_once()
+
+
+def test_reset_retreats_after_interrupted_presentation_entry():
+    manipulator = _make_presentation_manipulator()
+    manipulator._presentation_region_active.set()
+    manipulator._presentation_region_acquired = True
+
+    async def complete_reset(*args, **kwargs):
+        assert not manipulator.presentation_region_active
+        manipulator._manipulation_state = ManipulationState.RESETTED
+
+    async def complete_return(*args, **kwargs):
+        manipulator._manipulation_state = ManipulationState.IDLE
+        manipulator._current_manipulation_id = None
+
+    manipulator._reset_object_impl = AsyncMock(side_effect=complete_reset)
+    manipulator._return_object_impl = AsyncMock(side_effect=complete_return)
+
+    asyncio.run(
+        manipulator._reset_manipulation_impl(
+            reset_to_idle=False, cache_trajectories=False
+        )
+    )
+
+    assert not manipulator.presentation_region_active
+    assert not manipulator._presentation_region_acquired
+    manipulator._moveit.release_exclusive_region.assert_called_once()
+    manipulator._reset_object_impl.assert_awaited_once()
+    manipulator._return_object_impl.assert_awaited_once()
 
 
 def _make_fetch_recovery_manipulator():

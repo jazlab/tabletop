@@ -29,6 +29,7 @@ import functools
 import inspect
 import os
 import pickle
+import threading
 import traceback
 from collections.abc import Callable
 from copy import copy
@@ -332,6 +333,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         _reset_configs: Cached ObjectResetConfig per grid object.
         _saved_return_states: Cached states for returning to fetch pose.
         _last_pre_reset_state: State before reset sequence (for recovery).
+        _presentation_region_active: Thread-safe safety scope covering motion
+            into, within, and out of the presentation region.
+        _presentation_region_acquired: Whether this interface owns the MoveIt
+            exclusive-region collision lease.
         _persistent_state_path: Absolute path for persisting state on exit.
     """
 
@@ -343,6 +348,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     _saved_return_states: dict[str, tuple[ManipulationState, RobotState]]
     _last_pre_reset_state: RobotState | None
     _preflight_pre_fetch_branches: dict[str, dict[str, float]]
+    _presentation_region_active: threading.Event
+    _presentation_region_acquired: bool
     _persistent_state_path: str
 
     def __init__(
@@ -377,6 +384,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._saved_return_states = {}
         self._last_pre_reset_state = None
         self._preflight_pre_fetch_branches = {}
+        self._presentation_region_active = threading.Event()
+        self._presentation_region_acquired = False
 
         path: str = self.param("persistent_state_path")
         path = os.path.expandvars(os.path.expanduser(path))
@@ -537,6 +546,17 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ###########################################################################
     ########## Parameter Convenience Properties and Methods ###################
     ###########################################################################
+    @property
+    def presentation_region_active(self) -> bool:
+        """Whether motion must obey the presentation-region safety gate.
+
+        This scope starts before planning/executing the move into the region
+        and ends only after the arm has successfully moved out. A
+        ``threading.Event`` backs the property because the Teensy callback can
+        inspect it from a ROS executor thread while the asyncio manipulation
+        coroutine changes it.
+        """
+        return self._presentation_region_active.is_set()
 
     @property
     def mount_collision_ids(self) -> list[str]:
@@ -1170,6 +1190,13 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             self.cache_trajectories(cache_kwargs)
 
     def _acquire_presentation_region(self, object_id) -> None:
+        # A laser interruption retains the lease so the retry remains gated
+        # and the other arm cannot enter an area that this arm may physically
+        # occupy. Re-acquisition by that retry is intentionally idempotent.
+        if self._presentation_region_acquired:
+            assert self.presentation_region_active
+            return
+
         region_id: str = self.param("presentation_region.region_id")
         robot_collision_ids: list[str] = self.param(
             "presentation_region.robot_collision_ids"
@@ -1184,12 +1211,32 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             robot_collision_ids=robot_collision_ids,
             region_collision_ids=region_collision_ids,
         )
+        self._presentation_region_acquired = True
+        self._presentation_region_active.set()
 
     def _release_presentation_region(self) -> None:
-        region_id: str = self.param("presentation_region.region_id")
-        self._moveit.release_exclusive_region(
-            region_id, group_name=self.group_name
+        if self._presentation_region_acquired:
+            region_id: str = self.param("presentation_region.region_id")
+            self._moveit.release_exclusive_region(
+                region_id, group_name=self.group_name
+            )
+            self._presentation_region_acquired = False
+        self._presentation_region_active.clear()
+
+    async def _leave_presentation_region_impl(
+        self, object_id: str, *, cache_trajectories: bool
+    ) -> None:
+        """Move to the fetched-side pose and end the presentation safety scope."""
+        goal = self._get_state_goal(ManipulationState.NEEDS_RESET, object_id)
+        await self.plan_and_execute(
+            goal=goal,
+            cache_trajectories=cache_trajectories,
         )
+
+        # Clear the safety scope only after the exit motion and collision-lease
+        # release both succeed. Any failure remains fail-safe for a retry.
+        self._release_presentation_region()
+        self._manipulation_state = ManipulationState.NEEDS_RESET
 
     async def _present_object_impl(
         self, object_id: str, *, cache_trajectories=True
@@ -1219,12 +1266,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 goal=goal,
                 cache_trajectories=cache_trajectories,
             )
-        except BaseException:
-            # State stays at FETCHED/RESETTED on failure, so the reset
-            # path won't take the PRESENTED -> unpresent branch and won't
-            # release the region for us. Release here to avoid stranding
-            # the lock; recovery of the robot's pose is the reset path's
-            # responsibility.
+        except PlanningError:
+            # Planning failures happen before execution, so the arm is still
+            # at its fetched-side pose and the region can be released. Keep
+            # the lease for every execution error: motion may have begun, and
+            # NotSafeToExecuteError must remain gated while the caller waits.
             try:
                 self._release_presentation_region()
             except Exception as e:
@@ -1233,6 +1279,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"after present failure: {e}",
                     severity="ERROR",
                 )
+            raise
+        except BaseException:
+            # Motion might have started. This includes execution errors,
+            # cancellation, and unexpected motion-layer failures, so retain
+            # both the collision lease and safety scope for recovery/cleanup.
             raise
 
         self._manipulation_state = next_state
@@ -1246,7 +1297,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match self._manipulation_state:
             case ManipulationState.PRESENTED:
-                next_state = ManipulationState.NEEDS_RESET
+                pass
             case unexpected if isinstance(unexpected, ManipulationState):
                 raise StateTransitionError(
                     f"Cannot unpresent object from current state: {unexpected.name}",
@@ -1257,18 +1308,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        goal = self._get_state_goal(next_state, object_id)
-        await self.plan_and_execute(
-            goal=goal,
-            cache_trajectories=cache_trajectories,
+        await self._leave_presentation_region_impl(
+            object_id, cache_trajectories=cache_trajectories
         )
-
-        # Release only after the move succeeds. If the move failed, state
-        # stays at PRESENTED and reset_manipulation will re-call this
-        # method, which will eventually release on success.
-        self._release_presentation_region()
-
-        self._manipulation_state = next_state
 
     async def _reset_object_impl(
         self,
@@ -1377,6 +1419,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
         match self._manipulation_state:
             case ManipulationState.IDLE:
+                if not self._presentation_region_acquired:
+                    self._presentation_region_active.clear()
                 self.log(
                     "Already at IDLE state, skipping return",
                     severity="WARN",
@@ -1452,6 +1496,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
 
             if self._manipulation_state == ManipulationState.IDLE:
                 self._current_manipulation_id = None
+                if self.presentation_region_active:
+                    assert not self._presentation_region_acquired
+                    self._presentation_region_active.clear()
 
             self._validate_manipulation_state()
 
@@ -1879,11 +1926,19 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     await self._test_object_attached()
                 )
 
-            # TODO: Check if robot is in presentation region
             if self._current_manipulation_id is None:
                 self._manipulation_state = ManipulationState.IDLE
             else:
                 self._manipulation_state = ManipulationState.NEEDS_RESET
+                # The arm's physical location is unknown after process
+                # startup. Conservatively require the presentation safety
+                # gate throughout reset/return until IDLE is reached.
+                self._presentation_region_active.set()
+                self.log(
+                    "Attached object found at startup; treating its position "
+                    "as presentation-region-active until safely returned",
+                    severity="WARN",
+                )
 
         # Reset and return object if attached
         if self._manipulation_state not in (
@@ -1913,6 +1968,15 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             #     #         ) from e
 
             # Unpresent object if needed
+            if (
+                self._presentation_region_acquired
+                and self._manipulation_state
+                in (ManipulationState.FETCHED, ManipulationState.RESETTED)
+            ):
+                await self._leave_presentation_region_impl(
+                    object_id, cache_trajectories=cache_trajectories
+                )
+
             if self._manipulation_state == ManipulationState.PRESENTED:
                 await self._unpresent_object_impl(
                     object_id, cache_trajectories=cache_trajectories
@@ -1953,6 +2017,8 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     # Almost made it, good enough
                     self._manipulation_state = ManipulationState.IDLE
                     self._current_manipulation_id = None
+                    assert not self._presentation_region_acquired
+                    self._presentation_region_active.clear()
                 else:
                     # "Unreturn" object and move to idle to try and get a better plan
                     await self._fetch_object_impl(

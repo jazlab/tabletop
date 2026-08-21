@@ -45,21 +45,18 @@ default was confirmed intended `false` (docstring fixed to match the code).
 
 Wave 1 closed the quick bug fixes and doc inconsistencies, and the three items
 that had been awaiting hardware validation are now **confirmed on real
-hardware** (2026-06-30 — see §1). What's left is one **safety** improvement,
-the **Wave-2 refactors**, one deferred feature, and P4 cleanup. Re-prioritized
-by risk / what unblocks the most:
+hardware** (2026-06-30 — see §1). WT-O's presentation-region safety gate was
+implemented and validated in simulation on 2026-08-20. What's left is the
+**Wave-2 refactors**, one deferred feature, and P4 cleanup. Re-prioritized by
+risk / what unblocks the most:
 
 ### P1 — Safety
 
-1. **WT-O · gate safe-execution on the presentation region, not the
-   manipulation state.** The safety stop currently keys on the `PRESENT`
-   manipulation state, but the arm is still in `FETCHED` while it actually
-   presents the object, so the subject can be within reach during that window.
-   Gate on whether the arm has **acquired the presentation region** instead.
-   This is the real fix behind the `object_manipulation.py:1759
-   # TODO: Check if robot is in presentation region` marker. Touches
-   `interfaces/moveit/object_manipulation.py` and the commander-side safety
-   callback. → known-issues Open §B5.
+No open P1 item. **WT-O is complete:** Commander now gates motion on an
+explicit presentation-region safety scope rather than the manipulation-state
+label. The scope begins before entry motion, survives interruption/recovery,
+and ends only after a successful exit. Deterministic tests cover entry and exit
+stops plus 100 consecutive simulated interruption/recovery cycles.
 
 ### P2 — Wave 2 refactors
 
@@ -80,12 +77,11 @@ by risk / what unblocks the most:
    CSVs produced by `tabletop_unbag` (`unbag`) instead of importing the Python
    utility to convert bags inline. (The `rosbag_convert` `tt-launch` target was
    already removed in this PR.) Independent of WT-I/WT-N (different files).
-   → known-issues Open §B6.
+   → known-issues Open §B5.
 
 > **Coordination:** WT-I and WT-N both edit `commander.py` and the manipulation
 > interfaces — run them back-to-back and rebase the second on the first, don't
-> run them blindly in parallel. WT-O also touches `object_manipulation.py`, so
-> sequence it relative to WT-I. WT-P is file-independent of all three.
+> run them blindly in parallel. WT-P is file-independent of both.
 
 ### P3 — Deferred feature
 
@@ -96,9 +92,8 @@ by risk / what unblocks the most:
 ### P4 — "Decide later" markers (sweep with whichever worktree owns the file)
 
 `compose.yaml:203` (`SYS_NICE`), `interfaces/moveit/moveit.py:465`,
-`interfaces/moveit/plan_and_execute.py:628` (maybe revalidate),
-`interfaces/ur.py:542`. (`object_manipulation.py:1759` "check presentation
-region" is now tracked as the safety item WT-O above, not a P4 marker.)
+`interfaces/moveit/plan_and_execute.py:628` (maybe revalidate), and
+`interfaces/ur.py:542`.
 → known-issues Open §C.
 
 ### Not scheduled — open design decision

@@ -171,10 +171,7 @@ def handle_interruptions(coro_fn):
             self._raise_if_rig_safety_faulted()
             if self._safe_to_execute_condition():
                 return
-            assert (
-                self._manipulator.manipulation_state
-                == ManipulationState.PRESENTED
-            )
+            assert self._manipulator.presentation_region_active
             self.log(
                 f"Not safe to execute {phase} '{coro_fn.__name__}'. "
                 f"Locking arms and waiting for safety.",
@@ -341,7 +338,7 @@ class ManipulationContextManager(BaseInterface):
 
     def _safe_to_execute_condition(self) -> bool:
         return self._rig_safety_fault_getter() is None and (
-            self._manipulator.manipulation_state != ManipulationState.PRESENTED
+            not self._manipulator.presentation_region_active
             or self._teensy.safe_to_execute
         )
 
@@ -699,17 +696,11 @@ class ManipulationContextManager(BaseInterface):
         while remaining > 0:
             try:
                 self._raise_if_rig_safety_faulted()
-                if (
-                    self._manipulator.manipulation_state
-                    == ManipulationState.PRESENTED
-                ):
+                if self._manipulator.presentation_region_active:
                     await self._teensy.set_smartglass(reveal=False)
 
                 if not self._safe_to_execute_condition():
-                    assert (
-                        self._manipulator.manipulation_state
-                        == ManipulationState.PRESENTED
-                    )
+                    assert self._manipulator.presentation_region_active
                     self.log(
                         "Not safe to execute during manipulation context reset. "
                         "Locking arms and waiting for safety.",
@@ -1102,8 +1093,7 @@ class Commander(BaseNode):
             for robot_name, context in self._manipulation_contexts.items():
                 if (
                     context._manipulator.executing
-                    and context._manipulator.manipulation_state
-                    == ManipulationState.PRESENTED
+                    and context._manipulator.presentation_region_active
                 ):
                     if context.request_laser_safety_stop():
                         self.log(
@@ -1114,12 +1104,9 @@ class Commander(BaseNode):
 
     def _safe_to_execute_condition(self) -> bool:
         return not self.rig_safety_faulted and (
-            all(
-                (
-                    x._manipulator.manipulation_state
-                    != ManipulationState.PRESENTED
-                    for x in self._manipulation_contexts.values()
-                )
+            not any(
+                x._manipulator.presentation_region_active
+                for x in self._manipulation_contexts.values()
             )
             or self._teensy.safe_to_execute
         )

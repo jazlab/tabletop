@@ -109,9 +109,14 @@ as planning misses and do not enter this retry path.
 
 ## Laser interruption and UR controller restoration
 
-The Teensy laser signal is fail-safe. When it becomes unsafe while a presented
-motion is executing, Commander stops the affected UR external-control program
-once; the 100 Hz sensor stream cannot repeatedly flood the stop service.
+The Teensy laser signal is fail-safe. Its presentation-region safety scope
+starts as soon as an arm acquires the region, before the move from `FETCHED`
+into the presentation pose begins. It remains active while the object is
+presented and until the arm successfully completes its move back out of the
+region. If the signal becomes unsafe during any of those motions, Commander
+stops the affected UR external-control program once; the 100 Hz sensor stream
+cannot repeatedly flood the stop service. Fetch and return motions that are
+confirmed to be outside the presentation region are unaffected.
 
 Recovery now follows this sequence:
 
@@ -123,6 +128,12 @@ Recovery now follows this sequence:
 4. verify controller readiness again;
 5. verify that safety is still valid and no newer laser edge occurred;
 6. reapply the safety gate immediately before the motion retry.
+
+An interrupted entry or exit retains both the presentation-region lease and
+the safety scope. After the stable-clear and controller-restoration sequence,
+the existing interruption handler retries the interrupted motion from the
+measured robot state. The scope is released only after a successful exit;
+planning failures before entry motion release it immediately.
 
 Raw laser edges are recorded for both arms even when neither arm has an active
 trajectory. This closes the race in which the beam could be broken while the
@@ -205,9 +216,10 @@ selects CPU dependencies and `nvidia` selects the configured CUDA extra.
 The implementation is covered by deterministic tests for preflight
 fingerprints and branch loading, planning serialization, trajectory validation,
 fetch-stage recovery, immediate trial retry, cleanup behavior, fatal UR faults,
-laser edge tracking, re-breaks during controller reset, pre-retry safety gates,
-and bounded restoration. The complete rig/task suite currently contains 55
-passing tests.
+laser edge tracking, presentation entry/exit interruption, retained region
+leases, re-breaks during controller reset, pre-retry safety gates, and bounded
+restoration. A deterministic stress test also performs 100 consecutive
+presentation-region interruptions and recoveries.
 
 Two extended checks were completed on 2026-08-19:
 
