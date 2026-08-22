@@ -274,12 +274,18 @@ class FlicClient(asyncio.Protocol):
         event_time_fn: Callable[[], Any] = time.time,
         kill_on_press: bool = True,
         kill_timeout: float = 2.0,
+        kill_delay: float = 1.0,
+        kill_hold: float = 0.2,
+        button_cooldown: float = 0.5,
     ):
         self._socket_type = socket_type
         self._advertising_event_filter = advertising_event_filter
         self._event_time_fn = event_time_fn
         self._kill_on_press = kill_on_press
         self._kill_timeout = kill_timeout
+        self._kill_delay = kill_delay
+        self._kill_hold = kill_hold
+        self._button_cooldown = button_cooldown
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._transport: _HCISocketTransport | None = None
@@ -288,10 +294,12 @@ class FlicClient(asyncio.Protocol):
         self._pending_command_futures: dict[int, asyncio.Future[Packet]] = {}
 
         # Kill-on-press bookkeeping. The controller can only initiate
-        # one LE connection at a time, so we serialize via _killing and
-        # drop overlapping triggers.
+        # one LE connection at a time, so reset sequences are serialized.
+        # Each address remains suppressed while queued/running and through
+        # its post-reset cooldown.
         self._kill_lock = asyncio.Lock()
         self._kill_tasks: dict[str, asyncio.Task] = {}
+        self._cooldown_until: dict[str, float] = {}
         # handle from LE_Meta_Connection_Complete. At most one entry.
         self._pending_connect_futures: dict[str, asyncio.Future[int]] = {}
         # connection_handle -> future resolving when Disconnection
@@ -342,6 +350,9 @@ class FlicClient(asyncio.Protocol):
         event_time_fn: Callable[[], Any] = time.time,
         kill_on_press: bool = True,
         kill_timeout: float = 2.0,
+        kill_delay: float = 1.0,
+        kill_hold: float = 0.2,
+        button_cooldown: float = 0.5,
         loop: asyncio.AbstractEventLoop,
         active_scan: bool = False,
         scan_interval: int = 16,
@@ -368,6 +379,10 @@ class FlicClient(asyncio.Protocol):
                 its press burst. See :meth:`_kill_advertising`.
             kill_timeout: Per-step timeout (connect, then disconnect)
                 for the kill flow, in seconds.
+            kill_delay: Delay after stopping the scan and before connecting.
+            kill_hold: Time to hold the connection before disconnecting.
+            button_cooldown: Post-reset interval during which advertisements
+                from the same button remain suppressed.
         """
         sock = cls._create_socket(device_id, socket_type)
         client = cls(
@@ -376,6 +391,9 @@ class FlicClient(asyncio.Protocol):
             event_time_fn=event_time_fn,
             kill_on_press=kill_on_press,
             kill_timeout=kill_timeout,
+            kill_delay=kill_delay,
+            kill_hold=kill_hold,
+            button_cooldown=button_cooldown,
         )
         client._loop = loop
         # Side effect: synchronously invokes client.connection_made(),
@@ -558,12 +576,31 @@ class FlicClient(asyncio.Protocol):
             return
         addr = str(pkt.addr).lower()
 
-        if addr not in self._kill_tasks:
-            self._dispatch_button_press(addr, event_time=event_time)
+        if self._button_is_suppressed(addr):
+            return
 
-        if self._kill_on_press and addr not in self._kill_tasks:
+        self._dispatch_button_press(addr, event_time=event_time)
+
+        if self._kill_on_press:
             self._schedule_kill_advertising(
                 addr, int(getattr(pkt, "atype", 0))
+            )
+        else:
+            self._start_button_cooldown(addr)
+
+    def _button_is_suppressed(self, addr: str) -> bool:
+        """Return whether ``addr`` is being reset or is in cooldown."""
+        if addr in self._kill_tasks:
+            return True
+        if self._loop is None:
+            return False
+        return self._loop.time() < self._cooldown_until.get(addr, 0.0)
+
+    def _start_button_cooldown(self, addr: str):
+        """Suppress repeat advertisements from ``addr`` after a reset."""
+        if self._loop is not None:
+            self._cooldown_until[addr] = (
+                self._loop.time() + self._button_cooldown
             )
 
     def _dispatch_button_press(self, addr: str, *, event_time: Any):
@@ -588,13 +625,12 @@ class FlicClient(asyncio.Protocol):
     ##############################################################
 
     def _schedule_kill_advertising(self, addr: str, patype: int):
-        """Fire a one-shot connect+disconnect to silence the Flic.
+        """Schedule the validated reset sequence that silences the Flic.
 
-        Called synchronously from the reader callback so we can issue
-        LE_Create_Connection on the very next event-loop tick. The
-        controller only supports one initiating attempt at a time, so
-        overlapping adverts (from a second button, or a repeat from the
-        same one) are dropped until the in-flight kill finishes.
+        Called synchronously from the reader callback so the address is
+        suppressed before another packet can be dispatched. Reset tasks are
+        serialized because the controller supports only one initiating
+        connection attempt at a time.
         """
         if self._loop is None or self._transport is None:
             return
@@ -614,87 +650,106 @@ class FlicClient(asyncio.Protocol):
             logger.warning(f"Kill task raised: {exc!r}")
 
     async def _kill_advertising(self, addr: str, patype: int):
-        """Connect to ``addr`` and immediately disconnect.
+        """Reset ``addr`` using the timing validated by the ESP32 detector.
 
-        The CONNECT_IND sent by our controller during initiation is what
-        actually stops the Flic from continuing its advertising burst.
-        The follow-up Disconnect is just bookkeeping so the controller
-        doesn't keep the (useless) link alive.
-
-        ``patype`` is the peer address type taken from the advertising
-        report (0=public, 1=random).
+        The first advertisement is timestamped and dispatched before this
+        background task starts. Stopping the scan, waiting, connecting,
+        holding, and disconnecting therefore cannot inflate response time.
         """
         assert self._loop is not None
 
         async with self._kill_lock:
-            logger.debug(f"Killing advertising for {addr}")
-
-            connect_future: asyncio.Future[int] = self._loop.create_future()
-            self._pending_connect_futures[addr] = connect_future
+            scan_stopped = False
+            reset_succeeded = False
             try:
-                # Parameters lifted from the BlueZ defaults; the actual
-                # connection latency / timeout don't matter much because
-                # we tear the link down on the first event.
-                self._send_command(
-                    HCI_Cmd_LE_Create_Connection(
-                        interval=0x60,
-                        window=0x60,
-                        filter=0,  # use the peer address fields below
-                        patype=patype,
-                        paddr=addr,
-                        atype=0,  # our address type — public
-                        min_interval=0x18,
-                        max_interval=0x28,
-                        latency=0,
-                        timeout=0x2A,
-                        min_ce=0,
-                        max_ce=0,
-                    )
+                logger.info(f"Resetting advertising for {addr}")
+                await self.send_command(HCI_Cmd_LE_Set_Scan_Enable(enable=0))
+                scan_stopped = True
+                await asyncio.sleep(self._kill_delay)
+
+                connect_future: asyncio.Future[int] = (
+                    self._loop.create_future()
                 )
-                handle = await asyncio.wait_for(
-                    connect_future, timeout=self._kill_timeout
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Kill connect to {addr} timed out, cancelling")
-                self._pending_connect_futures.pop(addr, None)
+                self._pending_connect_futures[addr] = connect_future
                 try:
-                    self._send_command(HCI_Cmd_LE_Create_Connection_Cancel())
-                except Exception as ce:
-                    logger.debug(f"Create_Connection_Cancel failed: {ce}")
-                return
-            except BluetoothCommandError as e:
-                logger.warning(f"Kill connect to {addr} failed: {e}")
-                self._pending_connect_futures.pop(addr, None)
-                return
-            finally:
-                # In every other exit path the handler has already popped;
-                # this guards against leakage on cancellation.
-                self._pending_connect_futures.pop(addr, None)
-
-            disconnect_future: asyncio.Future[None] = (
-                self._loop.create_future()
-            )
-            self._pending_disconnect_futures[handle] = disconnect_future
-            try:
-                self._send_command(
-                    HCI_Cmd_Disconnect(
-                        handle=handle,
-                        reason=_DISCONNECT_REASON_REMOTE_USER,
+                    self._send_command(
+                        HCI_Cmd_LE_Create_Connection(
+                            interval=0x60,
+                            window=0x60,
+                            filter=0,
+                            patype=patype,
+                            paddr=addr,
+                            atype=0,
+                            min_interval=0x18,
+                            max_interval=0x28,
+                            latency=0,
+                            timeout=0x2A,
+                            min_ce=0,
+                            max_ce=0,
+                        )
                     )
-                )
-                await asyncio.wait_for(
-                    disconnect_future, timeout=self._kill_timeout
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"Disconnect for handle={handle} ({addr}) timed out"
-                )
-            except BluetoothCommandError as e:
-                logger.warning(f"Disconnect for {addr} failed: {e}")
-            finally:
-                self._pending_disconnect_futures.pop(handle, None)
+                    handle = await asyncio.wait_for(
+                        connect_future, timeout=self._kill_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Kill connect to {addr} timed out, cancelling"
+                    )
+                    try:
+                        await self.send_command(
+                            HCI_Cmd_LE_Create_Connection_Cancel()
+                        )
+                    except Exception as ce:
+                        logger.debug(f"Create_Connection_Cancel failed: {ce}")
+                    return
+                except BluetoothCommandError as e:
+                    logger.warning(f"Kill connect to {addr} failed: {e}")
+                    return
+                finally:
+                    self._pending_connect_futures.pop(addr, None)
 
-            logger.debug(f"Done killing advertising for {addr}")
+                await asyncio.sleep(self._kill_hold)
+
+                disconnect_future: asyncio.Future[None] = (
+                    self._loop.create_future()
+                )
+                self._pending_disconnect_futures[handle] = disconnect_future
+                try:
+                    self._send_command(
+                        HCI_Cmd_Disconnect(
+                            handle=handle,
+                            reason=_DISCONNECT_REASON_REMOTE_USER,
+                        )
+                    )
+                    await asyncio.wait_for(
+                        disconnect_future, timeout=self._kill_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Disconnect for handle={handle} ({addr}) timed out"
+                    )
+                except BluetoothCommandError as e:
+                    logger.warning(f"Disconnect for {addr} failed: {e}")
+                finally:
+                    self._pending_disconnect_futures.pop(handle, None)
+
+                reset_succeeded = True
+            finally:
+                if scan_stopped and not self._closed_event.is_set():
+                    try:
+                        await self.send_command(
+                            HCI_Cmd_LE_Set_Scan_Enable(enable=1, filter_dups=0)
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to resume BLE scan after resetting "
+                            f"{addr}: {e}"
+                        )
+                        self.close()
+                self._start_button_cooldown(addr)
+
+            if reset_succeeded:
+                logger.info(f"Advertising reset complete for {addr}")
 
     ##############################################################
     # Command sender

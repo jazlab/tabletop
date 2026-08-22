@@ -39,8 +39,10 @@ Example:
 import argparse
 import os
 import threading
+import time
 from collections import deque
 from copy import copy
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -53,6 +55,7 @@ import torch
 import yaml
 from geometry_msgs.msg import Point
 from mocap4r2_msgs.msg import Marker, Markers
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.action.server import (
     ActionServer,
     CancelResponse,
@@ -69,7 +72,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
-from tabletop_interfaces.msg import EyelinkArray as EyelinkArrayMsg
+from tabletop_interfaces.msg import EyelinkBatch as EyelinkBatchMsg
 
 from tabletop_py.gaze.edf import edf_to_csv
 from tabletop_py.gaze.preprocess import (
@@ -92,7 +95,7 @@ from tabletop_rig.utils.ros import seconds_from_ros_time
 try:
     PYLINK_AVAILABLE = True
     from pylink import EyeLink as EyeLinkTracker
-    from pylink.constants import MISSING_DATA
+    from pylink.constants import MISSING_DATA, SAMPLE_TYPE
     from pylink.tracker import Sample, SampleData
 except ImportError:
     PYLINK_AVAILABLE = False
@@ -100,6 +103,7 @@ except ImportError:
     type Sample = Any
     type SampleData = Any
     MISSING_DATA = -32768
+    SAMPLE_TYPE = 200
 
 
 class DataFileReceiveError(Exception):
@@ -124,6 +128,94 @@ class EyeAvailable(Enum):
     LEFT_EYE = 0
     RIGHT_EYE = 1
     BINOCULAR = 2
+
+
+@dataclass
+class EyelinkRetrievalStats:
+    """Per-session counters for detecting loss in the online sample stream."""
+
+    samples: int = 0
+    tracker_gap_events: int = 0
+    estimated_missing_samples: int = 0
+    max_missing_samples: int = 0
+    non_sample_items: int = 0
+    invalid_sample_items: int = 0
+    timestamp_discontinuities: int = 0
+    batches: int = 0
+    published_samples: int = 0
+    partial_batches: int = 0
+    _last_tracker_time_ms: int | None = None
+
+    def observe_sample(
+        self, tracker_time_ms: int, expected_period_ms: int
+    ) -> int:
+        """Record one tracker timestamp and return estimated skipped samples."""
+        missing = 0
+        if self._last_tracker_time_ms is not None:
+            delta_ms = tracker_time_ms - self._last_tracker_time_ms
+            if delta_ms <= 0:
+                self.timestamp_discontinuities += 1
+            elif delta_ms > expected_period_ms:
+                missing = max(round(delta_ms / expected_period_ms) - 1, 0)
+                if missing:
+                    self.tracker_gap_events += 1
+                    self.estimated_missing_samples += missing
+                    self.max_missing_samples = max(
+                        self.max_missing_samples, missing
+                    )
+        self._last_tracker_time_ms = tracker_time_ms
+        self.samples += 1
+        return missing
+
+
+class EyelinkSampleBatcher:
+    """Collect samples into bounded batches without inventing padding data."""
+
+    def __init__(self, batch_size: int):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        self.batch_size = batch_size
+        self._samples: list[EyelinkMsg] = []
+
+    def __len__(self) -> int:
+        return len(self._samples)
+
+    def add(self, sample: EyelinkMsg) -> list[EyelinkMsg] | None:
+        """Add a sample and return a full batch when one is ready."""
+        self._samples.append(sample)
+        if len(self._samples) < self.batch_size:
+            return None
+        batch = self._samples
+        self._samples = []
+        return batch
+
+    def flush(self) -> list[EyelinkMsg]:
+        """Return and clear the final partial batch."""
+        batch = self._samples
+        self._samples = []
+        return batch
+
+
+def drain_eyelink_buffer(tracker: Any) -> tuple[list[Any], int, int]:
+    """Drain every currently buffered EyeLink sample in arrival order.
+
+    Returns the samples, number of non-sample events, and number of malformed
+    sample items. Unlike ``getNewestSample()``, this preserves samples that
+    accumulated while the Python process was briefly descheduled.
+    """
+    samples: list[Any] = []
+    non_sample_items = 0
+    invalid_sample_items = 0
+    while (data_type := tracker.getNextData()) != 0:
+        if data_type != SAMPLE_TYPE:
+            non_sample_items += 1
+            continue
+        sample = tracker.getFloatData()
+        if sample is None or not isinstance(sample, Sample):  # type: ignore
+            invalid_sample_items += 1
+            continue
+        samples.append(sample)
+    return samples, non_sample_items, invalid_sample_items
 
 
 class EyelinkMessageQueue:
@@ -199,6 +291,8 @@ class Eyelink(BaseNode):
         "wait_for_data_timeout": 0.1,  # seconds
         "sample_rate": 1000,  # Hz
         "publish_batched": True,
+        "publish_batch_size": 50,
+        "publish_batch_max_latency": 0.01,  # seconds
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_event_filter": "null",
@@ -277,8 +371,8 @@ class Eyelink(BaseNode):
         self.stop_sample_retrieval_event.set()
 
         # Set by start_retrieval once hardware recording is confirmed active;
-        # the retrieval loop waits on it before draining the tracker's stale
-        # pre-recording buffer (see sample_retrieval_loop). Cleared on stop.
+        # the retrieval loop waits on it before consuming live samples. Stale
+        # tracker data is cleared before startRecording(). Cleared on stop.
         self._recording_active = threading.Event()
 
         self._goal_lock = threading.Lock()
@@ -372,7 +466,7 @@ class Eyelink(BaseNode):
         )
         if self.param("publish_batched"):
             self.sample_publisher = self.create_publisher(
-                EyelinkArrayMsg,
+                EyelinkBatchMsg,
                 "~/sample_array",
                 10,
                 callback_group=MutuallyExclusiveCallbackGroup(),
@@ -689,7 +783,11 @@ class Eyelink(BaseNode):
             if not self.simulate:
                 self._open_data_file()
             try:
-                # Start sample retrieval loop in separate thread
+                if not self.simulate:
+                    # Clear stale data before recording; clearing afterward can
+                    # discard valid samples from the new session.
+                    self.tracker.resetData()
+                # Start the retrieval loop; it waits for recording to be active.
                 self._start_sample_retrieval_loop()
                 try:
                     if self.simulate:
@@ -725,14 +823,14 @@ class Eyelink(BaseNode):
                     self._stop_sample_retrieval_loop()
                     raise
 
-                # Recording (or simulation) is up: release the retrieval loop so
-                # it can drain the tracker's stale pre-recording buffer.
+                # Recording (or simulation) is up: release the retrieval loop.
                 self._recording_active.set()
             except Exception:
                 # startRecording() succeeded before the inner failure, so stop it
                 # here to stay symmetric with stop_retrieval's cleanup.
-                self.tracker.stopRecording()
-                self._close_data_file(save=False)
+                if not self.simulate:
+                    self.tracker.stopRecording()
+                    self._close_data_file(save=False)
                 raise
 
             # Start gaze_estimation_timer
@@ -895,116 +993,206 @@ class Eyelink(BaseNode):
         return msg
 
     def sample_retrieval_loop(self) -> None:
-        """Main loop for retrieving samples from the tracker.
-
-        Continuously polls the tracker for new samples, converts them
-        to ROS messages, adds them to the message queue, and writes
-        them to the rosbag. Runs until stop_sample_retrieval_event is set.
-
-        In simulation mode, generates synthetic data instead.
-        """
+        """Retrieve every buffered tracker sample and publish ordered batches."""
         self.log("Entered sample retrieval loop")
         wait_for_data_timeout_ms = int(
             self.param("wait_for_data_timeout") * 1e3
         )
-        period: float = 1 / self.param("sample_rate")
+        sample_rate = int(self.param("sample_rate"))
+        period = 1 / sample_rate
+        expected_period_ms = max(round(period * 1e3), 1)
         publish_batched: bool = self.param("publish_batched")
-
-        array_msg = EyelinkArrayMsg()
-        array_idx = 0
-        array_len = len(array_msg.samples)
-
-        assert isinstance(array_msg.samples, list)
-        assert array_len > 0
+        batcher = EyelinkSampleBatcher(int(self.param("publish_batch_size")))
+        batch_max_latency = float(self.param("publish_batch_max_latency"))
+        if batch_max_latency <= 0:
+            raise ValueError("publish_batch_max_latency must be positive")
+        stats = EyelinkRetrievalStats()
 
         min_pos = self.preprocess_config["clean"]["min_eye_pos"]
         max_pos = self.preprocess_config["clean"]["max_eye_pos"]
+        last_ros_time_ns: int | None = None
+        last_ros_tracker_time_ms: int | None = None
+        batch_started_monotonic: float | None = None
 
-        # Discard samples buffered before this recording session so leftover
-        # samples from a previous session don't leak into the new collection.
-        # message_queue (the ROS-side bounded queue) is already cleared in
-        # _start_sample_retrieval_loop(); this drops the tracker's internal
-        # hardware buffer. It runs once, here in the loop thread (the only thread
-        # that reads the tracker), after start_retrieval signals recording is
-        # active -- waiting on _recording_active avoids racing startRecording(),
-        # which runs on the calling thread. The stop-event check keeps the wait
-        # from hanging if retrieval is cancelled before recording comes up.
-        # Skipped under simulation (no hardware buffer).
-        # NOTE: the leftover-samples behaviour is timing-dependent; this drop
-        # needs validation against a live Eyelink unit (see PR #26 discussion).
-        if not self.simulate:
-            while not self._recording_active.wait(timeout=period):
-                if self.stop_sample_retrieval_event.is_set():
-                    break
-            if not self.stop_sample_retrieval_event.is_set():
-                self.tracker.resetData()
+        def publish_batch(
+            samples: list[EyelinkMsg], *, partial: bool = False
+        ) -> None:
+            if not samples:
+                return
+            array_msg = EyelinkBatchMsg()
+            array_msg.samples = samples
+            try:
+                self.sample_publisher.publish(array_msg)
+            except (InvalidHandle, RCLError):
+                # ROS may already be invalid during process-level shutdown.
+                return
+            stats.batches += 1
+            stats.published_samples += len(samples)
+            if partial:
+                stats.partial_batches += 1
 
-        while not self.stop_sample_retrieval_event.is_set():
-            # Receive data from the tracker and convert to ROS message if valid
-            start_time = self.ros_time()
-            if self.simulate:
-                msg = self.generate_simulated_msg(min_pos, max_pos)
-            else:
-                try:
-                    self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
-                except RuntimeError as e:
-                    # self.log delegates to self.get_logger().warning(), which
-                    # carries a stable caller id, so throttle_duration_sec
-                    # throttles correctly here.
+        def publish_sample(msg: EyelinkMsg) -> None:
+            nonlocal batch_started_monotonic
+            self.message_queue.append(msg)
+            if not self.has_subscribers:
+                return
+            if not publish_batched:
+                self.sample_publisher.publish(msg)
+                return
+            if len(batcher) == 0:
+                batch_started_monotonic = time.monotonic()
+            batch = batcher.add(msg)
+            if batch is not None:
+                publish_batch(batch)
+                batch_started_monotonic = None
+
+        def flush_batch_if_due(*, force: bool = False) -> None:
+            nonlocal batch_started_monotonic
+            if batch_started_monotonic is None:
+                return
+            if (
+                not force
+                and time.monotonic() - batch_started_monotonic
+                < batch_max_latency
+            ):
+                return
+            batch = batcher.flush()
+            batch_started_monotonic = None
+            if batch:
+                publish_batch(batch, partial=len(batch) < batcher.batch_size)
+
+        def process_tracker_samples(samples: list[Any]) -> None:
+            nonlocal last_ros_time_ns, last_ros_tracker_time_ms
+            if not samples:
+                return
+
+            # Anchor the newest buffered sample to the current ROS time, then
+            # reconstruct timestamps for older samples from EyeLink's own clock.
+            # This preserves 1 kHz spacing when a scheduling pause creates a
+            # multi-sample backlog.
+            anchor = self.get_clock().now()
+            newest_tracker_time_ms = int(samples[-1].getTime())
+            for sample in samples:
+                tracker_time_ms = int(sample.getTime())
+                missing = stats.observe_sample(
+                    tracker_time_ms, expected_period_ms
+                )
+                if missing:
                     self.log(
-                        f"No data from tracker with error: {e}",
+                        "EyeLink tracker timestamp gap detected: "
+                        f"missing={missing}, "
+                        f"session_missing={stats.estimated_missing_samples}",
+                        severity="WARN",
+                        throttle_duration_sec=5,
+                    )
+
+                age_ms = max(newest_tracker_time_ms - tracker_time_ms, 0)
+                timestamp_ns = anchor.nanoseconds - age_ms * 1_000_000
+                if (
+                    last_ros_time_ns is not None
+                    and timestamp_ns <= last_ros_time_ns
+                ):
+                    tracker_delta_ms = expected_period_ms
+                    if last_ros_tracker_time_ms is not None:
+                        tracker_delta_ms = max(
+                            tracker_time_ms - last_ros_tracker_time_ms,
+                            expected_period_ms,
+                        )
+                    timestamp_ns = (
+                        last_ros_time_ns + tracker_delta_ms * 1_000_000
+                    )
+                timestamp = Time(
+                    nanoseconds=timestamp_ns,
+                    clock_type=anchor.clock_type,
+                )
+                last_ros_time_ns = timestamp_ns
+                last_ros_tracker_time_ms = tracker_time_ms
+
+                try:
+                    msg = self.sample_to_msg(sample, timestamp)
+                except RuntimeError as e:
+                    stats.invalid_sample_items += 1
+                    self.log(
+                        f"Invalid EyeLink sample: {e}",
                         severity="WARN",
                         throttle_duration_sec=1,
                     )
                     continue
-                timestamp = self.get_clock().now()
-                sample: Sample | None = self.tracker.getNewestSample()
-                if sample is None or not isinstance(sample, Sample):  # type: ignore
-                    msg = None
-                else:
-                    self.tracker.resetData()
-                    msg = self.sample_to_msg(sample, timestamp)
+                publish_sample(msg)
 
-            # Add the message to the queue and record it to the bag
-            if msg is not None:
-                self.message_queue.append(msg)
-                if self.has_subscribers:
-                    if publish_batched:
-                        array_msg.samples[array_idx] = msg  # type: ignore
-                        array_idx += 1
-                        if array_idx == array_len:
-                            self.sample_publisher.publish(array_msg)
-                            array_msg = EyelinkArrayMsg()
-                            array_idx = 0
-                    else:
-                        self.sample_publisher.publish(msg)
-                # if hasattr(self, "bag_writer"):
-                #     self.bag_writer.write(
-                #         "/eyelink/sample",
-                #         serialize_message(msg),  # type: ignore
-                #         timestamp.nanoseconds,  # type: ignore
-                #     )
+        def drain_available_samples() -> None:
+            samples, non_samples, invalid_samples = drain_eyelink_buffer(
+                self.tracker
+            )
+            stats.non_sample_items += non_samples
+            stats.invalid_sample_items += invalid_samples
+            process_tracker_samples(samples)
 
-            # Sleep for a short period to avoid busy-waiting (necessary
-            # to force a context switch to other threads)
-            taken = self.ros_time() - start_time
-            if taken < period:
-                if self.simulate:
-                    # time.sleep(period - taken)
-                    self.ros_sleep(period - taken)
+        # The buffer was cleared before startRecording(). Wait until recording
+        # is active so this loop cannot consume or generate pre-session samples.
+        while not self._recording_active.wait(timeout=period):
+            if self.stop_sample_retrieval_event.is_set():
+                break
+
+        while not self.stop_sample_retrieval_event.is_set():
+            if self.simulate:
+                start_time = self.ros_time()
+                msg = self.generate_simulated_msg(min_pos, max_pos)
+                stats.samples += 1
+                publish_sample(msg)
+                taken = self.ros_time() - start_time
+                if taken < period:
+                    self.stop_sample_retrieval_event.wait(period - taken)
                 else:
-                    # time.sleep(0.95 * (period - taken))
-                    self.ros_sleep(0.95 * (period - taken))
-            else:
+                    self.log(
+                        "Simulated EyeLink retrieval took longer than expected "
+                        f"period: {taken:.4f}s > {period:.4f}s",
+                        severity="WARN",
+                        throttle_duration_sec=1,
+                    )
+                flush_batch_if_due()
+                continue
+
+            try:
+                self.tracker.waitForData(wait_for_data_timeout_ms, 1, 0)
+            except RuntimeError as e:
+                if self.stop_sample_retrieval_event.is_set():
+                    break
                 self.log(
-                    f"Sample retrieval took longer than expected period: {taken:.4f}s > {period:.4f}s",
+                    f"No data from tracker with error: {e}",
                     severity="WARN",
+                    throttle_duration_sec=1,
                 )
-                self.ros_sleep(0)
-        # except (ROSSleepError, NotInitializedException) as e:
-        #     raise e
-        #     if rclpy.ok():  # type: ignore
-        #         raise RuntimeError("ROS2 is still running") from e
+                flush_batch_if_due()
+                continue
+            drain_available_samples()
+            flush_batch_if_due()
+
+        # Capture anything already delivered to the link buffer before the stop
+        # request, then publish the final real-only partial sequence.
+        if not self.simulate:
+            drain_available_samples()
+        flush_batch_if_due(force=True)
+
+        severity = (
+            "WARN"
+            if stats.estimated_missing_samples
+            or stats.invalid_sample_items
+            or stats.timestamp_discontinuities
+            else "INFO"
+        )
+        self.log(
+            "EyeLink retrieval summary: "
+            f"samples={stats.samples}, published_samples={stats.published_samples}, batches={stats.batches}, "
+            f"partial_batches={stats.partial_batches}, "
+            f"tracker_gap_events={stats.tracker_gap_events}, "
+            f"estimated_missing={stats.estimated_missing_samples}, "
+            f"max_missing={stats.max_missing_samples}, "
+            f"non_sample_items={stats.non_sample_items}, "
+            f"invalid_samples={stats.invalid_sample_items}, "
+            f"timestamp_discontinuities={stats.timestamp_discontinuities}",
+            severity=severity,
+        )
 
     ###########################################################################
     # Smooth pursuit

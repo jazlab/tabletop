@@ -52,9 +52,15 @@ topics:
   - /joint_states
   - /dynamic_joint_states
 
-  # Robot end effector torque
-  - /force_torque_sensor_broadcaster/wrench
-  - /force_torque_sensor_broadcaster/wrench_filtered
+  # Direct Cartesian end-effector poses (also embedded in dynamic_joint_states)
+  - /left_tcp_pose_broadcaster/pose
+  - /right_tcp_pose_broadcaster/pose
+
+  # Direct six-axis end-effector wrenches (also embedded in
+  # dynamic_joint_states). The broadcasters advertise wrench_filtered but do
+  # not currently publish payloads there, so record the active raw streams.
+  - /left_force_torque_sensor_broadcaster/wrench
+  - /right_force_torque_sensor_broadcaster/wrench
 
   # ROS out
   - /rosout

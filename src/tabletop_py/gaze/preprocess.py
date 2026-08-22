@@ -112,8 +112,16 @@ def eyelink_array_to_samples(df: pd.DataFrame) -> pd.DataFrame:
         new_df.columns = [
             col.replace(f"samples[{i}].", "") for col in new_df.columns
         ]
+        # Variable-length batches produce empty trailing CSV columns for rows
+        # whose sequence is shorter than the largest batch in the bag. Old
+        # fixed-length batch CSVs contain no such rows, so this remains
+        # backwards-compatible with recordings made before the message change.
+        new_df = new_df[new_df["header.stamp.sec"].notna()]
         dfs.append(new_df)
         i += 1
+
+    if not dfs:
+        raise ValueError("No Eyelink samples found in array dataframe")
 
     df = pd.concat(dfs, ignore_index=True)
     df["time"] = df["header.stamp.sec"] + df["header.stamp.nanosec"] / 1e9

@@ -1,0 +1,4 @@
+# FLIR machine-vision cameras. This filename intentionally sorts after
+# 50-udev-default.rules, which otherwise overwrites the device mode.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP:="video", MODE:="0660", SYMLINK+="flir/%s{serial}"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP:="video", MODE:="0660", SYMLINK+="flir/%s{serial}"

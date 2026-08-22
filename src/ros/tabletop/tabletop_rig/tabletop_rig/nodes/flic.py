@@ -73,6 +73,10 @@ class Flic(BaseNode):
         "simulate_max_delay": 3.0,
         "device_id": 0,
         "active_scan": False,
+        # Match the reset timing validated by click_detection_v17.ino.
+        "kill_delay": 1.0,
+        "kill_hold": 0.2,
+        "button_cooldown": 0.5,
     }
 
     def __init__(self):
@@ -130,6 +134,9 @@ class Flic(BaseNode):
                 device_id=device_id,
                 active_scan=active_scan,
                 kill_on_press=True,
+                kill_delay=self.param("kill_delay"),
+                kill_hold=self.param("kill_hold"),
+                button_cooldown=self.param("button_cooldown"),
                 event_time_fn=lambda: self.get_clock().now(),
             )
 

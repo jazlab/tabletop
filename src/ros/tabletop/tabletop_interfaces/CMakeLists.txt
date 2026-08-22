@@ -16,7 +16,8 @@ find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-set(msg_files "msg/EyelinkArray.msg" "msg/Eyelink.msg" "msg/TeensySensor.msg")
+set(msg_files "msg/EyelinkArray.msg" "msg/EyelinkBatch.msg" "msg/Eyelink.msg"
+              "msg/TeensySensor.msg")
 
 set(srv_files "srv/Ping.srv" "srv/SetArmLock.srv" "srv/SetReward.srv"
               "srv/SetSmartglass.srv" "srv/SetSolenoid.srv")

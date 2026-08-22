@@ -43,11 +43,10 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="066
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="1fc9", ATTRS{idProduct}=="013*", MODE:="0666"
 EOF
 
-# FLIR cameras (vendor 1e10 / 1724; creates /dev/flir/<serial> symlinks)
-sudo tee /etc/udev/rules.d/40-flir.rules > /dev/null <<'EOF'
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", MODE="0666" SYMLINK+="flir/%s{serial}"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", MODE="0666" SYMLINK+="flir/%s{serial}"
-EOF
+# FLIR cameras (vendor 1e10 / 1724; creates /dev/flir/<serial> symlinks).
+# The destination filename must sort after 50-udev-default.rules or the mode
+# is overwritten.
+sudo install -o root -g root -m 0644 config/udev/99-flir.rules /etc/udev/rules.d/99-flir.rules
 
 # Reload and apply
 sudo udevadm control --reload
@@ -357,3 +356,15 @@ is an overview — follow the vendor documentation for the authoritative setup.
   `edf2asc` converter used by the gaze tools. See the
   [SR Research support site](https://www.sr-research.com/support/) for the
   installation packages and EyeLink documentation (account required).
+- Online link samples are drained in order through PyLink's buffered API.
+  `/eyelink/sample_array` uses variable-length `EyelinkBatch` messages, normally
+  published every 10 ms (up to 50 samples), while the legacy fixed-length
+  `EyelinkArray` definition remains available for reading older bags.
+- At the end of each recording, check the `EyeLink retrieval summary` log. A
+  healthy run reports `estimated_missing=0`, `invalid_samples=0`, and
+  `timestamp_discontinuities=0`. The EDF file remains the authoritative tracker
+  recording and is transferred alongside the ROS bag.
+
+For the camera preview layouts, exposure-trigger monitor, EyeLink batching,
+recorded robot telemetry, and Flic/Teensy latency-test procedures, see
+[Peripheral Capture and Diagnostics](../guide/peripheral-capture.md).

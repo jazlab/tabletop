@@ -86,9 +86,22 @@
 #define LEFT_ARM_LOCK_STATE_PIN 38
 // RIGHT_ARM_LOCK_STATE_PIN: right arm restraint feedback (LOW = arm seated/locked)
 #define RIGHT_ARM_LOCK_STATE_PIN 39
-// BUTTON_STATE_PIN: subject response button (LOW = pressed, active-low with INPUT_PULLUP)
-// Note: pin 36 is used here; the left arm lock feedback therefore stays on pin 38.
+// BUTTON_STATE_PIN: subject response button (LOW = pressed, active-low with INPUT_PULLUP).
+// Pin 36 remains the normal rig default. A bench/smash-test firmware build may
+// override it (for example, -DBUTTON_STATE_PIN=35) without changing the normal
+// configuration or the left arm lock feedback on pin 38.
+#ifndef BUTTON_STATE_PIN
 #define BUTTON_STATE_PIN 36
+#endif
+// A temporary smash-test button may physically share the normal right-arm
+// feedback pin. In that special build, the button owns the interrupt and the
+// right-arm feedback is forced to the fail-safe "unlocked" state. Standard
+// firmware has distinct pins, so normal right-arm behavior is unchanged.
+#if BUTTON_STATE_PIN == RIGHT_ARM_LOCK_STATE_PIN
+#define BUTTON_SHARES_RIGHT_ARM_LOCK_PIN 1
+#else
+#define BUTTON_SHARES_RIGHT_ARM_LOCK_PIN 0
+#endif
 // LEFT_GLOVE_STATE_PINS: 10-bit ADC inputs for left-hand glove pressure sensors (A0-A4)
 static const uint8_t LEFT_GLOVE_STATE_PINS[] = { A0, A1, A2, A3, A4 };
 // RIGHT_GLOVE_STATE_PINS: 10-bit ADC inputs for right-hand glove pressure sensors (A5-A9)
@@ -652,10 +665,12 @@ static void left_arm_locked_isr()
   left_arm_last_bounce_us = micros();
 }
 // right_arm_locked_isr: CHANGE ISR for RIGHT_ARM_LOCK_STATE_PIN. Same as left.
+#if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
 static void right_arm_locked_isr()
 {
   right_arm_last_bounce_us = micros();
 }
+#endif
 // button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN. Same capture/lock-out
 // pattern as safety_laser_broken_isr: latch the first edge as the press onset and
 // ignore the rest until the timer drains it; no pin or state read in the ISR.
@@ -756,14 +771,18 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     // interrupt guard. Elapsed times use wrap-safe unsigned micros() subtraction.
     uint32_t us_since_safety_laser_bounced = now_us - safety_laser_event.last_bounce_us;
     uint32_t us_since_left_arm_bounced = now_us - left_arm_last_bounce_us;
+#if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
     uint32_t us_since_right_arm_bounced = now_us - right_arm_last_bounce_us;
+#endif
     uint32_t us_since_button_bounced = now_us - button_event.last_bounce_us;
     uint8_t safety_laser_level = update_debounced_level(SAFETY_LASER_STATE_PIN, us_since_safety_laser_bounced,
                                                         SAFETY_LASER_DEBOUNCE_DELAY_US, &safety_laser_state_stable);
     uint8_t left_arm_level = update_debounced_level(LEFT_ARM_LOCK_STATE_PIN, us_since_left_arm_bounced,
                                                     ARM_LOCK_DEBOUNCE_DELAY_US, &left_arm_state_stable);
+#if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
     uint8_t right_arm_level = update_debounced_level(RIGHT_ARM_LOCK_STATE_PIN, us_since_right_arm_bounced,
                                                      ARM_LOCK_DEBOUNCE_DELAY_US, &right_arm_state_stable);
+#endif
     uint8_t button_level = update_debounced_level(BUTTON_STATE_PIN, us_since_button_bounced, BUTTON_DEBOUNCE_DELAY_US,
                                                   &button_state_stable);
 
@@ -779,8 +798,12 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
         (safety_laser_level == SAFETY_LASER_BROKEN_STATE) || (us_since_safety_laser_bounced < window_us);
     sensor_msg.is_left_arm_locked =
         (left_arm_level == LEFT_ARM_LOCKED_STATE) && (us_since_left_arm_bounced > window_us);
+#if BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
+    sensor_msg.is_right_arm_locked = false;
+#else
     sensor_msg.is_right_arm_locked =
         (right_arm_level == RIGHT_ARM_LOCKED_STATE) && (us_since_right_arm_bounced > window_us);
+#endif
     sensor_msg.is_button_pressed = (button_level == BUTTON_PRESSED_STATE);
 
     // Onset timestamps (safety-laser break, button press): drain each capture/
@@ -1158,7 +1181,11 @@ void reset_state()
   // real pin level rather than an undefined/zero state.
   safety_laser_state_stable = digitalReadFast(SAFETY_LASER_STATE_PIN);
   left_arm_state_stable = digitalReadFast(LEFT_ARM_LOCK_STATE_PIN);
+#if BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
+  right_arm_state_stable = !RIGHT_ARM_LOCKED_STATE;
+#else
   right_arm_state_stable = digitalReadFast(RIGHT_ARM_LOCK_STATE_PIN);
+#endif
   button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
   interrupts();
 }
@@ -1247,7 +1274,9 @@ bool init_client()
   // Attach interrupt service routines
   attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, SAFETY_LASER_ISR_TRIGGER);
   attachInterrupt(digitalPinToInterrupt(LEFT_ARM_LOCK_STATE_PIN), left_arm_locked_isr, LEFT_ARM_ISR_TRIGGER);
+#if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
   attachInterrupt(digitalPinToInterrupt(RIGHT_ARM_LOCK_STATE_PIN), right_arm_locked_isr, RIGHT_ARM_ISR_TRIGGER);
+#endif
   attachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN), button_pressed_isr, BUTTON_ISR_TRIGGER);
 
   return true;
@@ -1264,7 +1293,9 @@ void deinit_client()
   // Detach interrupt service routines
   detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
   detachInterrupt(digitalPinToInterrupt(LEFT_ARM_LOCK_STATE_PIN));
+#if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
   detachInterrupt(digitalPinToInterrupt(RIGHT_ARM_LOCK_STATE_PIN));
+#endif
   detachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN));
 
   // Reset output pins

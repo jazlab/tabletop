@@ -41,6 +41,7 @@ microros options:
   --clean                Clean the micro-ROS build directory first
   --no-upload            Build only (no upload)
   --compiledb            Generate compile_commands.json for IDE integration
+  --button-pin <pin>     Override BUTTON_STATE_PIN for this build/upload only
 
 foxglove options:
   -o, --output <path>    Where to write the packaged .foxe (default: \$TABLETOP_DIR).
@@ -248,6 +249,7 @@ build_microros() {
     local target_arg="--target upload"
     local retries=2
     local clean=
+    local button_pin=
     local project_dirs=(
         "$TABLETOP_DIR/src/microros/tabletop_teensy"
     )
@@ -265,6 +267,15 @@ build_microros() {
                 # Generate compile_commands.json for IDE integration; 1 retry
                 target_arg="--target compiledb"
                 retries=1
+                ;;
+            --button-pin)
+                if [[ $# -le 1 || ! $2 =~ ^[0-9]+$ ]]; then
+                    print_error "--button-pin requires a non-negative integer"
+                    print_usage
+                    exit 1
+                fi
+                button_pin=$2
+                shift
                 ;;
             -h|--help)
                 print_usage
@@ -291,9 +302,25 @@ build_microros() {
         fi
 
         print_status "Building MicroROS at $project_dir"
+        if [[ -n $button_pin ]]; then
+            print_status "Using temporary button input pin $button_pin"
+            if [[ $button_pin == 39 ]]; then
+                print_warning "Pin 39 normally carries right-arm lock feedback; this temporary firmware forces that feedback to unlocked"
+            fi
+        fi
+
+        run_microros_build() {
+            if [[ -n $button_pin ]]; then
+                PLATFORMIO_BUILD_FLAGS="-DBUTTON_STATE_PIN=$button_pin" \
+                    pio run $target_arg
+            else
+                pio run $target_arg
+            fi
+        }
+
         local i=0
         # Retry loop: attempt build/upload up to $retries times on failure
-        while (( i < retries )) && ! pio run $target_arg; do
+        while (( i < retries )) && ! run_microros_build; do
             (( i+=1 ))
             if (( i >= retries )); then
                 print_error "Build failed $i times, aborting"

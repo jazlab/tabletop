@@ -106,6 +106,7 @@ nav:
       - Configuration: guide/configuration.md
       - Tasks & Experiments: guide/tasks.md
       - Manipulation Reliability: guide/manipulation-reliability.md
+      - Peripheral Capture & Diagnostics: guide/peripheral-capture.md
       - Hardware & Safety: guide/hardware.md
       - Troubleshooting: guide/troubleshooting.md
   - API Reference:

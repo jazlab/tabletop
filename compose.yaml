@@ -92,6 +92,9 @@ services:
     profiles: !override [ real, sim ]
     environment:
       - DISPLAY=$NOVNC_DISPLAY
+      # Fast DDS shared memory stalls when one RViz process receives all six
+      # large compressed camera streams. Loopback UDP delivers them reliably.
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     depends_on:
       novnc:
         condition: service_healthy
@@ -139,6 +142,18 @@ services:
     extends: ros-base
     container_name: tabletop-flir
     profiles: !override [ real ]
+    # Keep camera USB access restricted to the standard video-device group.
+    group_add:
+      - "video"
+    # gosu rebuilds supplementary groups from /etc/group while dropping from
+    # root to mules, so make the Docker-provided video group explicit first.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        usermod -aG video mules
+        exec /entrypoint.sh "$@"
+      - --
     devices:
       - $FLIR_DEV_0
       - $FLIR_DEV_1
@@ -156,6 +171,34 @@ services:
     # runtime: $COMMANDER_RUNTIME
     restart: unless-stopped
     command: tt-launch flir_synchronized
+
+  # Six isolated UDP readers avoid Fast DDS shared-memory and per-participant
+  # throughput limits, while preserving full-rate acquisition/recording topics.
+  camera-preview:
+    extends: ros-base
+    container_name: tabletop-camera-preview
+    profiles: !override [ real ]
+    environment:
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_preview_supervisor.py
+
+  # Low-bandwidth GUI that verifies all six cameras are responding to the
+  # shared Teensy Line0 exposure trigger. It uses camera metadata, not images.
+  camera-trigger-monitor:
+    extends: ros-base
+    container_name: tabletop-camera-trigger-monitor
+    profiles: !override [ real ]
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+    depends_on:
+      novnc:
+        condition: service_healthy
+      flir:
+        condition: service_started
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_trigger_monitor.py
 
   # Real Teensy micro-ROS agent (arm locks, safety laser, reward, sync pulse).
   # Needs the $TEENSY_DEV serial device.
