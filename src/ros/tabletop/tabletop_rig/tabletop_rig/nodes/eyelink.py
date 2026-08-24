@@ -19,6 +19,7 @@ Actions provided:
 Topics published:
     ~/sample: Individual Eyelink sample messages (if not batched).
     ~/sample_array: Batched array of Eyelink samples (if batched mode).
+    ~/ttl_input: Passive EyeLink input-port status while retrieval is already active.
     /predicted_markers: Gaze estimation predictions (if model enabled).
 
 Parameters:
@@ -70,6 +71,7 @@ from rclpy.event_handler import (
 from rclpy.exceptions import InvalidHandle, ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
+from std_msgs.msg import UInt16
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
 from tabletop_interfaces.msg import EyelinkBatch as EyelinkBatchMsg
@@ -293,6 +295,7 @@ class Eyelink(BaseNode):
         "publish_batched": True,
         "publish_batch_size": 50,
         "publish_batch_max_latency": 0.01,  # seconds
+        "ttl_status_rate": 10.0,  # Hz; change-driven edges publish immediately
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_event_filter": "null",
@@ -384,6 +387,12 @@ class Eyelink(BaseNode):
         self._subscribers_lock = threading.Lock()
         self._has_subscribers = False
 
+        # The passive TTL topic never participates in subscriber-driven
+        # retrieval. It is fed only while a task/sample consumer has already
+        # started the normal retrieval loop.
+        self._last_ttl_input: int | None = None
+        self._last_ttl_publish_at = 0.0
+
     def init_gaze_estimation(self) -> None:
         """Initialize the neural network gaze estimation model.
 
@@ -461,6 +470,10 @@ class Eyelink(BaseNode):
         Creates services for recording control, the smooth pursuit action
         server, and optionally the gaze estimation publisher and timer.
         """
+        self.ttl_input_publisher = self.create_publisher(
+            UInt16, "~/ttl_input", 10
+        )
+
         event_callbacks = PublisherEventCallbacks(
             matched=self.sample_publisher_matched_callback
         )
@@ -992,6 +1005,24 @@ class Eyelink(BaseNode):
 
         return msg
 
+    def _publish_ttl_input(self, msg: EyelinkMsg) -> None:
+        """Publish input changes plus a bounded heartbeat during retrieval.
+
+        This publisher has no matched-event callback, so dashboard subscribers
+        cannot start EyeLink recording.
+        """
+        now = time.monotonic()
+        value = int(msg.input)
+        rate = max(float(self.param("ttl_status_rate")), 0.1)
+        if (
+            value == self._last_ttl_input
+            and now - self._last_ttl_publish_at < 1.0 / rate
+        ):
+            return
+        self.ttl_input_publisher.publish(UInt16(data=value))
+        self._last_ttl_input = value
+        self._last_ttl_publish_at = now
+
     def sample_retrieval_loop(self) -> None:
         """Retrieve every buffered tracker sample and publish ordered batches."""
         self.log("Entered sample retrieval loop")
@@ -1034,6 +1065,7 @@ class Eyelink(BaseNode):
         def publish_sample(msg: EyelinkMsg) -> None:
             nonlocal batch_started_monotonic
             self.message_queue.append(msg)
+            self._publish_ttl_input(msg)
             if not self.has_subscribers:
                 return
             if not publish_batched:

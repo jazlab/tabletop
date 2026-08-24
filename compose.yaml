@@ -220,6 +220,21 @@ services:
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/io_dashboard.py
 
+  # Passive once-per-second synchronization monitor on noVNC workspace 6.
+  # It observes device-reported TTL state and never creates output clients.
+  ttl-dashboard:
+    extends: ros-base
+    container_name: tabletop-ttl-dashboard
+    profiles: !override [ real, sim ]
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/ttl_dashboard.py
+
   # Real Teensy micro-ROS agent (arm locks, safety laser, reward, sync pulse).
   # Needs the $TEENSY_DEV serial device.
   teensy:
