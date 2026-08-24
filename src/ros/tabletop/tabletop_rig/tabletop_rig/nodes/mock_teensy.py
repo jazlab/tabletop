@@ -21,6 +21,7 @@ Topics published:
 Services provided:
     teensy/ping: Ping service for latency measurement
     teensy/set_arm_lock: Control arm lock solenoids
+    teensy/set_buzzer: Pulse either hand buzzer without changing an arm lock
     teensy/set_smartglass: Control smartglass visibility
     teensy/set_reward: Control reward solenoid
     teensy/set_solenoid: Control solenoid activation
@@ -49,6 +50,7 @@ from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     Ping,
     SetArmLock,
+    SetBuzzer,
     SetReward,
     SetSmartglass,
     SetSolenoid,
@@ -80,6 +82,8 @@ A9 = 23
 # (indicating the subject has placed their arm in the lock mechanism)
 LEFT_ARM_LOCK_CONTROL_PIN = 1
 RIGHT_ARM_LOCK_CONTROL_PIN = 2
+LEFT_ARM_BUZZER_CONTROL_PIN = 41
+RIGHT_ARM_BUZZER_CONTROL_PIN = 40
 SMARTGLASS_CONTROL_PIN = 3
 REWARD_CONTROL_PIN = 4
 SYNC_PULSE_CONTROL_PIN = 9
@@ -94,6 +98,8 @@ RIGHT_GLOVE_STATE_PINS = [A5, A6, A7, A8, A9]
 digital_output_pin_states = {
     LEFT_ARM_LOCK_CONTROL_PIN: LOW,
     RIGHT_ARM_LOCK_CONTROL_PIN: LOW,
+    LEFT_ARM_BUZZER_CONTROL_PIN: LOW,
+    RIGHT_ARM_BUZZER_CONTROL_PIN: LOW,
     SMARTGLASS_CONTROL_PIN: LOW,
     REWARD_CONTROL_PIN: LOW,
     SYNC_PULSE_CONTROL_PIN: LOW,
@@ -353,6 +359,7 @@ class MockTeensy(BaseNode):
         self.sync_pulse_last_time_off = self.get_clock().now()
         self.reward_active = False
         self.smartglass_revealed = False
+        self.smartglass_restore_state = False
         self.solenoid_active = False
 
         # Write the initial pin states
@@ -389,6 +396,12 @@ class MockTeensy(BaseNode):
             SetArmLock,
             "~/set_arm_lock",
             self.set_arm_lock_callback,  # pyright: ignore[reportArgumentType]
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
+        self.set_buzzer_service = self.create_service(
+            SetBuzzer,
+            "~/set_buzzer",
+            self.set_buzzer_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         self.set_smartglass_service = self.create_service(
@@ -428,6 +441,12 @@ class MockTeensy(BaseNode):
         )
         self.reward_timer = self.create_timer(
             0.0, self.reward_timer_callback, autostart=False
+        )
+        self.smartglass_timer = self.create_timer(
+            0.0, self.smartglass_timer_callback, autostart=False
+        )
+        self.buzzer_timer = self.create_timer(
+            1.0, self.buzzer_timer_callback, autostart=False
         )
 
         self.log("MockTeensy initialized")
@@ -597,26 +616,71 @@ class MockTeensy(BaseNode):
 
         return response
 
+    def set_buzzer_callback(
+        self, request: SetBuzzer.Request, response: SetBuzzer.Response
+    ) -> SetBuzzer.Response:
+        """Pulse selected hand buzzers for one second without changing locks."""
+        if not request.left_arm and not request.right_arm:
+            response.success = False
+            response.message = "No buzzer specified"
+            return response
+
+        digital_write(LEFT_ARM_BUZZER_CONTROL_PIN, request.left_arm)
+        digital_write(RIGHT_ARM_BUZZER_CONTROL_PIN, request.right_arm)
+        self.buzzer_timer.reset()
+        response.success = True
+        selected = (
+            "Both"
+            if request.left_arm and request.right_arm
+            else ("Left" if request.left_arm else "Right")
+        )
+        response.message = f"{selected} buzzer started for 1.000 s"
+        self.log(response.message)
+        return response
+
+    def buzzer_timer_callback(self) -> None:
+        """Stop both simulated buzzers after the bounded pulse."""
+        digital_write(LEFT_ARM_BUZZER_CONTROL_PIN, LOW)
+        digital_write(RIGHT_ARM_BUZZER_CONTROL_PIN, LOW)
+        self.buzzer_timer.cancel()
+
+    def smartglass_timer_callback(self) -> None:
+        """Restore smartglass state after a temporary change."""
+        self.smartglass_revealed = self.smartglass_restore_state
+        digital_write(SMARTGLASS_CONTROL_PIN, self.smartglass_revealed)
+        self.smartglass_timer.cancel()
+
     def set_smartglass_callback(
         self, request: SetSmartglass.Request, response: SetSmartglass.Response
     ) -> SetSmartglass.Response:
-        """Handle smartglass control service requests.
+        """Handle permanent or firmware-bounded smartglass changes."""
+        duration_ns = Duration.from_msg(request.duration).nanoseconds
+        if duration_ns < 0:
+            response.success = False
+            response.message = "Smartglass duration cannot be negative"
+            return response
 
-        Args:
-            request: Request specifying reveal or occlude.
-            response: Response to populate.
+        if duration_ns > 0:
+            self.smartglass_restore_state = self.smartglass_revealed
+            self.smartglass_revealed = request.reveal
+            digital_write(SMARTGLASS_CONTROL_PIN, request.reveal)
+            self.smartglass_timer.timer_period_ns = duration_ns
+            self.smartglass_timer.reset()
+            response.message = (
+                f"Smartglass temporarily "
+                f"{'revealed' if request.reveal else 'occluded'} "
+                f"for {duration_ns / 1e9:.3f} s"
+            )
+        else:
+            self.smartglass_timer.cancel()
+            self.smartglass_revealed = request.reveal
+            digital_write(SMARTGLASS_CONTROL_PIN, request.reveal)
+            response.message = (
+                f"Smartglass {'revealed' if request.reveal else 'occluded'}"
+            )
 
-        Returns:
-            Response with success status and message.
-        """
-        pin_state = HIGH if request.reveal else LOW
-        digital_write(SMARTGLASS_CONTROL_PIN, pin_state)
         response.success = True
-        response.message = (
-            f"Smartglass {'revealed' if request.reveal else 'occluded'}"
-        )
         self.log(response.message)
-
         return response
 
     def set_solenoid_callback(

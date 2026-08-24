@@ -41,7 +41,7 @@ microros options:
   --clean                Clean the micro-ROS build directory first
   --no-upload            Build only (no upload)
   --compiledb            Generate compile_commands.json for IDE integration
-  --button-pin <pin>     Override BUTTON_STATE_PIN for this build/upload only
+  --button-pin <pin>     Enable a temporary response input on this pin
 
 foxglove options:
   -o, --output <path>    Where to write the packaged .foxe (default: \$TABLETOP_DIR).
@@ -304,7 +304,9 @@ build_microros() {
         print_status "Building MicroROS at $project_dir"
         if [[ -n $button_pin ]]; then
             print_status "Using temporary button input pin $button_pin"
-            if [[ $button_pin == 39 ]]; then
+            if [[ $button_pin == 36 ]]; then
+                print_warning "Pin 36 normally carries left-arm lock feedback; this temporary firmware forces that feedback to unlocked"
+            elif [[ $button_pin == 39 ]]; then
                 print_warning "Pin 39 normally carries right-arm lock feedback; this temporary firmware forces that feedback to unlocked"
             fi
         fi

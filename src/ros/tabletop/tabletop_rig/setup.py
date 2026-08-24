@@ -53,6 +53,7 @@ setup(
             "flic = tabletop_rig.nodes.flic:main",
             "flic_smash_test = tabletop_rig.nodes.flic_smash_test:main",
             "system_check = tabletop_rig.nodes.system_check:main",
+            "io_dashboard = tabletop_rig.nodes.io_dashboard:main",
             "rosbag_to_csv = tabletop_rig.utils.rosbag:main",
         ],
     },

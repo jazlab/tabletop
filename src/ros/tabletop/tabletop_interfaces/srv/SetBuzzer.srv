@@ -1,0 +1,11 @@
+# Trigger either hand buzzer without changing either arm-restraint output.
+# Served by: teensy node (firmware, service ~/set_buzzer) / mock_teensy node.
+# Each accepted request produces a firmware-bounded one-second pulse.
+
+# --- Request ---
+bool left_arm   # True to pulse the left-hand buzzer
+bool right_arm  # True to pulse the right-hand buzzer
+---
+# --- Response ---
+bool success    # False when neither buzzer was selected
+string message  # Human-readable confirmation or error

@@ -200,6 +200,26 @@ services:
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_trigger_monitor.py
 
+  # Compact bench-diagnostics GUI on noVNC workspace 5. It observes Flic,
+  # hand-button, and safety-laser inputs and exposes only short, bounded output
+  # tests. Output buttons lock automatically while Commander is running.
+  io-dashboard:
+    extends: ros-base
+    container_name: tabletop-io-dashboard
+    profiles: !override [ real, sim ]
+    volumes:
+      - $PULSE_SERVER_MNT
+      - $PULSE_COOKIE_MNT
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+      - PULSE_SERVER=$PULSE_SERVER_CONTAINER
+      - PULSE_COOKIE=$PULSE_COOKIE_CONTAINER
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/io_dashboard.py
+
   # Real Teensy micro-ROS agent (arm locks, safety laser, reward, sync pulse).
   # Needs the $TEENSY_DEV serial device.
   teensy:

@@ -57,6 +57,12 @@ continuously for a configured time and the sensor message to be fresh.
     that holds / detects the hands (currently a button per hand, not a physical
     lock) is being reworked — see [Known Issues](../known-issues.md).
 
+Standard firmware reads the active-low left-hand sensor on Teensy pin 36 and the
+right-hand sensor on pin 39. Its wired response-button input is disabled. A
+`tt-build microros --button-pin <pin>` bench build temporarily enables that
+response input and forces any hand-lock feedback sharing the selected pin to the
+fail-safe `unlocked` state.
+
 ## Firmware
 
 The Teensy micro-controller firmware lives under

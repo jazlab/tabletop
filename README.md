@@ -1,16 +1,14 @@
 # TableTop
 
 TableTop is a [ROS 2](https://docs.ros.org/en/jazzy/index.html)-based robotics
-platform for controlling one or more Universal Robots UR5e arms in a monkey
-electrophysiology research rig. It runs entirely in [Docker](https://www.docker.com/)
+platform for controlling one or more Universal Robots UR5e arms. It runs
+entirely in [Docker](https://www.docker.com/)
 containers and uses [MoveIt 2](https://moveit.picknik.ai/) for motion planning.
 
 The system presents physical objects to a subject, measures their responses
 (button presses, eye gaze), delivers rewards, and records synchronized sensor
 and robot-state data (via ROS 2 Bag files) for offline analysis. It also ships a
-virtual tabletop environment for simulation and system testing, plus
-post-processing tools for motion correction, spike sorting, NWB conversion, and
-gaze estimation.
+virtual tabletop environment for simulation and system testing.
 
 ## Documentation
 

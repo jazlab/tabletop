@@ -71,6 +71,37 @@ docker compose logs --tail 100 flir camera-preview camera-trigger-monitor
 See [Real Hardware Setup](../getting-started/real-hardware.md) for the udev rule
 and USB-buffer setup.
 
+## I/O check dashboard
+
+See the dedicated [I/O Check Dashboard](io-dashboard.md) guide for the complete
+pin map, firmware/interface changes, safety bounds, installation procedure, and
+troubleshooting notes.
+
+noVNC workspace 5 contains the compact TableTop I/O Check dashboard. Its input
+cards show any Flic press received on `/flic/button_pressed_time`, the live
+left- and right-hand sensor states, and the safety-laser state. Missing or stale
+Teensy data is grey instead of being presented as healthy.
+
+The lower row provides short bench tests:
+
+- smartglass changes state for one second and then returns to its previous state;
+- the juice solenoid opens for 200 ms;
+- the configured task reward tone plays briefly;
+- either hand buzzer runs for one second without changing an arm-lock output.
+
+Smartglass restoration and the juice/buzzer cutoffs are enforced by Teensy
+timers, not by the GUI. The output row automatically locks whenever a
+`commander` node is present, while live input monitoring remains available.
+This panel is for bench diagnostics and never commands either robot.
+
+The dashboard starts with both the real and simulation Compose profiles. To
+restart it without restarting the rest of the stack:
+
+```bash
+cd /path/to/tabletop
+docker compose restart io-dashboard
+```
+
 ## EyeLink online sample retrieval
 
 The online EyeLink path now uses `getNextData()`/`getFloatData()` to drain the
@@ -148,46 +179,41 @@ Results are written under `log/flic_smash/`, which is intentionally Git-ignored.
 
 ### Standard wiring
 
-Normal firmware uses Teensy pin 36 for the active-low response button. The
-switch must close the input to GND; the firmware enables `INPUT_PULLUP`.
+Standard firmware reserves Teensy pin 36 for the active-low left-hand sensor and
+pin 39 for the active-low right-hand sensor. Each switch must close its input to
+GND; the firmware enables `INPUT_PULLUP`. The wired response-button input is
+disabled, so `is_button_pressed` is false and `button_last_time_pressed` is zero.
+Pin 38 is not assigned by the standard firmware.
 
-Run 20 trials against a specific Flic address with:
+### Temporary response-button input
 
-```bash
-cd /path/to/tabletop
-docker compose run --rm commander ros2 run tabletop_rig flic_smash_test \
-  --target-address AA:BB:CC:DD:EE:FF --samples 20
-```
+`tt-build microros --button-pin <pin>` enables the wired response input on that
+pin for one firmware build/upload. If the selected pin is 36 or 39, the response
+button temporarily owns that interrupt and the corresponding hand-lock feedback
+is forced to the fail-safe `unlocked` value. **Never run a robot task with this
+temporary firmware.**
 
-Replace `AA:BB:CC:DD:EE:FF` with the test button's Bluetooth address. Wait for
-`Teensy baseline acquired`, fully release both switches after every
-trial, and wait at least two seconds before the next trial. The node prints each
-latency plus running mean, standard deviation, minimum, and maximum.
-
-### Temporary button pin
-
-`tt-build microros --button-pin <pin>` overrides the response-button input for
-that one firmware build/upload. It does not change the source default.
-
-Pin 39 normally carries right-arm lock feedback. A temporary pin-39 build gives
-the button ownership of that interrupt and forces right-arm feedback to the
-fail-safe `unlocked` value. **Never run a robot task with this temporary
-firmware.** With robot tasks stopped, install it and run the test:
+For a response/Flic smash test on pin 36, stop robot tasks, unplug the left-hand
+sensor, connect the response switch between pin 36 and GND, then run:
 
 ```bash
 cd /path/to/tabletop
 docker compose stop teensy
-docker compose run --rm builder tt-build microros --button-pin 39
+docker compose run --rm builder tt-build microros --button-pin 36
 sleep 3
 docker compose start teensy
 docker compose run --rm commander ros2 run tabletop_rig flic_smash_test \
   --target-address AA:BB:CC:DD:EE:FF --samples 20
 ```
 
-The three-second pause lets `/dev/ttyACM0` disappear and re-enumerate after the
-upload before Docker reattaches the serial device.
+Replace `AA:BB:CC:DD:EE:FF` with the test button's Bluetooth address. Wait for
+`Teensy baseline acquired`, fully release both switches after every trial, and
+wait at least two seconds before the next trial. The node prints each latency
+plus running mean, standard deviation, minimum, and maximum.
 
-Restore standard firmware immediately after the bench test:
+The three-second pause lets `/dev/ttyACM0` disappear and re-enumerate after the
+upload before Docker reattaches the serial device. Restore standard firmware and
+reconnect the left-hand sensor immediately after the bench test:
 
 ```bash
 docker compose stop teensy
@@ -196,5 +222,5 @@ sleep 3
 docker compose start teensy
 ```
 
-The restored firmware returns the response button to pin 36 and right-arm lock
-feedback to pin 39. Pin 35 is not assigned by the standard firmware.
+The restored firmware disables the wired response input and returns pin 36 to
+left-hand feedback. Pin 39 remains right-hand feedback.

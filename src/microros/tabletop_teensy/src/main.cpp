@@ -10,6 +10,7 @@
 //   Publisher : teensy/log     -- std_msgs/msg/String, RELIABLE, human-readable diagnostics
 //   Service   : teensy/ping              -- tabletop_interfaces/srv/Ping
 //   Service   : teensy/set_arm_lock      -- tabletop_interfaces/srv/SetArmLock
+//   Service   : teensy/set_buzzer        -- tabletop_interfaces/srv/SetBuzzer
 //   Service   : teensy/set_smartglass    -- tabletop_interfaces/srv/SetSmartglass
 //   Service   : teensy/set_reward        -- tabletop_interfaces/srv/SetReward
 //   Service   : teensy/set_solenoid      -- tabletop_interfaces/srv/SetSolenoid
@@ -37,6 +38,7 @@
 #include <tabletop_interfaces/msg/teensy_sensor.h>
 #include <tabletop_interfaces/srv/ping.h>
 #include <tabletop_interfaces/srv/set_arm_lock.h>
+#include <tabletop_interfaces/srv/set_buzzer.h>
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
 #include <tabletop_interfaces/srv/set_solenoid.h>
@@ -44,6 +46,7 @@
 
 #include "core_pins.h"
 #include "rmw/qos_profiles.h"
+#include "rmw_microxrcedds_c/config.h"
 #include "rmw_microros/time_sync.h"
 
 // Guard: this firmware is only built with Arduino serial transport.
@@ -81,23 +84,32 @@
 // SAFETY_LASER_STATE_PIN: safety laser photodetector (HIGH = beam broken, danger state)
 #define SAFETY_LASER_STATE_PIN 25
 // LEFT_ARM_LOCK_STATE_PIN: left arm restraint feedback (LOW = arm seated/locked)
-// Pin 38 is intentional: pin 36 is occupied by BUTTON_STATE_PIN (see below),
-// so this feedback line stays on 38. Do not move it back to 36.
-#define LEFT_ARM_LOCK_STATE_PIN 38
+// The rig's left-hand sensor is wired to pin 36. Standard firmware reserves
+// this pin exclusively for left-arm feedback.
+#define LEFT_ARM_LOCK_STATE_PIN 36
 // RIGHT_ARM_LOCK_STATE_PIN: right arm restraint feedback (LOW = arm seated/locked)
 #define RIGHT_ARM_LOCK_STATE_PIN 39
-// BUTTON_STATE_PIN: subject response button (LOW = pressed, active-low with INPUT_PULLUP).
-// Pin 36 remains the normal rig default. A bench/smash-test firmware build may
-// override it (for example, -DBUTTON_STATE_PIN=35) without changing the normal
-// configuration or the left arm lock feedback on pin 38.
-#ifndef BUTTON_STATE_PIN
-#define BUTTON_STATE_PIN 36
+// BUTTON_STATE_PIN: optional subject response button (LOW = pressed). The wired
+// response input is disabled in standard firmware so pin 36 belongs only to the
+// left-arm sensor. tt-build microros --button-pin <pin> defines BUTTON_STATE_PIN
+// for a temporary response/smash-test build.
+#ifdef BUTTON_STATE_PIN
+#define BUTTON_INPUT_ENABLED 1
+#else
+#define BUTTON_INPUT_ENABLED 0
+// Sentinel used only in preprocessor comparisons; hardware access is guarded by
+// BUTTON_INPUT_ENABLED.
+#define BUTTON_STATE_PIN 255
 #endif
-// A temporary smash-test button may physically share the normal right-arm
-// feedback pin. In that special build, the button owns the interrupt and the
-// right-arm feedback is forced to the fail-safe "unlocked" state. Standard
-// firmware has distinct pins, so normal right-arm behavior is unchanged.
-#if BUTTON_STATE_PIN == RIGHT_ARM_LOCK_STATE_PIN
+// A temporary response-button build may share either arm-feedback pin. The
+// response button owns that interrupt and the corresponding arm feedback is
+// forced to the fail-safe "unlocked" state.
+#if BUTTON_INPUT_ENABLED && BUTTON_STATE_PIN == LEFT_ARM_LOCK_STATE_PIN
+#define BUTTON_SHARES_LEFT_ARM_LOCK_PIN 1
+#else
+#define BUTTON_SHARES_LEFT_ARM_LOCK_PIN 0
+#endif
+#if BUTTON_INPUT_ENABLED && BUTTON_STATE_PIN == RIGHT_ARM_LOCK_STATE_PIN
 #define BUTTON_SHARES_RIGHT_ARM_LOCK_PIN 1
 #else
 #define BUTTON_SHARES_RIGHT_ARM_LOCK_PIN 0
@@ -151,12 +163,23 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define PING_SRV_NAME "~/ping"
 // SET_ARM_LOCK_SRV_NAME: lock/release arm restraints and trigger buzzer on unlock
 #define SET_ARM_LOCK_SRV_NAME "~/set_arm_lock"
+// SET_BUZZER_SRV_NAME: pulse either hand buzzer without changing an arm lock
+#define SET_BUZZER_SRV_NAME "~/set_buzzer"
 // SET_SMARTGLASS_SRV_NAME: reveal (transparent) or occlude the smartglass pane
 #define SET_SMARTGLASS_SRV_NAME "~/set_smartglass"
 // SET_REWARD_SRV_NAME: open juice solenoid for a caller-specified duration
 #define SET_REWARD_SRV_NAME "~/set_reward"
 // SET_SOLENOID_SRV_NAME: arm/disarm auxiliary solenoid (follows sync pulse when armed)
 #define SET_SOLENOID_SRV_NAME "~/set_solenoid"
+
+// Keep the statically allocated micro-ROS entity pools and executor capacity in
+// lockstep with the entities initialized below. Two spare service slots are
+// configured in colcon.meta, but every firmware service must fit at build time.
+#define ROS_SERVICE_COUNT 6
+#define ROS_TIMER_COUNT 7
+#define EXECUTOR_HANDLE_COUNT (ROS_SERVICE_COUNT + ROS_TIMER_COUNT)
+static_assert(RMW_UXRCE_MAX_SERVICES >= ROS_SERVICE_COUNT,
+              "Increase RMW_UXRCE_MAX_SERVICES in colcon.meta when adding a firmware service");
 
 // =============================================================================
 // Timing and execution parameters
@@ -245,6 +268,7 @@ rcl_publisher_t log_publisher;
 // --- Services ---
 rcl_service_t ping_service;
 rcl_service_t set_arm_lock_service;
+rcl_service_t set_buzzer_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
 rcl_service_t set_solenoid_service;
@@ -265,6 +289,8 @@ rcl_timer_t sync_pulse_end_timer;
 rcl_timer_t sensor_timer;
 // reward_timer: one-shot; closes the reward solenoid after the requested duration
 rcl_timer_t reward_timer;
+// smartglass_timer: one-shot; restores state after a temporary change
+rcl_timer_t smartglass_timer;
 // arm_buzzer_timer: one-shot; silences the unlock buzzer after ARM_BUZZER_DURATION_MS
 rcl_timer_t arm_buzzer_timer;
 
@@ -288,6 +314,8 @@ tabletop_interfaces__srv__Ping_Request ping_request;
 tabletop_interfaces__srv__Ping_Response ping_response;
 tabletop_interfaces__srv__SetArmLock_Request set_arm_lock_request;
 tabletop_interfaces__srv__SetArmLock_Response set_arm_lock_response;
+tabletop_interfaces__srv__SetBuzzer_Request set_buzzer_request;
+tabletop_interfaces__srv__SetBuzzer_Response set_buzzer_response;
 tabletop_interfaces__srv__SetSmartglass_Request set_smartglass_request;
 tabletop_interfaces__srv__SetSmartglass_Response set_smartglass_response;
 tabletop_interfaces__srv__SetReward_Request set_reward_request;
@@ -319,6 +347,8 @@ enum agent_states
 bool is_reward_active;
 // is_smartglass_revealed: true while SMARTGLASS_CONTROL_PIN is HIGH (pane transparent)
 bool is_smartglass_revealed;
+// smartglass_restore_state: state restored when smartglass_timer expires
+bool smartglass_restore_state;
 // is_solenoid_active: true when SOLENOID_CONTROL_PIN should follow the sync pulse
 bool is_solenoid_active;
 
@@ -660,10 +690,12 @@ static void safety_laser_broken_isr()
 // left_arm_locked_isr: CHANGE ISR for LEFT_ARM_LOCK_STATE_PIN. Only the most
 // recent edge time is needed -- the arm-lock boolean is derived from the
 // debounced state in the timer and there is no published arm event timestamp.
+#if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
 static void left_arm_locked_isr()
 {
   left_arm_last_bounce_us = micros();
 }
+#endif
 // right_arm_locked_isr: CHANGE ISR for RIGHT_ARM_LOCK_STATE_PIN. Same as left.
 #if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
 static void right_arm_locked_isr()
@@ -674,6 +706,7 @@ static void right_arm_locked_isr()
 // button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN. Same capture/lock-out
 // pattern as safety_laser_broken_isr: latch the first edge as the press onset and
 // ignore the rest until the timer drains it; no pin or state read in the ISR.
+#if BUTTON_INPUT_ENABLED
 static void button_pressed_isr()
 {
   uint32_t now_us = micros();
@@ -684,6 +717,7 @@ static void button_pressed_isr()
   }
   button_event.last_bounce_us = now_us;
 }
+#endif
 
 // =============================================================================
 // Output control helpers
@@ -770,21 +804,29 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     // process_onset(). *_state_stable is timer-private, so updating it needs no
     // interrupt guard. Elapsed times use wrap-safe unsigned micros() subtraction.
     uint32_t us_since_safety_laser_bounced = now_us - safety_laser_event.last_bounce_us;
+#if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
     uint32_t us_since_left_arm_bounced = now_us - left_arm_last_bounce_us;
+#endif
 #if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
     uint32_t us_since_right_arm_bounced = now_us - right_arm_last_bounce_us;
 #endif
+#if BUTTON_INPUT_ENABLED
     uint32_t us_since_button_bounced = now_us - button_event.last_bounce_us;
+#endif
     uint8_t safety_laser_level = update_debounced_level(SAFETY_LASER_STATE_PIN, us_since_safety_laser_bounced,
                                                         SAFETY_LASER_DEBOUNCE_DELAY_US, &safety_laser_state_stable);
+#if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
     uint8_t left_arm_level = update_debounced_level(LEFT_ARM_LOCK_STATE_PIN, us_since_left_arm_bounced,
                                                     ARM_LOCK_DEBOUNCE_DELAY_US, &left_arm_state_stable);
+#endif
 #if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
     uint8_t right_arm_level = update_debounced_level(RIGHT_ARM_LOCK_STATE_PIN, us_since_right_arm_bounced,
                                                      ARM_LOCK_DEBOUNCE_DELAY_US, &right_arm_state_stable);
 #endif
+#if BUTTON_INPUT_ENABLED
     uint8_t button_level = update_debounced_level(BUTTON_STATE_PIN, us_since_button_bounced, BUTTON_DEBOUNCE_DELAY_US,
                                                   &button_state_stable);
+#endif
 
     // Published booleans. The safety laser fails safe: it also reports broken if
     // ANY edge occurred within the last tick (us_since_bounce < window), catching a
@@ -796,15 +838,23 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     const uint32_t window_us = SENSOR_PERIOD_MS * 1000UL;
     sensor_msg.is_safety_laser_broken =
         (safety_laser_level == SAFETY_LASER_BROKEN_STATE) || (us_since_safety_laser_bounced < window_us);
+#if BUTTON_SHARES_LEFT_ARM_LOCK_PIN
+    sensor_msg.is_left_arm_locked = false;
+#else
     sensor_msg.is_left_arm_locked =
         (left_arm_level == LEFT_ARM_LOCKED_STATE) && (us_since_left_arm_bounced > window_us);
+#endif
 #if BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
     sensor_msg.is_right_arm_locked = false;
 #else
     sensor_msg.is_right_arm_locked =
         (right_arm_level == RIGHT_ARM_LOCKED_STATE) && (us_since_right_arm_bounced > window_us);
 #endif
+#if BUTTON_INPUT_ENABLED
     sensor_msg.is_button_pressed = (button_level == BUTTON_PRESSED_STATE);
+#else
+    sensor_msg.is_button_pressed = false;
+#endif
 
     // Onset timestamps (safety-laser break, button press): drain each capture/
     // lock-out latch and publish its compute-once, cached onset time (byte-
@@ -814,9 +864,14 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     NS_TO_ROS_TIME(sensor_msg.safety_laser_last_time_broken,
                    process_onset(&safety_laser_event, safety_laser_level == SAFETY_LASER_BROKEN_STATE,
                                  SAFETY_LASER_DEBOUNCE_DELAY_US, now_us, now_mono_ns, now_epoch_ns));
+#if BUTTON_INPUT_ENABLED
     NS_TO_ROS_TIME(sensor_msg.button_last_time_pressed,
                    process_onset(&button_event, button_level == BUTTON_PRESSED_STATE, BUTTON_DEBOUNCE_DELAY_US, now_us,
                                  now_mono_ns, now_epoch_ns));
+#else
+    sensor_msg.button_last_time_pressed.sec = 0;
+    sensor_msg.button_last_time_pressed.nanosec = 0;
+#endif
 
     // Populate remaining sensor message
     GET_CURRENT_ROS_TIME(sensor_msg.header.stamp);
@@ -1010,6 +1065,45 @@ void set_reward_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// smartglass_timer_callback: restore the state captured before a temporary change.
+void smartglass_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
+{
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL)
+  {
+    set_smartglass(smartglass_restore_state);
+    RCASSERT(rcl_timer_cancel(timer), "Failed to cancel smartglass timer");
+    LOG("Smartglass temporary change finished");
+  }
+}
+
+// set_buzzer_callback: pulse the selected hand buzzer(s) for exactly
+// ARM_BUZZER_DURATION_MS without changing either arm-restraint output.
+void set_buzzer_callback(const void* req, void* res)
+{
+  const tabletop_interfaces__srv__SetBuzzer_Request* request =
+      static_cast<const tabletop_interfaces__srv__SetBuzzer_Request*>(req);
+  tabletop_interfaces__srv__SetBuzzer_Response* response =
+      static_cast<tabletop_interfaces__srv__SetBuzzer_Response*>(res);
+
+  if (!request->left_arm && !request->right_arm)
+  {
+    response->success = false;
+    STRING_SET(&response->message, "No buzzer specified");
+    LOG("%s", response->message.data);
+    return;
+  }
+
+  digitalWriteFast(LEFT_ARM_BUZZER_CONTROL_PIN, request->left_arm ? HIGH : LOW);
+  digitalWriteFast(RIGHT_ARM_BUZZER_CONTROL_PIN, request->right_arm ? HIGH : LOW);
+  RCASSERT(rcl_timer_reset(&arm_buzzer_timer), "Failed to reset arm buzzer timer");
+
+  response->success = true;
+  STRING_SET(&response->message, "%s buzzer started for 1.000 s",
+             request->left_arm && request->right_arm ? "Both" : (request->left_arm ? "Left" : "Right"));
+  LOG("%s", response->message.data);
+}
+
 // arm_buzzer_callback: one-shot; fires ARM_BUZZER_DURATION_MS after an unlock command.
 // Timer callback to stop the arm buzzer control
 // Drives both arm buzzer pins LOW and cancels itself.
@@ -1086,8 +1180,8 @@ void set_arm_lock_callback(const void* req, void* res)
 }
 
 // set_smartglass_callback: backs ~/set_smartglass (tabletop_interfaces/srv/SetSmartglass).
-// Service callback for controlling the smartglass
-// Reveals (transparent) or occludes the smartglass pane via set_smartglass().
+// A zero duration changes state normally. A positive duration changes it
+// temporarily and restores the previous state in firmware.
 void set_smartglass_callback(const void* req, void* res)
 {
   const tabletop_interfaces__srv__SetSmartglass_Request* request =
@@ -1095,10 +1189,41 @@ void set_smartglass_callback(const void* req, void* res)
   tabletop_interfaces__srv__SetSmartglass_Response* response =
       static_cast<tabletop_interfaces__srv__SetSmartglass_Response*>(res);
 
-  set_smartglass(request->reveal);
+  int64_t duration_ns = ROS_TIME_TO_NS(request->duration);
+  if (duration_ns < 0)
+  {
+    response->success = false;
+    STRING_SET(&response->message, "Smartglass duration cannot be negative");
+    LOG("%s", response->message.data);
+    return;
+  }
+
+  bool timer_is_canceled;
+  RCASSERT(rcl_timer_is_canceled(&smartglass_timer, &timer_is_canceled),
+           "Failed to check if smartglass timer is canceled");
+
+  if (duration_ns > 0)
+  {
+    smartglass_restore_state = is_smartglass_revealed;
+    set_smartglass(request->reveal);
+    int64_t old_period_ns;
+    RCASSERT(rcl_timer_exchange_period(&smartglass_timer, duration_ns, &old_period_ns),
+             "Failed to exchange smartglass timer period");
+    RCASSERT(rcl_timer_reset(&smartglass_timer), "Failed to reset smartglass timer");
+    STRING_SET(&response->message, "Smartglass temporarily %s for %.3f s",
+               request->reveal ? "revealed" : "occluded", duration_ns / 1e9);
+  }
+  else
+  {
+    if (!timer_is_canceled)
+    {
+      RCASSERT(rcl_timer_cancel(&smartglass_timer), "Failed to cancel smartglass timer");
+    }
+    set_smartglass(request->reveal);
+    STRING_SET(&response->message, "Smartglass %s", request->reveal ? "revealed" : "occluded");
+  }
 
   response->success = true;
-  STRING_SET(&response->message, "Smartglass %s", request->reveal ? "revealed" : "occluded");
   LOG("%s", response->message.data);
 }
 
@@ -1130,6 +1255,8 @@ void reset_state()
 {
   set_left_arm_lock(true);
   set_right_arm_lock(true);
+  digitalWriteFast(LEFT_ARM_BUZZER_CONTROL_PIN, LOW);
+  digitalWriteFast(RIGHT_ARM_BUZZER_CONTROL_PIN, LOW);
   set_smartglass(true);
   set_reward(false);
   set_sync_pulse(false);
@@ -1180,19 +1307,27 @@ void reset_state()
   // Seed the debounced level from the live pin so the first tick starts from the
   // real pin level rather than an undefined/zero state.
   safety_laser_state_stable = digitalReadFast(SAFETY_LASER_STATE_PIN);
+#if BUTTON_SHARES_LEFT_ARM_LOCK_PIN
+  left_arm_state_stable = !LEFT_ARM_LOCKED_STATE;
+#else
   left_arm_state_stable = digitalReadFast(LEFT_ARM_LOCK_STATE_PIN);
+#endif
 #if BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
   right_arm_state_stable = !RIGHT_ARM_LOCKED_STATE;
 #else
   right_arm_state_stable = digitalReadFast(RIGHT_ARM_LOCK_STATE_PIN);
 #endif
+#if BUTTON_INPUT_ENABLED
   button_state_stable = digitalReadFast(BUTTON_STATE_PIN);
+#else
+  button_state_stable = !BUTTON_PRESSED_STATE;
+#endif
   interrupts();
 }
 
 // init_client: creates all micro-ROS entities for one agent session.
 // Order: reset_state -> allocator -> support -> node -> publishers -> services ->
-//        timers -> executor (11 handles) -> time sync -> attach ISRs.
+//        timers -> executor -> time sync -> attach ISRs.
 // Returns true on success; RCCHECK() returns false on any rcl failure.
 bool init_client()
 {
@@ -1223,6 +1358,9 @@ bool init_client()
   RCCHECK(rclc_service_init_default(&set_arm_lock_service, &node,
                                     ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetArmLock),
                                     SET_ARM_LOCK_SRV_NAME));
+  RCCHECK(rclc_service_init_default(&set_buzzer_service, &node,
+                                    ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetBuzzer),
+                                    SET_BUZZER_SRV_NAME));
   RCCHECK(rclc_service_init_default(&set_smartglass_service, &node,
                                     ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetSmartglass),
                                     SET_SMARTGLASS_SRV_NAME));
@@ -1244,21 +1382,26 @@ bool init_client()
   RCCHECK(
       rclc_timer_init_default2(&sensor_timer, &support, RCL_MS_TO_NS(SENSOR_PERIOD_MS), sensor_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&reward_timer, &support, RCL_MS_TO_NS(1000), reward_timer_callback, false));
+  RCCHECK(rclc_timer_init_default2(&smartglass_timer, &support, RCL_MS_TO_NS(1000),
+                                   smartglass_timer_callback, false));
   RCCHECK(rclc_timer_init_default2(&arm_buzzer_timer, &support, RCL_MS_TO_NS(ARM_BUZZER_DURATION_MS),
                                    arm_buzzer_callback, false));
   LOG("Timers initialized");
 
   // Executor
-  RCCHECK(rclc_executor_init(&executor, &support.context, 11, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, EXECUTOR_HANDLE_COUNT, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
+  RCCHECK(rclc_executor_add_timer(&executor, &smartglass_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &arm_buzzer_timer));
   RCCHECK(rclc_executor_add_service(&executor, &ping_service, &ping_request, &ping_response, ping_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_arm_lock_service, &set_arm_lock_request, &set_arm_lock_response,
                                     set_arm_lock_callback));
+  RCCHECK(rclc_executor_add_service(&executor, &set_buzzer_service, &set_buzzer_request, &set_buzzer_response,
+                                    set_buzzer_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_smartglass_service, &set_smartglass_request,
                                     &set_smartglass_response, set_smartglass_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_reward_service, &set_reward_request, &set_reward_response,
@@ -1273,11 +1416,15 @@ bool init_client()
 
   // Attach interrupt service routines
   attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, SAFETY_LASER_ISR_TRIGGER);
+#if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
   attachInterrupt(digitalPinToInterrupt(LEFT_ARM_LOCK_STATE_PIN), left_arm_locked_isr, LEFT_ARM_ISR_TRIGGER);
+#endif
 #if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
   attachInterrupt(digitalPinToInterrupt(RIGHT_ARM_LOCK_STATE_PIN), right_arm_locked_isr, RIGHT_ARM_ISR_TRIGGER);
 #endif
+#if BUTTON_INPUT_ENABLED
   attachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN), button_pressed_isr, BUTTON_ISR_TRIGGER);
+#endif
 
   return true;
 }
@@ -1292,11 +1439,15 @@ void deinit_client()
 {
   // Detach interrupt service routines
   detachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN));
+#if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
   detachInterrupt(digitalPinToInterrupt(LEFT_ARM_LOCK_STATE_PIN));
+#endif
 #if !BUTTON_SHARES_RIGHT_ARM_LOCK_PIN
   detachInterrupt(digitalPinToInterrupt(RIGHT_ARM_LOCK_STATE_PIN));
 #endif
+#if BUTTON_INPUT_ENABLED
   detachInterrupt(digitalPinToInterrupt(BUTTON_STATE_PIN));
+#endif
 
   // Reset output pins
   reset_state();
@@ -1313,9 +1464,11 @@ void deinit_client()
   RCBESTEFFORT(rcl_timer_fini(&sync_pulse_end_timer));
   RCBESTEFFORT(rcl_timer_fini(&sensor_timer));
   RCBESTEFFORT(rcl_timer_fini(&reward_timer));
+  RCBESTEFFORT(rcl_timer_fini(&smartglass_timer));
   RCBESTEFFORT(rcl_timer_fini(&arm_buzzer_timer));
   RCBESTEFFORT(rcl_service_fini(&ping_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_arm_lock_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_buzzer_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_smartglass_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_reward_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_solenoid_service, &node));
@@ -1359,7 +1512,9 @@ void setup()
   pinMode(SAFETY_LASER_STATE_PIN, INPUT_PULLUP);
   pinMode(LEFT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
   pinMode(RIGHT_ARM_LOCK_STATE_PIN, INPUT_PULLUP);
+#if BUTTON_INPUT_ENABLED
   pinMode(BUTTON_STATE_PIN, INPUT_PULLUP);
+#endif
   for (size_t i = 0; i < 5; i++)
   {
     pinMode(LEFT_GLOVE_STATE_PINS[i], INPUT);
@@ -1378,6 +1533,8 @@ void setup()
   // create message memories
   bool success = micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetArmLock_Response), &set_arm_lock_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(
+      ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetBuzzer_Response), &set_buzzer_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv,
                                                                                    SetSmartglass_Response),
                                                        &set_smartglass_response, memory_conf);

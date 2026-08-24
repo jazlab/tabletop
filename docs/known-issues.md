@@ -128,9 +128,10 @@ Grouped by the original section, with the merging PR.
 
 ### C. Firmware
 
-1. **Teensy pin "conflict"** (`LEFT_ARM_LOCK_STATE_PIN`) → **#30.** Resolved as
-   *intentional*: pin 38 is deliberate because pin 36 is `BUTTON_STATE_PIN`; the
-   stale `// TODO: change back to 36` was removed and the rationale documented.
+1. **Teensy pin assignment** (`LEFT_ARM_LOCK_STATE_PIN`) → **updated after
+   hardware validation.** Standard firmware now uses pin 36 for left-hand
+   feedback and pin 39 for right-hand feedback. The wired response input is
+   disabled by default and can be enabled temporarily with `--button-pin`.
 2. **Misspelled enum `UNCRECOVERABLE_ERROR`** → **#30.** Renamed to
    `UNRECOVERABLE_ERROR` throughout.
 

@@ -4,8 +4,9 @@
 # Called by: TeensyInterface.set_smartglass() (interfaces/teensy.py).
 
 # --- Request ---
-bool reveal  # True makes the pane transparent (subject can see the stimulus); False makes it translucent/opaque (occludes the view)
+bool reveal                           # True makes the pane transparent; False makes it translucent/opaque
+builtin_interfaces/Duration duration # Zero changes state normally; positive changes it temporarily, then restores the prior state
 ---
 # --- Response ---
-bool success    # Always True from the firmware (no failure mode defined)
+bool success    # True when accepted; False for an invalid negative duration
 string message  # Human-readable confirmation (e.g. "Smartglass revealed" or "Smartglass occluded")
