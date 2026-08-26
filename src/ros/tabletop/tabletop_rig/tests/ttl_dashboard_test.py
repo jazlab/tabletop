@@ -69,24 +69,22 @@ def test_constant_robot_inputs_are_online_but_not_misidentified() -> None:
     values = {pin: pin == 2 for pin in range(18)}
     for when in (1.0, 2.0, 3.0, 4.0):
         _pulse_reference(state, when)
-        state.record_robot("robot_2", values, when + 0.01)
+        state.record_robot("robot_1", values, when + 0.01)
     snapshot = state.snapshot()
-    assert snapshot.robot_inputs["robot_2"] is None
-    assert snapshot.channels["robot_2"].received_at > 0
-    assert "no correlated input" in snapshot.channels["robot_2"].detail
+    assert snapshot.robot_inputs["robot_1"] is None
+    assert snapshot.channels["robot_1"].received_at > 0
+    assert "no correlated input" in snapshot.channels["robot_1"].detail
 
 
 def test_render_has_full_size_for_live_and_missing_channels() -> None:
-    state = TTLMonitorState({"robot_1": (0, True), "robot_2": (1, False)})
+    state = TTLMonitorState({"robot_1": (0, True)})
     state.record_eyelink(255, 9.9)
     state.record_flir(4, 9.9)
     state.record_robot("robot_1", {0: False}, 9.9)
-    state.record_robot("robot_2", {1: True}, 9.9)
     _pulse_reference(state, 10.0)
     state.record_eyelink(247, 10.005)
     state.record_flir(12, 10.008)
     state.record_robot("robot_1", {0: True}, 10.004)
-    state.record_robot("robot_2", {1: False}, 10.006)
     image = render_dashboard(state.snapshot(), now=10.02)
     assert image.shape == (HEIGHT, WIDTH, 3)
     assert image.dtype == np.uint8

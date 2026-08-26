@@ -102,6 +102,10 @@ Environment variables set:
   FLIR_DEV_0 ... FLIR_DEV_N   Resolved paths to detected FLIR camera devices
   PULSE_SERVER_MNT / PULSE_COOKIE_MNT   PulseAudio socket and cookie mounts
   ROS_BAG_DIR_MNT              ROS bag directory mount (or /dev/null if unset)
+
+After unplugging, power cycling, or resetting FLIR cameras, apply the refreshed
+device paths by recreating the camera container (restart reuses stale mounts):
+  docker compose up -d --force-recreate --no-deps flir
 EOF
             exit 0
             ;;

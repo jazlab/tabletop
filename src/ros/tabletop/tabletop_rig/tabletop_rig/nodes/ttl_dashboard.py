@@ -44,19 +44,17 @@ BLUE = (229, 157, 90)
 GREY = (105, 98, 94)
 GRID = (79, 70, 66)
 
-CHANNELS = ("teensy", "eyelink", "robot_1", "robot_2", "flir")
+CHANNELS = ("teensy", "eyelink", "robot_1", "flir")
 LABELS = {
     "teensy": "Teensy source",
     "eyelink": "EyeLink",
     "robot_1": "Robot 1 / left",
-    "robot_2": "Robot 2 / right",
     "flir": "FLIR sync camera",
 }
 COLORS = {
     "teensy": GREEN,
     "eyelink": (226, 157, 239),
     "robot_1": (229, 157, 90),
-    "robot_2": (102, 209, 255),
     "flir": (143, 227, 102),
 }
 
@@ -95,19 +93,16 @@ class TTLMonitorState:
         self.channels["teensy"].detail = "Teensy pin 0"
         self.channels["eyelink"].detail = "Input bit 3, active-low"
         self.channels["flir"].detail = f"{FLIR_CAMERA} Line{FLIR_LINE}"
-        self.robot_inputs = {"robot_1": None, "robot_2": None}
+        self.robot_inputs = {"robot_1": None}
         if configured_robot_inputs:
             self.robot_inputs.update(configured_robot_inputs)
         self.eyelink_online = False
         self.reference_period_ms: float | None = None
         self._reference_rises: deque[tuple[int, float]] = deque(maxlen=32)
         self._reference_sequence = 0
-        self._robot_values = {"robot_1": {}, "robot_2": {}}
-        self._robot_transitions = {
-            "robot_1": deque(maxlen=128),
-            "robot_2": deque(maxlen=128),
-        }
-        self._robot_candidates = {"robot_1": {}, "robot_2": {}}
+        self._robot_values = {"robot_1": {}}
+        self._robot_transitions = {"robot_1": deque(maxlen=128)}
+        self._robot_candidates = {"robot_1": {}}
 
     def snapshot(self) -> TTLSnapshot:
         with self.lock:
@@ -168,7 +163,7 @@ class TTLMonitorState:
                     now - self._reference_rises[-1][1]
                 ) * 1000.0
             self._reference_rises.append((self._reference_sequence, now))
-            for side in ("robot_1", "robot_2"):
+            for side in ("robot_1",):
                 for when, pin, level in tuple(self._robot_transitions[side]):
                     if abs(when - now) <= UR_MATCH_WINDOW_SECONDS:
                         self._record_robot_match(
@@ -303,7 +298,6 @@ class TTLMonitorNode(Node):
         self.state = TTLMonitorState(
             {
                 "robot_1": _optional_robot_input("ROBOT1"),
-                "robot_2": _optional_robot_input("ROBOT2"),
             }
         )
         qos = QoSPresetProfiles.SENSOR_DATA.value
@@ -327,18 +321,6 @@ class TTLMonitorNode(Node):
                 "/left_io_and_status_controller/io_states",
                 lambda msg: self.state.record_robot(
                     "robot_1",
-                    {
-                        int(item.pin): bool(item.state)
-                        for item in msg.digital_in_states
-                    },
-                ),
-                qos,
-            ),
-            self.create_subscription(
-                IOStates,
-                "/right_io_and_status_controller/io_states",
-                lambda msg: self.state.record_robot(
-                    "robot_2",
                     {
                         int(item.pin): bool(item.state)
                         for item in msg.digital_in_states
@@ -526,12 +508,11 @@ def render_dashboard(
     )
 
     cards = [
-        (44, 140, 475, 390),
-        (503, 140, 934, 390),
-        (962, 140, 1393, 390),
-        (1421, 140, 1856, 390),
+        (44, 140, 626, 390),
+        (659, 140, 1241, 390),
+        (1274, 140, 1856, 390),
     ]
-    for name, rect in zip(("eyelink", "robot_1", "robot_2", "flir"), cards):
+    for name, rect in zip(("eyelink", "robot_1", "flir"), cards):
         _draw_card(canvas, name, snapshot.channels[name], snapshot, rect, now)
 
     _text(canvas, "ALIGNED LIVE TRACE", (44, 445), 0.56, MUTED, 2)
@@ -549,7 +530,7 @@ def render_dashboard(
         )
 
     for index, name in enumerate(CHANNELS):
-        y = 545 + index * 76
+        y = 545 + index * 96
         color = COLORS[name]
         _text(canvas, LABELS[name], (72, y + 5), 0.54, color, 2)
         _draw_trace(

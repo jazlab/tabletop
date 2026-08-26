@@ -218,24 +218,23 @@ static_assert(RMW_UXRCE_MAX_SERVICES >= ROS_SERVICE_COUNT,
 #define SYNC_PULSE_DURATION_MS 100
 // ARM_BUZZER_DURATION_MS: how long the unlock buzzer sounds after a release command
 #define ARM_BUZZER_DURATION_MS 1000
-// Per-sensor debounce delays: the minimum quiet time (no new edge) before a pin
-// transition is treated as a settled event. Each input gets its own knob so the
-// delay can be matched to that sensor's physical bounce: an optical safety-laser
-// gate bounces far less than a mechanical pushbutton or arm-lock contact. Both
-// arm-lock inputs share one value. The delay MUST exceed the worst-case bounce
-// of its sensor -- it is what rejects the rapid edges within a single
-// activation, both when latching the onset timestamp in the ISR and when
-// resampling the debounced state in the timer. These are starting points and
-// need bench confirmation against measured bounce on the real rig.
-// SAFETY_LASER_DEBOUNCE_DELAY_MS: quiet time for the safety-laser gate (optical)
-#define SAFETY_LASER_DEBOUNCE_DELAY_MS 1
+// Mechanical-input debounce delays: minimum quiet time before a pin transition
+// is treated as settled. These must exceed the measured contact bounce; both
+// arm-lock inputs share one value.
+// SAFETY_LASER_BREAK_QUALIFICATION_MS: the beam-broken level must remain
+// continuously active for this long before it is published as unsafe. The
+// default is selected from on-rig Smartglass interference testing. PlatformIO's
+// PLATFORMIO_BUILD_FLAGS may override it while sweeping candidate values.
+#ifndef SAFETY_LASER_BREAK_QUALIFICATION_MS
+#define SAFETY_LASER_BREAK_QUALIFICATION_MS 1
+#endif
 // BUTTON_DEBOUNCE_DELAY_MS: quiet time for the response button (mechanical)
 #define BUTTON_DEBOUNCE_DELAY_MS 5
 // ARM_LOCK_DEBOUNCE_DELAY_MS: quiet time for each arm-lock input (mechanical)
 #define ARM_LOCK_DEBOUNCE_DELAY_MS 5
 // *_DEBOUNCE_DELAY_US: the above in microseconds, for comparison against the raw
 // micros() timestamps latched in the sensor ISRs and the sensor timer.
-#define SAFETY_LASER_DEBOUNCE_DELAY_US (SAFETY_LASER_DEBOUNCE_DELAY_MS * 1000UL)
+#define SAFETY_LASER_BREAK_QUALIFICATION_US (SAFETY_LASER_BREAK_QUALIFICATION_MS * 1000UL)
 #define BUTTON_DEBOUNCE_DELAY_US (BUTTON_DEBOUNCE_DELAY_MS * 1000UL)
 #define ARM_LOCK_DEBOUNCE_DELAY_US (ARM_LOCK_DEBOUNCE_DELAY_MS * 1000UL)
 // CAMERA_TRIGGER_FPS: target frame rate for the FLIR cameras
@@ -382,10 +381,12 @@ builtin_interfaces__msg__Time sync_pulse_last_time_off;
 //                      captures an onset, then captures nothing more; the timer
 //                      is the only writer that clears it (re-arm). A single byte,
 //                      so both accesses are atomic.
-//   *_state_stable  -- the debounced pin level. Timer-private: written and read
-//                      ONLY by the timer (seeded once by reset_state). The ISRs
-//                      never touch it, so it needs no volatile and no guard -- and
-//                      no pin is ever read inside an ISR.
+//   *_state_stable  -- the debounced mechanical-input level. Timer-private:
+//                      written and read ONLY by the timer (seeded once by
+//                      reset_state). The mechanical-input ISRs never touch it,
+//                      so it needs no volatile and no guard. The safety-laser ISR
+//                      intentionally reads its digital pin to distinguish a real
+//                      sustained level from an interrupt-only electrical edge.
 //
 // Debounce model -- two independent, deliberately simple mechanisms, NEITHER of
 // which assumes the bounce settles within one timer tick:
@@ -425,12 +426,16 @@ struct OnsetSensor
 
 // safety_laser_event: SAFETY_LASER_STATE_PIN onset (beam newly broken)
 OnsetSensor safety_laser_event;
+// Raw safety-laser state captured by the CHANGE ISR. broken_since_us is reset
+// on every transition into the broken level, so qualification measures one
+// uninterrupted break rather than time since an earlier glitch.
+volatile bool safety_laser_raw_broken;
+volatile uint32_t safety_laser_broken_since_us;
 // button_event: BUTTON_STATE_PIN onset (button newly pressed)
 OnsetSensor button_event;
 
 // Debounced pin levels (timer-private; seeded once by reset_state). Not volatile:
 // no ISR reads or writes them.
-uint8_t safety_laser_state_stable;
 uint8_t button_state_stable;
 
 // Arm restraints expose only a debounced boolean (no onset timestamp), so they
@@ -669,19 +674,19 @@ static void camera_trigger_toggle_isr()
   digitalWriteFast(CAMERA_TRIGGER_CONTROL_PIN, state ? HIGH : LOW);
 }
 
-// safety_laser_broken_isr: CHANGE ISR for SAFETY_LASER_STATE_PIN. Records the
-// micros() of every edge (for the debounce/window math) and, unless an earlier
-// onset is still awaiting the timer (event_pending), latches THIS edge's micros()
-// as the activation onset and locks out further captures. It reads neither the
-// pin nor the debounced state, so nothing here samples a bouncing line; the timer
-// alone decides whether the latched edge was a real break and when to re-arm. The
-// micros()->epoch conversion also happens in the timer, so the (non-interrupt-
-// safe) epoch sync is never observed mid-update.
+// safety_laser_broken_isr: CHANGE ISR for SAFETY_LASER_STATE_PIN. Captures the
+// raw level and edge time so the timer can require a continuously broken level.
+// Each new transition into the broken level starts qualification again; a clear
+// edge therefore cancels even a nearly-qualified electrical pulse. Epoch
+// conversion remains in the timer and is never performed inside the ISR.
 static void safety_laser_broken_isr()
 {
   uint32_t now_us = micros();
-  if (!safety_laser_event.event_pending)
+  bool broken = digitalReadFast(SAFETY_LASER_STATE_PIN) == SAFETY_LASER_BROKEN_STATE;
+  safety_laser_raw_broken = broken;
+  if (broken)
   {
+    safety_laser_broken_since_us = now_us;
     safety_laser_event.event_us = now_us;
     safety_laser_event.event_pending = true;
   }
@@ -703,9 +708,9 @@ static void right_arm_locked_isr()
   right_arm_last_bounce_us = micros();
 }
 #endif
-// button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN. Same capture/lock-out
-// pattern as safety_laser_broken_isr: latch the first edge as the press onset and
-// ignore the rest until the timer drains it; no pin or state read in the ISR.
+// button_pressed_isr: CHANGE ISR for BUTTON_STATE_PIN. Use the capture/lock-out
+// pattern: latch the first edge as the press onset and ignore the rest until the
+// timer drains it; no pin or state read in this ISR.
 #if BUTTON_INPUT_ENABLED
 static void button_pressed_isr()
 {
@@ -797,13 +802,13 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     int64_t now_mono_ns = monotonic_nanos();
     int64_t now_epoch_ns = rmw_uros_epoch_nanos();
 
-    // Debounce each pin's level: update_debounced_level() commits the live pin to
-    // *_state_stable only after the line has been quiet for that sensor's delay.
-    // The arm-lock bounce latches are single aligned 32-bit volatiles, so they are
-    // read directly (atomic); the OnsetSensor latches are snapshotted inside
-    // process_onset(). *_state_stable is timer-private, so updating it needs no
-    // interrupt guard. Elapsed times use wrap-safe unsigned micros() subtraction.
-    uint32_t us_since_safety_laser_bounced = now_us - safety_laser_event.last_bounce_us;
+    // Snapshot the ISR-owned laser qualification state atomically. Elapsed-time
+    // subtraction remains wrap-safe across micros() rollover.
+    noInterrupts();
+    uint32_t safety_laser_break_started_us = safety_laser_broken_since_us;
+    bool safety_laser_broken_raw = safety_laser_raw_broken;
+    interrupts();
+    uint32_t us_safety_laser_broken = now_us - safety_laser_break_started_us;
 #if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
     uint32_t us_since_left_arm_bounced = now_us - left_arm_last_bounce_us;
 #endif
@@ -813,8 +818,6 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 #if BUTTON_INPUT_ENABLED
     uint32_t us_since_button_bounced = now_us - button_event.last_bounce_us;
 #endif
-    uint8_t safety_laser_level = update_debounced_level(SAFETY_LASER_STATE_PIN, us_since_safety_laser_bounced,
-                                                        SAFETY_LASER_DEBOUNCE_DELAY_US, &safety_laser_state_stable);
 #if !BUTTON_SHARES_LEFT_ARM_LOCK_PIN
     uint8_t left_arm_level = update_debounced_level(LEFT_ARM_LOCK_STATE_PIN, us_since_left_arm_bounced,
                                                     ARM_LOCK_DEBOUNCE_DELAY_US, &left_arm_state_stable);
@@ -828,16 +831,17 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
                                                   &button_state_stable);
 #endif
 
-    // Published booleans. The safety laser fails safe: it also reports broken if
-    // ANY edge occurred within the last tick (us_since_bounce < window), catching a
-    // break that bounced and resolved between two ticks. The arm locks require the
-    // locked level to have been stable for a full tick. last_call_time is unused --
-    // all elapsed-time math stays in the wrap-safe micros() domain.
-    // NOTE (needs on-rig validation): confirm the window width/polarity on hardware.
+    // Published booleans. The safety laser reports unsafe only after the raw
+    // broken level has remained uninterrupted for the configured qualification
+    // time. This rejects short electrical pulses without allowing a clear edge
+    // to inherit time from an earlier break. The arm locks require the locked
+    // level to have been stable for a full tick. last_call_time is unused -- all
+    // elapsed-time math stays in the wrap-safe micros() domain.
     RCLC_UNUSED(last_call_time);
     const uint32_t window_us = SENSOR_PERIOD_MS * 1000UL;
-    sensor_msg.is_safety_laser_broken =
-        (safety_laser_level == SAFETY_LASER_BROKEN_STATE) || (us_since_safety_laser_bounced < window_us);
+    bool safety_laser_break_qualified =
+        safety_laser_broken_raw && (us_safety_laser_broken >= SAFETY_LASER_BREAK_QUALIFICATION_US);
+    sensor_msg.is_safety_laser_broken = safety_laser_break_qualified;
 #if BUTTON_SHARES_LEFT_ARM_LOCK_PIN
     sensor_msg.is_left_arm_locked = false;
 #else
@@ -858,12 +862,11 @@ void sensor_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
 
     // Onset timestamps (safety-laser break, button press): drain each capture/
     // lock-out latch and publish its compute-once, cached onset time (byte-
-    // identical between events). The onset is gated on the DEBOUNCED break/press
-    // level -- not the laser's fail-safe window -- so a stray edge that never
-    // sustains does not stamp a false onset.
+    // identical between events). The laser onset is gated on the same sustained
+    // break qualification as the published unsafe state.
     NS_TO_ROS_TIME(sensor_msg.safety_laser_last_time_broken,
-                   process_onset(&safety_laser_event, safety_laser_level == SAFETY_LASER_BROKEN_STATE,
-                                 SAFETY_LASER_DEBOUNCE_DELAY_US, now_us, now_mono_ns, now_epoch_ns));
+                   process_onset(&safety_laser_event, safety_laser_break_qualified,
+                                 SAFETY_LASER_BREAK_QUALIFICATION_US, now_us, now_mono_ns, now_epoch_ns));
 #if BUTTON_INPUT_ENABLED
     NS_TO_ROS_TIME(sensor_msg.button_last_time_pressed,
                    process_onset(&button_event, button_level == BUTTON_PRESSED_STATE, BUTTON_DEBOUNCE_DELAY_US, now_us,
@@ -1296,6 +1299,8 @@ void reset_state()
   safety_laser_event.event_pending = false;
   safety_laser_event.confirmed_event_us = now_us;
   safety_laser_event.epoch_dirty = true;
+  safety_laser_raw_broken = digitalReadFast(SAFETY_LASER_STATE_PIN) == SAFETY_LASER_BROKEN_STATE;
+  safety_laser_broken_since_us = now_us;
   button_event.last_bounce_us = now_us;
   button_event.event_us = now_us;
   button_event.event_pending = false;
@@ -1306,7 +1311,6 @@ void reset_state()
 
   // Seed the debounced level from the live pin so the first tick starts from the
   // real pin level rather than an undefined/zero state.
-  safety_laser_state_stable = digitalReadFast(SAFETY_LASER_STATE_PIN);
 #if BUTTON_SHARES_LEFT_ARM_LOCK_PIN
   left_arm_state_stable = !LEFT_ARM_LOCKED_STATE;
 #else
@@ -1413,6 +1417,7 @@ bool init_client()
   RCCHECK(rmw_uros_sync_session(1000));
 
   LOG("Session synced");
+  LOG("Safety laser qualification: %d ms", SAFETY_LASER_BREAK_QUALIFICATION_MS);
 
   // Attach interrupt service routines
   attachInterrupt(digitalPinToInterrupt(SAFETY_LASER_STATE_PIN), safety_laser_broken_isr, SAFETY_LASER_ISR_TRIGGER);

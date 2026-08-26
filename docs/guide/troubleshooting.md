@@ -225,8 +225,27 @@ then capture the device paths:
 tt-env-gen                               # capture FLIR_DEV_* into .env
 ```
 
-If cameras misbehave, `tt-flir-reset` reloads udev, factory-resets, and
-regenerates the env. Check synchronization with `ros2 run tabletop_rig system_check`.
+USB device numbers change whenever a camera or its hub is unplugged, power
+cycled, or reset. Regenerating `.env` does not update the device mounts of an
+existing container, and `docker compose restart flir` reuses those stale
+mounts. If the driver reports that a camera was removed, previews stop, or
+Docker reports `error gathering device information ... no such file or
+directory`, refresh the paths and **recreate** the FLIR container:
+
+```bash
+cd /path/to/tabletop
+tt-env-gen
+docker compose up -d --force-recreate --no-deps flir
+```
+
+Use `up --force-recreate`, not `restart`, after any FLIR USB topology change.
+The persistent `/dev/flir/<serial>` links let `tt-env-gen` find each camera's
+new raw `/dev/bus/usb/...` path; recreating the container applies those paths.
+
+Only if a clean recreation still fails should you use `tt-flir-reset`, which
+reloads udev, factory-resets the cameras, and regenerates the environment.
+Check synchronization afterward with
+`ros2 run tabletop_rig system_check`.
 
 ## Performance
 

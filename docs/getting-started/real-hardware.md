@@ -55,8 +55,20 @@ sudo udevadm trigger
 
 PlatformIO also ships
 [generic board udev rules](https://docs.platformio.org/en/latest/core/installation/udev-rules.html);
-the custom Teensy rule above replaces them. After plugging or unplugging a
-device, re-run `tt-env-gen` so Docker re-maps it.
+the custom Teensy rule above replaces them. FLIR raw USB paths change after a
+camera or hub is unplugged, power cycled, or reset. Refresh the paths and
+recreate the camera container so Docker applies the new device mounts:
+
+```bash
+tt-env-gen
+docker compose up -d --force-recreate --no-deps flir
+```
+
+`docker compose restart flir` is not sufficient: it reuses the old device
+mounts and can fail with `error gathering device information ... no such file
+or directory`. See
+[Troubleshooting → FLIR cameras](../guide/troubleshooting.md#flir-cameras) for
+diagnosis and the factory-reset fallback.
 
 ### Bluetooth adapter (Flic buttons)
 

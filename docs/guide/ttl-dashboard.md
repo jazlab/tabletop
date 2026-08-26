@@ -2,7 +2,7 @@
 
 The TableTop TTL Monitor is a passive timing dashboard on noVNC workspace 6.
 It compares the once-per-second synchronization pulse as observed independently
-by EyeLink, both UR robots, and the designated FLIR sync camera. It never
+by EyeLink, Robot 1, and the designated FLIR sync camera. It never
 commands a robot or changes an output.
 
 ## Physical source pins
@@ -26,8 +26,7 @@ The live hardware trace established these mappings:
 | Device | Observed ROS source | TTL interpretation |
 | --- | --- | --- |
 | EyeLink | `/eyelink/ttl_input` | input bit 3, active-low (`255` idle, `247` asserted) |
-| Robot 1 / left | `/left_io_and_status_controller/io_states` | correlated digital input, auto-detected |
-| Robot 2 / right | `/right_io_and_status_controller/io_states` | correlated digital input, auto-detected |
+| Robot 1 / left | `/left_io_and_status_controller/io_states` | digital input 3, active-low |
 | FLIR | `/cam_sync/left_back_top_cam/meta` | Line3, bit 3 of `line_status` |
 | Reference | `/teensy/sensor` | `sync_pulse_state` from Teensy pin 0 |
 
@@ -37,20 +36,26 @@ followed the Teensy reference by roughly 8-25 ms in the software-observed
 probes. The other five cameras showed
 no Line3 transition, matching the rig's single-camera sync-input wiring.
 
-The two UR controllers were each sampled at about 425 I/O messages per second
-across digital inputs 0-17. No input changed during that observation. The
-dashboard therefore does not guess a pin. It selects an input only after the
-same edge has correlated with three Teensy pulses. Until then it reports
-`NO CORRELATED TTL`. This makes missing wiring or a wrong UR input configuration
-visible instead of reporting a false healthy state.
+Robot 1 publishes about 425 I/O messages per second across digital inputs 0-17.
+The installed isolated interface feeds Robot 1 digital input 3. Its robot-side
+output is powered from the UR controller's 24 V and 0 V rails and is inverted:
+DI 3 is high while the synchronization pulse is idle and low while the pulse is
+asserted. Loaded measurements were 16 V idle and 3.9 V asserted, within the UR
+digital-input thresholds. The dashboard therefore interprets DI 3 as active-low.
+
+If Teensy pin 0 is wired directly to UR DI 0, the voltage levels are incompatible:
+the [Teensy 4.1 output HIGH is 3.3 V](https://www.pjrc.com/store/teensy41.html),
+while the [UR5e controller defines -3 to 5 V as OFF and requires 11 to 30 V
+for ON](https://www.universal-robots.com/manuals/EN/HTML/SW5_23/Content/prod-usr-man/complianceUR5e/H_g5_sections/installation/controller_i_o.htm).
+Use an appropriately designed 3.3 V-to-24 V interface, such as an isolated or
+transistor interface suitable for the UR PNP input. Never connect UR 24 V back
+into a Teensy signal pin.
 
 For installations with a fixed known mapping, auto-detection can be overridden:
 
 ```bash
-TABLETOP_TTL_ROBOT1_PIN=0
-TABLETOP_TTL_ROBOT1_ACTIVE_LOW=false
-TABLETOP_TTL_ROBOT2_PIN=0
-TABLETOP_TTL_ROBOT2_ACTIVE_LOW=false
+TABLETOP_TTL_ROBOT1_PIN=3
+TABLETOP_TTL_ROBOT1_ACTIVE_LOW=true
 ```
 
 ## EyeLink remains passive
@@ -73,8 +78,7 @@ from the Teensy reference edge. The lower eight-second trace aligns:
 1. Teensy source;
 2. EyeLink;
 3. Robot 1 / left;
-4. Robot 2 / right; and
-5. the FLIR sync camera.
+4. the FLIR sync camera.
 
 Missing messages, missing recent pulses, and an undetected robot input have
 separate states. This is a software-observed timing monitor rather than an
@@ -100,8 +104,8 @@ Do not restart EyeLink during an active task or recording.
 ## Verification
 
 The tests use synthetic aligned and missing TTL streams. They cover Line3 and
-EyeLink bit decoding, three-edge robot input detection, rejection of constant
-robot inputs, rendering, and bounded EyeLink status publication.
+EyeLink bit decoding, Robot 1 input detection, rejection of constant robot
+inputs, rendering, and bounded EyeLink status publication.
 
 ```bash
 docker compose run --rm builder python3 -m pytest -q \

@@ -229,6 +229,8 @@ services:
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+      - TABLETOP_TTL_ROBOT1_PIN=3
+      - TABLETOP_TTL_ROBOT1_ACTIVE_LOW=true
     depends_on:
       novnc:
         condition: service_healthy
