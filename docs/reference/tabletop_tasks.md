@@ -15,6 +15,7 @@ can depend on the subject's last response. See
 
 ::: tabletop_tasks.tasks.base
 ::: tabletop_tasks.tasks.foraging
+::: tabletop_tasks.tasks.invariant_affordance
 ::: tabletop_tasks.tasks.present
 ::: tabletop_tasks.tasks.smooth_pursuit
 ::: tabletop_tasks.tasks.dummy

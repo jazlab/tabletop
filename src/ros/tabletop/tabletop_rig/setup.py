@@ -55,7 +55,12 @@ setup(
             "system_check = tabletop_rig.nodes.system_check:main",
             "io_dashboard = tabletop_rig.nodes.io_dashboard:main",
             "ttl_dashboard = tabletop_rig.nodes.ttl_dashboard:main",
+            "session_dashboard = tabletop_rig.nodes.session_dashboard:main",
             "rosbag_to_csv = tabletop_rig.utils.rosbag:main",
+            "diagnostic_rosbag_recorder = "
+            "tabletop_rig.utils.diagnostic_rosbag_recorder:main",
+            "session_integrity = "
+            "tabletop_rig.utils.session_integrity:main",
         ],
     },
 )

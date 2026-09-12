@@ -91,7 +91,8 @@ def asc_to_df(
     Args:
         path (str): The path to the EyeLink ASC file.
         input_mapping (dict): A dictionary mapping input values to new values.
-            The default mapping is {255: 1, 247: 0}.
+            The CLI default mapping is {127: 1, 95: 0}, matching the current
+            rig's active-low EyeLink status-pin-12 sync input.
 
     Returns:
         DataFrame: The DataFrame containing the processed data.
@@ -209,7 +210,7 @@ def main(args=None):
         "--input-mapping",
         type=str,
         nargs="+",
-        default=["255:1", "247:0"],
+        default=["127:1", "95:0"],
         help="The input mapping to pass to the asc_to_df command. Format: 'key:value'.",
     )
     parser.add_argument(

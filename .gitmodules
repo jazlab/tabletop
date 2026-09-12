@@ -23,13 +23,13 @@
 	url = https://github.com/valmikikothare/mocap4r2.git
 	branch = rolling
 [submodule "mocap4r2_optitrack"]
-	path = src/ros/modules/mocap4r2_optitrack
-	url = https://github.com/valmikikothare/mocap4ros2_optitrack.git
-	branch = rolling
+    path = src/ros/modules/mocap4r2_optitrack
+    url = https://github.com/jazlab/mocap4ros2_optitrack.git
+    branch = codex/rig-reliability
 [submodule "flir_camera_driver"]
-	path = src/ros/modules/flir_camera_driver
-	url = https://github.com/valmikikothare/flir_camera_driver.git
-	branch = ros2-release
+    path = src/ros/modules/flir_camera_driver
+    url = https://github.com/jazlab/flir_camera_driver.git
+    branch = codex/rig-reliability-v2
 [submodule "foxglove_moveit_msg_converter"]
 	path = src/foxglove_moveit_msg_converter
 	url = https://github.com/valmikikothare/foxglove_moveit_msg_converter.git

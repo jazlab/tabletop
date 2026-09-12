@@ -98,7 +98,7 @@ scripts; it is documented as Ubuntu 24.04 procedures in
 | `flir` | real | `tt-launch flir_synchronized` | `$FLIR_DEV_0..5` USB devices |
 | `optitrack` | real | `tt-launch optitrack` | |
 | `rviz`, `foxglove` | real, sim | `tt-launch rviz\|foxglove` | rviz renders to noVNC display |
-| `novnc` | real, sim | X11+VNC server | browse to `localhost:<NOVNC_PORT>/vnc.html` |
+| `novnc` | real, sim | Authenticated TLS X11+VNC server | browse to `https://localhost:<NOVNC_PORT>/vnc.html` |
 | `builder` | builder | — (set at run time) | privileged, `/dev`, platformio cache volume; target of host `tt-build` |
 | `dev` | dev | `sleep infinity` | the Dev Container; everything mounted |
 

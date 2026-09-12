@@ -44,6 +44,12 @@ struct CsvOptions
   /// Number of rows the CSV handler buffers in memory before flushing to disk.
   /// Bounds peak memory and how much work an interruption can lose.
   std::size_t batch_size = 1000;
+
+  /// Optional directory for temporary binary row spools. Keeping this on a
+  /// fast filesystem separate from a large source/output HDD avoids competing
+  /// reads and writes during the single MCAP pass. Empty uses an output-local
+  /// hidden directory.
+  std::string spool_dir;
 };
 
 /// Options specific to the image handler. Surfaced under the `--image-*`
@@ -66,6 +72,25 @@ struct ImageOptions
   std::string format = "keep";
 };
 
+/// Options for direct camera-video export.
+struct VideoOptions
+{
+  /// FFmpeg encoder name. h264_nvenc uses the NVIDIA hardware encoder; libx264
+  /// is a portable CPU fallback.
+  std::string codec = "h264_nvenc";
+
+  /// Constant-quality value passed to NVENC (lower is higher quality).
+  int quality = 28;
+
+  /// Nominal frame rate recorded in stream metadata. Per-frame timing remains
+  /// timestamp-driven, and exact nanoseconds are stored in the sidecar CSV.
+  int nominal_fps = 120;
+
+  /// Close and atomically publish one MKV segment after this many seconds of
+  /// camera time. Segmenting makes long exports safely resumable.
+  int segment_seconds = 300;
+};
+
 /// Options controlling an unbag run. Populated from the command line (main.cpp)
 /// and passed down to the handlers. Run-wide options live at the top level;
 /// options that only affect one handler live in the per-handler sub-structs
@@ -79,9 +104,8 @@ struct UnbagOptions
   /// Topics to skip. Mutually exclusive with topics.
   std::optional<std::vector<std::string>> exclude_topics;
 
-  /// Names of the handlers to enable (e.g. {"csv", "image"}). Empty means
-  /// "every registered handler". A topic whose handler is not enabled is
-  /// skipped.
+  /// Names of the handlers to enable (e.g. {"csv", "image"}). Empty preserves
+  /// the legacy default: CSV for ordinary messages and files for image topics.
   std::vector<std::string> handlers;
 
   /// If true, previously unbagged output for the selected topics is deleted
@@ -113,6 +137,11 @@ struct UnbagOptions
   /// Per-handler option groups.
   CsvOptions csv;
   ImageOptions image;
+  VideoOptions video;
+
+  /// Refuse to start when the destination filesystem has less free space than
+  /// this. Zero disables the check.
+  std::size_t minimum_free_gb = 20;
 };
 
 }  // namespace tabletop_unbag

@@ -11,4 +11,4 @@ float32 left_pupil          # Left eye pupil diameter in arbitrary Eyelink units
 float32 right_x             # Right eye raw pupil X position in Eyelink camera pixel units; MISSING_DATA (-32768) when eye not tracked
 float32 right_y             # Right eye raw pupil Y position in Eyelink camera pixel units; MISSING_DATA (-32768) when eye not tracked
 float32 right_pupil         # Right eye pupil diameter in arbitrary Eyelink units (diameter mode); MISSING_DATA (-32768) when unavailable
-uint16 input                # Eyelink digital input port value (from Sample.getInput()); used to detect external TTL triggers (e.g., 255=idle, 247=trigger)
+uint16 input                # EyeLink raw input-port value (from Sample.getInput()); current rig: status pin 12 is 127 idle, 95 asserted

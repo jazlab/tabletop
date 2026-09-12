@@ -954,6 +954,10 @@ class PlanAndExecuteInterface(BaseInterface):
                 concat_trajectory, request
             )
 
+        # Validate the exact concatenated trajectory after any final TOTG or
+        # Ruckig pass; post-processing can move intermediate waypoints.
+        self._validate_trajectory(concat_trajectory)
+
         if len(cache_kwargs) == 0:
             return concat_trajectory, None
 
@@ -1043,6 +1047,10 @@ class PlanAndExecuteInterface(BaseInterface):
         allowed_duration_margin = self.param(
             "execution.allowed_duration_margin"
         )
+        result_delivery_grace = self.param("execution.result_delivery_grace")
+        result_recovery_velocity_tolerance = self.param(
+            "execution.result_recovery_velocity_tolerance"
+        )
         if allowed_duration_scaling < 1:
             raise ValueError(
                 "'execution.allowed_duration_scaling' parameter must be at least 1"
@@ -1050,6 +1058,15 @@ class PlanAndExecuteInterface(BaseInterface):
         if allowed_duration_margin < 0:
             raise ValueError(
                 "'execution.allowed_duration_margin' parameter must be at least 0"
+            )
+        if result_delivery_grace < 0:
+            raise ValueError(
+                "'execution.result_delivery_grace' parameter must be at least 0"
+            )
+        if result_recovery_velocity_tolerance < 0:
+            raise ValueError(
+                "'execution.result_recovery_velocity_tolerance' parameter "
+                "must be at least 0"
             )
 
         # Check if the robot is safe to execute
@@ -1096,16 +1113,77 @@ class PlanAndExecuteInterface(BaseInterface):
             assert self._execution_goal_handle is None
             self._execution_goal_handle = goal_handle
 
+        result_task = asyncio.create_task(
+            self._execution_client.get_result_async(goal_handle)
+        )
         try:
-            async with asyncio.timeout(allowed_duration):
-                result: FollowJointTrajectory.Result = await (
-                    self._execution_client.get_result_async(goal_handle)
+            try:
+                async with asyncio.timeout(allowed_duration):
+                    # Keep the ROS result request alive if only the local
+                    # execution deadline expires. That lets us distinguish a
+                    # robot that is still moving from a controller that has
+                    # already succeeded but whose result response is delayed.
+                    result: FollowJointTrajectory.Result = (
+                        await asyncio.shield(result_task)
+                    )
+            except TimeoutError:
+                if (
+                    goal_handle.status != GoalStatus.STATUS_SUCCEEDED
+                    or result_delivery_grace == 0
+                ):
+                    raise ExecutionInterruptedError(
+                        f"Allowed execution duration ({allowed_duration}) exceeded",
+                        group_name=trajectory.joint_model_group_name,
+                    )
+
+                self.log(
+                    "Controller reported trajectory success, but result delivery "
+                    f"exceeded the {allowed_duration:.3f}s execution window; "
+                    f"waiting up to {result_delivery_grace:.3f}s for the delayed "
+                    "result response",
+                    severity="WARN",
                 )
-        except TimeoutError:
-            raise ExecutionInterruptedError(
-                f"Allowed execution duration ({allowed_duration}) exceeded",
-                group_name=trajectory.joint_model_group_name,
-            )
+                try:
+                    async with asyncio.timeout(result_delivery_grace):
+                        result = await asyncio.shield(result_task)
+                except TimeoutError:
+                    if goal_handle.status != GoalStatus.STATUS_SUCCEEDED:
+                        raise ExecutionInterruptedError(
+                            "Controller result response was not delivered and "
+                            "the controller no longer reports SUCCEEDED after "
+                            f"the additional {result_delivery_grace}s grace period",
+                            group_name=trajectory.joint_model_group_name,
+                        )
+                    if not self._safe_to_execute_condition():
+                        raise ExecutionInterruptedError(
+                            "Controller result response was not delivered and "
+                            "the rig safety condition no longer permits recovery",
+                            group_name=trajectory.joint_model_group_name,
+                        )
+                    if not all_close_robot_states(
+                        self._moveit.get_current_state(),
+                        trajectory[len(trajectory) - 1],
+                        group_name=trajectory.joint_model_group_name,
+                        position_tolerance=allowed_end_tolerance,
+                        velocity_tolerance=result_recovery_velocity_tolerance,
+                    ):
+                        raise ExecutionInterruptedError(
+                            "Controller result response was not delivered and "
+                            "independent endpoint/stationary verification failed "
+                            f"after the additional {result_delivery_grace}s "
+                            "grace period",
+                            group_name=trajectory.joint_model_group_name,
+                        )
+
+                    self.log(
+                        "Controller result response remained unavailable after "
+                        f"{result_delivery_grace:.3f}s, but controller status is "
+                        "SUCCEEDED and live endpoint position/velocity verification "
+                        "passed; accepting the completed trajectory",
+                        severity="WARN",
+                    )
+                    result = FollowJointTrajectory.Result()
+                    result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
         except ActionResultUnsuccessfulError as e:
             result = e.response.result
             if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
@@ -1114,6 +1192,12 @@ class PlanAndExecuteInterface(BaseInterface):
                     group_name=trajectory.joint_model_group_name,
                 ) from e
         finally:
+            if not result_task.done():
+                result_task.cancel()
+                try:
+                    await result_task
+                except asyncio.CancelledError:
+                    pass
             with self._goal_handle_lock:
                 self._execution_goal_handle = None
 

@@ -60,9 +60,11 @@ camera_params_common:
   adjust_timestamp: true
   # Required so the master exposure controller can react to scene brightness.
   compute_brightness: true
-  # connect_while_subscribed: true
+  # Acquisition must not depend on transient DDS subscriber discovery.
+  connect_while_subscribed: false
   image_queue_size: 10
   buffer_queue_size: 10
+  metadata_queue_size: 512
   acquisition_timeout: 5.0
   # factory_reset: true
   # device_reset: true

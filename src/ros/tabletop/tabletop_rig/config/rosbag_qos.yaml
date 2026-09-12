@@ -1,0 +1,165 @@
+# Recorder-side DDS history. Large compressed images use a bounded,
+# best-effort queue so a delayed reader cannot build an unbounded reliable
+# backlog. Metadata remains reliable because it is small and important.
+"/cam_sync/left_front_top_cam/image_raw/compressed": &camera_image
+  history: keep_last
+  depth: 32
+  reliability: best_effort
+  durability: volatile
+
+"/cam_sync/left_back_top_cam/image_raw/compressed": *camera_image
+"/cam_sync/left_bottom_cam/image_raw/compressed": *camera_image
+"/cam_sync/right_front_top_cam/image_raw/compressed": *camera_image
+"/cam_sync/right_back_top_cam/image_raw/compressed": *camera_image
+"/cam_sync/right_bottom_cam/image_raw/compressed": *camera_image
+
+"/cam_sync/left_front_top_cam/image_raw_unmatched/compressed": *camera_image
+"/cam_sync/left_back_top_cam/image_raw_unmatched/compressed": *camera_image
+"/cam_sync/left_bottom_cam/image_raw_unmatched/compressed": *camera_image
+"/cam_sync/right_front_top_cam/image_raw_unmatched/compressed": *camera_image
+"/cam_sync/right_back_top_cam/image_raw_unmatched/compressed": *camera_image
+"/cam_sync/right_bottom_cam/image_raw_unmatched/compressed": *camera_image
+
+"/cam_sync/left_front_top_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/left_back_top_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/left_bottom_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_front_top_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_back_top_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_bottom_cam/meta":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/left_front_top_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/left_back_top_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/left_bottom_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_front_top_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_back_top_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/cam_sync/right_bottom_cam/meta_unmatched":
+  history: keep_last
+  depth: 512
+  reliability: reliable
+  durability: volatile
+
+"/teensy/sensor":
+  history: keep_last
+  depth: 1000
+  reliability: best_effort
+  durability: volatile
+
+"/eyelink/sample_array":
+  history: keep_last
+  depth: 1000
+  reliability: reliable
+  durability: volatile
+
+"/tabletop/task_event":
+  history: keep_last
+  depth: 5000
+  reliability: reliable
+  durability: transient_local
+
+"/markers":
+  history: keep_last
+  depth: 1000
+  reliability: reliable
+  durability: volatile
+
+"/rigid_bodies":
+  history: keep_last
+  depth: 1000
+  reliability: reliable
+  durability: volatile
+
+"/joint_states":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/dynamic_joint_states":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/left_io_and_status_controller/io_states":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/left_tcp_pose_broadcaster/pose":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/right_tcp_pose_broadcaster/pose":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/left_force_torque_sensor_broadcaster/wrench":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile
+
+"/right_force_torque_sensor_broadcaster/wrench":
+  history: keep_last
+  depth: 500
+  reliability: best_effort
+  durability: volatile

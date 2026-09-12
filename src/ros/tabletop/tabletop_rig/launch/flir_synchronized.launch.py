@@ -130,6 +130,16 @@ def launch_setup(context, *args, **kwargs):
         "config",
         "flir_synchronized.yaml",
     )
+    fastdds_file = os.path.join(
+        get_package_share_directory("tabletop_rig"),
+        "config",
+        "fastdds_flir.xml",
+    )
+    driver_environment = {
+        "FASTDDS_DEFAULT_PROFILES_FILE": fastdds_file,
+        # Jazzy's packaged Fast DDS 2.14 library uses the legacy name.
+        "FASTRTPS_DEFAULT_PROFILES_FILE": fastdds_file,
+    }
     with open(cfg_path, "r") as f:
         config: dict = yaml.safe_load(f)
 
@@ -224,6 +234,7 @@ def launch_setup(context, *args, **kwargs):
                 ),
             ],
             ros_arguments=["--log-level", log_level],
+            additional_env=driver_environment,
             on_exit=[Shutdown()],
         )
     else:
@@ -233,6 +244,7 @@ def launch_setup(context, *args, **kwargs):
             name=NODE_NAME,
             parameters=[driver_params],
             ros_arguments=["--log-level", log_level],
+            additional_env=driver_environment,
             output="both",
         )
 

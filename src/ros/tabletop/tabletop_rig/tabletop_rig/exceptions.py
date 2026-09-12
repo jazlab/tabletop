@@ -117,6 +117,29 @@ class RigExecutionSafetyError(RigSafetyError):
         )
 
 
+class RobotStateCollisionError(RigSafetyError):
+    """Raised when motion cannot safely begin from an arm's current state."""
+
+    def __init__(
+        self,
+        robot_names: list[str] | tuple[str, ...],
+        *,
+        phase: str,
+        cause: BaseException | None = None,
+    ) -> None:
+        self.robot_names = tuple(robot_names)
+        self.phase = phase
+        self.cause = cause
+        names = ", ".join(self.robot_names)
+        detail = "" if cause is None else f" Planner report: {cause}"
+        super().__init__(
+            f"Unsafe robot state collision for {names} during {phase}; "
+            "the complete run was aborted without automatic recovery. "
+            "Move both arms to known collision-free positions and restart."
+            f"{detail}"
+        )
+
+
 class ServiceClientError(Exception):
     """Raised when a ROS service client call fails.
 
@@ -419,6 +442,7 @@ class ManipulationContextExitedError(Exception):
         msg: str,
         *,
         recovered_error: BaseException | None = None,
+        reached_presentation: bool = False,
     ) -> None:
         """Record the error that caused context recovery.
 
@@ -427,4 +451,5 @@ class ManipulationContextExitedError(Exception):
         ordinary trial misses.
         """
         self.recovered_error = recovered_error
+        self.reached_presentation = reached_presentation
         super().__init__(msg)

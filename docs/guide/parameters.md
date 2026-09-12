@@ -117,6 +117,8 @@ Shared defaults live in `common_manipulation_interface`; per-arm sections
 | --- | --- |
 | `execution.allowed_duration_scaling` | Multiplier on nominal trajectory duration for the execution timeout window. |
 | `execution.allowed_duration_margin` | Additional seconds added to the scaled duration window. |
+| `execution.result_delivery_grace` | Additional result-delivery wait after a controller has already reported `SUCCEEDED`; does not extend active motion. |
+| `execution.result_recovery_velocity_tolerance` | Maximum joint velocity (rad/s) allowed when independently accepting a completed trajectory whose ROS result reply is missing. |
 | `execution.allowed_start_tolerance` | Maximum joint-position error (rad) between current state and trajectory start before execution is blocked. |
 | `execution.allowed_end_tolerance` | Maximum joint-position error (rad) at the end of execution before the result is considered a failure. |
 | `execution.joint_trajectory_controller` | ROS 2 controller action name used to send trajectories (per-arm). |

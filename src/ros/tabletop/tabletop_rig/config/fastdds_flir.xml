@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS transport profile for the six synchronized FLIR streams.
+
+  The default SHM segment is only 512 KiB. A serialized camera frame is up to
+  about 0.38 MiB on this rig and six frames arrive together every 8.33 ms, so
+  the default segment has almost no burst headroom. Keep UDP available for
+  UDP-only visualization clients, but give local SHM readers enough segment
+  and descriptor capacity to absorb synchronized bursts.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>tabletop_udp</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+      <transport_descriptor>
+        <transport_id>tabletop_flir_shm</transport_id>
+        <type>SHM</type>
+        <segment_size>67108864</segment_size>
+        <port_queue_capacity>8192</port_queue_capacity>
+        <healthy_check_timeout_ms>1000</healthy_check_timeout_ms>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant
+      profile_name="tabletop_flir_transport"
+      is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>tabletop_udp</transport_id>
+          <transport_id>tabletop_flir_shm</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

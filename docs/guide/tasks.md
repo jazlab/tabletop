@@ -25,6 +25,7 @@ on the subject's last response (e.g. alternating or blocked designs).
 | Task class | Config prefix | Behavior |
 | --- | --- | --- |
 | `ForagingTask` | `foraging_*` | Subject selects among presented objects |
+| `InvariantAffordanceTask` | `invariant_affordance` | Alternating designated objects with a bounded occluded pose change and timed go cues |
 | `PresentTask` | `present_*` | Passive object presentation |
 | `SmoothPursuitTask` | `smooth_pursuit_*` | Object follows a trajectory for the subject to track |
 | `DummyTask` | `dummy` | Diagnostic scratchpad (latency / motion / component checks) |
@@ -46,6 +47,7 @@ constructor. Available configs:
 | Config | Task | Notes |
 | --- | --- | --- |
 | `foraging_ordered.yaml` / `foraging_random.yaml` | ForagingTask | ordered / randomized trials |
+| `invariant_affordance.yaml` | InvariantAffordanceTask | Designated left/right objects, 1 s reveal, brisk bounded reposition, then sound + both buzzers |
 | `present_ordered.yaml` / `present_random.yaml` | PresentTask | ordered / randomized presentation |
 | `smooth_pursuit_random.yaml` | SmoothPursuitTask | random waypoints |
 | `smooth_pursuit_spiral{,_test}.yaml` | SmoothPursuitTask | helical trajectory |
@@ -61,6 +63,31 @@ config is commented inline; the class definitions in
 ```bash
 tt-launch tasks task:=foraging_ordered robot_mode:=mock
 ```
+
+The invariant-affordance task uses `small_object_28`, directly behind the
+front-right mount, and `small_object_0` on the front-left mount. It presents
+each at the standard
+center pose, reveals it for 1 second, and re-occludes the glass. Target
+positions are sampled uniformly from the configured presentation box.
+Orientations use shuffled, equal-area tilt strata so every three accepted trials
+per arm span the full range from upside-down through sideways to upright. After
+a 0.5-second glass-settle interval, a general collision planner may use a
+complex path anywhere on that arm's half of the rig, including toward its
+storage area; normal collision checking remains active, and a small centerline
+overlap lets either arm reach presentation. Invalid or over-budget candidates
+are discarded before the object is revealed. The go tone and both hand buzzers
+occur exactly 3 seconds after occlusion; plans
+reserve at least 0.25 seconds
+between expected motion completion and that cue. Both hand buzzers run for
+their firmware-bounded 1-second interval, and the robot holds the final pose
+until the
+2-second trial window ends. After that behavioral window, it follows a
+separately planned and validated path to the center while the glass remains
+opaque so normal
+unpresentation starts from its established pose. It does not read or score a
+response button.
+
+Launch it with `tt-launch tasks task:=invariant_affordance robot_mode:=mock`.
 
 ## Manipulation preflight and real commissioning
 

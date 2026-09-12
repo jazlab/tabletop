@@ -1,15 +1,11 @@
 # tabletop_unbag
 
-A generic ROS 2 bag (MCAP) → CSV / image exporter, written in C++. It is a port
+A generic ROS 2 bag (MCAP) → CSV / image / video exporter, written in C++. It is a port
 of the Python `tabletop_rig.utils.rosbag` module, but runs as a standalone,
 dependency-light executable (`unbag`) with no Python / pandas / rclpy at
 runtime, and is built to stream very large bags without exhausting memory.
 
-It is **multithreaded**: a single reader thread feeds one consumer thread per
-CSV topic and a shared pool of worker threads that decode images in parallel, so
-the (CPU-bound) image transcoding scales across all cores. On a 24-core machine
-this is roughly a 10× end-to-end speedup over the single-threaded version, while
-peak memory stays bounded by back-pressure on the work queues.
+It is **one-pass and multithreaded**: one sequential bag read feeds one consumer per ordered CSV/video topic and a shared image worker pool. CSV rows are written to compact temporary spools while their full column union is discovered, then materialized without rereading the MCAP. Bounded queues keep peak memory stable and apply back-pressure to the reader.
 
 ## What it does
 
@@ -35,6 +31,8 @@ Given a *bag directory* (the directory that holds the `.mcap` files and
   lost and the files still sort chronologically. `--image-format` controls the
   output file format.
 
+* **Direct video mode** (`--handlers video`) decodes and demosaics camera frames directly into H.264 Matroska segments without millions of intermediate image files. Each segment has a sidecar with exact header and bag timestamps in nanoseconds. The video is a high-quality lossy proxy; the original MCAP remains the lossless scientific source.
+
 ## Usage
 
 ```bash
@@ -47,6 +45,10 @@ ros2 run tabletop_unbag unbag /path/to/session/bag -o /path/to/out
 # Only the CSV handler (skip image topics), or only the image handler
 ros2 run tabletop_unbag unbag BAG_DIR --handlers csv
 ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-encoding mono8
+
+# One-pass CSV plus timestamped H.264 videos (NVIDIA exporter profile)
+ros2 run tabletop_unbag unbag BAG_DIR --handlers csv video \
+  --video-codec h264_nvenc --video-quality 28 --minimum-free-gb 100
 
 # Save every image as PNG (lossless) instead of keeping the source format
 ros2 run tabletop_unbag unbag BAG_DIR --handlers image --image-format png
@@ -68,7 +70,8 @@ is clear which handler each one affects; run-wide options have no prefix.
 | --- | --- |
 | `BAG_DIR` (positional) | Directory containing the bag's `.mcap` files and `metadata.yaml`. Required. |
 | `-o, --output-dir DIR` | Where to write outputs. Default: `<parent of BAG_DIR>/unbag`. |
-| `--handlers H [H ...]` | Handlers to enable (`csv`, `image`). Topics whose type is not claimed by an enabled handler are skipped. Default: all. |
+| `--minimum-free-gb N` | Refuse to start below this destination free-space threshold (default 20; 0 disables). |
+| `--handlers H [H ...]` | Handlers to enable (`csv`, `image`, `video`). `video` and `image` are alternatives for image topics. Default: `csv image`. |
 | `--topics T [T ...]` | Only unbag these topics. Mutually exclusive with `--exclude-topics`. |
 | `--exclude-topics T ...` | Unbag all topics except these. Mutually exclusive with `--topics`. |
 | `--overwrite` | Delete previously unbagged output for the selected topics before writing. Without it, an interrupted run resumes. |
@@ -82,6 +85,7 @@ is clear which handler each one affects; run-wide options have no prefix.
 | Flag | Description |
 | --- | --- |
 | `--csv-batch-size N` | Rows buffered in memory before flushing to disk (default 1000). |
+| `--csv-spool-dir DIR` | Temporary binary spool directory. Put this on a fast filesystem separate from a large source/output HDD to avoid read/write contention; default is a hidden directory under the output. |
 
 **`image` handler options**
 
@@ -89,6 +93,15 @@ is clear which handler each one affects; run-wide options have no prefix.
 | --- | --- |
 | `--image-encoding ENC` | Target *color* encoding for decoded images (default `bgr8`; e.g. `rgb8`, `mono8`). |
 | `--image-format FMT` | Output *file* format: `keep` \| `png` \| `jpg` \| `tiff` (default `keep`). `keep` preserves the source container (a `CompressedImage` keeps its compression, a raw `Image` is written as PNG); a specific format applies to every image topic (`png` avoids a lossy re-encode of compressed Bayer topics). |
+
+**`video` handler options**
+
+| Flag | Description |
+| --- | --- |
+| `--video-codec NAME` | FFmpeg encoder (default `h264_nvenc`; use `libx264` as a CPU fallback). |
+| `--video-quality N` | Constant-quality setting, 0–51; lower is higher quality (default 28). |
+| `--video-fps N` | Nominal frame rate (default 120); per-frame timing comes from timestamps. |
+| `--video-segment-seconds N` | Atomic/resumable segment duration (default 300 seconds). |
 
 The storage plugin is inferred from the bag's `metadata.yaml`; if that file is
 missing or corrupted it is rebuilt with the rosbag2 reindexer and the storage id
@@ -121,48 +134,28 @@ include/tabletop_unbag/
 └── handlers/
     ├── handler.hpp        # MessageHandler base (the handler lifecycle)
     ├── csv_handler.hpp
-    └── image_handler.hpp
+    ├── image_handler.hpp
+    └── video_handler.hpp
 src/
 ├── main.cpp               # CLI
 ├── unbagger.cpp           # orchestration + the threaded pipeline
 └── handlers/
     ├── csv_handler.cpp    # flattening + pandas-compatible value formatting
-    └── image_handler.cpp  # cv_bridge / Bayer decode (thread-safe, atomic writes)
+    ├── image_handler.cpp  # cv_bridge / Bayer decode (thread-safe, atomic writes)
+    └── video_handler.cpp  # direct H.264 segments + exact timestamp sidecars
 ```
 
-### The handler lifecycle (two passes, batched, resumable)
+### The handler lifecycle (one bag pass, bounded, resumable)
 
-The orchestrator drives every handler through the same lifecycle, which is what
-lets it stay type-agnostic:
+The orchestrator prepares every handler, then reads the selected MCAP topics once. CSV handlers flatten each message into a compact binary spool while learning the complete column union. Image or video handlers consume their messages concurrently during that same read. After the reader and bounded queues drain, CSV spools are materialized into the same byte-compatible per-topic CSV format and removed.
 
-1. **Preprocess pass** — `preprocess()` is called once per message, but only for
-   handlers whose `needs_preprocess()` is true. The CSV handler needs it to
-   learn the column set: a `sequence<>` field's length is only known per
-   message, so the column union cannot be known without reading every message
-   first. It stores only column *names* (O(#columns) memory), not rows. The
-   image handler does not need it (each image is independent), so its
-   `preprocess()` is a no-op and — when no enabled handler needs the pass — the
-   whole pass is skipped. This pass also pushes a topic filter into the storage
-   reader so only the CSV topics are read: the bulk of a bag is usually image
-   data, and there is no reason to read (or decode) it just to learn columns.
-2. **`begin_write()`** — handlers apply the overwrite/resume policy.
-3. **Write pass** — `write()` is called once per message; handlers buffer and
-   flush in batches (the CSV handler's batch is sized by `--csv-batch-size`), so
-   memory stays bounded no matter how many messages a topic has.
-4. **`finish()`** — flush and close.
+Video mode writes five-minute Matroska segments by default. A segment and its timestamp sidecar are first written as `.part` files and atomically renamed only after the encoder and muxer finalize them. A restarted export counts completed sidecar rows, skips those source frames, removes incomplete parts, and continues at the next segment.
 
-**Interruption / resume.** Because output is flushed incrementally, an
-interrupted run leaves valid partial output. Re-running (without `--overwrite`)
-picks up where it left off: the CSV handler counts the rows already on disk
-(repairing a torn final line) and skips that many messages before appending; the
-image handler skips timestamps whose file already exists. `--overwrite` instead
-deletes the selected topics' prior output first — the CSV handler removes its
-file, and the image handler clears the topic's directory so a re-run with a
-different `--image-encoding` cannot leave a mix of old and new formats behind.
+Every completed run atomically writes `export_manifest.json`. Expected, succeeded, and failed counts are recorded for every selected topic; any mismatch or decode/write failure returns a nonzero process status.
 
 ### Parallelism and back-pressure
 
-A bag is read once per pass by a single reader thread (rosbag2's reader is
+A bag is read once by a single reader thread (rosbag2's reader is
 sequential), but the per-message work is fanned out:
 
 * **Across topics.** Each CSV topic gets its own bounded queue and consumer
@@ -184,11 +177,11 @@ reader simply blocks on `push()` instead of piling up work.
 
 Shutdown is the same on success and on Ctrl-C. A `SIGINT`/`SIGTERM` handler sets
 a stop flag; the reader stops, closes the queues, and the workers drain whatever
-is already queued and exit before the handlers flush and close. Combined with
-atomic image writes (each image is encoded to memory, written to a temp file,
-then `rename`d into place) and the CSV torn-line repair, an interrupted run never
-corrupts an output file and always resumes cleanly. The input bag is opened
-read-only and is never written to.
+is already queued and exit before the handlers flush and close. Image files and
+video segments are published atomically. Completed video segments resume
+without re-encoding; a restarted CSV export rebuilds its temporary spool from
+the read-only source so it can safely reproduce the complete column union. The
+input bag is opened read-only and is never written to.
 
 ### Generic flattening
 

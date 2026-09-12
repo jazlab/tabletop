@@ -62,10 +62,32 @@ tt-compose --profile=sim down
     [Real Hardware → Bluetooth adapter](real-hardware.md#bluetooth-adapter-flic-buttons)
     for the fix, and re-run `tt-env-gen` if a camera or the Teensy is missing.
 
-Open the noVNC desktop (RViz, UR sim teach pendant) at
-<http://localhost:8080/vnc.html> (replacing 8080 with
-whatever port is set by `NOVNC_PORT` in `.env`) or
-connect Foxglove to `ws://localhost:8765`.
+Open the encrypted noVNC desktop (RViz, dashboards, and the UR simulator teach
+pendant) at <https://localhost:8080/vnc.html> (replacing 8080 with the
+`NOVNC_PORT` value in `.env`). From a laptop on the same network, replace
+`localhost` with the rig computer's IP address; for example,
+`https://RIG_HOST_IP:8080/vnc.html?autoconnect=true`. Connect Foxglove
+separately at `ws://localhost:8765`.
+
+`tt-env-gen` automatically creates a random noVNC login, a local certificate
+authority, a server certificate for the rig's current names/IP addresses, and
+an X11 cookie under the git-ignored `.novnc/` directory. To see the login and
+current URLs, run:
+
+```bash
+tt-novnc-security show
+```
+
+Before first use from a laptop, securely copy `.novnc/ca.crt` to it and import
+that public certificate into the laptop's trusted root certificate store. Do
+not copy `.novnc/ca.key`, `server.key`, or `credentials`. A browser exception
+still encrypts the connection, but importing the CA also lets the browser
+verify it is talking to this rig rather than an impostor.
+
+To replace a disclosed password, run `tt-novnc-security rotate-password` and
+then recreate the `novnc` container while no task is active. The web page and
+WebSocket accept TLS only and require HTTP authentication. The underlying VNC
+and X11 listeners are also authenticated; VNC is restricted to localhost.
 
 ## Foxglove visualization
 
@@ -140,22 +162,29 @@ To open a shell in a non-dev service instead, use `tt-attach <service>` (see
 ## Running a task
 
 Tasks are the behavioral experiments. `tt-launch` runs inside a container. The
-recommended way is to open a shell in the `commander` service with `tt-attach`
-(or use the Dev Container) and run `tt-launch` from there:
+interactive development workflow is to open a shell in the `commander` service
+with `tt-attach` (or use the Dev Container) and run `tt-launch` from there:
 
 ```bash
 tt-attach commander       # open a shell in a fresh commander container, then:
 tt-launch tasks                                              # default foraging task, mock robot
 tt-launch tasks task:=foraging_ordered robot_mode:=mock     # specific task + robot mode
-tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
 ```
 
-Alternatively, run a task as a one-shot from the host — this spins up a temporary
-`commander` container and tears it down when the task exits:
+For a real-hardware task, run the one-shot form from the host:
 
 ```bash
-tt-compose run --rm commander tt-launch tasks task:=foraging_ordered robot_mode:=mock
+tt-compose run --rm commander tt-launch tasks task:=smooth_pursuit_random robot_mode:=real
 ```
+
+The `tt-compose` host wrapper restarts the OptiTrack driver and requires a live
+`/markers` message before it creates the task container. This repairs the stale
+NatNet session left when Motive is closed and reopened, and prevents a task from
+silently starting with no OptiTrack data. A direct `docker compose run` command
+or `tt-launch tasks` inside an attached container bypasses this safeguard.
+
+The one-shot form spins up a temporary `commander` container and tears it down
+when the task exits.
 
 `Ctrl-C` stops a running task. The `task` argument is a config filename (without
 `.yaml`) from `tabletop_tasks/config/`; `robot_mode` is `mock` or `real`. See
@@ -165,6 +194,47 @@ configure them.
 Pass `rosbag:=true` to also record the session to an MCAP bag (topics from
 `rosbag.yaml`); recording is off by default. See below for turning a recorded
 bag into analysis-ready files.
+
+### HDD diagnostic recording
+
+For a full session with exact per-topic DDS loss diagnostics, configure the
+host and container bag paths in `.env` and regenerate the Compose environment:
+
+```bash
+ROS_BAG_DIR_HOST=/hdd/bags
+ROS_BAG_DIR_MNT=/hdd/bags:/bags
+ROS_BAG_DIR_CONTAINER=/bags
+
+bin/host/tt-env-gen
+docker compose up -d --force-recreate eyelink
+tt-compose run --rm commander tt-launch tasks task:=/tabletop/.cache/tabletop/foraging_real_25 robot_mode:=real rosbag:=true
+```
+
+Recreate the persistent EyeLink container whenever the bag mount changes;
+otherwise it retains its old mount. The node rejects a stale `/bags/latest`
+link rather than silently writing the EDF to the wrong disk.
+
+The MCAP chunks are written under `/hdd/bags/session_<timestamp>/bag`, and
+`/hdd/bags/latest` selects the newest session. Recording uses a 10 GB
+double-buffered cache (up to about 20 GB of RAM) and 100 GB MCAP chunks. On the
+current rig this buffers roughly 45 seconds of data and reduces chunk rollover
+frequency without making a damaged file encompass the whole session.
+
+Before a recorded real task starts, `tt-compose` samples the destination
+device for five seconds. It refuses to start if competing reads exceed 5 MiB/s,
+because analyzing or copying an existing bag on the same mechanical HDD can
+starve the approximately 200 MiB/s recorder stream. Stop those reads and run
+the same task command again.
+
+
+Stop with one `Ctrl-C`. Robot control stops independently; the recorder then
+asks EyeLink to drain its final samples and finish the EDF/CSV transfer before
+closing the bag. Wait for `Recording stopped cleanly` before closing the
+terminal. Per-topic DDS loss counts remain in the launch log, and the automatic
+summaries `eyelink_integrity.json` and `session_integrity.json` are saved in
+the session directory. The latter compares EyeLink source counts with the bag,
+checks all six image/metadata/camera-info streams, and confirms required robot
+and OptiTrack topics are present.
 
 ## Converting recorded bags
 

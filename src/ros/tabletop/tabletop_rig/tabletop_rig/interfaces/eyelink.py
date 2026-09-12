@@ -10,6 +10,7 @@ This is commonly used in neuroscience experiments to ensure subject engagement.
 
 import asyncio
 import inspect
+import time
 from collections.abc import (
     Callable,
 )
@@ -20,6 +21,17 @@ from tabletop_interfaces.action import EyelinkSmoothPursuit
 
 from tabletop_rig.interfaces.base import BaseInterface
 from tabletop_rig.nodes.base import AIOActionClient, BaseNode
+
+_SAMPLE_ARRAY_TOPIC = "/eyelink/sample_array"
+_ROSBAG_RECORDER_NODE_NAME = "rosbag2_recorder"
+
+
+def _is_rosbag_recorder_endpoint(endpoint: Any) -> bool:
+    """Distinguish rosbag from dashboards and other EyeLink subscribers."""
+    node_name = str(getattr(endpoint, "node_name", "")).strip("/")
+    return node_name == _ROSBAG_RECORDER_NODE_NAME or node_name.startswith(
+        f"{_ROSBAG_RECORDER_NODE_NAME}_"
+    )
 
 
 class EyelinkInterface(BaseInterface):
@@ -71,6 +83,53 @@ class EyelinkInterface(BaseInterface):
         )
 
         self.log("Eyelink interface initialized")
+
+    async def wait_for_recorder_subscription(
+        self, timeout: float = 10.0, poll_interval: float = 0.1
+    ) -> None:
+        """Wait until the actual rosbag recorder subscribes to sample batches.
+
+        A raw subscription count is insufficient because the session dashboard
+        also listens to this topic. Checking graph endpoint identity prevents a
+        task from starting with apparently healthy EyeLink publication while
+        the bag is not receiving it.
+        """
+        if timeout < 0:
+            raise ValueError("EyeLink recorder timeout must be non-negative")
+        if poll_interval <= 0:
+            raise ValueError("EyeLink recorder poll interval must be positive")
+
+        deadline = time.monotonic() + timeout
+        while True:
+            subscriptions = self.node.get_subscriptions_info_by_topic(
+                _SAMPLE_ARRAY_TOPIC
+            )
+            recorder_endpoints = [
+                endpoint
+                for endpoint in subscriptions
+                if _is_rosbag_recorder_endpoint(endpoint)
+            ]
+            if recorder_endpoints:
+                self.log(
+                    "EyeLink rosbag subscription confirmed on "
+                    f"{_SAMPLE_ARRAY_TOPIC}"
+                )
+                return
+            if time.monotonic() >= deadline:
+                subscriber_names = sorted(
+                    {
+                        str(getattr(endpoint, "node_name", "unknown"))
+                        for endpoint in subscriptions
+                    }
+                )
+                observed = ", ".join(subscriber_names) or "none"
+                raise RuntimeError(
+                    "EyeLink recording preflight failed: no rosbag2_recorder "
+                    f"subscription on {_SAMPLE_ARRAY_TOPIC} within "
+                    f"{timeout:.1f}s (observed subscribers: {observed}). "
+                    "Sync pulses and task motion were not started."
+                )
+            await asyncio.sleep(poll_interval)
 
     def _smooth_pursuit_producer(
         self,

@@ -16,6 +16,8 @@ The I/O work adds the following behavior:
 - stale or missing Teensy messages are shown as unavailable rather than as a
   healthy inactive state;
 - smartglass can be inverted for one second and automatically restored;
+- the experiment sync pulses can be enabled for ten seconds and are stopped by
+  a Teensy-side timer even if the dashboard closes;
 - the juice/reward solenoid can be pulsed for 200 ms;
 - the same brief reward tone used by the task can be played through PulseAudio;
 - either hand buzzer can be pulsed for one second without changing either
@@ -37,6 +39,7 @@ to a safe state even if the dashboard closes or its ROS process is delayed.
 | Right-hand sensor | 39 | `/teensy/sensor` | input |
 | Safety laser | 25 | `/teensy/sensor` | input |
 | Smartglass | 3 | `/teensy/set_smartglass` | 1 s in dashboard |
+| Experiment sync pulse | 31 | `/teensy/set_sync_pulses` | 10 s in dashboard |
 | Juice/reward solenoid | 26 | `/teensy/set_reward` | 200 ms in dashboard |
 | Left-hand buzzer | 41 | `/teensy/set_buzzer` | 1 s in firmware |
 | Right-hand buzzer | 40 | `/teensy/set_buzzer` | 1 s in firmware |
@@ -47,12 +50,19 @@ to a safe state even if the dashboard closes or its ROS process is delayed.
 changes the glass and restores its previous state; a zero duration preserves
 the normal persistent task behavior.
 
-The firmware now creates six ROS services. Its statically allocated micro-ROS
-pool was increased from five to eight service slots, leaving two spare slots.
-A compile-time assertion prevents a future service addition from silently
-exceeding the configured pool. An undersized pool causes the firmware to create
-a session, register only five services, tear the session down, and repeat; on
-the dashboard this looks like Teensy-dependent cards briefly flickering online.
+`SetSyncPulses.srv` gates the approximately 1 Hz reference TTL generator. The
+firmware boots with this generator disabled. The task runner enables it only
+after recording/manipulation preflight and disables it on normal completion,
+task failure, or Ctrl-C. Commander entry and exit also issue defensive disable
+commands. A positive service duration is enforced on the Teensy; workspace 5
+always requests ten seconds.
+
+The firmware now creates seven ROS services. Its statically allocated micro-ROS
+pool has eight service slots, leaving one spare slot. A compile-time assertion
+prevents a future service addition from silently exceeding the configured pool.
+An undersized pool causes incomplete service registration and repeated session
+restarts; on the dashboard this looks like Teensy-dependent cards briefly
+flickering online.
 
 ## Response-button pin behavior
 
@@ -92,11 +102,11 @@ The dashboard updates live; refreshing the noVNC browser page is unnecessary.
 
 ## Simulation and verification
 
-`MockTeensy` implements the buzzer and temporary-smartglass behavior so the GUI
-can be exercised without physical hardware. Regression tests cover event
-counting, stale-state rendering, Commander lockout, smartglass restoration,
-bounded reward and buzzer timing, and the guarantee that buzzer tests do not
-change arm-restraint outputs.
+`MockTeensy` implements the buzzer, temporary-smartglass, and task-gated sync
+behavior so the GUI can be exercised without physical hardware. Regression
+tests cover event counting, stale-state rendering, Commander lockout,
+smartglass restoration, bounded reward/buzzer/sync timing, task-failure cleanup,
+and the guarantee that buzzer tests do not change arm-restraint outputs.
 
 Useful checks are:
 

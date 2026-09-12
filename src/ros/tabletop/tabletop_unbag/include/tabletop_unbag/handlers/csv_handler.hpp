@@ -27,6 +27,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -87,7 +88,9 @@ public:
     return true;
   }
   void prepare() override;
+  void begin_preprocess() override;
   void preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns) override;
+  void finish_preprocess() override;
   void begin_write() override;
   void write(const rcutils_uint8_array_t& data, int64_t bag_time_ns, uint64_t write_index) override;
   void finish() override;
@@ -118,15 +121,22 @@ private:
   /// Append one buffered CSV line; flush the batch when it is full.
   void buffer_line(std::string line);
   void flush_batch();
+  void ensure_spool_open();
+  void spool_row(const std::vector<std::pair<std::string, std::string>>& row, int64_t bag_time_ns);
+  void materialize_spool();
 
   TopicInfo topic_;
   std::filesystem::path csv_path_;
+  std::filesystem::path spool_path_;
   bool overwrite_;
   std::size_t batch_size_;
 
   // Column union, built during the preprocess pass.
   std::vector<std::string> columns_;
   std::unordered_set<std::string> seen_columns_;
+  std::unordered_map<std::string, uint32_t> column_ids_;
+
+  std::ofstream spool_out_;
 
   // Write-pass state.
   std::size_t skip_rows_ = 0;  ///< rows already on disk to skip (resume)

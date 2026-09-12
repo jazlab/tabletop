@@ -81,7 +81,30 @@ tt-launch tasks task:=foraging_ordered     # run a task (starts a commander too)
 
 - **Robot is holding a grid object at trial start.** Either tell the commander
   which grid index it holds — `tt-launch tasks initial_object:=5,0 …` — or place
-  the object back manually before starting.
+  the object back manually before starting. The arm must still be in a
+  collision-free pose; `initial_object` does not bypass the startup safety
+  check.
+
+- **Task aborts with `Unsafe robot state collision`.** Before camera preflight,
+  sync pulses, or trial creation, Commander validates both current arm states
+  against the normal planning scene. An arm left inside a mount transition or
+  the presentation boundary makes the complete dual-arm run fail closed. The
+  check never moves a robot because a new process cannot safely infer the held
+  object or interrupted-motion direction. Use the collision contacts printed
+  immediately above the fatal message to identify the arm, move both arms to
+  known collision-free positions, and start a new session. A later
+  `START_STATE_IN_COLLISION` planner result is also fatal rig-wide rather than
+  being counted as an object miss while the other arm continues.
+
+- **OptiTrack stops after Motive is closed and reopened.** The existing NatNet
+  client can remain alive without restoring ROS delivery. Start real tasks from
+  the host with `tt-compose run --rm commander tt-launch tasks ...
+  robot_mode:=real`; the wrapper restarts only `tabletop-optitrack`, waits up to
+  25 seconds for an actual `/markers` message, and aborts before creating the
+  task container if none arrives. The OptiTrack service uses loopback UDP to
+  avoid stale Fast DDS shared-memory endpoints after restart. Direct
+  `docker compose run` commands and `tt-launch tasks` inside an attached
+  container do not perform this preflight.
 
 ## Flic buttons
 
@@ -215,6 +238,11 @@ python -m tabletop_py.gaze.edf recording.edf -o recording.csv
 ```
 
 ## FLIR cameras
+
+Recorded task startup allows up to three independent FLIR preflight attempts.
+Each attempt runs in a fresh process and keeps the existing image, calibration,
+and metadata-rate requirements. The task starts after the first passing attempt
+and fails closed only after all three attempts fail.
 
 Make sure the host is configured for the cameras (USB buffer size and
 `/dev/flir/*` udev symlinks) per

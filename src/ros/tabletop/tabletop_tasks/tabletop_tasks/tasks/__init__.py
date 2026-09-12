@@ -10,6 +10,7 @@ Available Tasks:
     FetchTask: Simple object movement task.
     PresentObjectTask: Object presentation without response collection.
     ForagingTask: Full delayed match-to-sample paradigm with reward.
+    InvariantAffordanceTask: Alternating bounded object-reposition task.
     SmoothPursuitTask: Eye tracking with moving target trajectory.
 
 Example:
@@ -21,6 +22,7 @@ Example:
 from .base import BaseObjectInteractionTask, BaseTask
 from .dummy import DummyTask
 from .foraging import ForagingTask
+from .invariant_affordance import InvariantAffordanceTask
 from .present import PresentTask
 from .smooth_pursuit import SmoothPursuitTask
 
@@ -29,6 +31,7 @@ __all__ = [
     "BaseTask",
     "DummyTask",
     "ForagingTask",
+    "InvariantAffordanceTask",
     "PresentTask",
     "SmoothPursuitTask",
 ]

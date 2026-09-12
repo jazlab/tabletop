@@ -50,27 +50,39 @@ from mingus.containers import Note
 from moveit.core.robot_trajectory import (  # type: ignore[reportMissingModuleSource]
     RobotTrajectory,
 )
+from moveit_msgs.msg import MoveItErrorCodes
 from rclpy.executors import (
     Executor,
     MultiThreadedExecutor,
     SingleThreadedExecutor,
 )
 from rclpy.experimental.events_executor import EventsExecutor
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
 from rclpy.signals import SignalHandlerOptions
-from tabletop_interfaces.msg import TeensySensor
+from std_srvs.srv import Trigger
+from tabletop_interfaces.msg import TaskEvent, TeensySensor
 from ur_dashboard_msgs.msg import SafetyMode
 
 from tabletop_rig.exceptions import (
     ActionClientError,
     ExecutionError,
     ExecutionInterruptedError,
+    ExecutionPreventedError,
     ExecutionRejectedError,
     ExecutionStoppedError,
     ManipulationContextExitedError,
+    MaxPlanningAttemptsReachedError,
     MoveitRecoverableError,
     NotSafeToExecuteError,
+    PlanningPipelineError,
     RigExecutionSafetyError,
     RigSafetyError,
+    RobotStateCollisionError,
     ServiceClientError,
     URSafetyViolationError,
 )
@@ -101,6 +113,23 @@ _FATAL_UR_SAFETY_MODES = {
     )
     if hasattr(SafetyMode, name)
 }
+
+
+def _contains_start_state_collision(error: BaseException) -> bool:
+    """Return whether any nested planning failure reports an invalid start."""
+    if isinstance(error, PlanningPipelineError):
+        return (
+            error.error_code.val == MoveItErrorCodes.START_STATE_IN_COLLISION
+        )
+    if isinstance(error, MaxPlanningAttemptsReachedError):
+        return any(
+            _contains_start_state_collision(item) for item in error.errors
+        )
+    if isinstance(error, BaseExceptionGroup):
+        return any(
+            _contains_start_state_collision(item) for item in error.exceptions
+        )
+    return False
 
 
 def ensure_context(fn):
@@ -196,9 +225,13 @@ def handle_interruptions(coro_fn):
             except ExecutionError as e:
                 # A real controller execution failure leaves the measured arm
                 # state indeterminate. Stop the whole rig instead of retrying
-                # this motion or running cleanup paths from a stale state. A
-                # laser-related failure is recoverable even when the beam has
-                # already cleared: the generation counter preserves that
+                # this motion or running cleanup paths from a stale state.
+                # ExecutionPreventedError is different: the pre-execution
+                # start-state guard rejected the trajectory before submitting
+                # a controller goal, so retrying the high-level operation will
+                # safely plan again from the newly measured state. A
+                # laser-related failure is also recoverable even when the beam
+                # has already cleared: the generation counter preserves that
                 # evidence independently of the controller-restart flag.
                 self._raise_if_rig_safety_faulted()
                 laser_event_observed = (
@@ -207,7 +240,14 @@ def handle_interruptions(coro_fn):
                     or self._laser_break_generation_value()
                     != attempt_laser_generation
                 )
-                if not self._simulate and not laser_event_observed:
+                prevented_before_submission = isinstance(
+                    e, ExecutionPreventedError
+                )
+                if (
+                    not self._simulate
+                    and not laser_event_observed
+                    and not prevented_before_submission
+                ):
                     raise self._rig_execution_fault_handler(e) from e
                 excs.append(e)
                 self.log(
@@ -298,6 +338,9 @@ class ManipulationContextManager(BaseInterface):
         rig_execution_fault_handler: Callable[
             [ExecutionError], RigSafetyError
         ],
+        rig_state_collision_fault_handler: Callable[
+            [BaseException], RigSafetyError
+        ],
         ur_interface_name: str,
         manipulation_interface_name: str,
         parameter_fallback_prefix: Optional[str] = None,
@@ -324,6 +367,9 @@ class ManipulationContextManager(BaseInterface):
         self._simulate = simulate
         self._rig_safety_fault_getter = rig_safety_fault_getter
         self._rig_execution_fault_handler = rig_execution_fault_handler
+        self._rig_state_collision_fault_handler = (
+            rig_state_collision_fault_handler
+        )
         self._laser_stop_requested = threading.Event()
         self._laser_state_lock = threading.Lock()
         self._laser_is_broken: bool | None = None
@@ -828,6 +874,11 @@ class ManipulationContextManager(BaseInterface):
                 elif not isinstance(exc_value, MoveitRecoverableError):
                     return False
 
+                if _contains_start_state_collision(exc_value):
+                    raise self._rig_state_collision_fault_handler(
+                        exc_value
+                    ) from exc_value
+
                 self.log(
                     f"Caught recoverable exception(s) in manipulation context | "
                     f"{exc_type.__name__}: {exc_value}",
@@ -925,6 +976,20 @@ class Commander(BaseNode):
             "commander", automatically_declare_parameters_from_overrides=True
         )
 
+        self._task_event_publisher = self.create_publisher(
+            TaskEvent,
+            "/tabletop/task_event",
+            QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=5000,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
+        self._task_session_id = ""
+        self._operator_stop_lock = threading.Lock()
+        self._operator_stop_future: concurrent.futures.Future | None = None
+
         self._sound = SoundInterface(self, "sound_interface")
         self._teensy = TeensyInterface(
             self,
@@ -959,6 +1024,9 @@ class Commander(BaseNode):
                 rig_execution_fault_handler=functools.partial(
                     self._handle_rig_execution_fault, robot_name
                 ),
+                rig_state_collision_fault_handler=functools.partial(
+                    self._handle_rig_state_collision_fault, robot_name
+                ),
                 ur_interface_name=interface_names["ur_interface_name"],
                 manipulation_interface_name=interface_names[
                     "manipulation_interface_name"
@@ -968,6 +1036,12 @@ class Commander(BaseNode):
             # self._urs[robot_name] = ur_interface
             # self._manipulators[robot_name] = manipulation_interface
             self._manipulation_contexts[robot_name] = manipulation_context
+
+        self._operator_stop_service = self.create_service(
+            Trigger,
+            "/tabletop/stop",
+            self._operator_stop_callback,
+        )
 
         # The io/status controller publishes safety changes immediately. Keep
         # subscriptions at Commander scope so one arm can abort the complete
@@ -992,6 +1066,32 @@ class Commander(BaseNode):
         self._exited_context = False
 
         self.log("Commander initialized")
+
+    def publish_task_event(
+        self,
+        event_type: int,
+        *,
+        session_id: str | None = None,
+        trial_number: int = -1,
+        group_name: str = "",
+        object_id: str = "",
+    ) -> None:
+        """Publish one low-rate lifecycle event for session diagnostics."""
+        if session_id is not None:
+            self._task_session_id = session_id
+        message = TaskEvent()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.event_type = int(event_type)
+        message.session_id = self._task_session_id
+        message.trial_number = int(trial_number)
+        message.group_name = group_name
+        message.object_id = object_id
+        self._task_event_publisher.publish(message)
+
+    @property
+    def task_session_id(self) -> str:
+        """Identifier shared by all events from the active task session."""
+        return self._task_session_id
 
     def _get_rig_safety_fault(self) -> RigSafetyError | None:
         with self._rig_safety_fault_lock:
@@ -1032,6 +1132,39 @@ class Commander(BaseNode):
         for context in self._manipulation_contexts.values():
             context._manipulator.stop_execution()
 
+    def bind_operator_stop_future(
+        self, cancel_future: concurrent.futures.Future
+    ) -> None:
+        """Bind the process-level task cancellation signal used by Ctrl-C."""
+        with self._operator_stop_lock:
+            self._operator_stop_future = cancel_future
+
+    def _operator_stop_callback(
+        self, _request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """Cancel both arms and the active task from the operator dashboard."""
+        self.log(
+            "Operator stop requested from session dashboard",
+            severity="WARN",
+        )
+        # Stop controller goals synchronously before scheduling coroutine
+        # cancellation. This is the same ordering used by the Ctrl-C path.
+        self.stop_all_execution()
+        with self._operator_stop_lock:
+            cancel_future = self._operator_stop_future
+            if cancel_future is None:
+                response.success = False
+                response.message = "Commander stop pathway is not ready"
+                return response
+            if cancel_future.done():
+                response.success = True
+                response.message = "Task is already stopping"
+                return response
+            cancel_future.set_result("operator stop")
+        response.success = True
+        response.message = "Stopping task and both robot trajectories"
+        return response
+
     def _handle_rig_execution_fault(
         self, robot_name: str, error: ExecutionError
     ) -> RigSafetyError:
@@ -1039,6 +1172,44 @@ class Commander(BaseNode):
         return self._latch_rig_safety_fault(
             RigExecutionSafetyError(robot_name, error)
         )
+
+    def _handle_rig_state_collision_fault(
+        self, robot_name: str, error: BaseException
+    ) -> RigSafetyError:
+        """Make a planner-reported start-state collision fatal rig-wide."""
+        return self._latch_rig_safety_fault(
+            RobotStateCollisionError(
+                [robot_name], phase="motion planning", cause=error
+            )
+        )
+
+    @ensure_context
+    def validate_task_start_state(self) -> None:
+        """Refuse task execution if either arm starts in collision.
+
+        This is an observational check only. In particular, it does not try to
+        retreat from a mount or presentation area because the process cannot
+        safely infer the attached object or interrupted transition direction.
+        """
+        current_state = self._moveit.get_current_state()
+        invalid_robots = [
+            robot_name
+            for robot_name, context in self._manipulation_contexts.items()
+            if not self._moveit.is_state_valid(
+                current_state,
+                context._manipulator.group_name,
+                verbose=True,
+            )
+        ]
+        if not invalid_robots:
+            self.log("Task startup robot-state collision check passed")
+            return
+
+        fault = RobotStateCollisionError(
+            invalid_robots,
+            phase="task startup preflight",
+        )
+        raise self._latch_rig_safety_fault(fault)
 
     @property
     def rig_safety_faulted(self) -> bool:
@@ -1116,6 +1287,18 @@ class Commander(BaseNode):
     ###########################################################################
 
     @ensure_context
+    async def set_sync_pulses(
+        self, enable: bool, duration: Optional[int | float] = None
+    ) -> None:
+        """Control the experiment sync-pulse generator without moving robots."""
+        await self._teensy.set_sync_pulses(enable=enable, duration=duration)
+
+    @ensure_context
+    async def wait_for_eyelink_recorder(self, timeout: float = 10.0) -> None:
+        """Require the real rosbag recorder to be attached to EyeLink data."""
+        await self._eyelink.wait_for_recorder_subscription(timeout=timeout)
+
+    @ensure_context
     async def play_sound(
         self,
         note: Optional[Note | Mapping[str, Any]] = None,
@@ -1128,6 +1311,13 @@ class Commander(BaseNode):
             duration: Duration of the sound in seconds. If None, the default duration is used.
         """
         await self._sound.play(note, duration)
+
+    @ensure_context
+    async def pulse_buzzer(
+        self, arm: Literal["left", "right", "both"] = "both"
+    ) -> None:
+        """Pulse the selected hand buzzer(s) for one second."""
+        await self._teensy.pulse_buzzer(arm)
 
     @ensure_context
     async def release_arm(self, arm: Literal["left", "right", "both"]) -> None:
@@ -1389,6 +1579,10 @@ class Commander(BaseNode):
         self._rig_safety_event = asyncio.Event()
         try:
             async with asyncio.TaskGroup() as tg:
+                # Commander starts with the reference TTL disabled. run_tasks
+                # enables it only after every preflight check has passed.
+                tg.create_task(self._teensy.set_sync_pulses(enable=False))
+
                 tg.create_task(
                     self._teensy.set_sync_pulse_solenoid(activate=True)
                 )
@@ -1429,9 +1623,14 @@ class Commander(BaseNode):
         with self._rig_safety_fault_lock:
             self._rig_safety_monitor_armed = False
         try:
+            await self._teensy.set_sync_pulses(enable=False)
+        except BaseException as e:
+            self.log(f"Failed to disable sync pulses: {e!r}")
+
+        try:
             await self._teensy.set_sync_pulse_solenoid(activate=False)
         except BaseException as e:
-            self.log(f"Failed to set sync pulse: {e!r}")
+            self.log(f"Failed to set sync pulse solenoid: {e!r}")
 
         try:
             self.destroy_node()
@@ -1669,6 +1868,7 @@ def main_sync(args=None) -> None:
         spin_future = tpe.submit(spin_notify, executor, cancel_future)
 
         commander = Commander()
+        commander.bind_operator_stop_future(cancel_future)
         executor.add_node(commander)
 
         asyncio.run(

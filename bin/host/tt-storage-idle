@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Refuse to start a high-bandwidth recording while its storage device is busy
+# serving another read workload.
+
+set -eo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 BAG_DIRECTORY" >&2
+    exit 2
+fi
+
+bag_directory=$1
+sample_seconds=${TABLETOP_STORAGE_PREFLIGHT_SECONDS:-5}
+max_read_mib_s=${TABLETOP_STORAGE_MAX_READ_MIB_S:-5}
+
+if [[ ! -d "$bag_directory" ]]; then
+    echo "Storage preflight failed: directory does not exist: $bag_directory" >&2
+    exit 2
+fi
+if [[ ! "$sample_seconds" =~ ^[1-9][0-9]*$ ]] ||
+   [[ ! "$max_read_mib_s" =~ ^[0-9]+$ ]]; then
+    echo "Storage preflight settings must be whole numbers." >&2
+    exit 2
+fi
+
+device=$(findmnt -no MAJ:MIN -T "$bag_directory" | tr -d '[:space:]')
+if [[ -z "$device" || "$device" != *:* ]]; then
+    echo "Storage preflight failed: cannot resolve the device for $bag_directory" >&2
+    exit 2
+fi
+IFS=: read -r device_major device_minor <<< "$device"
+
+read_sectors() {
+    awk -v major="$device_major" -v minor="$device_minor" \
+        '$1 == major && $2 == minor { print $6; found = 1; exit }
+         END { if (!found) exit 1 }' /proc/diskstats
+}
+
+if ! start_sectors=$(read_sectors); then
+    echo "Storage preflight failed: $device is absent from /proc/diskstats" >&2
+    exit 2
+fi
+
+sleep "$sample_seconds"
+
+if ! end_sectors=$(read_sectors); then
+    echo "Storage preflight failed: $device disappeared from /proc/diskstats" >&2
+    exit 2
+fi
+if (( end_sectors < start_sectors )); then
+    echo "Storage preflight failed: device read counter reset during sampling" >&2
+    exit 2
+fi
+
+# Linux diskstats reports 512-byte sectors, so one MiB is 2048 sectors.
+delta_sectors=$((end_sectors - start_sectors))
+limit_sectors=$((max_read_mib_s * 2048 * sample_seconds))
+rate_tenths=$((delta_sectors * 10 / (2048 * sample_seconds)))
+rate_whole=$((rate_tenths / 10))
+rate_fraction=$((rate_tenths % 10))
+
+if (( delta_sectors > limit_sectors )); then
+    echo "Storage preflight failed: $bag_directory is receiving ${rate_whole}.${rate_fraction} MiB/s of reads." >&2
+    echo "Stop bag analysis, copying, indexing, or other HDD reads before starting a recorded task." >&2
+    exit 1
+fi
+
+echo "Storage preflight passed: ${rate_whole}.${rate_fraction} MiB/s read traffic on $bag_directory"

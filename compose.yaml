@@ -22,8 +22,9 @@ name: tabletop
 # inherit them through `extends: ros-base`.
 
 services:
-  # Browser-accessible X11 desktop (noVNC at localhost:<NOVNC_PORT>/vnc.html) that hosts
-  # all GUIs (RViz, UR sim teach pendant). Other GUI services share its DISPLAY.
+  # Browser-accessible X11 desktop (secure noVNC at
+  # https://<host-ip>:<NOVNC_PORT>/vnc.html) hosting all GUIs. TLS credentials
+  # live in the git-ignored .novnc directory. Other GUI services share DISPLAY.
   novnc:
     ipc: host
     network_mode: host
@@ -33,9 +34,16 @@ services:
     environment:
       - PORT=$NOVNC_PORT
       - DISPLAY=$NOVNC_DISPLAY
+      - XAUTHORITY=/run/tabletop-novnc/Xauthority
       - DISPLAY_WIDTH=$NOVNC_WIDTH
       - DISPLAY_HEIGHT=$NOVNC_HEIGHT
       - WINDOW_MANAGER=dwm
+    volumes:
+      - type: bind
+        source: ./.novnc
+        target: /run/tabletop-novnc
+        read_only: true
+      - novnc-x11:/tmp/.X11-unix
     restart: unless-stopped
 
   # Base image + workspace bind mount that every ROS service extends. This is an
@@ -53,6 +61,11 @@ services:
         source: .
         target: /tabletop
         consistency: $BIND_CONSISTENCY
+      - type: bind
+        source: ./.novnc/Xauthority
+        target: /run/tabletop-novnc/Xauthority
+        read_only: true
+      - novnc-x11:/tmp/.X11-unix
       # - ./docker/ros/entrypoint.sh:/entrypoint.sh
       # - ./docker/ros/user-entrypoint.sh:/user-entrypoint.sh
       # - ./docker/ros/fix-uid-gid.sh:/fix-uid-gid.sh
@@ -60,6 +73,7 @@ services:
       - UV_EXTRA=$UV_EXTRA
       - HOST_UID=$HOST_UID
       - HOST_GID=$HOST_GID
+      - XAUTHORITY=/run/tabletop-novnc/Xauthority
     user: root
     stop_signal: SIGINT
     working_dir: /tabletop
@@ -133,6 +147,12 @@ services:
     extends: ros-base
     container_name: tabletop-optitrack
     profiles: !override [ real ]
+    # A Motive restart leaves Fast DDS shared-memory endpoints in a state where
+    # NatNet frames still arrive but /markers and /rigid_bodies stop reaching
+    # readers. Loopback UDP makes reconnects visible to persistent and
+    # late-joining subscribers.
+    environment:
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     restart: unless-stopped
     command: tt-launch optitrack
 
@@ -142,9 +162,15 @@ services:
     extends: ros-base
     container_name: tabletop-flir
     profiles: !override [ real ]
+    # A malformed camera timestamp must not be able to exhaust host memory and
+    # starve the robot controllers. Normal six-camera operation is far below
+    # this ceiling; the driver also resets its estimator before reaching it.
+    mem_limit: 16g
     # Keep camera USB access restricted to the standard video-device group.
     group_add:
       - "video"
+    environment:
+      - TABLETOP_FLIR_CPU_SET=$TABLETOP_FLIR_CPU_SET
     # gosu rebuilds supplementary groups from /etc/group while dropping from
     # root to mules, so make the Docker-provided video group explicit first.
     entrypoint:
@@ -152,6 +178,9 @@ services:
       - -c
       - |
         usermod -aG video mules
+        if [[ -n "$${TABLETOP_FLIR_CPU_SET}" ]]; then
+          exec taskset --cpu-list "$${TABLETOP_FLIR_CPU_SET}" /entrypoint.sh "$$@"
+        fi
         exec /entrypoint.sh "$@"
       - --
     devices:
@@ -180,8 +209,16 @@ services:
     profiles: !override [ real ]
     environment:
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+      - TABLETOP_PREVIEW_CPU_SET=$TABLETOP_PREVIEW_CPU_SET
     restart: unless-stopped
-    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_preview_supervisor.py
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        if [[ -n "$${TABLETOP_PREVIEW_CPU_SET}" ]]; then
+          exec taskset --cpu-list "$${TABLETOP_PREVIEW_CPU_SET}" python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_preview_supervisor.py
+        fi
+        exec python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_preview_supervisor.py
 
   # Low-bandwidth GUI that verifies all six cameras are responding to the
   # shared Teensy Line0 exposure trigger. It uses camera metadata, not images.
@@ -229,13 +266,42 @@ services:
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+      - TABLETOP_TTL_EYELINK_MASK=0x20
       - TABLETOP_TTL_ROBOT1_PIN=3
       - TABLETOP_TTL_ROBOT1_ACTIVE_LOW=true
+      # Current solenoid marker rest position and measured 3.44 mm travel axis.
+      # The 3 cm ROI keeps other loose markers from being selected.
+      - TABLETOP_TTL_OPTITRACK_CENTER=-0.48133,-0.08284,0.53280
+      - TABLETOP_TTL_OPTITRACK_AXIS=-0.97052,0.23989,0.02343
+      - TABLETOP_TTL_OPTITRACK_ROI_RADIUS_M=0.03
     depends_on:
       novnc:
         condition: service_healthy
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/ttl_dashboard.py
+
+  # Task/session health monitor on noVNC workspace 7. Monitoring uses only
+  # low-bandwidth status/metadata streams; its sole command is a user-clicked
+  # stop request routed through Commander's normal Ctrl-C cancellation path.
+  session-dashboard:
+    extends: ros-base
+    container_name: tabletop-session-dashboard
+    profiles: !override [ real, sim ]
+    volumes:
+      - $ROS_BAG_DIR_MNT
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+      - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - TABLETOP_TTL_EYELINK_MASK=0x20
+      - TABLETOP_TTL_OPTITRACK_CENTER=-0.48133,-0.08284,0.53280
+      - TABLETOP_TTL_OPTITRACK_AXIS=-0.97052,0.23989,0.02343
+      - TABLETOP_TTL_OPTITRACK_ROI_RADIUS_M=0.03
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/session_dashboard.py
 
   # Real Teensy micro-ROS agent (arm locks, safety laser, reward, sync pulse).
   # Needs the $TEENSY_DEV serial device.
@@ -243,6 +309,11 @@ services:
     extends: ros-base
     container_name: tabletop-teensy
     profiles: !override [ real ]
+    # Avoid host Fast DDS shared-memory ownership conflicts after a Teensy is
+    # reflashed or replaced. The serial XRCE link is unchanged; only the
+    # agent-to-local-ROS hop uses loopback UDP.
+    environment:
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     devices:
       - $TEENSY_DEV
     restart: unless-stopped
@@ -321,8 +392,29 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - PULSE_COOKIE=$PULSE_COOKIE_CONTAINER
+      - TABLETOP_RECORDER_CPU_SET=$TABLETOP_RECORDER_CPU_SET
     stop_grace_period: 40s
     command: tt-launch commander
+
+  # Offline-only GPU exporter. Its fixed NVIDIA runtime is intentionally
+  # isolated from commander and every real-time rig service. Invoke it with
+  # `docker compose --profile export run --rm --no-deps exporter ...`; it never
+  # launches robots or joins a task by itself.
+  exporter:
+    extends: ros-base
+    container_name: tabletop-exporter
+    profiles: !override [ export ]
+    runtime: nvidia
+    user: "$HOST_UID:$HOST_GID"
+    volumes:
+      - $ROS_BAG_DIR_MNT
+    environment:
+      - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+    init: true
+    entrypoint: ""
+    command: sleep infinity
 
   # The VS Code Dev Container: everything mounted, idles on `sleep infinity`
   # so you attach and run tt-build / tt-launch interactively.
@@ -350,3 +442,4 @@ services:
 # Named volume caching PlatformIO's core (toolchains/frameworks) across builds.
 volumes:
   platformio-core:
+  novnc-x11:

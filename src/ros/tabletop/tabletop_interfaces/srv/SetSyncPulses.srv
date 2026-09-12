@@ -1,0 +1,11 @@
+# Enable or disable the experiment synchronization pulse generator.
+# Served by: teensy node (firmware, service ~/set_sync_pulses) / mock_teensy node.
+# Called by: the task lifecycle and the workspace-5 I/O dashboard.
+
+# --- Request ---
+bool enable                          # True enables ~1 Hz pulses; False stops immediately
+builtin_interfaces/Duration duration # Zero enables until explicitly disabled; positive enables temporarily
+---
+# --- Response ---
+bool success    # False for a negative duration or a duration supplied while disabling
+string message  # Human-readable confirmation

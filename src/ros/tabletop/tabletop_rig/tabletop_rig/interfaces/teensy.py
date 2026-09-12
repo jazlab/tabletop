@@ -26,9 +26,11 @@ from rclpy.qos import QoSPresetProfiles
 from tabletop_interfaces.msg import TeensySensor
 from tabletop_interfaces.srv import (
     SetArmLock,
+    SetBuzzer,
     SetReward,
     SetSmartglass,
     SetSolenoid,
+    SetSyncPulses,
 )
 
 from tabletop_rig.exceptions import ServiceCallTimeoutError
@@ -139,6 +141,11 @@ class TeensyInterface(BaseInterface):
             "teensy/set_arm_lock",
             callback_group=ReentrantCallbackGroup(),
         )
+        self._set_buzzer_client = self.node.create_client(
+            SetBuzzer,
+            "teensy/set_buzzer",
+            callback_group=ReentrantCallbackGroup(),
+        )
         self._set_reward_client = self.node.create_client(
             SetReward,
             "teensy/set_reward",
@@ -152,6 +159,11 @@ class TeensyInterface(BaseInterface):
         self._set_solenoid_client = self.node.create_client(
             SetSolenoid,
             "teensy/set_solenoid",
+            callback_group=ReentrantCallbackGroup(),
+        )
+        self._set_sync_pulses_client = self.node.create_client(
+            SetSyncPulses,
+            "teensy/set_sync_pulses",
             callback_group=ReentrantCallbackGroup(),
         )
 
@@ -455,6 +467,32 @@ class TeensyInterface(BaseInterface):
             srv_client=self._set_arm_lock_client,
         )
 
+    async def pulse_buzzer(
+        self, arm: Literal["left", "right", "both"]
+    ) -> None:
+        """Pulse the selected hand buzzer(s) for one firmware-bounded second.
+
+        This deliberately makes a single service call rather than using the
+        idempotent setter retry helper. Repeating a timed pulse after a lost
+        response could extend it beyond the requested one-second interval.
+
+        Args:
+            arm: Which hand buzzer(s) to pulse.
+
+        Raises:
+            ValueError: If arm is not left, right, or both.
+        """
+        if arm not in ("left", "right", "both"):
+            raise ValueError("Invalid arm: must be 'left', 'right', or 'both'")
+
+        await self.node.service_call_async(
+            srv_request=SetBuzzer.Request(
+                left_arm=arm in ("left", "both"),
+                right_arm=arm in ("right", "both"),
+            ),
+            srv_client=self._set_buzzer_client,
+        )
+
     async def lock_arms_and_wait(
         self,
         timeout: Optional[float] = None,
@@ -523,18 +561,46 @@ class TeensyInterface(BaseInterface):
         )
 
     def set_sync_pulse_solenoid_blocking(self, activate: bool) -> None:
-        """Control the sync pulse solenoid.
-
-        The sync pulse solenoid can be activated to fire when the Teensy
-        sync pulse fires
-
-        Args:
-            activate: True to start the sync pulse solenoid, False to stop
-        """
+        """Control the sync pulse solenoid synchronously."""
         self.log(f"Solenoid {'activate' if activate else 'deactivate'}")
         self.node.service_call_blocking(
             srv_request=SetSolenoid.Request(activate=activate),
             srv_client=self._set_solenoid_client,
+        )
+
+    async def set_sync_pulses(
+        self, enable: bool, duration: Optional[int | float] = None
+    ) -> None:
+        """Enable or stop the experiment synchronization pulse generator.
+
+        Args:
+            enable: True to generate the approximately 1 Hz pulses; False to
+                stop immediately and drive the output low.
+            duration: Optional positive duration in seconds. When supplied,
+                the Teensy stops the generator automatically. A persistent
+                task enable uses None and is explicitly disabled at cleanup.
+
+        Raises:
+            ValueError: If duration is non-positive or supplied while
+                disabling.
+        """
+        request = SetSyncPulses.Request(enable=enable)
+        if enable and duration is not None:
+            if duration <= 0:
+                raise ValueError("Sync pulse duration must be greater than 0")
+            request.duration = Duration(seconds=duration).to_msg()
+        elif not enable and duration is not None:
+            raise ValueError(
+                "Duration cannot be supplied when disabling sync pulses"
+            )
+
+        self.log(
+            f"Sync pulses {'enabled' if enable else 'disabled'}"
+            + (f" for {duration}s" if duration is not None else "")
+        )
+        await self._call_idempotent(
+            srv_request=request,
+            srv_client=self._set_sync_pulses_client,
         )
 
     async def set_reward(

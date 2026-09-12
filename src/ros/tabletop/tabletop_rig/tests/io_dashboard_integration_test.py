@@ -38,7 +38,7 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
         _wait_for(
             lambda: all(
                 dashboard.snapshot().services.get(name, False)
-                for name in ("smartglass", "reward", "buzzer")
+                for name in ("smartglass", "reward", "buzzer", "sync_pulses")
             )
         )
         _wait_for(lambda: dashboard.snapshot().sensor_received_at > 0.0)
@@ -53,9 +53,11 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
         ):
             mock_module._change_input_pin_state(pin, False)
         _wait_for(
-            lambda: not dashboard.snapshot().left_pressed
-            and not dashboard.snapshot().right_pressed
-            and not dashboard.snapshot().laser_broken
+            lambda: (
+                not dashboard.snapshot().left_pressed
+                and not dashboard.snapshot().right_pressed
+                and not dashboard.snapshot().laser_broken
+            )
         )
         for pin in (
             mock_module.LEFT_ARM_LOCKED_STATE_PIN,
@@ -64,9 +66,11 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
         ):
             mock_module._change_input_pin_state(pin, True)
         _wait_for(
-            lambda: dashboard.snapshot().left_count >= 1
-            and dashboard.snapshot().right_count >= 1
-            and dashboard.snapshot().laser_count >= 1
+            lambda: (
+                dashboard.snapshot().left_count >= 1
+                and dashboard.snapshot().right_count >= 1
+                and dashboard.snapshot().laser_count >= 1
+            )
         )
 
         initial_smartglass = mock.smartglass_revealed
@@ -76,6 +80,11 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
             lambda: mock.smartglass_revealed is initial_smartglass,
             timeout=1.5,
         )
+
+        assert mock.sync_pulses_enabled is False
+        dashboard.enqueue("sync_pulses")
+        _wait_for(lambda: mock.sync_pulses_enabled)
+        _wait_for(lambda: not mock.sync_pulses_enabled, timeout=11.5)
 
         dashboard.enqueue("reward")
         _wait_for(lambda: mock.reward_active)
@@ -106,9 +115,11 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
             is right_lock_before
         )
         _wait_for(
-            lambda: not mock_module.digital_output_pin_states[
-                mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
-            ],
+            lambda: (
+                not mock_module.digital_output_pin_states[
+                    mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
+                ]
+            ),
             timeout=1.5,
         )
 
@@ -119,9 +130,11 @@ def test_dashboard_topics_and_bounded_outputs_end_to_end() -> None:
             ]
         )
         _wait_for(
-            lambda: not mock_module.digital_output_pin_states[
-                mock_module.RIGHT_ARM_BUZZER_CONTROL_PIN
-            ],
+            lambda: (
+                not mock_module.digital_output_pin_states[
+                    mock_module.RIGHT_ARM_BUZZER_CONTROL_PIN
+                ]
+            ),
             timeout=1.5,
         )
     finally:

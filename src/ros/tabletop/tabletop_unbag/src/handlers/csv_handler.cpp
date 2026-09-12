@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
@@ -373,6 +374,33 @@ std::optional<std::size_t> inspect_existing_csv(const fs::path& path, const std:
   return newlines > 0 ? newlines - 1 : 0;
 }
 
+template <typename T>
+void write_binary(std::ostream& out, const T& value)
+{
+  out.write(reinterpret_cast<const char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+}
+
+template <typename T>
+bool read_binary(std::istream& in, T& value)
+{
+  in.read(reinterpret_cast<char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+  return static_cast<bool>(in);
+}
+
+std::string read_spool_string(std::istream& in, uint32_t size)
+{
+  std::string value(size, '\0');
+  if (size != 0)
+  {
+    in.read(value.data(), static_cast<std::streamsize>(size));
+  }
+  if (!in)
+  {
+    throw std::runtime_error("Truncated CSV spool record");
+  }
+  return value;
+}
+
 }  // namespace
 
 CsvHandler::CsvHandler(TopicInfo topic, const std::string& output_dir, const UnbagOptions& options)
@@ -381,6 +409,10 @@ CsvHandler::CsvHandler(TopicInfo topic, const std::string& output_dir, const Unb
   , batch_size_(options.csv.batch_size == 0 ? 1 : options.csv.batch_size)
 {
   csv_path_ = fs::path(output_dir) / (topic_to_basename(topic_.name) + ".csv");
+  const fs::path spool_root = options.csv.spool_dir.empty()
+                                  ? fs::path(output_dir) / ".tabletop_unbag_spool"
+                                  : fs::path(options.csv.spool_dir);
+  spool_path_ = spool_root / (topic_to_basename(topic_.name) + ".rows");
   // bag_time_ns is always the first column.
   note_column("bag_time_ns");
 }
@@ -408,6 +440,7 @@ void CsvHandler::note_column(const std::string& column)
 {
   if (seen_columns_.insert(column).second)
   {
+    column_ids_[column] = static_cast<uint32_t>(columns_.size());
     columns_.push_back(column);
   }
 }
@@ -426,15 +459,169 @@ std::string CsvHandler::header_line() const
   return header;
 }
 
+void CsvHandler::begin_preprocess()
+{
+  std::error_code ec;
+  fs::create_directories(spool_path_.parent_path(), ec);
+  if (ec)
+  {
+    throw std::system_error(ec, "Failed to create CSV spool directory: " + spool_path_.parent_path().string());
+  }
+  fs::remove(spool_path_, ec);
+  ensure_spool_open();
+}
+
+void CsvHandler::ensure_spool_open()
+{
+  if (spool_out_.is_open())
+  {
+    return;
+  }
+  spool_out_.open(spool_path_, std::ios::out | std::ios::trunc | std::ios::binary);
+  if (!spool_out_)
+  {
+    throw std::runtime_error("Failed to open CSV spool: " + spool_path_.string());
+  }
+}
+
+void CsvHandler::spool_row(const FlatRow& row, int64_t bag_time_ns)
+{
+  ensure_spool_open();
+  if (row.size() > std::numeric_limits<uint32_t>::max())
+  {
+    throw std::runtime_error("CSV row has too many fields on " + topic_.name);
+  }
+
+  write_binary(spool_out_, bag_time_ns);
+  const uint32_t field_count = static_cast<uint32_t>(row.size());
+  write_binary(spool_out_, field_count);
+  for (const auto& [column, value] : row)
+  {
+    note_column(column);
+    const uint32_t column_id = column_ids_.at(column);
+    if (value.size() > std::numeric_limits<uint32_t>::max())
+    {
+      throw std::runtime_error("CSV field is too large on " + topic_.name);
+    }
+    const uint32_t value_size = static_cast<uint32_t>(value.size());
+    write_binary(spool_out_, column_id);
+    write_binary(spool_out_, value_size);
+    spool_out_.write(value.data(), static_cast<std::streamsize>(value.size()));
+  }
+  if (!spool_out_)
+  {
+    throw std::runtime_error("Failed writing CSV spool: " + spool_path_.string());
+  }
+}
+
 void CsvHandler::preprocess(const rcutils_uint8_array_t& data, int64_t bag_time_ns)
 {
-  (void)bag_time_ns;
   ensure_type_support_loaded();
-  const FlatRow flat = flatten_message(members_, data);
-  for (const auto& [column, value] : flat)
+  try
   {
-    (void)value;
-    note_column(column);
+    spool_row(flatten_message(members_, data), bag_time_ns);
+  }
+  catch (const std::exception& e)
+  {
+    ++failed_;
+    if (!flatten_warned_)
+    {
+      flatten_warned_ = true;
+      std::cerr << "WARNING - Failed to spool a message on " << topic_.name << " (" << e.what()
+                << "); skipping further spool errors on this topic.\n";
+    }
+  }
+}
+
+void CsvHandler::materialize_spool()
+{
+  begin_write();
+  std::ifstream in(spool_path_, std::ios::in | std::ios::binary);
+  if (!in)
+  {
+    throw std::runtime_error("Failed to read CSV spool: " + spool_path_.string());
+  }
+
+  while (true)
+  {
+    int64_t bag_time_ns = 0;
+    in.read(reinterpret_cast<char*>(&bag_time_ns), static_cast<std::streamsize>(sizeof(bag_time_ns)));
+    if (in.eof())
+    {
+      break;
+    }
+    if (!in)
+    {
+      throw std::runtime_error("Truncated CSV spool timestamp: " + spool_path_.string());
+    }
+
+    uint32_t field_count = 0;
+    if (!read_binary(in, field_count))
+    {
+      throw std::runtime_error("Truncated CSV spool field count: " + spool_path_.string());
+    }
+    std::unordered_map<uint32_t, std::string> values;
+    values.reserve(field_count);
+    for (uint32_t i = 0; i < field_count; ++i)
+    {
+      uint32_t column_id = 0;
+      uint32_t value_size = 0;
+      if (!read_binary(in, column_id) || !read_binary(in, value_size) || column_id >= columns_.size())
+      {
+        throw std::runtime_error("Invalid CSV spool field: " + spool_path_.string());
+      }
+      values[column_id] = read_spool_string(in, value_size);
+    }
+
+    if (skip_rows_ > 0)
+    {
+      --skip_rows_;
+      ++succeeded_;
+      continue;
+    }
+
+    std::string line = std::to_string(bag_time_ns);
+    for (uint32_t column_id = 1; column_id < columns_.size(); ++column_id)
+    {
+      line.push_back(',');
+      const auto it = values.find(column_id);
+      if (it != values.end())
+      {
+        line += it->second;
+      }
+    }
+    buffer_line(std::move(line));
+    ++succeeded_;
+  }
+
+  flush_batch();
+  if (opened_)
+  {
+    out_.close();
+    if (!out_)
+    {
+      throw std::runtime_error("Failed finalizing CSV: " + csv_path_.string());
+    }
+  }
+}
+
+void CsvHandler::finish_preprocess()
+{
+  if (spool_out_.is_open())
+  {
+    spool_out_.flush();
+    if (!spool_out_)
+    {
+      throw std::runtime_error("Failed flushing CSV spool: " + spool_path_.string());
+    }
+    spool_out_.close();
+  }
+  materialize_spool();
+  std::error_code ec;
+  fs::remove(spool_path_, ec);
+  if (ec)
+  {
+    std::cerr << "WARNING - Could not remove completed CSV spool " << spool_path_ << ": " << ec.message() << '\n';
   }
 }
 

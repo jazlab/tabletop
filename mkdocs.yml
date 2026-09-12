@@ -104,11 +104,14 @@ nav:
   - Guide:
       - CLI & Tooling: guide/cli.md
       - Configuration: guide/configuration.md
+      - Rig Reliability Checkpoint: guide/rig-reliability-checkpoint.md
       - Tasks & Experiments: guide/tasks.md
       - Manipulation Reliability: guide/manipulation-reliability.md
       - Peripheral Capture & Diagnostics: guide/peripheral-capture.md
       - I/O Check Dashboard: guide/io-dashboard.md
       - TTL Sync Dashboard: guide/ttl-dashboard.md
+      - Session Health Dashboard: guide/session-dashboard.md
+      - noVNC Workspace Layout: guide/novnc-layout.md
       - Hardware & Safety: guide/hardware.md
       - Troubleshooting: guide/troubleshooting.md
   - API Reference:

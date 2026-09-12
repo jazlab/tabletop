@@ -112,6 +112,19 @@ public:
     (void)bag_time_ns;
   }
 
+  /// Prepare a one-pass preprocessing sink. Called before the bag reader starts
+  /// for handlers whose needs_preprocess() returns true.
+  virtual void begin_preprocess()
+  {
+  }
+
+  /// Finish preprocessing and materialize the final output. This is called
+  /// after the shared bag pass has drained, so a handler may turn a compact
+  /// spool into its final representation without rereading the source bag.
+  virtual void finish_preprocess()
+  {
+  }
+
   /// Apply the overwrite/resume policy and prepare outputs for writing.
   virtual void begin_write()
   {

@@ -25,6 +25,7 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -53,6 +54,7 @@
 #include "tabletop_unbag/handlers/csv_handler.hpp"
 #include "tabletop_unbag/handlers/handler.hpp"
 #include "tabletop_unbag/handlers/image_handler.hpp"
+#include "tabletop_unbag/handlers/video_handler.hpp"
 #include "tabletop_unbag/progress_bar.hpp"
 
 namespace fs = std::filesystem;
@@ -82,18 +84,12 @@ struct WorkItem
 {
   MsgPtr msg;
   uint64_t write_index = 0;
+  bool preprocess = false;
 };
 
-/// Which lifecycle method a pass invokes on its handlers.
-enum class PassKind
+void process_one(MessageHandler* handler, const WorkItem& item)
 {
-  Preprocess,
-  Write,
-};
-
-void process_one(MessageHandler* handler, const WorkItem& item, PassKind kind)
-{
-  if (kind == PassKind::Preprocess)
+  if (item.preprocess)
   {
     handler->preprocess(*item.msg->serialized_data, item.msg->recv_timestamp);
   }
@@ -120,6 +116,10 @@ struct HandlerKind
 const std::vector<HandlerKind>& handler_registry()
 {
   static const std::vector<HandlerKind> registry = {
+    { VideoHandler::handler_name(), &VideoHandler::handles,
+      [](TopicInfo topic, const std::string& out, const UnbagOptions& opts) -> std::unique_ptr<MessageHandler> {
+        return std::make_unique<VideoHandler>(std::move(topic), out, opts);
+      } },
     { ImageHandler::handler_name(), &ImageHandler::handles,
       [](TopicInfo topic, const std::string& out, const UnbagOptions& opts) -> std::unique_ptr<MessageHandler> {
         return std::make_unique<ImageHandler>(std::move(topic), out, opts);
@@ -142,7 +142,15 @@ const HandlerKind* choose_handler(const std::string& ros_type, const std::set<st
   {
     if (kind.claims(ros_type))
     {
-      return enabled.count(kind.name) != 0 ? &kind : nullptr;
+      if (enabled.count(kind.name) != 0)
+      {
+        return &kind;
+      }
+      if (kind.name == VideoHandler::handler_name())
+      {
+        continue;
+      }
+      return nullptr;
     }
   }
   return nullptr;
@@ -179,6 +187,36 @@ void throw_if_ec(const std::error_code& ec, const std::string& what, const fs::p
   {
     throw std::system_error(ec, what + ": " + path.string());
   }
+}
+
+std::string json_quote(const std::string& value)
+{
+  std::string result = "\"";
+  for (const unsigned char character : value)
+  {
+    switch (character)
+    {
+      case '\\': result += "\\\\"; break;
+      case '"': result += "\\\""; break;
+      case '\n': result += "\\n"; break;
+      case '\r': result += "\\r"; break;
+      case '\t': result += "\\t"; break;
+      default:
+        if (character < 0x20)
+        {
+          static constexpr char hex[] = "0123456789abcdef";
+          result += "\\u00";
+          result.push_back(hex[(character >> 4) & 0x0f]);
+          result.push_back(hex[character & 0x0f]);
+        }
+        else
+        {
+          result.push_back(static_cast<char>(character));
+        }
+    }
+  }
+  result.push_back('"');
+  return result;
 }
 
 /// Rebuild a missing metadata.yaml from the bag's storage files using the
@@ -244,7 +282,7 @@ std::string reindex_and_detect_storage_id(const std::string& bag_dir, const std:
 void run_pass(const std::string& bag_dir, const std::string& storage_id, const std::vector<std::string>* filter_topics,
               const std::unordered_map<std::string, MessageHandler*>& serial_handlers,
               const std::unordered_map<std::string, MessageHandler*>& pool_handlers, std::size_t pool_workers,
-              uint64_t total, const std::string& label, PassKind kind)
+              const std::set<std::string>& preprocess_topics, uint64_t total, const std::string& label)
 {
   constexpr std::size_t kSerialQueueCap = 1024;
 
@@ -257,10 +295,10 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
     auto queue = std::make_unique<ConcurrentQueue<WorkItem>>(kSerialQueueCap);
     ConcurrentQueue<WorkItem>* q = queue.get();
     serial_queues.emplace(topic, std::move(queue));
-    serial_threads.emplace_back([q, handler, kind] {
+    serial_threads.emplace_back([q, handler] {
       while (auto item = q->pop())
       {
-        process_one(handler, *item, kind);
+        process_one(handler, *item);
       }
     });
   }
@@ -275,10 +313,10 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
     pool_threads.reserve(pool_workers);
     for (std::size_t i = 0; i < pool_workers; ++i)
     {
-      pool_threads.emplace_back([&pool_queue, kind] {
+      pool_threads.emplace_back([&pool_queue] {
         while (auto item = pool_queue.pop())
         {
-          process_one(item->first, item->second, kind);
+          process_one(item->first, item->second);
         }
       });
     }
@@ -306,28 +344,30 @@ void run_pass(const std::string& bag_dir, const std::string& storage_id, const s
     const auto sit = serial_queues.find(msg->topic_name);
     if (sit != serial_queues.end())
     {
+      const bool preprocess = preprocess_topics.count(msg->topic_name) != 0;
       // note_for_write() runs here, on the reader, in bag order; the write pass
       // hands its return value back to write(). Serial handlers process in order
       // and don't need it, but the call is uniform (and a cheap default).
       uint64_t write_index = 0;
-      if (kind == PassKind::Write)
+      if (!preprocess)
       {
         write_index = serial_handlers.at(msg->topic_name)->note_for_write(*msg->serialized_data, msg->recv_timestamp);
       }
-      sit->second->push(WorkItem{ std::move(msg), write_index });
+      sit->second->push(WorkItem{ std::move(msg), write_index, preprocess });
       continue;
     }
     const auto pit = pool_handlers.find(msg->topic_name);
     if (pit != pool_handlers.end())
     {
+      const bool preprocess = preprocess_topics.count(msg->topic_name) != 0;
       // The pool processes images out of bag order, so the write index that
       // disambiguates same-stamp frames must be assigned here, in bag order.
       uint64_t write_index = 0;
-      if (kind == PassKind::Write)
+      if (!preprocess)
       {
         write_index = pit->second->note_for_write(*msg->serialized_data, msg->recv_timestamp);
       }
-      pool_queue.push(PoolTask{ pit->second, WorkItem{ std::move(msg), write_index } });
+      pool_queue.push(PoolTask{ pit->second, WorkItem{ std::move(msg), write_index, preprocess } });
     }
   }
   bar.close();
@@ -367,6 +407,7 @@ const std::vector<std::string>& handler_names()
 
 void unbag(const std::string& bag_dir, const std::string& output_dir, const UnbagOptions& options)
 {
+  g_stop.store(false);
   // OpenCV's internal per-image threading. The default (--opencv-threads 1)
   // keeps it single-threaded because we already parallelize across images via
   // the worker pool (--jobs); letting OpenCV spawn threads per decode on top of
@@ -452,7 +493,8 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   std::set<std::string> enabled;
   if (options.handlers.empty())
   {
-    enabled.insert(handler_names().begin(), handler_names().end());
+    enabled.insert(CsvHandler::handler_name());
+    enabled.insert(ImageHandler::handler_name());
   }
   else
   {
@@ -465,6 +507,18 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   std::error_code ec;
   fs::create_directories(output_dir, ec);
   throw_if_ec(ec, "Failed to create output directory", output_dir);
+  if (options.minimum_free_gb != 0)
+  {
+    const fs::space_info space = fs::space(output_dir, ec);
+    throw_if_ec(ec, "Failed to inspect destination free space", output_dir);
+    const uintmax_t required = static_cast<uintmax_t>(options.minimum_free_gb) * 1000000000ULL;
+    if (space.available < required)
+    {
+      throw std::runtime_error("Destination has " + std::to_string(space.available / 1000000000ULL) +
+                               " GB free; --minimum-free-gb requires " +
+                               std::to_string(options.minimum_free_gb) + " GB");
+    }
+  }
 
   std::map<std::string, std::unique_ptr<MessageHandler>> handlers;
   for (const auto& [topic, type] : topic_types)
@@ -503,34 +557,39 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     handler->prepare();
   }
 
-  // --- Partition handlers by how they should be driven. ----------------------
-  // serial_*  -> one consumer thread per topic (ordered, single output file).
-  // pool_*    -> shared worker pool (independent per-message output, e.g images).
-  std::unordered_map<std::string, MessageHandler*> serial_write;
-  std::unordered_map<std::string, MessageHandler*> pool_write;
-  std::unordered_map<std::string, MessageHandler*> serial_preprocess;
-  std::vector<std::string> preprocess_topics;
-  uint64_t preprocess_total = 0;
+  // Drive preprocessing handlers (CSV spool) and output handlers (video/image)
+  // concurrently during one sequential bag read. Each ordered topic gets its
+  // own consumer thread; independent image files use the shared worker pool.
+  std::unordered_map<std::string, MessageHandler*> serial_handlers;
+  std::unordered_map<std::string, MessageHandler*> pool_handlers;
+  std::set<std::string> preprocess_topics;
+  std::vector<std::string> handled_topics;
+  uint64_t handled_total = 0;
   for (auto& [topic, handler] : handlers)
   {
-    if (handler->parallelizable_per_message())
+    handled_topics.push_back(topic);
+    handled_total += topic_counts.count(topic) != 0 ? topic_counts[topic] : 0;
+    if (handler->needs_preprocess())
     {
-      pool_write.emplace(topic, handler.get());
+      handler->begin_preprocess();
+      preprocess_topics.insert(topic);
     }
     else
     {
-      serial_write.emplace(topic, handler.get());
+      handler->begin_write();
     }
-    if (handler->needs_preprocess())
+    if (handler->parallelizable_per_message())
     {
-      serial_preprocess.emplace(topic, handler.get());
-      preprocess_topics.push_back(topic);
-      preprocess_total += topic_counts.count(topic) != 0 ? topic_counts[topic] : 0;
+      pool_handlers.emplace(topic, handler.get());
+    }
+    else
+    {
+      serial_handlers.emplace(topic, handler.get());
     }
   }
-  if (preprocess_total == 0)
+  if (handled_total == 0)
   {
-    preprocess_total = total_messages;
+    handled_total = total_messages;
   }
 
   std::size_t workers = options.jobs;
@@ -540,36 +599,19 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     workers = hw == 0 ? 4 : hw;
   }
 
-  const std::unordered_map<std::string, MessageHandler*> no_pool;
-
-  // --- Phase 1: preprocess pass (CSV column discovery). ----------------------
-  // Only the topics whose handler needs it are read -- the storage filter skips
-  // image payloads entirely, so this pass does not pay to read the bulk of the
-  // bag (the images) just to learn CSV columns.
-  if (!serial_preprocess.empty())
-  {
-    run_pass(bag_dir, storage_id, &preprocess_topics, serial_preprocess, no_pool, workers, preprocess_total,
-             "Preprocessing", PassKind::Preprocess);
-  }
-
-  if (g_stop.load())
-  {
-    std::cerr << "\nInterrupted during preprocessing; no output written (re-run to start over).\n";
-    return;
-  }
+  run_pass(bag_dir, storage_id, &handled_topics, serial_handlers, pool_handlers, workers, preprocess_topics,
+           handled_total, "Exporting");
 
   for (auto& [topic, handler] : handlers)
   {
-    handler->begin_write();
-  }
-
-  // --- Phase 2: write pass (all selected topics). ----------------------------
-  run_pass(bag_dir, storage_id, nullptr, serial_write, pool_write, workers, total_messages, "Unbagging",
-           PassKind::Write);
-
-  for (auto& [topic, handler] : handlers)
-  {
-    handler->finish();
+    if (handler->needs_preprocess())
+    {
+      handler->finish_preprocess();
+    }
+    else
+    {
+      handler->finish();
+    }
   }
 
   // --- End-of-run summary: successes vs failures, per topic and aggregate. ----
@@ -580,13 +622,37 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
   HandlerStats totals;
   std::size_t topics_with_failures = 0;
   std::size_t total_duplicates = 0;
+  bool integrity_failed = false;
+  const fs::path manifest_path = fs::path(output_dir) / "export_manifest.json";
+  const fs::path manifest_part_path = fs::path(output_dir) / "export_manifest.json.part";
+  std::ofstream manifest(manifest_part_path, std::ios::out | std::ios::trunc | std::ios::binary);
+  if (!manifest)
+  {
+    throw std::runtime_error("Failed to open export manifest: " + manifest_part_path.string());
+  }
+  manifest << "{\n  \"version\": 1,\n  \"source_bag\": " << json_quote(bag_dir)
+           << ",\n  \"complete\": " << (g_stop.load() ? "false" : "true") << ",\n  \"topics\": [\n";
+  bool first_manifest_topic = true;
   for (const auto& [topic, handler] : handlers)
   {
     const HandlerStats s = handler->stats();
     const std::size_t dups = handler->duplicate_count();
+    const uint64_t expected = topic_counts.count(topic) != 0 ? topic_counts.at(topic) : 0;
     totals.succeeded += s.succeeded;
     totals.failed += s.failed;
     total_duplicates += dups;
+    if (s.failed != 0 || s.succeeded != expected)
+    {
+      integrity_failed = true;
+    }
+    if (!first_manifest_topic)
+    {
+      manifest << ",\n";
+    }
+    first_manifest_topic = false;
+    manifest << "    {\"topic\": " << json_quote(topic) << ", \"type\": " << json_quote(topic_types.at(topic))
+             << ", \"expected\": " << expected << ", \"succeeded\": " << s.succeeded
+             << ", \"failed\": " << s.failed << ", \"duplicates\": " << dups << "}";
     if (s.failed != 0)
     {
       ++topics_with_failures;
@@ -601,6 +667,19 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
       std::cerr << "\n";
     }
   }
+  manifest << "\n  ],\n  \"total_expected\": " << handled_total << ",\n  \"total_succeeded\": "
+           << totals.succeeded << ",\n  \"total_failed\": " << totals.failed << "\n}\n";
+  manifest.flush();
+  if (!manifest)
+  {
+    throw std::runtime_error("Failed writing export manifest: " + manifest_part_path.string());
+  }
+  manifest.close();
+  fs::remove(manifest_path, ec);
+  ec.clear();
+  fs::rename(manifest_part_path, manifest_path, ec);
+  throw_if_ec(ec, "Failed to publish export manifest", manifest_path);
+
   std::cerr << "Messages: " << totals.succeeded << " unbagged, " << totals.failed << " failed across "
             << handlers.size() << " topic(s)";
   if (topics_with_failures != 0)
@@ -618,6 +697,11 @@ void unbag(const std::string& bag_dir, const std::string& output_dir, const Unba
     std::cerr << "\nInterrupted; flushed partial output for " << handlers.size()
               << " topic(s). Re-run without --overwrite to resume.\n";
     return;
+  }
+
+  if (integrity_failed)
+  {
+    throw std::runtime_error("Export integrity check failed; inspect " + manifest_path.string());
   }
 
   std::cout << "Unbagged " << handlers.size() << " topic(s) from " << bag_dir << " into " << output_dir << "\n";

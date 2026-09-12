@@ -31,6 +31,7 @@ from typing import Any
 
 from rclpy.impl.rcutils_logger import RcutilsLogger
 from rpyutils.import_c_library import importlib
+from tabletop_interfaces.msg import TaskEvent
 from tabletop_rig.exceptions import (
     ManipulationContextExitedError,
     PlanningError,
@@ -262,6 +263,7 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
             context exits unexpectedly (e.g., due to emergency stop).
         """
         presented: bool = False
+        reached_presentation: bool = False
         unpresented: bool = False
         try:
             async with self.commander.manipulation_context(
@@ -287,19 +289,35 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
 
                 await manipulator.plan_and_move(goal=trial_spec.object_pose)
 
+                self.commander.publish_task_event(
+                    TaskEvent.TRIAL_PRESENTED,
+                    trial_number=trial_spec.trial_number,
+                    group_name=trial_spec.group_name,
+                    object_id=trial_spec.object_id,
+                )
+                reached_presentation = True
                 feedback = await self.run_trial(trial_spec, manipulator)
 
                 await self._occlude_and_lock()
+                self.commander.publish_task_event(
+                    TaskEvent.TRIAL_DEPRESENTING,
+                    trial_number=trial_spec.trial_number,
+                    group_name=trial_spec.group_name,
+                    object_id=trial_spec.object_id,
+                )
                 await manipulator.unpresent_object(trial_spec.object_id)
 
                 unpresented = True
                 self._trial_lock.release()
 
                 return feedback
-        except ManipulationContextExitedError:
+        except ManipulationContextExitedError as error:
             if presented and not unpresented:
                 assert self._trial_lock.locked()
                 self._trial_lock.release()
+            error.reached_presentation = (
+                error.reached_presentation or reached_presentation
+            )
             raise
 
     async def _run_one_trial(
@@ -311,10 +329,14 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
         advance or enqueue the trial for later. A second failure is reported as
         normal failed feedback, leaving the object eligible for future trials.
         """
+        reached_presentation = False
         for attempt in range(2):
             try:
                 return await self._run_one_trial_attempt(trial_spec)
             except ManipulationContextExitedError as error:
+                reached_presentation = (
+                    reached_presentation or error.reached_presentation
+                )
                 if not _planning_error_only(error.recovered_error):
                     self.log(
                         f"Trial {trial_spec.trial_number} recovery was not "
@@ -324,6 +346,13 @@ class BaseObjectInteractionTask(BaseTask, metaclass=ABCMeta):
                     return None
 
                 if attempt == 1:
+                    if not reached_presentation:
+                        self.commander.publish_task_event(
+                            TaskEvent.OBJECT_MISS,
+                            trial_number=trial_spec.trial_number,
+                            group_name=getattr(trial_spec, "group_name", ""),
+                            object_id=trial_spec.object_id,
+                        )
                     self.log(
                         f"Trial {trial_spec.trial_number} for "
                         f"{trial_spec.object_id} failed planning after its one "

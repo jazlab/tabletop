@@ -1,0 +1,44 @@
+# Simulation-only finite soak for the invariant-affordance task.
+manipulation_preflight:
+  report_name: manipulation_preflight.yaml
+  allow_real_use: false
+  exclude_unvalidated: true
+
+tasks:
+  - class: InvariantAffordanceTask
+    kwargs:
+      # Short non-motion phases keep the soak fast; production timing is
+      # independently covered by invariant_affordance_test.py.
+      stimulus_duration: 0.05
+      occlusion_settle_duration: 0.5
+      motion_duration: 3.0
+      post_motion_hold_duration: 0.25
+      response_duration: 0.05
+      sound_kwargs:
+        duration: 0.01
+      position_half_ranges: [0.10, 0.06, 0.08]
+      path_centerline_overlap: 0.12
+      orientation_strata: 3
+      motion_planning_pipeline: aps_rrtc
+      motion_planning_time: 0.25
+      motion_velocity_scaling_factor: 0.75
+      motion_acceleration_scaling_factor: 1.0
+      max_motion_generation_attempts: 30
+      random_seed: 20260913
+      trial_generator:
+        class: OrderedChoiceAlternating
+        kwargs:
+          grouped_object_ids:
+            right_manipulator:
+              - small_object_28
+            left_manipulator:
+              - small_object_0
+          poses:
+            - position: [0.9525, 0.4, 0.6]
+              rpy: [0.0, 0.0, -1.5707]
+          arms:
+            - both
+          occlude:
+            - true
+          num_trials: 12
+          skip_failed: true

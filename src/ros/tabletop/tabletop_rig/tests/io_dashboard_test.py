@@ -7,7 +7,7 @@ import numpy as np
 from rclpy.duration import Duration
 from std_msgs.msg import Header
 from tabletop_interfaces.msg import TeensySensor
-from tabletop_interfaces.srv import SetBuzzer, SetSmartglass
+from tabletop_interfaces.srv import SetBuzzer, SetSmartglass, SetSyncPulses
 from tabletop_rig.nodes import mock_teensy as mock_module
 from tabletop_rig.nodes.io_dashboard import (
     HEIGHT,
@@ -41,11 +41,19 @@ def test_input_callbacks_count_only_rising_events() -> None:
     pressed.is_safety_laser_broken = True
     node._sensor_callback(pressed)
     state = node.snapshot()
-    assert (state.left_count, state.right_count, state.laser_count) == (1, 1, 1)
+    assert (state.left_count, state.right_count, state.laser_count) == (
+        1,
+        1,
+        1,
+    )
 
     node._sensor_callback(pressed)
     state = node.snapshot()
-    assert (state.left_count, state.right_count, state.laser_count) == (1, 1, 1)
+    assert (state.left_count, state.right_count, state.laser_count) == (
+        1,
+        1,
+        1,
+    )
 
 
 def test_flic_callback_records_any_button_address() -> None:
@@ -57,11 +65,18 @@ def test_flic_callback_records_any_button_address() -> None:
     assert "Flic registered" in state.toast
 
 
-def test_render_is_full_size_for_healthy_stale_and_task_locked_states() -> None:
+def test_render_is_full_size_for_healthy_stale_and_task_locked_states() -> (
+    None
+):
     healthy = DashboardSnapshot(
         sensor_received_at=10.0,
         flic_online=True,
-        services={"smartglass": True, "reward": True, "buzzer": True},
+        services={
+            "smartglass": True,
+            "reward": True,
+            "buzzer": True,
+            "sync_pulses": True,
+        },
         sound_available=True,
     )
     stale = DashboardSnapshot(sensor_received_at=10.0)
@@ -104,6 +119,23 @@ def test_buzzer_commands_never_use_arm_lock_service() -> None:
     assert node._call.call_args.args[3] == 1.0
 
 
+def test_sync_pulse_dashboard_command_is_firmware_bounded_to_ten_seconds() -> (
+    None
+):
+    node = _bare_dashboard()
+    node._output_allowed = MagicMock(return_value=True)
+    node._sync_pulses_client = object()
+    node._call = MagicMock()
+
+    node._run_command("sync_pulses")
+
+    request = node._call.call_args.args[2]
+    assert isinstance(request, SetSyncPulses.Request)
+    assert request.enable is True
+    assert Duration.from_msg(request.duration).nanoseconds == 10_000_000_000
+    assert node._call.call_args.args[3] == 10.0
+
+
 def _bare_mock_teensy() -> MockTeensy:
     node = object.__new__(MockTeensy)
     node.log = MagicMock()
@@ -111,6 +143,12 @@ def _bare_mock_teensy() -> MockTeensy:
     node.smartglass_restore_state = True
     node.smartglass_timer = MagicMock()
     node.buzzer_timer = MagicMock()
+    node.sync_pulses_enabled = False
+    node.sync_pulse_control_pin_state = False
+    node.sync_pulse_base_timer = MagicMock()
+    node.sync_pulse_start_timer = MagicMock()
+    node.sync_pulse_end_timer = MagicMock()
+    node.sync_pulses_duration_timer = MagicMock()
     return node
 
 
@@ -128,24 +166,39 @@ def test_mock_buzzer_pulse_does_not_change_arm_lock_outputs() -> None:
         SetBuzzer.Response(),
     )
     assert response.success
-    assert mock_module.digital_output_pin_states[
-        mock_module.LEFT_ARM_LOCK_CONTROL_PIN
-    ] is True
-    assert mock_module.digital_output_pin_states[
-        mock_module.RIGHT_ARM_LOCK_CONTROL_PIN
-    ] is False
-    assert mock_module.digital_output_pin_states[
-        mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
-    ] is True
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.LEFT_ARM_LOCK_CONTROL_PIN
+        ]
+        is True
+    )
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.RIGHT_ARM_LOCK_CONTROL_PIN
+        ]
+        is False
+    )
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
+        ]
+        is True
+    )
     node.buzzer_timer.reset.assert_called_once_with()
 
     node.buzzer_timer_callback()
-    assert mock_module.digital_output_pin_states[
-        mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
-    ] is False
-    assert mock_module.digital_output_pin_states[
-        mock_module.RIGHT_ARM_BUZZER_CONTROL_PIN
-    ] is False
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.LEFT_ARM_BUZZER_CONTROL_PIN
+        ]
+        is False
+    )
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.RIGHT_ARM_BUZZER_CONTROL_PIN
+        ]
+        is False
+    )
 
 
 def test_mock_temporary_smartglass_restores_prior_state() -> None:
@@ -163,7 +216,34 @@ def test_mock_temporary_smartglass_restores_prior_state() -> None:
 
     node.smartglass_timer_callback()
     assert node.smartglass_revealed is True
-    assert mock_module.digital_output_pin_states[
-        mock_module.SMARTGLASS_CONTROL_PIN
-    ] is True
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.SMARTGLASS_CONTROL_PIN
+        ]
+        is True
+    )
     node.smartglass_timer.cancel.assert_called()
+
+
+def test_mock_sync_pulses_are_disabled_by_default_and_bounded() -> None:
+    node = _bare_mock_teensy()
+    request = SetSyncPulses.Request(enable=True)
+    request.duration = Duration(seconds=10.0).to_msg()
+
+    response = node.set_sync_pulses_callback(request, SetSyncPulses.Response())
+
+    assert response.success
+    assert node.sync_pulses_enabled is True
+    assert node.sync_pulse_base_timer.reset.call_count == 1
+    assert node.sync_pulses_duration_timer.timer_period_ns == 10_000_000_000
+    node.sync_pulses_duration_timer.reset.assert_called_once_with()
+
+    node.sync_pulses_duration_timer_callback()
+    assert node.sync_pulses_enabled is False
+    assert (
+        mock_module.digital_output_pin_states[
+            mock_module.SYNC_PULSE_CONTROL_PIN
+        ]
+        is False
+    )
+    node.sync_pulse_base_timer.cancel.assert_called()

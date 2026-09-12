@@ -1,9 +1,12 @@
-max_bag_size_gb: 20
-max_cache_size_mb: 1000
+max_bag_size_gb: 100
+max_cache_size_mb: 10000
 topics:
   # Teensy sensor state and logs
   - /teensy/sensor
   - /teensy/log
+
+  # Low-rate task lifecycle events for live and offline session metrics.
+  - /tabletop/task_event
 
   # Flic button pressed times
   - /flic/button_pressed_time
@@ -25,32 +28,45 @@ topics:
   # transport (i.e. /image_topic vs /image_topic/compressed) since the rosbag
   # recorded seems to only record the image topics that way.
   - /cam_sync/left_front_top_cam/image_raw
-  - /cam_sync/left_front_top_cam/camera_info
   - /cam_sync/left_front_top_cam/meta
+  - /cam_sync/left_front_top_cam/image_raw_unmatched
+  - /cam_sync/left_front_top_cam/meta_unmatched
 
   - /cam_sync/left_back_top_cam/image_raw
-  - /cam_sync/left_back_top_cam/camera_info
   - /cam_sync/left_back_top_cam/meta
+  - /cam_sync/left_back_top_cam/image_raw_unmatched
+  - /cam_sync/left_back_top_cam/meta_unmatched
 
   - /cam_sync/left_bottom_cam/image_raw
-  - /cam_sync/left_bottom_cam/camera_info
   - /cam_sync/left_bottom_cam/meta
+  - /cam_sync/left_bottom_cam/image_raw_unmatched
+  - /cam_sync/left_bottom_cam/meta_unmatched
 
   - /cam_sync/right_front_top_cam/image_raw
-  - /cam_sync/right_front_top_cam/camera_info
   - /cam_sync/right_front_top_cam/meta
+  - /cam_sync/right_front_top_cam/image_raw_unmatched
+  - /cam_sync/right_front_top_cam/meta_unmatched
 
   - /cam_sync/right_back_top_cam/image_raw
-  - /cam_sync/right_back_top_cam/camera_info
   - /cam_sync/right_back_top_cam/meta
+  - /cam_sync/right_back_top_cam/image_raw_unmatched
+  - /cam_sync/right_back_top_cam/meta_unmatched
 
   - /cam_sync/right_bottom_cam/image_raw
-  - /cam_sync/right_bottom_cam/camera_info
   - /cam_sync/right_bottom_cam/meta
+  - /cam_sync/right_bottom_cam/image_raw_unmatched
+  - /cam_sync/right_bottom_cam/meta_unmatched
+
+  # CameraInfo is constant calibration data. Recorder preflight stores one
+  # snapshot per camera in flir_preflight.yaml instead of duplicating it at
+  # 120 Hz in the bag.
 
   # Robot joint states (covers both robots)
   - /joint_states
   - /dynamic_joint_states
+
+  # Robot 1 sync TTL is observed on digital input 3 (active-low).
+  - /left_io_and_status_controller/io_states
 
   # Direct Cartesian end-effector poses (also embedded in dynamic_joint_states)
   - /left_tcp_pose_broadcaster/pose
@@ -67,6 +83,7 @@ topics:
 services:
   - /teensy/ping
   - /teensy/set_arm_lock
+  - /teensy/set_buzzer
   - /teensy/set_smartglass
   - /teensy/set_reward
   - /teensy/set_solenoid

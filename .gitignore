@@ -11,9 +11,17 @@ __pycache__/
 
 # Temporary files
 *.tmp
+*.orig
+*.before_*
+
+# Local session analysis products
+/analysis/
 
 # .env file
 .env
+
+# Locally generated noVNC credentials and TLS private keys
+.novnc/
 
 # Build artifacts
 /build/

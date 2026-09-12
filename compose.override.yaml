@@ -1,0 +1,48 @@
+# Deterministic noVNC workspace management layered onto the main Compose file.
+# Docker Compose loads this file automatically with compose.yaml.
+services:
+  novnc-layout:
+    extends:
+      file: compose.yaml
+      service: ros-base
+    container_name: tabletop-novnc-layout
+    profiles: [real, sim]
+    environment:
+      - DISPLAY=$NOVNC_DISPLAY
+    depends_on:
+      novnc:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/novnc_layout_supervisor.py
+
+  rviz-cameras:
+    extends:
+      file: compose.yaml
+      service: rviz
+    container_name: tabletop-rviz-cameras
+    profiles: [real]
+    depends_on:
+      novnc:
+        condition: service_healthy
+      camera-preview:
+        condition: service_started
+    command: >-
+      python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/rviz_workspace.py
+      --workspace 2
+      --config /tabletop/src/ros/tabletop/tabletop_rig/config/camera_robot.rviz
+
+  rviz-left-back:
+    extends:
+      file: compose.yaml
+      service: rviz
+    container_name: tabletop-rviz-left-back
+    profiles: [real]
+    depends_on:
+      novnc:
+        condition: service_healthy
+      camera-preview:
+        condition: service_started
+    command: >-
+      python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/rviz_workspace.py
+      --workspace 3
+      --config /tabletop/src/ros/tabletop/tabletop_rig/config/left_back_rig.rviz

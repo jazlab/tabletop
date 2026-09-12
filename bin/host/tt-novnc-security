@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Create and inspect local noVNC authentication and TLS material.
+
+set -eo pipefail
+
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+
+security_dir="$TABLETOP_DIR/.novnc"
+command_name=init
+quiet=false
+
+for required_command in openssl xauth ip awk sort hostname; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "tt-novnc-security requires '$required_command' on the host." >&2
+        exit 1
+    fi
+done
+
+for arg in "$@"; do
+    case "$arg" in
+        init|show|rotate-password)
+            command_name=$arg
+            ;;
+        --quiet)
+            quiet=true
+            ;;
+        -h|--help)
+            cat <<'EOF'
+Usage: tt-novnc-security [init|show|rotate-password] [--quiet]
+
+  init              Create missing credentials/CA and refresh the server
+                    certificate when the host names or IP addresses change.
+  show              Show the current login, LAN URLs, and CA certificate path.
+  rotate-password   Generate a new password. Recreate the noVNC container
+                    afterward to apply it.
+
+Secrets are stored under .novnc, permission-restricted, and ignored by Git.
+EOF
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $arg" >&2
+            exit 2
+            ;;
+    esac
+done
+
+umask 077
+mkdir -p "$security_dir"
+chmod 700 "$security_dir"
+
+write_credentials() {
+    local password
+    password=$(openssl rand -hex 16)
+    printf 'tabletop:%s\n' "$password" > "$security_dir/credentials"
+    chmod 600 "$security_dir/credentials"
+}
+
+if [ "$command_name" = rotate-password ]; then
+    write_credentials
+    echo "noVNC password rotated. Recreate the noVNC container to apply it."
+    exit 0
+fi
+
+if [ ! -s "$security_dir/credentials" ]; then
+    write_credentials
+    $quiet || echo "Created noVNC login; run 'tt-novnc-security show' to view it."
+fi
+
+display_file="$TABLETOP_DIR/.env"
+[ -s "$display_file" ] || display_file="$TABLETOP_DIR/.env.example"
+novnc_display=$(awk -F= '$1 == "NOVNC_DISPLAY" {print $2; exit}' "$display_file")
+novnc_display=${novnc_display:-:20.0}
+old_display=$(cat "$security_dir/Xauthority.display" 2>/dev/null || true)
+if [ ! -s "$security_dir/Xauthority" ] || [ "$old_display" != "$novnc_display" ]; then
+    cookie=$(openssl rand -hex 16)
+    : > "$security_dir/Xauthority"
+    xauth -f "$security_dir/Xauthority" add "$novnc_display" \
+        MIT-MAGIC-COOKIE-1 "$cookie"
+    printf '%s\n' "$novnc_display" > "$security_dir/Xauthority.display"
+    chmod 600 "$security_dir/Xauthority" "$security_dir/Xauthority.display"
+    $quiet || echo "Created X11 authorization cookie for $novnc_display."
+fi
+
+if [ ! -s "$security_dir/ca.crt" ] || [ ! -s "$security_dir/ca.key" ]; then
+    if [ -e "$security_dir/ca.crt" ] || [ -e "$security_dir/ca.key" ]; then
+        echo "Incomplete noVNC CA in $security_dir; move it aside and retry." >&2
+        exit 1
+    fi
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+        -keyout "$security_dir/ca.key" \
+        -out "$security_dir/ca.crt" \
+        -days 3650 \
+        -subj "/CN=TableTop noVNC Local CA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
+    chmod 600 "$security_dir/ca.key"
+    chmod 644 "$security_dir/ca.crt"
+    $quiet || echo "Created local noVNC certificate authority."
+fi
+
+host_short=$(hostname -s)
+host_full=$(hostname -f 2>/dev/null || hostname)
+san_entries=("DNS:localhost" "IP:127.0.0.1")
+for host_name in "$host_short" "$host_full"; do
+    if [ -n "$host_name" ] && [ "$host_name" != localhost ] && \
+            [[ ! " ${san_entries[*]} " =~ " DNS:$host_name " ]]; then
+        san_entries+=("DNS:$host_name")
+    fi
+done
+while IFS= read -r address; do
+    [ -n "$address" ] && san_entries+=("IP:$address")
+done < <(ip -o -4 addr show scope global | awk '$2 !~ /^(docker|br-|veth)/ {split($4, part, "/"); print part[1]}' | sort -u)
+
+san=$(IFS=,; echo "${san_entries[*]}")
+old_san=$(cat "$security_dir/server.san" 2>/dev/null || true)
+if [ ! -s "$security_dir/server.crt" ] || \
+        [ ! -s "$security_dir/server.key" ] || [ "$old_san" != "$san" ]; then
+    request="$security_dir/server.csr"
+    extensions="$security_dir/server.ext"
+    openssl req -new -newkey rsa:3072 -sha256 -nodes \
+        -keyout "$security_dir/server.key" \
+        -out "$request" \
+        -subj "/CN=$host_short" >/dev/null 2>&1
+    {
+        echo "basicConstraints=critical,CA:FALSE"
+        echo "keyUsage=critical,digitalSignature,keyEncipherment"
+        echo "extendedKeyUsage=serverAuth"
+        echo "subjectAltName=$san"
+    } > "$extensions"
+    openssl x509 -req -sha256 \
+        -in "$request" \
+        -CA "$security_dir/ca.crt" \
+        -CAkey "$security_dir/ca.key" \
+        -CAcreateserial \
+        -out "$security_dir/server.crt" \
+        -days 825 \
+        -extfile "$extensions" >/dev/null 2>&1
+    rm -f "$request" "$extensions" "$security_dir/ca.srl"
+    printf '%s\n' "$san" > "$security_dir/server.san"
+    chmod 600 "$security_dir/server.key"
+    chmod 644 "$security_dir/server.crt" "$security_dir/server.san"
+    $quiet || echo "Issued noVNC TLS certificate for: $san"
+fi
+
+if [ "$command_name" = show ]; then
+    credentials=$(head -n 1 "$security_dir/credentials")
+    port_file="$TABLETOP_DIR/.env"
+    [ -s "$port_file" ] || port_file="$TABLETOP_DIR/.env.example"
+    novnc_port=$(awk -F= '$1 == "NOVNC_PORT" {print $2; exit}' "$port_file")
+    novnc_port=${novnc_port:-8080}
+    echo "Username: ${credentials%%:*}"
+    echo "Password: ${credentials#*:}"
+    echo "Trust this CA certificate on the laptop: $security_dir/ca.crt"
+    while IFS= read -r address; do
+        echo "URL: https://$address:$novnc_port/vnc.html?autoconnect=true"
+    done < <(ip -o -4 addr show scope global | awk '$2 !~ /^(docker|br-|veth)/ {split($4, part, "/"); print part[1]}' | sort -u)
+fi

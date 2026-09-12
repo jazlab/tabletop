@@ -14,6 +14,7 @@ walkthrough (the TableTop network, URCaps, remote control), see
 | [uv](https://docs.astral.sh/uv/) | host Python env + `tt-env-gen` | official docs |
 | [git-lfs](https://git-lfs.com/) | large file assets stored in the repo | `sudo apt install git-lfs` (Ubuntu) or `brew install git-lfs` (macOS), then `git lfs install` |
 | [jq](https://jqlang.github.io/jq/) | some `tt-*` shell scripts | `sudo apt install jq` (Ubuntu) or `brew install jq` (macOS) |
+| OpenSSL, xauth, and iproute2 | automatic noVNC password, TLS certificate, and X11-cookie setup | `sudo apt install openssl xauth iproute2` (Ubuntu) |
 | [VS Code](https://code.visualstudio.com/) | Dev Container development | optional |
 | [NVIDIA driver](https://www.nvidia.com/en-us/drivers/) | GPU in containers | optional; install the driver for your distro + GPU per your vendor/distro instructions |
 | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) | GPU in containers | optional; needs the NVIDIA driver above, **and** `COMMANDER_RUNTIME=nvidia` in your `.env` — see [GPU](#gpu-nvidia-container-runtime) |

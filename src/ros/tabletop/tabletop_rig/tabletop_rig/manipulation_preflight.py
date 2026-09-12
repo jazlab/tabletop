@@ -169,7 +169,7 @@ def _fingerprint_payload(
     fetched_config = manipulator.param("manipulation_state_goals.fetched")
     fetched_state = _fetched_state(manipulator)
 
-    return {
+    payload = {
         "cache_version": _CACHE_VERSION,
         "object_id": object_id,
         "grid_idx": list(grid_object.grid_idx),
@@ -220,6 +220,10 @@ def _fingerprint_payload(
         ],
         "max_waypoint_jump": _MAX_WAYPOINT_JUMP,
     }
+    departure_override = manipulator._get_fetch_departure_override(object_id)
+    if departure_override is not None:
+        payload["fetch_departure_override"] = departure_override
+    return payload
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
@@ -511,23 +515,28 @@ async def _plan_segment(
     state: ManipulationState,
     start_state: RobotState,
     goal,
+    *,
+    request_overrides: dict[str, Any] | None = None,
 ):
-    request = PlanRequest(
-        goal=goal,
-        start_state=start_state,
-        use_cache=False,
-        planning_pipeline=(
+    request_kwargs: dict[str, Any] = {
+        "goal": goal,
+        "start_state": start_state,
+        "use_cache": False,
+        "planning_pipeline": (
             "linear"
             if state in _CARTESIAN_GOAL_STATES
             and state != ManipulationState.PRE_FETCH
             else None
         ),
-        max_attempts=(
+        "max_attempts": (
             manipulator.param("planning.fetched_max_attempts")
             if state == ManipulationState.FETCHED
             else None
         ),
-    )
+    }
+    if request_overrides is not None:
+        request_kwargs.update(request_overrides)
+    request = PlanRequest(**request_kwargs)
     collisions = manipulator._transition_collisions_to_allow(object_id, state)
     modified: list[tuple[str, str]] = []
     if collisions:
@@ -585,29 +594,75 @@ async def _validate_branch(
     original_object_pose = deepcopy(
         moveit.grid_objects_by_id[object_id].pose_stamped
     )
+    validation_steps = [
+        (state.name, state, goals[state], None) for state in _VALIDATED_STATES
+    ]
+    departure_override = manipulator._get_fetch_departure_override(object_id)
+    if departure_override is not None:
+        clearance_offset = [
+            float(x) for x in departure_override["clearance_offset"]
+        ]
+        if len(clearance_offset) != 3:
+            raise ValueError(
+                "fetch_departure_overrides."
+                f"{object_id}.clearance_offset must have 3 values"
+            )
+        scaling = {
+            "velocity_scaling_factor": float(
+                departure_override["velocity_scaling_factor"]
+            ),
+            "acceleration_scaling_factor": float(
+                departure_override["acceleration_scaling_factor"]
+            ),
+        }
+        fetched_index = next(
+            index
+            for index, step in enumerate(validation_steps)
+            if step[1] == ManipulationState.FETCHED
+        )
+        validation_steps.insert(
+            fetched_index,
+            (
+                "FETCH_DEPARTURE_CLEARANCE",
+                ManipulationState.POST_FETCH,
+                manipulator._grid_object_pose_stamped_with_offset(
+                    object_id, clearance_offset
+                ),
+                {"planning_pipeline": "linear", **scaling},
+            ),
+        )
+        fetched_index += 1
+        label, state, goal, _ = validation_steps[fetched_index]
+        validation_steps[fetched_index] = (label, state, goal, scaling)
+
     try:
-        for state in _VALIDATED_STATES:
+        for label, state, goal, request_overrides in validation_steps:
             try:
                 trajectory = await _plan_segment(
-                    manipulator, object_id, state, start_state, goals[state]
+                    manipulator,
+                    object_id,
+                    state,
+                    start_state,
+                    goal,
+                    request_overrides=request_overrides,
                 )
             except Exception as exc:
                 raise RuntimeError(
-                    f"{state.name}: {type(exc).__name__}: {exc}"
+                    f"{label}: {type(exc).__name__}: {exc}"
                 ) from exc
             segment_jump, segment_travel = _trajectory_metrics(
                 trajectory, group_name
             )
             if segment_jump > _MAX_WAYPOINT_JUMP + 1e-9:
                 raise ValueError(
-                    f"{state.name} excessive joint wrap "
+                    f"{label} excessive joint wrap "
                     f"({segment_jump:.6f} rad)"
                 )
             max_jump = max(max_jump, segment_jump)
             total_travel += segment_travel
             start_state = trajectory[len(trajectory) - 1]
             end_positions = _joint_positions(start_state, group_name)
-            end_states[state.name] = {
+            end_states[label] = {
                 name: float(value)
                 for name, value in zip(joint_names, end_positions)
             }

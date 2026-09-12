@@ -26,6 +26,8 @@ Usage:
     ros2 launch tabletop_tasks tasks.launch.py task:=null
 """
 
+import time
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -91,6 +93,12 @@ def declare_arguments():
             choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
         ),
         DeclareLaunchArgument(
+            "rosbag_per_topic_loss_debug",
+            default_value="true",
+            choices=["true", "false"],
+            description="Log recorder DDS losses per topic without global DEBUG output",
+        ),
+        DeclareLaunchArgument(
             "rosbag_output",
             default_value="both",
             description="ROS bag output",
@@ -116,12 +124,24 @@ def generate_launch_description():
     )
 
     set_ros_log_dir = SetROSLogDir(LaunchLogDir())
+    launch_epoch = f"{time.time():.6f}"
 
     commander = GroupAction(
         [
             SetEnvironmentVariable(
                 name="OVERRIDE_LAUNCH_PROCESS_OUTPUT",
                 value=LaunchConfiguration("commander_output"),
+            ),
+            SetEnvironmentVariable(
+                name="TABLETOP_TASK_LAUNCH_EPOCH", value=launch_epoch
+            ),
+            SetEnvironmentVariable(
+                name="TABLETOP_REQUIRE_FLIR_PREFLIGHT",
+                value=LaunchConfiguration("rosbag"),
+            ),
+            SetEnvironmentVariable(
+                name="TABLETOP_REQUIRE_EYELINK_RECORDER",
+                value=LaunchConfiguration("rosbag"),
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -167,6 +187,9 @@ def generate_launch_description():
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
                     "log_level": LaunchConfiguration("rosbag_log_level"),
+                    "per_topic_loss_debug": LaunchConfiguration(
+                        "rosbag_per_topic_loss_debug"
+                    ),
                 }.items(),
             ),
         ],

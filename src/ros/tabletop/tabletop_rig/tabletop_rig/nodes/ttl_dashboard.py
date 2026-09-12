@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import rclpy
 from flir_camera_msgs.msg import ImageMetaData
+from mocap4r2_msgs.msg import Markers
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from std_msgs.msg import UInt16
@@ -31,7 +32,48 @@ UR_MATCH_WINDOW_SECONDS = 0.075
 UR_MATCHES_REQUIRED = 3
 FLIR_CAMERA = os.environ.get("TABLETOP_TTL_FLIR_CAMERA", "left_back_top_cam")
 FLIR_LINE = int(os.environ.get("TABLETOP_TTL_FLIR_LINE", "3"))
-EYELINK_MASK = int(os.environ.get("TABLETOP_TTL_EYELINK_MASK", "8"), 0)
+EYELINK_MASK = int(os.environ.get("TABLETOP_TTL_EYELINK_MASK", "0x20"), 0)
+EYELINK_INPUT_LABEL = os.environ.get(
+    "TABLETOP_TTL_EYELINK_LABEL", "Status pin 12 / bit 5"
+)
+
+
+def _env_vector(name: str, default: str) -> np.ndarray:
+    values = np.asarray(
+        [
+            float(item.strip())
+            for item in os.environ.get(name, default).split(",")
+        ],
+        dtype=float,
+    )
+    if values.shape != (3,):
+        raise ValueError(
+            f"{name} must contain exactly three comma-separated values"
+        )
+    return values
+
+
+OPTITRACK_CENTER = _env_vector(
+    "TABLETOP_TTL_OPTITRACK_CENTER", "-0.48133,-0.08284,0.53280"
+)
+OPTITRACK_AXIS = _env_vector(
+    "TABLETOP_TTL_OPTITRACK_AXIS", "-0.97052,0.23989,0.02343"
+)
+OPTITRACK_AXIS /= np.linalg.norm(OPTITRACK_AXIS)
+OPTITRACK_ROI_RADIUS_M = float(
+    os.environ.get("TABLETOP_TTL_OPTITRACK_ROI_RADIUS_M", "0.03")
+)
+OPTITRACK_ON_THRESHOLD_M = float(
+    os.environ.get("TABLETOP_TTL_OPTITRACK_ON_THRESHOLD_M", "0.0018")
+)
+OPTITRACK_OFF_THRESHOLD_M = float(
+    os.environ.get("TABLETOP_TTL_OPTITRACK_OFF_THRESHOLD_M", "0.0009")
+)
+OPTITRACK_DEBOUNCE_SECONDS = float(
+    os.environ.get("TABLETOP_TTL_OPTITRACK_DEBOUNCE_SECONDS", "0.015")
+)
+OPTITRACK_CALIBRATION_SAMPLES = 24
+OPTITRACK_FILTER_SAMPLES = 3
 
 BG = (33, 28, 26)
 PANEL = (53, 47, 44)
@@ -44,18 +86,20 @@ BLUE = (229, 157, 90)
 GREY = (105, 98, 94)
 GRID = (79, 70, 66)
 
-CHANNELS = ("teensy", "eyelink", "robot_1", "flir")
+CHANNELS = ("teensy", "eyelink", "robot_1", "flir", "optitrack")
 LABELS = {
     "teensy": "Teensy source",
     "eyelink": "EyeLink",
     "robot_1": "Robot 1 / left",
     "flir": "FLIR sync camera",
+    "optitrack": "OptiTrack marker",
 }
 COLORS = {
     "teensy": GREEN,
     "eyelink": (226, 157, 239),
     "robot_1": (229, 157, 90),
     "flir": (143, 227, 102),
+    "optitrack": (102, 215, 235),
 }
 
 
@@ -80,6 +124,122 @@ class TTLSnapshot:
     reference_period_ms: float | None = None
 
 
+class OptitrackTTLDetector:
+    """Decode a small solenoid displacement from an unlabeled marker stream.
+
+    Marker identity is intentionally not required. The closest marker inside a
+    fixed local region is tracked, its resting location is learned at startup,
+    and displacement along the measured solenoid axis is classified with
+    median filtering, hysteresis, and a bounded debounce.
+    """
+
+    def __init__(
+        self,
+        center: np.ndarray = OPTITRACK_CENTER,
+        axis: np.ndarray = OPTITRACK_AXIS,
+        roi_radius_m: float = OPTITRACK_ROI_RADIUS_M,
+        on_threshold_m: float = OPTITRACK_ON_THRESHOLD_M,
+        off_threshold_m: float = OPTITRACK_OFF_THRESHOLD_M,
+        debounce_seconds: float = OPTITRACK_DEBOUNCE_SECONDS,
+        calibration_samples: int = OPTITRACK_CALIBRATION_SAMPLES,
+        filter_samples: int = OPTITRACK_FILTER_SAMPLES,
+    ) -> None:
+        if roi_radius_m <= 0:
+            raise ValueError("OptiTrack TTL ROI radius must be positive")
+        if not 0 <= off_threshold_m < on_threshold_m:
+            raise ValueError(
+                "OptiTrack TTL thresholds must satisfy 0 <= off < on"
+            )
+        if calibration_samples < 1 or filter_samples < 1:
+            raise ValueError("OptiTrack TTL sample counts must be positive")
+        self.center = np.asarray(center, dtype=float)
+        axis_array = np.asarray(axis, dtype=float)
+        axis_norm = float(np.linalg.norm(axis_array))
+        if axis_norm == 0:
+            raise ValueError("OptiTrack TTL motion axis must be nonzero")
+        self.axis = axis_array / axis_norm
+        self.roi_radius_m = roi_radius_m
+        self.on_threshold_m = on_threshold_m
+        self.off_threshold_m = off_threshold_m
+        self.debounce_seconds = debounce_seconds
+        self.calibration_samples = calibration_samples
+        self._positions: deque[np.ndarray] = deque(maxlen=filter_samples)
+        self._baseline_samples: list[np.ndarray] = []
+        self.baseline: np.ndarray | None = None
+        self.last_position: np.ndarray | None = None
+        self.marker_seen = False
+        self.state = False
+        self._candidate_state: bool | None = None
+        self._candidate_since = 0.0
+
+    @property
+    def calibrated(self) -> bool:
+        return self.baseline is not None
+
+    def observe(
+        self, positions: list[tuple[float, float, float]], now: float
+    ) -> tuple[bool, float] | None:
+        """Return decoded state and projected travel, or ``None`` if absent."""
+        self.marker_seen = False
+        candidates = [
+            np.asarray(position, dtype=float)
+            for position in positions
+            if np.linalg.norm(np.asarray(position, dtype=float) - self.center)
+            <= self.roi_radius_m
+        ]
+        if not candidates:
+            self._candidate_state = None
+            return None
+        self.marker_seen = True
+        reference = (
+            self.last_position
+            if self.last_position is not None
+            else self.center
+        )
+        position = min(
+            candidates, key=lambda item: np.linalg.norm(item - reference)
+        )
+        self.last_position = position
+        self._positions.append(position)
+        filtered = np.median(np.stack(tuple(self._positions)), axis=0)
+
+        if self.baseline is None:
+            self._baseline_samples.append(filtered)
+            if len(self._baseline_samples) < self.calibration_samples:
+                return None
+            self.baseline = np.median(
+                np.stack(self._baseline_samples[-self.calibration_samples :]),
+                axis=0,
+            )
+
+        projection = float(np.dot(filtered - self.baseline, self.axis))
+        desired = self.state
+        if projection >= self.on_threshold_m:
+            desired = True
+        elif projection <= self.off_threshold_m:
+            desired = False
+
+        if desired == self.state:
+            self._candidate_state = None
+        elif self._candidate_state != desired:
+            self._candidate_state = desired
+            self._candidate_since = now
+        elif now - self._candidate_since >= self.debounce_seconds:
+            self.state = desired
+            self._candidate_state = None
+
+        # Follow only very slow resting-position drift. Motion candidates and
+        # pulse samples never update the baseline.
+        if (
+            not self.state
+            and self._candidate_state is None
+            and abs(projection) <= self.off_threshold_m
+        ):
+            self.baseline = 0.999 * self.baseline + 0.001 * filtered
+
+        return self.state, projection
+
+
 class TTLMonitorState:
     """Thread-safe TTL state and UR input-correlation detector."""
 
@@ -90,9 +250,10 @@ class TTLMonitorState:
     ) -> None:
         self.lock = threading.RLock()
         self.channels = {name: TTLChannel() for name in CHANNELS}
-        self.channels["teensy"].detail = "Teensy pin 0"
-        self.channels["eyelink"].detail = "Input bit 3, active-low"
+        self.channels["teensy"].detail = "Teensy pin 31"
+        self.channels["eyelink"].detail = f"{EYELINK_INPUT_LABEL}, active-low"
         self.channels["flir"].detail = f"{FLIR_CAMERA} Line{FLIR_LINE}"
+        self.channels["optitrack"].detail = "Calibrating marker rest position"
         self.robot_inputs = {"robot_1": None}
         if configured_robot_inputs:
             self.robot_inputs.update(configured_robot_inputs)
@@ -103,6 +264,7 @@ class TTLMonitorState:
         self._robot_values = {"robot_1": {}}
         self._robot_transitions = {"robot_1": deque(maxlen=128)}
         self._robot_candidates = {"robot_1": {}}
+        self._optitrack_detector = OptitrackTTLDetector()
 
     def snapshot(self) -> TTLSnapshot:
         with self.lock:
@@ -153,7 +315,7 @@ class TTLMonitorState:
         now = monotonic() if now is None else now
         with self.lock:
             rising, _ = self._update_channel(
-                "teensy", state, now, "Teensy pin 0 - 100 ms pulse"
+                "teensy", state, now, "Teensy pin 31 - 100 ms pulse"
             )
             if not rising:
                 return
@@ -183,7 +345,7 @@ class TTLMonitorState:
                 "eyelink",
                 active,
                 now,
-                f"Input bit 3 active-low - raw {raw_input}",
+                f"{EYELINK_INPUT_LABEL} active-low - raw {raw_input}",
             )
 
     def record_flir(self, line_status: int, now: float | None = None) -> None:
@@ -195,6 +357,32 @@ class TTLMonitorState:
                 active,
                 now,
                 f"{FLIR_CAMERA} Line{FLIR_LINE} - raw {line_status}",
+            )
+
+    def record_optitrack(
+        self,
+        positions: list[tuple[float, float, float]],
+        now: float | None = None,
+    ) -> None:
+        now = monotonic() if now is None else now
+        with self.lock:
+            detected = self._optitrack_detector.observe(positions, now)
+            if detected is None:
+                if self._optitrack_detector.marker_seen:
+                    channel = self.channels["optitrack"]
+                    channel.received_at = now
+                    channel.detail = "Calibrating marker rest position"
+                elif positions:
+                    self.channels[
+                        "optitrack"
+                    ].detail = "No marker inside configured solenoid ROI"
+                return
+            active, projection = detected
+            self._update_channel(
+                "optitrack",
+                active,
+                now,
+                f"Solenoid marker - travel {projection * 1000.0:+.1f} mm",
             )
 
     def record_robot(
@@ -334,6 +522,21 @@ class TTLMonitorNode(Node):
                 lambda msg: self.state.record_flir(int(msg.line_status)),
                 qos,
             ),
+            self.create_subscription(
+                Markers,
+                "/markers",
+                lambda msg: self.state.record_optitrack(
+                    [
+                        (
+                            float(marker.translation.x),
+                            float(marker.translation.y),
+                            float(marker.translation.z),
+                        )
+                        for marker in msg.markers
+                    ]
+                ),
+                qos,
+            ),
         ]
         self._graph_timer = self.create_timer(1.0, self._graph_tick)
 
@@ -398,6 +601,8 @@ def _channel_status(
         and snapshot.robot_inputs[name] is None
     ):
         return "NO CORRELATED TTL", AMBER
+    if name == "optitrack" and fresh and not channel.initialized:
+        return "CALIBRATING", AMBER
     if not fresh:
         return "NO DATA", GREY
     if channel.state:
@@ -500,7 +705,7 @@ def render_dashboard(
     )
     _text(
         canvas,
-        f"SOURCE {ref_status}   pin 0   period {period}",
+        f"SOURCE {ref_status}   pin 31   period {period}",
         (1274, 74),
         0.52,
         ref_color,
@@ -508,11 +713,12 @@ def render_dashboard(
     )
 
     cards = [
-        (44, 140, 626, 390),
-        (659, 140, 1241, 390),
-        (1274, 140, 1856, 390),
+        (44, 140, 470, 390),
+        (496, 140, 922, 390),
+        (948, 140, 1374, 390),
+        (1400, 140, 1856, 390),
     ]
-    for name, rect in zip(("eyelink", "robot_1", "flir"), cards):
+    for name, rect in zip(("eyelink", "robot_1", "flir", "optitrack"), cards):
         _draw_card(canvas, name, snapshot.channels[name], snapshot, rect, now)
 
     _text(canvas, "ALIGNED LIVE TRACE", (44, 445), 0.56, MUTED, 2)
@@ -530,7 +736,7 @@ def render_dashboard(
         )
 
     for index, name in enumerate(CHANNELS):
-        y = 545 + index * 96
+        y = 525 + index * 78
         color = COLORS[name]
         _text(canvas, LABELS[name], (72, y + 5), 0.54, color, 2)
         _draw_trace(

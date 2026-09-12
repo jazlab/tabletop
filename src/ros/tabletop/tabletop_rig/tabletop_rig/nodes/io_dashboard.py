@@ -21,7 +21,12 @@ from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from std_msgs.msg import Header
 from tabletop_interfaces.msg import TeensySensor
-from tabletop_interfaces.srv import SetBuzzer, SetReward, SetSmartglass
+from tabletop_interfaces.srv import (
+    SetBuzzer,
+    SetReward,
+    SetSmartglass,
+    SetSyncPulses,
+)
 
 WINDOW_NAME = "TableTop I/O Check"
 WIDTH = 1900
@@ -54,11 +59,12 @@ class Rect:
 
 
 BUTTON_RECTS = {
-    "smartglass": Rect(44, 555, 384, 790),
-    "reward": Rect(412, 555, 752, 790),
-    "sound": Rect(780, 555, 1120, 790),
-    "left_buzzer": Rect(1148, 555, 1488, 790),
-    "right_buzzer": Rect(1516, 555, 1856, 790),
+    "smartglass": Rect(44, 555, 329, 790),
+    "sync_pulses": Rect(349, 555, 634, 790),
+    "reward": Rect(654, 555, 939, 790),
+    "sound": Rect(959, 555, 1244, 790),
+    "left_buzzer": Rect(1264, 555, 1549, 790),
+    "right_buzzer": Rect(1569, 555, 1854, 790),
 }
 
 
@@ -114,7 +120,9 @@ class RewardSound:
                 raise RuntimeError("FluidSynth could not open PulseAudio")
             fluidsynth.set_instrument(channel=0, midi_instr=62)
             self.available = True
-        except Exception as exc:  # audio absence must not take down diagnostics
+        except (
+            Exception
+        ) as exc:  # audio absence must not take down diagnostics
             self.error = str(exc)
 
     def play(self, duration: float = 0.5) -> None:
@@ -156,7 +164,9 @@ class IODashboardNode(Node):
         self._previous_right: bool | None = None
         self._previous_laser: bool | None = None
         self._last_graph_check = 0.0
-        self._sound = RewardSound() if enable_audio else RewardSound.__new__(RewardSound)
+        self._sound = (
+            RewardSound() if enable_audio else RewardSound.__new__(RewardSound)
+        )
         if not enable_audio:
             self._sound.available = False
             self._sound.error = "disabled for test"
@@ -174,8 +184,15 @@ class IODashboardNode(Node):
         self._smartglass_client = self.create_client(
             SetSmartglass, "/teensy/set_smartglass"
         )
-        self._reward_client = self.create_client(SetReward, "/teensy/set_reward")
-        self._buzzer_client = self.create_client(SetBuzzer, "/teensy/set_buzzer")
+        self._reward_client = self.create_client(
+            SetReward, "/teensy/set_reward"
+        )
+        self._buzzer_client = self.create_client(
+            SetBuzzer, "/teensy/set_buzzer"
+        )
+        self._sync_pulses_client = self.create_client(
+            SetSyncPulses, "/teensy/set_sync_pulses"
+        )
         self._control_timer = self.create_timer(0.05, self._control_tick)
 
         with self._lock:
@@ -204,9 +221,7 @@ class IODashboardNode(Node):
             self._state.left_pressed = left
             self._state.right_pressed = right
             self._state.laser_broken = laser
-            self._state.smartglass_revealed = bool(
-                msg.is_smartglass_revealed
-            )
+            self._state.smartglass_revealed = bool(msg.is_smartglass_revealed)
             self._state.reward_active = bool(msg.is_reward_active)
 
     def _flic_callback(self, msg: Header) -> None:
@@ -244,6 +259,7 @@ class IODashboardNode(Node):
                     "smartglass": self._smartglass_client.service_is_ready(),
                     "reward": self._reward_client.service_is_ready(),
                     "buzzer": self._buzzer_client.service_is_ready(),
+                    "sync_pulses": self._sync_pulses_client.service_is_ready(),
                 }
             self._last_graph_check = now
 
@@ -262,7 +278,9 @@ class IODashboardNode(Node):
         with self._lock:
             self._state.task_running = task_running
             if task_running:
-                self._state.toast = "Output tests are locked while Commander is running"
+                self._state.toast = (
+                    "Output tests are locked while Commander is running"
+                )
                 self._state.toast_error = True
                 return False
             if service and not self._state.services.get(service, False):
@@ -297,7 +315,10 @@ class IODashboardNode(Node):
             except Exception as exc:
                 with self._lock:
                     self._state.deadlines[name] = 0.0
-                self._set_toast(f"{name.replace('_', ' ').title()} failed: {exc}", error=True)
+                self._set_toast(
+                    f"{name.replace('_', ' ').title()} failed: {exc}",
+                    error=True,
+                )
 
         future.add_done_callback(complete)
 
@@ -308,7 +329,8 @@ class IODashboardNode(Node):
                 return
             if not self._sound.available:
                 self._set_toast(
-                    f"Reward sound unavailable: {self._sound.error}", error=True
+                    f"Reward sound unavailable: {self._sound.error}",
+                    error=True,
                 )
                 return
             try:
@@ -325,7 +347,9 @@ class IODashboardNode(Node):
                 return
             with self._lock:
                 if now - self._state.sensor_received_at > SENSOR_STALE_SECONDS:
-                    self._state.toast = "Cannot test smartglass: Teensy sensor data is stale"
+                    self._state.toast = (
+                        "Cannot test smartglass: Teensy sensor data is stale"
+                    )
                     self._state.toast_error = True
                     return
                 target = not self._state.smartglass_revealed
@@ -338,6 +362,21 @@ class IODashboardNode(Node):
                 request,
                 1.0,
                 "Smartglass changed for one second and will restore automatically",
+            )
+            return
+
+        if command == "sync_pulses":
+            if not self._output_allowed("sync_pulses"):
+                return
+            request = SetSyncPulses.Request()
+            request.enable = True
+            request.duration = Duration(seconds=10.0).to_msg()
+            self._call(
+                "sync_pulses",
+                self._sync_pulses_client,
+                request,
+                10.0,
+                "Sync pulses enabled for 10 seconds and stopped automatically",
             )
             return
 
@@ -385,7 +424,12 @@ def _rounded_rect(
 ) -> None:
     if thickness != -1:
         cv2.rectangle(
-            canvas, (rect.x1, rect.y1), (rect.x2, rect.y2), color, thickness, cv2.LINE_AA
+            canvas,
+            (rect.x1, rect.y1),
+            (rect.x2, rect.y2),
+            color,
+            thickness,
+            cv2.LINE_AA,
         )
         return
     cv2.rectangle(
@@ -441,11 +485,15 @@ def _input_card(
     count: int,
 ) -> None:
     _rounded_rect(canvas, rect, PANEL)
-    cv2.circle(canvas, (rect.x1 + 42, rect.y1 + 45), 13, color, -1, cv2.LINE_AA)
+    cv2.circle(
+        canvas, (rect.x1 + 42, rect.y1 + 45), 13, color, -1, cv2.LINE_AA
+    )
     _text(canvas, title, (rect.x1 + 70, rect.y1 + 53), 0.66, TEXT, 2)
     _text(canvas, state, (rect.x1 + 28, rect.y1 + 112), 0.88, color, 2)
     _text(canvas, detail, (rect.x1 + 28, rect.y1 + 148), 0.50, MUTED)
-    _text(canvas, f"Events  {count}", (rect.x1 + 28, rect.y2 - 24), 0.52, MUTED)
+    _text(
+        canvas, f"Events  {count}", (rect.x1 + 28, rect.y2 - 24), 0.52, MUTED
+    )
 
 
 def _output_card(
@@ -463,11 +511,24 @@ def _output_card(
         fill = (76, 67, 61)
     _rounded_rect(canvas, rect, fill)
     color = AMBER if busy else (BLUE if enabled else GREY)
-    cv2.circle(canvas, (rect.x1 + 34, rect.y1 + 38), 10, color, -1, cv2.LINE_AA)
-    _text(canvas, title, (rect.x1 + 56, rect.y1 + 46), 0.62, TEXT if enabled else MUTED, 2)
+    cv2.circle(
+        canvas, (rect.x1 + 34, rect.y1 + 38), 10, color, -1, cv2.LINE_AA
+    )
+    _text(
+        canvas,
+        title,
+        (rect.x1 + 56, rect.y1 + 46),
+        0.62,
+        TEXT if enabled else MUTED,
+        2,
+    )
     _text(canvas, duration, (rect.x1 + 25, rect.y1 + 101), 0.78, color, 2)
     _text(canvas, detail, (rect.x1 + 25, rect.y1 + 140), 0.47, MUTED)
-    label = "ACTIVE" if busy else ("CLICK TO TEST" if enabled else "OFFLINE / LOCKED")
+    label = (
+        "ACTIVE"
+        if busy
+        else ("CLICK TO TEST" if enabled else "OFFLINE / LOCKED")
+    )
     _rounded_rect(
         canvas,
         Rect(rect.x1 + 25, rect.y2 - 62, rect.x2 - 25, rect.y2 - 22),
@@ -517,45 +578,143 @@ def render_dashboard(
     ]
 
     flic_recent = now - snapshot.flic_event_at < EVENT_FLASH_SECONDS
-    flic_color = GREEN if flic_recent else (BLUE if snapshot.flic_online else GREY)
-    flic_state = "REGISTERED" if flic_recent else ("READY" if snapshot.flic_online else "NO FLIC NODE")
+    flic_color = (
+        GREEN if flic_recent else (BLUE if snapshot.flic_online else GREY)
+    )
+    flic_state = (
+        "REGISTERED"
+        if flic_recent
+        else ("READY" if snapshot.flic_online else "NO FLIC NODE")
+    )
     flic_detail = snapshot.flic_address or "Press any Flic button"
-    _input_card(canvas, cards[0], "Any Flic button", flic_state, flic_detail, flic_color, snapshot.flic_count)
+    _input_card(
+        canvas,
+        cards[0],
+        "Any Flic button",
+        flic_state,
+        flic_detail,
+        flic_color,
+        snapshot.flic_count,
+    )
 
-    def hand_values(pressed: bool, event_at: float) -> tuple[str, tuple[int, int, int]]:
+    def hand_values(
+        pressed: bool, event_at: float
+    ) -> tuple[str, tuple[int, int, int]]:
         if not sensor_fresh:
             return "NO SENSOR DATA", GREY
         if pressed:
             return "PRESSED", GREEN
-        return "RELEASED", BLUE if now - event_at < EVENT_FLASH_SECONDS else MUTED
+        return (
+            "RELEASED",
+            BLUE if now - event_at < EVENT_FLASH_SECONDS else MUTED,
+        )
 
-    left_state, left_color = hand_values(snapshot.left_pressed, snapshot.left_event_at)
-    right_state, right_color = hand_values(snapshot.right_pressed, snapshot.right_event_at)
-    _input_card(canvas, cards[1], "Left hand button", left_state, "Teensy pin 36", left_color, snapshot.left_count)
-    _input_card(canvas, cards[2], "Right hand button", right_state, "Teensy pin 39", right_color, snapshot.right_count)
+    left_state, left_color = hand_values(
+        snapshot.left_pressed, snapshot.left_event_at
+    )
+    right_state, right_color = hand_values(
+        snapshot.right_pressed, snapshot.right_event_at
+    )
+    _input_card(
+        canvas,
+        cards[1],
+        "Left hand button",
+        left_state,
+        "Teensy pin 36",
+        left_color,
+        snapshot.left_count,
+    )
+    _input_card(
+        canvas,
+        cards[2],
+        "Right hand button",
+        right_state,
+        "Teensy pin 39",
+        right_color,
+        snapshot.right_count,
+    )
 
     if not sensor_fresh:
-        laser_state, laser_detail, laser_color = "NO SENSOR DATA", "Teensy messages are stale", GREY
+        laser_state, laser_detail, laser_color = (
+            "NO SENSOR DATA",
+            "Teensy messages are stale",
+            GREY,
+        )
     elif snapshot.laser_broken:
-        laser_state, laser_detail, laser_color = "BEAM BROKEN", "Motion safety input active", RED
+        laser_state, laser_detail, laser_color = (
+            "BEAM BROKEN",
+            "Motion safety input active",
+            RED,
+        )
     else:
-        laser_state, laser_detail, laser_color = "CLEAR", "Safety beam intact", GREEN
-    _input_card(canvas, cards[3], "Safety laser", laser_state, laser_detail, laser_color, snapshot.laser_count)
+        laser_state, laser_detail, laser_color = (
+            "CLEAR",
+            "Safety beam intact",
+            GREEN,
+        )
+    _input_card(
+        canvas,
+        cards[3],
+        "Safety laser",
+        laser_state,
+        laser_detail,
+        laser_color,
+        snapshot.laser_count,
+    )
 
     _text(canvas, "TIMED OUTPUTS", (44, 515), 0.56, MUTED, 2)
     definitions = {
-        "smartglass": ("Smartglass", "1 second", "Invert, then restore", "smartglass"),
-        "reward": ("Juice solenoid", "200 ms", "Firmware-timed pulse", "reward"),
+        "smartglass": (
+            "Smartglass",
+            "1 second",
+            "Invert, then restore",
+            "smartglass",
+        ),
+        "sync_pulses": (
+            "Sync pulses",
+            "10 seconds",
+            "Firmware-bounded",
+            "sync_pulses",
+        ),
+        "reward": (
+            "Juice solenoid",
+            "200 ms",
+            "Firmware-timed pulse",
+            "reward",
+        ),
         "sound": ("Reward sound", "brief tone", "Task reward tone", None),
-        "left_buzzer": ("Left hand buzzer", "1 second", "No lock movement", "buzzer"),
-        "right_buzzer": ("Right hand buzzer", "1 second", "No lock movement", "buzzer"),
+        "left_buzzer": (
+            "Left hand buzzer",
+            "1 second",
+            "No lock movement",
+            "buzzer",
+        ),
+        "right_buzzer": (
+            "Right hand buzzer",
+            "1 second",
+            "No lock movement",
+            "buzzer",
+        ),
     }
     for name, rect in BUTTON_RECTS.items():
         title, duration, detail, service = definitions[name]
-        available = snapshot.sound_available if name == "sound" else snapshot.services.get(service or "", False)
+        available = (
+            snapshot.sound_available
+            if name == "sound"
+            else snapshot.services.get(service or "", False)
+        )
         enabled = available and not outputs_locked
         busy = snapshot.deadlines.get(name, 0.0) > now
-        _output_card(canvas, rect, title, duration, detail, enabled, busy, hovered == name)
+        _output_card(
+            canvas,
+            rect,
+            title,
+            duration,
+            detail,
+            enabled,
+            busy,
+            hovered == name,
+        )
 
     smartglass = (
         "no Teensy data"
@@ -567,12 +726,19 @@ def render_dashboard(
         if not sensor_fresh
         else ("ACTIVE" if snapshot.reward_active else "off")
     )
-    _text(canvas, f"Smartglass now: {smartglass}", (44, 838), 0.50, MUTED)
-    _text(canvas, f"Juice now: {reward}", (410, 838), 0.50, MUTED)
+    _text(canvas, f"Smartglass now: {smartglass}", (44, 838), 0.48, MUTED)
+    _text(
+        canvas,
+        "Sync test stops in firmware after 10 s",
+        (349, 838),
+        0.48,
+        MUTED,
+    )
+    _text(canvas, f"Juice now: {reward}", (705, 838), 0.48, MUTED)
     _text(
         canvas,
         "Tests never command either robot. Buzzer tests do not change arm-lock outputs.",
-        (780, 838),
+        (1020, 838),
         0.50,
         MUTED,
     )
@@ -643,7 +809,11 @@ def main(args=None) -> None:
     def mouse(event: int, x: int, y: int, _flags: int, _param) -> None:
         nonlocal hovered
         hovered = next(
-            (name for name, rect in BUTTON_RECTS.items() if rect.contains(x, y)),
+            (
+                name
+                for name, rect in BUTTON_RECTS.items()
+                if rect.contains(x, y)
+            ),
             None,
         )
         if event == cv2.EVENT_LBUTTONUP and hovered is not None:

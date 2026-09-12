@@ -348,6 +348,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     _saved_return_states: dict[str, tuple[ManipulationState, RobotState]]
     _last_pre_reset_state: RobotState | None
     _preflight_pre_fetch_branches: dict[str, dict[str, float]]
+    _initial_pre_fetch_pending: bool
     _presentation_region_active: threading.Event
     _presentation_region_acquired: bool
     _persistent_state_path: str
@@ -384,6 +385,10 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._saved_return_states = {}
         self._last_pre_reset_state = None
         self._preflight_pre_fetch_branches = {}
+        # Limit only the first executed PRE_FETCH transition after this
+        # interface starts. Later IDLE -> PRE_FETCH moves are normal task
+        # transitions and must retain their full-speed timing.
+        self._initial_pre_fetch_pending = True
         self._presentation_region_active = threading.Event()
         self._presentation_region_acquired = False
 
@@ -515,12 +520,13 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         assert isinstance(object_id, str)
         assert object_id in self._moveit.collision_object_ids
 
-        self._moveit.move_collision_object(
-            object_id, self._moveit.get_link_pose_stamped(self.attach_link)
-        )
-        self._moveit.attach_collision_object(
-            object_id, self.attach_link, touch_links=self.touch_links
-        )
+        with self._moveit.planning_scene_write():
+            self._moveit.move_collision_object(
+                object_id, self._moveit.get_link_pose_stamped(self.attach_link)
+            )
+            self._moveit.attach_collision_object(
+                object_id, self.attach_link, touch_links=self.touch_links
+            )
 
         return object_id
 
@@ -946,10 +952,69 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         ):
             return None
 
+        departure_override: dict[str, Any] | None = None
+        if (
+            self._manipulation_state == ManipulationState.POST_FETCH
+            and next_state == ManipulationState.FETCHED
+        ):
+            departure_override = self._get_fetch_departure_override(object_id)
+            if departure_override is not None:
+                await self._move_to_fetch_departure_waypoint(
+                    object_id, departure_override
+                )
+
         goal = self._get_state_goal(next_state, object_id)
         request = PlanRequest(goal=goal)
+        if (
+            self._manipulation_state == ManipulationState.IDLE
+            and next_state == ManipulationState.PRE_FETCH
+        ):
+            pre_fetch_override = self._get_pre_fetch_from_idle_override(
+                object_id
+            )
+            if pre_fetch_override is not None:
+                request.velocity_scaling_factor = float(
+                    pre_fetch_override["velocity_scaling_factor"]
+                )
+                request.acceleration_scaling_factor = float(
+                    pre_fetch_override["acceleration_scaling_factor"]
+                )
+                self.log(
+                    "Applying IDLE -> PRE_FETCH scaling for "
+                    f"{object_id} (velocity "
+                    f"{request.velocity_scaling_factor}, acceleration "
+                    f"{request.acceleration_scaling_factor})",
+                    severity="WARN",
+                )
+        initial_pre_fetch = (
+            next_state == ManipulationState.PRE_FETCH
+            and getattr(self, "_initial_pre_fetch_pending", False)
+        )
+        if initial_pre_fetch:
+            startup_scaling = self.param("startup_pre_fetch_scaling")
+            request.velocity_scaling_factor = min(
+                request.velocity_scaling_factor,
+                float(startup_scaling["velocity_scaling_factor"]),
+            )
+            request.acceleration_scaling_factor = min(
+                request.acceleration_scaling_factor,
+                float(startup_scaling["acceleration_scaling_factor"]),
+            )
+            self.log(
+                "Applying first PRE_FETCH motion scaling "
+                f"(velocity {request.velocity_scaling_factor}, "
+                f"acceleration {request.acceleration_scaling_factor})",
+                severity="WARN",
+            )
         if next_state == ManipulationState.FETCHED:
             request.max_attempts = self.param("planning.fetched_max_attempts")
+            if departure_override is not None:
+                request.velocity_scaling_factor = float(
+                    departure_override["velocity_scaling_factor"]
+                )
+                request.acceleration_scaling_factor = float(
+                    departure_override["acceleration_scaling_factor"]
+                )
 
         if next_state in (
             ManipulationState.PRE_ATTACH,
@@ -992,6 +1057,11 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             cache_kwargs = await self.plan_and_execute(
                 request, cache_trajectories=False
             )
+            if initial_pre_fetch:
+                # Consume the launch-only limit only after execution succeeds.
+                # Planning or execution failures therefore cannot accidentally
+                # make a subsequent launch retry run at full acceleration.
+                self._initial_pre_fetch_pending = False
         finally:
             if len(modified_collisions) > 0:
                 self._moveit.disallow_collision(*zip(*modified_collisions))
@@ -1011,26 +1081,201 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                 if object_id in self._saved_return_states:
                     del self._saved_return_states[object_id]
             case ManipulationState.ATTACH:
-                self._moveit.move_collision_object(
-                    object_id,
-                    self._moveit.get_link_pose_stamped(self.attach_link),
-                )
-                self._moveit.attach_collision_object(
-                    object_id,
-                    self.attach_link,
-                    touch_links=self.touch_links,
-                )
+                with self._moveit.planning_scene_write():
+                    self._moveit.move_collision_object(
+                        object_id,
+                        self._moveit.get_link_pose_stamped(self.attach_link),
+                    )
+                    self._moveit.attach_collision_object(
+                        object_id,
+                        self.attach_link,
+                        touch_links=self.touch_links,
+                    )
             case ManipulationState.DETACH:
-                self._moveit.detach_collision_object(object_id)
-                self._moveit.move_collision_object(
-                    object_id,
-                    self._moveit.grid_objects_by_id[object_id].pose_stamped,
-                )
+                with self._moveit.planning_scene_write():
+                    self._moveit.detach_collision_object(object_id)
+                    self._moveit.move_collision_object(
+                        object_id,
+                        self._moveit.grid_objects_by_id[
+                            object_id
+                        ].pose_stamped,
+                    )
 
         if not request.use_cache:
             return None
         else:
             return cache_kwargs
+
+    def _get_pre_fetch_from_idle_override(
+        self, object_id: str
+    ) -> dict[str, Any] | None:
+        """Return validated scaling for one IDLE -> PRE_FETCH transition."""
+        try:
+            overrides = self.param("pre_fetch_from_idle_overrides")
+        except ParameterNotDeclaredException:
+            # Most arms have no scoped override at all. Keeping the parameter
+            # absent avoids ROS 2's unsupported empty-map parameter encoding.
+            return None
+        if overrides is None:
+            return None
+        if not isinstance(overrides, dict):
+            raise ValueError("pre_fetch_from_idle_overrides must be a mapping")
+
+        config = overrides.get(object_id)
+        if config is None:
+            return None
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"pre_fetch_from_idle_overrides.{object_id} must be a mapping"
+            )
+        required_keys = {
+            "velocity_scaling_factor",
+            "acceleration_scaling_factor",
+        }
+        missing_keys = sorted(required_keys - config.keys())
+        if missing_keys:
+            raise ValueError(
+                f"pre_fetch_from_idle_overrides.{object_id} is missing: "
+                f"{', '.join(missing_keys)}"
+            )
+        return config
+
+    def _get_present_override(self, object_id: str) -> dict[str, Any] | None:
+        """Return validated scaling for one object's presentation entry."""
+        try:
+            overrides = self.param("present_overrides")
+        except ParameterNotDeclaredException:
+            # Keep this parameter arm-local: most arms have no presentation
+            # override, and ROS 2 cannot represent an empty mapping cleanly.
+            return None
+        if overrides is None:
+            return None
+        if not isinstance(overrides, dict):
+            raise ValueError("present_overrides must be a mapping")
+
+        config = overrides.get(object_id)
+        if config is None:
+            return None
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"present_overrides.{object_id} must be a mapping"
+            )
+        required_keys = {
+            "velocity_scaling_factor",
+            "acceleration_scaling_factor",
+        }
+        missing_keys = sorted(required_keys - config.keys())
+        if missing_keys:
+            raise ValueError(
+                f"present_overrides.{object_id} is missing: "
+                f"{', '.join(missing_keys)}"
+            )
+        return config
+
+    def _get_unpresent_override(
+        self, object_id: str
+    ) -> dict[str, Any] | None:
+        """Return validated scaling for one object's presentation exit."""
+        try:
+            overrides = self.param("unpresent_overrides")
+        except ParameterNotDeclaredException:
+            # Keep this parameter arm-local for the same reason as the
+            # presentation-entry override above.
+            return None
+        if overrides is None:
+            return None
+        if not isinstance(overrides, dict):
+            raise ValueError("unpresent_overrides must be a mapping")
+
+        config = overrides.get(object_id)
+        if config is None:
+            return None
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"unpresent_overrides.{object_id} must be a mapping"
+            )
+        required_keys = {
+            "velocity_scaling_factor",
+            "acceleration_scaling_factor",
+        }
+        missing_keys = sorted(required_keys - config.keys())
+        if missing_keys:
+            raise ValueError(
+                f"unpresent_overrides.{object_id} is missing: "
+                f"{', '.join(missing_keys)}"
+            )
+        return config
+
+    def _get_fetch_departure_override(
+        self, object_id: str
+    ) -> dict[str, Any] | None:
+        """Return the validated departure override for one object, if any."""
+        departure_overrides = self.param("fetch_departure_overrides")
+        if departure_overrides is None:
+            return None
+        if not isinstance(departure_overrides, dict):
+            raise ValueError("fetch_departure_overrides must be a mapping")
+
+        config = departure_overrides.get(object_id)
+        if config is None:
+            return None
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"fetch_departure_overrides.{object_id} must be a mapping"
+            )
+        required_keys = {
+            "clearance_offset",
+            "velocity_scaling_factor",
+            "acceleration_scaling_factor",
+        }
+        missing_keys = sorted(required_keys - config.keys())
+        if missing_keys:
+            raise ValueError(
+                f"fetch_departure_overrides.{object_id} is missing: "
+                f"{', '.join(missing_keys)}"
+            )
+        return config
+
+    async def _move_to_fetch_departure_waypoint(
+        self,
+        object_id: str,
+        config: dict[str, Any],
+    ) -> None:
+        """Apply a configured clearance waypoint for one mount departure.
+
+        The waypoint is deliberately Cartesian and uncached so the attached
+        object moves farther away from its mount before the joint-space move
+        to FETCHED. Scaling is local to this object's POST_FETCH departure.
+        """
+        offset = [float(x) for x in config["clearance_offset"]]
+        if len(offset) != 3:
+            raise ValueError(
+                "fetch_departure_overrides."
+                f"{object_id}.clearance_offset must have 3 values"
+            )
+
+        velocity_scaling_factor = float(config["velocity_scaling_factor"])
+        acceleration_scaling_factor = float(
+            config["acceleration_scaling_factor"]
+        )
+        self.log(
+            f"Using configured fetch-departure clearance {offset} for "
+            f"{object_id} (velocity scaling {velocity_scaling_factor}, "
+            f"acceleration scaling {acceleration_scaling_factor})",
+            severity="WARN",
+        )
+        await self.plan_and_execute(
+            PlanRequest(
+                goal=self._grid_object_pose_stamped_with_offset(
+                    object_id, offset
+                ),
+                planning_pipeline="linear",
+                use_cache=False,
+                velocity_scaling_factor=velocity_scaling_factor,
+                acceleration_scaling_factor=acceleration_scaling_factor,
+            ),
+            cache_trajectories=False,
+        )
 
     async def _move_to_fetch_recovery_waypoint(
         self,
@@ -1228,10 +1473,35 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
     ) -> None:
         """Move to the fetched-side pose and end the presentation safety scope."""
         goal = self._get_state_goal(ManipulationState.NEEDS_RESET, object_id)
-        await self.plan_and_execute(
-            goal=goal,
-            cache_trajectories=cache_trajectories,
-        )
+        unpresent_override = self._get_unpresent_override(object_id)
+        if unpresent_override is None:
+            await self.plan_and_execute(
+                goal=goal,
+                cache_trajectories=cache_trajectories,
+            )
+        else:
+            velocity_scaling_factor = float(
+                unpresent_override["velocity_scaling_factor"]
+            )
+            acceleration_scaling_factor = float(
+                unpresent_override["acceleration_scaling_factor"]
+            )
+            self.log(
+                "Applying PRESENTED -> NEEDS_RESET scaling for "
+                f"{object_id} (velocity {velocity_scaling_factor}, "
+                f"acceleration {acceleration_scaling_factor})",
+                severity="WARN",
+            )
+            await self.plan_and_execute(
+                PlanRequest(
+                    goal=goal,
+                    velocity_scaling_factor=velocity_scaling_factor,
+                    acceleration_scaling_factor=(
+                        acceleration_scaling_factor
+                    ),
+                ),
+                cache_trajectories=cache_trajectories,
+            )
 
         # Clear the safety scope only after the exit motion and collision-lease
         # release both succeed. Any failure remains fail-safe for a retry.
@@ -1262,10 +1532,35 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         self._acquire_presentation_region(object_id)
         try:
             goal = self._get_state_goal(next_state, object_id)
-            await self.plan_and_execute(
-                goal=goal,
-                cache_trajectories=cache_trajectories,
-            )
+            present_override = self._get_present_override(object_id)
+            if present_override is None:
+                await self.plan_and_execute(
+                    goal=goal,
+                    cache_trajectories=cache_trajectories,
+                )
+            else:
+                velocity_scaling_factor = float(
+                    present_override["velocity_scaling_factor"]
+                )
+                acceleration_scaling_factor = float(
+                    present_override["acceleration_scaling_factor"]
+                )
+                self.log(
+                    "Applying FETCHED/RESETTED -> PRESENTED scaling for "
+                    f"{object_id} (velocity {velocity_scaling_factor}, "
+                    f"acceleration {acceleration_scaling_factor})",
+                    severity="WARN",
+                )
+                await self.plan_and_execute(
+                    PlanRequest(
+                        goal=goal,
+                        velocity_scaling_factor=velocity_scaling_factor,
+                        acceleration_scaling_factor=(
+                            acceleration_scaling_factor
+                        ),
+                    ),
+                    cache_trajectories=cache_trajectories,
+                )
         except PlanningError:
             # Planning failures happen before execution, so the arm is still
             # at its fetched-side pose and the region can be released. Keep
@@ -1600,15 +1895,18 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             )
         mesh_path = mesh_paths[0]
 
-        self._moveit.add_mesh_collision_object(
-            object_id,
-            path=mesh_path,
-            pose_stamped=self._moveit.get_link_pose_stamped(self.attach_link),
-            **self.param("manually_attach.collision_object_kwargs"),
-        )
-        self._moveit.attach_collision_object(
-            object_id, self.attach_link, touch_links=self.touch_links
-        )
+        with self._moveit.planning_scene_write():
+            self._moveit.add_mesh_collision_object(
+                object_id,
+                path=mesh_path,
+                pose_stamped=self._moveit.get_link_pose_stamped(
+                    self.attach_link
+                ),
+                **self.param("manually_attach.collision_object_kwargs"),
+            )
+            self._moveit.attach_collision_object(
+                object_id, self.attach_link, touch_links=self.touch_links
+            )
 
         self._current_manipulation_id = object_id
         self._manipulation_state = ManipulationState.MANUALLY_ATTACHED
@@ -1632,8 +1930,9 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
                     f"Unexpected state type ({type(unexpected).__name__}) with value: {unexpected}"
                 )
 
-        self._moveit.detach_collision_object(object_id)
-        self._moveit.remove_collision_object(object_id)
+        with self._moveit.planning_scene_write():
+            self._moveit.detach_collision_object(object_id)
+            self._moveit.remove_collision_object(object_id)
 
         self._current_manipulation_id = None
         self._manipulation_state = ManipulationState.IDLE

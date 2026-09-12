@@ -1,0 +1,55 @@
+manipulation_preflight:
+  # Reuse the current geometry-fingerprinted preflight report. Only these two
+  # configured mounts are admitted to the task, and either is rejected if its
+  # existing report entry is unavailable or stale.
+  report_name: manipulation_preflight.yaml
+  allow_real_use: true
+  exclude_unvalidated: true
+
+tasks:
+  - class: InvariantAffordanceTask
+    kwargs:
+      stimulus_duration: 1.0
+      # The go cue occurs exactly three seconds after occlusion. The first
+      # 0.5 seconds lets the smartglass settle; 0.25 seconds is reserved
+      # after the planned motion so execution jitter does not delay the cue.
+      occlusion_settle_duration: 0.5
+      motion_duration: 3.0
+      post_motion_hold_duration: 0.25
+      response_duration: 2.0
+      sound_kwargs:
+        duration: 0.25
+
+      # Target XYZ is uniform in this box. Shuffled equal-area tilt strata
+      # prevent feasible accepted poses from clustering upright. The planner
+      # may use the arm's full half of the rig, including its storage area,
+      # while collision checking and a small shared-center overlap remain.
+      position_half_ranges: [0.10, 0.06, 0.08]
+      path_centerline_overlap: 0.12
+      orientation_strata: 3
+      motion_planning_pipeline: aps_rrtc
+      motion_planning_time: 0.25
+      motion_velocity_scaling_factor: 0.75
+      motion_acceleration_scaling_factor: 1.0
+      # Candidate rejection happens before reveal and never moves a robot.
+      max_motion_generation_attempts: 30
+
+      trial_generator:
+        class: OrderedChoiceAlternating
+        kwargs:
+          # Use the validated mount directly behind the outer-front right
+          # object, paired with the outer-front left mount.
+          grouped_object_ids:
+            right_manipulator:
+              - small_object_28
+            left_manipulator:
+              - small_object_0
+          poses:
+            - position: [0.9525, 0.4, 0.6]
+              rpy: [0.0, 0.0, -1.5707]
+          arms:
+            - both
+          occlude:
+            - true
+          num_trials: 100000
+          skip_failed: true

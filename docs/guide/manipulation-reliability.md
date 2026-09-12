@@ -90,9 +90,11 @@ handling; successful paths retain their configured velocity scaling.
 - Normal returns skip the unnecessary final IDLE pose. This removes a long
   extra motion without changing fetch, presentation, unpresentation, or return
   velocity scaling.
-- The configured maximum acceleration was reduced from `30.0` to `20.0` for
-  each UR joint. Velocity limits were not reduced; this bounds acceleration at
-  transitions rather than deliberately slowing the complete path.
+- Every UR joint uses a `14.0` rad/s^2 acceleration ceiling while retaining
+  its normal velocity limit. Ruckig smoothing remains disabled by default, as it
+  was in the stable 16 rad/s^2 configuration. One repeatable right-arm transit—
+  `IDLE` to `PRE_FETCH` for `small_object_26`—uses full velocity with a `0.857142857`
+  acceleration scale, for an effective 12 rad/s^2 ceiling on only that motion.
 
 ## Trial-level recovery and object availability
 
@@ -204,12 +206,19 @@ selects CPU dependencies and `nvidia` selects the configured CUDA extra.
 | `fetch_recovery.enable` | `true` | Enable one conditional stage recovery |
 | `fetch_recovery.max_attempts` | 5 | Planning attempts for the recovery waypoint |
 | `fetch_recovery.pre_fetch_transit_goal` | `idle` | Safe transit before retrying PRE_FETCH |
+| `startup_pre_fetch_scaling.velocity_scaling_factor` | `1.0` | Velocity scaling for only the first PRE_FETCH after Commander starts |
+| `startup_pre_fetch_scaling.acceleration_scaling_factor` | `0.3` | Gentler acceleration for only the first PRE_FETCH after Commander starts |
 | `fetch_recovery.fetched_clearance_offset` | `[0.22, 0.0, -0.18]` | Attached-object clearance before retrying FETCHED |
 | `skip_idle_on_return` | `true` | Remove the unnecessary final IDLE motion |
 | `interruptions.max_attempts` | 3 | Motion attempts after an interruption |
 | `interruptions.max_controller_recovery_attempts` | 5 | UR restoration cycles for one laser interruption |
 | `safe_to_execute.required_time` | 0.5 s | Required continuous clear/safe period |
-| joint `max_acceleration` | 20.0 | Bound transition acceleration without lowering velocity limits |
+| joint `max_acceleration` | 14.0 rad/s^2 | Global acceleration ceiling with normal joint velocity limits |
+| joint `max_jerk` | 500.0 rad/s^3 | Restored value from the 16 rad/s^2 configuration; inactive unless smoothing is requested |
+| request `apply_smoothing` | `false` | Restore the 16 rad/s^2 configuration's TOTG-only post-processing |
+| `right_manipulation_interface.pre_fetch_from_idle_overrides.small_object_26.acceleration_scaling_factor` | `0.857142857` | Effective 12 rad/s^2 only for right `small_object_26` IDLE → PRE_FETCH |
+| `right_manipulation_interface.present_overrides.big_object_6.velocity_scaling_factor` | `0.75` | Approximately 2.35 rad/s maximum only for right `big_object_6` FETCHED/RESETTED → PRESENTED; cached paths are retimed with this limit before execution |
+| `right_manipulation_interface.unpresent_overrides.big_object_6.velocity_scaling_factor` | `0.75` | The same narrow cap only for right `big_object_6` PRESENTED → NEEDS_RESET, preventing the reverse path from reaching the base-joint ceiling |
 
 ## Validation evidence
 

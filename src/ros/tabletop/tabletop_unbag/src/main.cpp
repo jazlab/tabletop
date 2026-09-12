@@ -38,7 +38,7 @@ void print_usage(const char* argv0)
   std::cout << "Usage: " << argv0
             << " BAG_DIR [options]\n\n"
                "Unbag a ROS 2 bag (MCAP) into per-topic outputs: CSV files for normal\n"
-               "messages and image files for image topics. Each message type is routed to\n"
+               "messages and image files or videos for image topics. Each message type is routed to\n"
                "a handler that knows how to write it.\n\n"
                "Positional arguments:\n"
                "  BAG_DIR                 Directory containing the bag (its .mcap files and\n"
@@ -46,9 +46,9 @@ void print_usage(const char* argv0)
                "Common options:\n"
                "  -o, --output-dir DIR    Where to write outputs.\n"
                "                          Default: <parent of BAG_DIR>/unbag\n"
-               "  --handlers H [H ...]    Handlers to enable (e.g. csv image). Topics whose\n"
+               "  --handlers H [H ...]    Handlers to enable (csv, image, video). Topics whose\n"
                "                          type is not claimed by an enabled handler are\n"
-               "                          skipped. Default: all handlers.\n"
+               "                          skipped. Default: csv image.\n"
                "  --topics T [T ...]      Only unbag these topics.\n"
                "  --exclude-topics T ...  Unbag all topics except these.\n"
                "                          (--topics and --exclude-topics are mutually\n"
@@ -70,7 +70,9 @@ void print_usage(const char* argv0)
                "  -h, --help              Show this help message and exit.\n\n"
                "csv handler options:\n"
                "  --csv-batch-size N      Rows buffered in memory before flushing to disk\n"
-               "                          (default 1000).\n\n"
+               "                          (default 1000).\n"
+               "  --csv-spool-dir DIR     Temporary CSV row-spool directory (default: a\n"
+               "                          hidden directory under the output).\n\n"
                "image handler options:\n"
                "  --image-encoding ENC    Target color encoding for decoded images\n"
                "                          (default bgr8; e.g. rgb8, mono8).\n"
@@ -79,6 +81,14 @@ void print_usage(const char* argv0)
                "                          (compressed keeps its format, raw -> png); a\n"
                "                          specific format applies to all image topics (png\n"
                "                          avoids a lossy re-encode of compressed topics).\n";
+  std::cout << "\nvideo handler options:\n"
+               "  --video-codec NAME      FFmpeg encoder (default h264_nvenc; use libx264\n"
+               "                          for a CPU fallback).\n"
+               "  --video-quality N       Constant-quality value (default 28).\n"
+               "  --video-fps N           Nominal stream frame rate (default 120).\n"
+               "  --video-segment-seconds N\n"
+               "                          Atomic/resumable segment duration (default 300).\n"
+               "  --minimum-free-gb N     Destination free-space preflight (default 20; 0 disables).\n";
 }
 
 /// Consume the values following a list-valued flag, stopping at the next flag
@@ -231,6 +241,15 @@ int main(int argc, char** argv)
       }
       options.image.encoding = argv[++i];
     }
+    else if (arg == "--csv-spool-dir")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      options.csv.spool_dir = argv[++i];
+    }
     else if (arg == "--image-format")
     {
       if (i + 1 >= argc)
@@ -239,6 +258,88 @@ int main(int argc, char** argv)
         return 2;
       }
       options.image.format = argv[++i];
+    }
+    else if (arg == "--video-codec")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      options.video.codec = argv[++i];
+    }
+    else if (arg == "--video-quality")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        const long long value = std::stoll(argv[++i]);
+        if (value < 0 || value > 51)
+        {
+          throw std::out_of_range("quality");
+        }
+        options.video.quality = static_cast<int>(value);
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - --video-quality requires an integer from 0 to 51\n";
+        return 2;
+      }
+    }
+    else if (arg == "--video-fps" || arg == "--video-segment-seconds")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        const long long value = std::stoll(argv[++i]);
+        if (value <= 0)
+        {
+          throw std::out_of_range("positive integer");
+        }
+        if (arg == "--video-fps")
+        {
+          options.video.nominal_fps = static_cast<int>(value);
+        }
+        else
+        {
+          options.video.segment_seconds = static_cast<int>(value);
+        }
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - " << arg << " requires a positive integer\n";
+        return 2;
+      }
+    }
+    else if (arg == "--minimum-free-gb")
+    {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "ERROR - " << arg << " requires a value\n";
+        return 2;
+      }
+      try
+      {
+        const long long value = std::stoll(argv[++i]);
+        if (value < 0)
+        {
+          throw std::out_of_range("non-negative integer");
+        }
+        options.minimum_free_gb = static_cast<std::size_t>(value);
+      }
+      catch (const std::exception&)
+      {
+        std::cerr << "ERROR - --minimum-free-gb requires a non-negative integer\n";
+        return 2;
+      }
     }
     else if (arg == "--storage-id")
     {

@@ -23,9 +23,11 @@ find_package(cv_bridge REQUIRED)
 find_package(fastcdr REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
 
 add_executable(unbag src/main.cpp src/unbagger.cpp src/handlers/csv_handler.cpp
-                     src/handlers/image_handler.cpp)
+                     src/handlers/image_handler.cpp src/handlers/video_handler.cpp)
 
 target_include_directories(
   unbag PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -43,7 +45,7 @@ ament_target_dependencies(
   sensor_msgs
   cv_bridge)
 
-target_link_libraries(unbag fastcdr ${OpenCV_LIBS} Threads::Threads)
+target_link_libraries(unbag fastcdr ${OpenCV_LIBS} Threads::Threads PkgConfig::FFMPEG)
 
 install(TARGETS unbag DESTINATION lib/${PROJECT_NAME})
 

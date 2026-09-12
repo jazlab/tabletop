@@ -22,18 +22,47 @@ variables and **auto-detects** a few:
 
 `compose.yaml` reads these for device mounts, runtimes, and volumes.
 
+For sustained six-camera recording, the FLIR publisher and rosbag recorder
+load `tabletop_rig/config/fastdds_flir.xml`. It retains UDP compatibility for
+the preview processes while increasing the local Fast DDS shared-memory
+segment from 512 KiB to 64 MiB and its descriptor queue from 512 to 8192.
+Both the current and legacy Fast DDS profile environment-variable names are
+set because Jazzy's packaged 2.14 library still recognizes the legacy name.
+The profile is scoped to the high-bandwidth FLIR driver and recorder processes;
+the six low-bandwidth static-transform publishers retain their default profile
+so they do not each reserve an unnecessary 64 MiB segment.
+
 ### Required variables (set in `.env.example`)
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `NOVNC_DISPLAY` | X11 display number for the noVNC server | `:20.0` |
 | `NOVNC_WIDTH` / `NOVNC_HEIGHT` | X11 display width / height (pixels) | `1920` / `1080` |
-| `NOVNC_PORT` | Localhost port serving the noVNC interface | `8080` |
+| `NOVNC_PORT` | Host port serving the authenticated HTTPS/WSS noVNC interface | `8080` |
 | `COMMANDER_RUNTIME` | Container runtime for the `commander` and `dev` services — `nvidia` for GPU access, `runc` for CPU only | `runc` |
 | `CUDA_VERSION` | CUDA version suffix for PyTorch (must match your GPU driver); required only when `COMMANDER_RUNTIME=nvidia` | `130` |
 | `BIND_CONSISTENCY` | Docker bind-mount consistency mode (macOS/Windows only, ignored on Linux) | `cached` |
 | `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
 | `FLIR_MAX_DEVS` | Maximum number of FLIR cameras mapped into containers | `6` |
+
+### Optional camera CPU affinity
+
+The camera publisher, recorder, and preview conversion expose optional
+taskset-compatible CPU lists in `.env`:
+
+```bash
+TABLETOP_FLIR_CPU_SET=0-11
+TABLETOP_RECORDER_CPU_SET=12-15,24-31
+TABLETOP_PREVIEW_CPU_SET=16-23
+```
+
+These example values match the P-core/E-core layout of the reference
+32-logical-CPU rig, but they are intentionally **not enabled by default**. A/B
+testing on that host increased FLIR loss when affinity was enabled because the
+camera driver already consumes roughly five CPU cores and benefited from the
+Linux scheduler's full CPU set. Leave the values blank unless measurements on
+the target host demonstrate an improvement. The settings do not change the UR
+controller's CPU affinity or scheduling policy.
 
 `tt-env-gen` validates that these are present (it does **not** auto-detect
 serial device paths or the container runtime — set `TEENSY_DEV` and

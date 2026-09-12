@@ -19,6 +19,10 @@ Usage: $0 [SUBCOMMAND] [OPTIONS...]
 Wrapper for 'docker compose' that auto-generates .env before each invocation
 and enriches the 'ps' subcommand output with a custom column format.
 
+Real task runs restart OptiTrack and require a live marker message before the
+commander container is created. Recorded real tasks also require the bag
+storage device to be free of competing read traffic.
+
 All subcommands and options are forwarded to docker compose.
 
 Common subcommands:
@@ -41,11 +45,67 @@ EOF
     exit 0
 fi
 
+is_real_task_run=false
+saw_compose_run=false
+saw_commander=false
+saw_task_launch=false
+saw_real_robot=false
+saw_rosbag=false
+original_args=("$@")
+for ((i = 0; i < ${#original_args[@]}; i++)); do
+    arg=${original_args[$i]}
+    case "$arg" in
+        run)
+            saw_compose_run=true
+            ;;
+        commander)
+            saw_commander=true
+            ;;
+        robot_mode:=real)
+            saw_real_robot=true
+            ;;
+        rosbag:=true)
+            saw_rosbag=true
+            ;;
+    esac
+    if [[ "$arg" == "tt-launch" && "${original_args[$((i + 1))]-}" == "tasks" ]]; then
+        saw_task_launch=true
+    fi
+done
+if $saw_compose_run && $saw_commander && $saw_task_launch && $saw_real_robot; then
+    is_real_task_run=true
+fi
+
 builtin cd "$TABLETOP_DIR"
 
 tt-env-gen 1>/dev/null
 
 export COMPOSE_REMOVE_ORPHANS=true
+
+if $is_real_task_run; then
+    print_status "Restarting OptiTrack before real task startup"
+    docker compose restart optitrack
+    print_status "Waiting for a live OptiTrack marker stream"
+    if ! timeout 25s docker exec tabletop-optitrack bash -lc \
+        'source /tabletop/setup.bash >/dev/null 2>&1 && ros2 topic echo /markers mocap4r2_msgs/msg/Markers --qos-reliability best_effort --once --no-daemon >/dev/null'; then
+        print_error "OptiTrack preflight failed: no /markers message arrived within 25 seconds. Task was not started."
+        exit 1
+    fi
+    print_status "OptiTrack preflight passed"
+
+    if $saw_rosbag; then
+        ros_bag_dir_host=$(dotenv --file .env get ROS_BAG_DIR_HOST || true)
+        if [[ -z "$ros_bag_dir_host" ]]; then
+            print_error "Storage preflight failed: ROS_BAG_DIR_HOST is not configured."
+            exit 1
+        fi
+        print_status "Checking recorded-session storage for competing reads"
+        if ! "$bin_dir/tt-storage-idle" "$ros_bag_dir_host"; then
+            print_error "Recorded task was not started."
+            exit 1
+        fi
+    fi
+fi
 
 # Customize output format for 'ps' subcommand (name, image, command, service, status)
 ps_format="table {{.Name}}\

@@ -209,6 +209,25 @@
         # Extra outward/upward clearance while an object is attached before
         # retrying the common FETCHED goal.
         fetched_clearance_offset: [0.22, 0.0, -0.18]
+      # The first move toward a mount after Commander starts gets a gentler
+      # acceleration ramp. This targets launch-time UR joint-torque stops only;
+      # after the first PRE_FETCH succeeds, all normal task motions use their
+      # existing full-speed scaling. Velocity remains uncapped so the change is
+      # limited to the acceleration/deceleration ramps.
+      startup_pre_fetch_scaling:
+        velocity_scaling_factor: 1.0
+        acceleration_scaling_factor: 0.3
+      # Object-specific handling for a mount departure that repeatedly reached
+      # the UR joint-torque safety window. This affects only the move from
+      # POST_FETCH to FETCHED for the listed object; every other object and
+      # manipulation stage retains the normal 1.0 scaling factors.
+      fetch_departure_overrides:
+        small_object_14:
+          # First continue outward/downward from POST_FETCH along a short
+          # Cartesian segment before planning to the common FETCHED pose.
+          clearance_offset: [0.22, 0.0, -0.18]
+          velocity_scaling_factor: 0.8
+          acceleration_scaling_factor: 0.6
       trajectory_cache:
         # Root directory for cached trajectories; $TABLETOP_CACHE_DIR is set in setup.bash.
         base_dir: $TABLETOP_CACHE_DIR/trajectory_cache
@@ -237,6 +256,14 @@
         allowed_duration_scaling: 1.5
         # Additional seconds added to the scaled duration window (seconds).
         allowed_duration_margin: 0.5
+        # If the controller has already reported SUCCEEDED when the execution
+        # window expires, allow its ROS action result response a short delivery
+        # grace period. This does not extend motion or mask an active/stuck goal.
+        result_delivery_grace: 2.0
+        # A missing result response may be accepted after the grace period only
+        # when the controller reports SUCCEEDED and every arm joint is this close
+        # to stationary at the expected endpoint.
+        result_recovery_velocity_tolerance: 0.01 # radians/second
         # Maximum joint-position error (radians) between current state and trajectory
         # start state before execution is blocked.
         allowed_start_tolerance: 0.02 # radians
@@ -457,6 +484,31 @@
       planning:
         # Default link used to evaluate end-effector poses for this arm.
         default_pose_link: right_eef
+      # Keep full velocity and reduce only this repeatable right-arm mount
+      # transit to an effective 12 rad/s^2 (14 * 0.857142857).
+      pre_fetch_from_idle_overrides:
+        small_object_26:
+          velocity_scaling_factor: 1.0
+          acceleration_scaling_factor: 0.857142857
+      # The physical big_object_6 FETCHED -> PRESENTED path drove the right
+      # base joint to its 3.14 rad/s ceiling and produced UR C153A0 path
+      # deviation stops. Limit only this object/transition to approximately
+      # 2.35 rad/s; keep the global 14 rad/s^2 acceleration ceiling unchanged.
+      # Cached geometry is safe to reuse: every retrieved path is retimed with
+      # this request scaling before validation and execution. This applies
+      # consistently in every task using this motion.
+      present_overrides:
+        big_object_6:
+          velocity_scaling_factor: 0.75
+          acceleration_scaling_factor: 1.0
+      # The reverse PRESENTED -> NEEDS_RESET path for the same object also
+      # drove the right base joint to its 3.14 rad/s ceiling, producing repeat
+      # C153A0/C157A0 protective stops. Apply the same proven narrow velocity
+      # cap only to this object and exit transition.
+      unpresent_overrides:
+        big_object_6:
+          velocity_scaling_factor: 0.75
+          acceleration_scaling_factor: 1.0
       execution:
         # ROS 2 controller action name used to send trajectories to the right arm.
         joint_trajectory_controller: right_scaled_joint_trajectory_controller

@@ -124,6 +124,12 @@ if [[ $clean || ! -s .env ]]; then
     cp .env.example .env
 fi
 
+# Generate persistent, git-ignored noVNC credentials and a local TLS
+# certificate before Compose evaluates the noVNC bind mount. Existing secrets
+# are preserved; authorization material is refreshed when the display, host
+# names, or LAN addresses change.
+"$bin_dir/tt-novnc-security" init --quiet
+
 # Verify that all required variables are set and non-empty
 dotenv_get_required NOVNC_DISPLAY
 dotenv_get_required NOVNC_WIDTH

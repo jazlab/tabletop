@@ -14,6 +14,7 @@
 //   Service   : teensy/set_smartglass    -- tabletop_interfaces/srv/SetSmartglass
 //   Service   : teensy/set_reward        -- tabletop_interfaces/srv/SetReward
 //   Service   : teensy/set_solenoid      -- tabletop_interfaces/srv/SetSolenoid
+//   Service   : teensy/set_sync_pulses   -- tabletop_interfaces/srv/SetSyncPulses
 //
 // Main-loop cadence:
 //   loop() drives an rclc_executor handling timers and service callbacks.
@@ -42,6 +43,7 @@
 #include <tabletop_interfaces/srv/set_reward.h>
 #include <tabletop_interfaces/srv/set_smartglass.h>
 #include <tabletop_interfaces/srv/set_solenoid.h>
+#include <tabletop_interfaces/srv/set_sync_pulses.h>
 #include <atomic.h>
 
 #include "core_pins.h"
@@ -75,7 +77,7 @@
 // REWARD_CONTROL_PIN: opens the juice reward solenoid (HIGH = dispensing)
 #define REWARD_CONTROL_PIN 26
 // SYNC_PULSE_CONTROL_PIN: sync pulse to recording equipment (HIGH during pulse)
-#define SYNC_PULSE_CONTROL_PIN 0
+#define SYNC_PULSE_CONTROL_PIN 31
 // SOLENOID_CONTROL_PIN: auxiliary solenoid; mirrors sync pulse when is_solenoid_active
 #define SOLENOID_CONTROL_PIN 12
 // CAMERA_TRIGGER_CONTROL_PIN: 50% duty square wave at CAMERA_TRIGGER_FPS to FLIR cameras
@@ -171,12 +173,14 @@ static const micro_ros_utilities_memory_conf_t memory_conf = { 100, 5, 5, NULL, 
 #define SET_REWARD_SRV_NAME "~/set_reward"
 // SET_SOLENOID_SRV_NAME: arm/disarm auxiliary solenoid (follows sync pulse when armed)
 #define SET_SOLENOID_SRV_NAME "~/set_solenoid"
+// SET_SYNC_PULSES_SRV_NAME: enable/disable the experiment reference TTL generator
+#define SET_SYNC_PULSES_SRV_NAME "~/set_sync_pulses"
 
 // Keep the statically allocated micro-ROS entity pools and executor capacity in
-// lockstep with the entities initialized below. Two spare service slots are
+// lockstep with the entities initialized below. One spare service slot is
 // configured in colcon.meta, but every firmware service must fit at build time.
-#define ROS_SERVICE_COUNT 6
-#define ROS_TIMER_COUNT 7
+#define ROS_SERVICE_COUNT 7
+#define ROS_TIMER_COUNT 8
 #define EXECUTOR_HANDLE_COUNT (ROS_SERVICE_COUNT + ROS_TIMER_COUNT)
 static_assert(RMW_UXRCE_MAX_SERVICES >= ROS_SERVICE_COUNT,
               "Increase RMW_UXRCE_MAX_SERVICES in colcon.meta when adding a firmware service");
@@ -271,6 +275,7 @@ rcl_service_t set_buzzer_service;
 rcl_service_t set_smartglass_service;
 rcl_service_t set_reward_service;
 rcl_service_t set_solenoid_service;
+rcl_service_t set_sync_pulses_service;
 
 // Hardware (PIT) timer for the camera exposure trigger. This is
 // intentionally not an rcl timer: it must stay immune to micro-ROS
@@ -284,6 +289,8 @@ rcl_timer_t sync_pulse_base_timer;
 rcl_timer_t sync_pulse_start_timer;
 // sync_pulse_end_timer: one-shot; lowers pulse after SYNC_PULSE_DURATION_MS
 rcl_timer_t sync_pulse_end_timer;
+// sync_pulses_duration_timer: one-shot; ends a bounded dashboard test
+rcl_timer_t sync_pulses_duration_timer;
 // sensor_timer: repeating 10 ms; drives the 100 Hz TeensySensor publish loop
 rcl_timer_t sensor_timer;
 // reward_timer: one-shot; closes the reward solenoid after the requested duration
@@ -322,6 +329,8 @@ tabletop_interfaces__srv__SetReward_Response set_reward_response;
 tabletop_interfaces__srv__SetSolenoid_Request set_solenoid_request;
 tabletop_interfaces__srv__SetSolenoid_Response set_solenoid_response;
 
+tabletop_interfaces__srv__SetSyncPulses_Request set_sync_pulses_request;
+tabletop_interfaces__srv__SetSyncPulses_Response set_sync_pulses_response;
 // State tracking
 // agent_liveness_retries: counts consecutive failed connected-session pings.
 uint8_t agent_liveness_retries;
@@ -356,6 +365,8 @@ bool is_solenoid_active;
 bool sync_pulse_state;
 // sync_pulse_last_time_on/off: ROS timestamps of the most recent rising/falling edges
 builtin_interfaces__msg__Time sync_pulse_last_time_on;
+// sync_pulses_enabled: generator gate; false at boot and outside task execution
+bool sync_pulses_enabled;
 builtin_interfaces__msg__Time sync_pulse_last_time_off;
 
 // --- ISR/timer-shared sensor debounce state ---
@@ -928,6 +939,11 @@ void sync_pulse_start_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   RCLC_UNUSED(last_call_time);
   if (timer != NULL)
   {
+    if (!sync_pulses_enabled)
+    {
+      RCASSERT(rcl_timer_cancel(timer), "Failed to cancel disabled sync pulse start timer");
+      return;
+    }
     set_sync_pulse(true);
     GET_CURRENT_ROS_TIME(sync_pulse_last_time_on);
 
@@ -947,6 +963,11 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
   RCLC_UNUSED(last_call_time);
   if (timer != NULL)
   {
+    if (!sync_pulses_enabled)
+    {
+      RCASSERT(rcl_timer_cancel(timer), "Failed to cancel disabled sync pulse base timer");
+      return;
+    }
     ASSERT(!sync_pulse_state, "Sync pulse is should be off when the base timer is called");
 
     int64_t delay_ms = random(SYNC_PULSE_DELAY_MAX_MS - SYNC_PULSE_DELAY_MIN_MS) + SYNC_PULSE_DELAY_MIN_MS;
@@ -958,6 +979,30 @@ void sync_pulse_base_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
     DEBUG("Sync pulse start scheduled for %lld ms from now", delay_ms);
   }
 }
+static void stop_sync_pulses()
+{
+  sync_pulses_enabled = false;
+  RCBESTEFFORT(rcl_timer_cancel(&sync_pulse_base_timer));
+  RCBESTEFFORT(rcl_timer_cancel(&sync_pulse_start_timer));
+  RCBESTEFFORT(rcl_timer_cancel(&sync_pulse_end_timer));
+  RCBESTEFFORT(rcl_timer_cancel(&sync_pulses_duration_timer));
+  if (sync_pulse_state)
+  {
+    GET_CURRENT_ROS_TIME(sync_pulse_last_time_off);
+  }
+  set_sync_pulse(false);
+}
+
+void sync_pulses_duration_timer_callback(rcl_timer_t* timer, int64_t last_call_time)
+{
+  RCLC_UNUSED(last_call_time);
+  if (timer != NULL)
+  {
+    stop_sync_pulses();
+    LOG("Sync pulses stopped after bounded duration");
+  }
+}
+
 
 // =============================================================================
 // Service callbacks
@@ -1248,6 +1293,52 @@ void set_solenoid_callback(const void* req, void* res)
   LOG("%s", response->message.data);
 }
 
+// set_sync_pulses_callback: controls the experiment reference TTL generator.
+// A zero duration enables until an explicit disable. A positive duration is
+// enforced by a Teensy timer, so the dashboard cannot leave the output running.
+void set_sync_pulses_callback(const void* req, void* res)
+{
+  const tabletop_interfaces__srv__SetSyncPulses_Request* request =
+      static_cast<const tabletop_interfaces__srv__SetSyncPulses_Request*>(req);
+  tabletop_interfaces__srv__SetSyncPulses_Response* response =
+      static_cast<tabletop_interfaces__srv__SetSyncPulses_Response*>(res);
+
+  int64_t duration_ns = ROS_TIME_TO_NS(request->duration);
+  if (duration_ns < 0 || (!request->enable && duration_ns != 0))
+  {
+    response->success = false;
+    STRING_SET(&response->message, "Invalid sync pulse duration");
+    LOG("%s", response->message.data);
+    return;
+  }
+
+  stop_sync_pulses();
+  if (request->enable)
+  {
+    sync_pulses_enabled = true;
+    RCASSERT(rcl_timer_reset(&sync_pulse_base_timer), "Failed to start sync pulse base timer");
+    if (duration_ns > 0)
+    {
+      int64_t old_period_ns;
+      RCASSERT(rcl_timer_exchange_period(&sync_pulses_duration_timer, duration_ns, &old_period_ns),
+               "Failed to exchange sync pulse duration timer period");
+      RCASSERT(rcl_timer_reset(&sync_pulses_duration_timer), "Failed to reset sync pulse duration timer");
+      STRING_SET(&response->message, "Sync pulses enabled for %.3f s", duration_ns / 1e9);
+    }
+    else
+    {
+      STRING_SET(&response->message, "Sync pulses enabled");
+    }
+  }
+  else
+  {
+    STRING_SET(&response->message, "Sync pulses disabled");
+  }
+
+  response->success = true;
+  LOG("%s", response->message.data);
+}
+
 // =============================================================================
 // Session lifecycle helpers
 // =============================================================================
@@ -1265,6 +1356,7 @@ void reset_state()
   set_sync_pulse(false);
   set_solenoid(false);
 
+  sync_pulses_enabled = false;
   agent_liveness_retries = 0;
   sync_pulse_last_time_on.sec = 0;
   sync_pulse_last_time_on.nanosec = 0;
@@ -1374,15 +1466,20 @@ bool init_client()
   RCCHECK(rclc_service_init_default(&set_solenoid_service, &node,
                                     ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetSolenoid),
                                     SET_SOLENOID_SRV_NAME));
+  RCCHECK(rclc_service_init_default(&set_sync_pulses_service, &node,
+                                    ROSIDL_GET_SRV_TYPE_SUPPORT(tabletop_interfaces, srv, SetSyncPulses),
+                                    SET_SYNC_PULSES_SRV_NAME));
   LOG("Services initialized");
 
   // Timers
   RCCHECK(rclc_timer_init_default2(&sync_pulse_base_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_BASE_PERIOD_MS),
-                                   sync_pulse_base_timer_callback, true));
+                                   sync_pulse_base_timer_callback, false));
   RCCHECK(rclc_timer_init_default2(&sync_pulse_start_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_DELAY_MIN_MS),
                                    sync_pulse_start_timer_callback, false));
   RCCHECK(rclc_timer_init_default2(&sync_pulse_end_timer, &support, RCL_MS_TO_NS(SYNC_PULSE_DURATION_MS),
                                    sync_pulse_end_timer_callback, false));
+  RCCHECK(rclc_timer_init_default2(&sync_pulses_duration_timer, &support, RCL_MS_TO_NS(10000),
+                                   sync_pulses_duration_timer_callback, false));
   RCCHECK(
       rclc_timer_init_default2(&sensor_timer, &support, RCL_MS_TO_NS(SENSOR_PERIOD_MS), sensor_timer_callback, true));
   RCCHECK(rclc_timer_init_default2(&reward_timer, &support, RCL_MS_TO_NS(1000), reward_timer_callback, false));
@@ -1398,6 +1495,7 @@ bool init_client()
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_base_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_start_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &sync_pulse_end_timer));
+  RCCHECK(rclc_executor_add_timer(&executor, &sync_pulses_duration_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &reward_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &smartglass_timer));
   RCCHECK(rclc_executor_add_timer(&executor, &arm_buzzer_timer));
@@ -1412,6 +1510,8 @@ bool init_client()
                                     set_reward_callback));
   RCCHECK(rclc_executor_add_service(&executor, &set_solenoid_service, &set_solenoid_request, &set_solenoid_response,
                                     set_solenoid_callback));
+  RCCHECK(rclc_executor_add_service(&executor, &set_sync_pulses_service, &set_sync_pulses_request,
+                                    &set_sync_pulses_response, set_sync_pulses_callback));
   LOG("Executor initialized");
 
   RCCHECK(rmw_uros_sync_session(1000));
@@ -1466,6 +1566,7 @@ void deinit_client()
   RCBESTEFFORT(rcl_publisher_fini(&log_publisher, &node));
   RCBESTEFFORT(rcl_timer_fini(&sync_pulse_base_timer));
   RCBESTEFFORT(rcl_timer_fini(&sync_pulse_start_timer));
+  RCBESTEFFORT(rcl_timer_fini(&sync_pulses_duration_timer));
   RCBESTEFFORT(rcl_timer_fini(&sync_pulse_end_timer));
   RCBESTEFFORT(rcl_timer_fini(&sensor_timer));
   RCBESTEFFORT(rcl_timer_fini(&reward_timer));
@@ -1476,6 +1577,7 @@ void deinit_client()
   RCBESTEFFORT(rcl_service_fini(&set_buzzer_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_smartglass_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_reward_service, &node));
+  RCBESTEFFORT(rcl_service_fini(&set_sync_pulses_service, &node));
   RCBESTEFFORT(rcl_service_fini(&set_solenoid_service, &node));
   RCBESTEFFORT(rclc_executor_fini(&executor));
   RCBESTEFFORT(rcl_node_fini(&node));
@@ -1547,6 +1649,8 @@ void setup()
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetReward_Response), &set_reward_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(
       ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv, SetSolenoid_Response), &set_solenoid_response, memory_conf);
+  success &= micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(tabletop_interfaces, srv,
+      SetSyncPulses_Response), &set_sync_pulses_response, memory_conf);
   success &= micro_ros_utilities_create_message_memory(ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String), &log_msg,
                                                        memory_conf);
 

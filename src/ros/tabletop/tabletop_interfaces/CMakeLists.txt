@@ -17,11 +17,11 @@ find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 set(msg_files "msg/EyelinkArray.msg" "msg/EyelinkBatch.msg" "msg/Eyelink.msg"
-              "msg/TeensySensor.msg")
+              "msg/TaskEvent.msg" "msg/TeensySensor.msg")
 
 set(srv_files "srv/Ping.srv" "srv/SetArmLock.srv" "srv/SetBuzzer.srv"
               "srv/SetReward.srv" "srv/SetSmartglass.srv"
-              "srv/SetSolenoid.srv")
+              "srv/SetSolenoid.srv" "srv/SetSyncPulses.srv")
 
 set(action_files "action/EyelinkSmoothPursuit.action"
                  "action/FlicResponseTime.action")

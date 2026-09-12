@@ -30,8 +30,10 @@ import json
 import os
 import threading
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import wraps
 from glob import glob
 from typing import (
     Any,
@@ -140,6 +142,17 @@ class ExclusiveRegion:
     modified_collisions: list[tuple[str, str]] | None
 
 
+def _planning_scene_write_locked(method):
+    """Serialize a synchronous planning-scene writer with native planning."""
+
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.planning_scene_write():
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
 class MoveItInterface(BaseInterface):
     """Top-level interface for MoveIt planning scene management.
 
@@ -199,10 +212,12 @@ class MoveItInterface(BaseInterface):
 
         self._exclusive_regions = {}
 
-        # MoveItPy planning and path validation share native state. Serialize
-        # those operations across both arm interfaces while allowing planned
-        # controller executions to remain concurrent.
-        self.planning_lock = threading.Lock()
+        # MoveItPy planning, path validation, and planning-scene mutation all
+        # share native state. Serialize them across both arm interfaces while
+        # allowing planned controller executions to remain concurrent. This
+        # is re-entrant so multi-step scene updates can be made atomically via
+        # planning_scene_write().
+        self.planning_lock = threading.RLock()
 
         # self._init_collision_detector()
 
@@ -303,6 +318,7 @@ class MoveItInterface(BaseInterface):
         with open(scene_hash_path, "w") as f:
             f.write(self.scene_config_hash())
 
+    @_planning_scene_write_locked
     def _init_link_padding(self):
         """Set the link padding for the planning scene."""
         config: dict[str, Any] = self.param("link_padding")
@@ -317,6 +333,7 @@ class MoveItInterface(BaseInterface):
             if not scene.set_planning_scene_diff_msg(msg):
                 raise RuntimeError("Failed to set link padding")
 
+    @_planning_scene_write_locked
     def _init_collision_detector(self):
         """Initialize the collision detector."""
         with self.psm.read_write() as scene:
@@ -330,6 +347,21 @@ class MoveItInterface(BaseInterface):
     def psm(self) -> PlanningSceneMonitor:
         """Get the planning scene monitor."""
         return self.moveit_py.get_planning_scene_monitor()
+
+    @contextmanager
+    def planning_scene_write(self):
+        """Serialize a planning-scene mutation against native planning.
+
+        MoveItPy's PlanningSceneMonitor protects individual scene accesses,
+        but planners and validators can retain native scene state after that
+        access returns. The shared planning lock therefore also surrounds
+        every scene write. Callers may wrap several write helpers in this
+        context to make a compound update atomic; the lock is re-entrant.
+
+        The lock is never held while a controller executes a trajectory.
+        """
+        with self.planning_lock:
+            yield
 
     # @contextlib.contextmanager
     # def planning_scene_rw(
@@ -907,6 +939,7 @@ class MoveItInterface(BaseInterface):
             if not scene.save_geometry_to_file(path):
                 raise RuntimeError("Could not save planning scene to file")
 
+    @_planning_scene_write_locked
     def load_planning_scene(self, path: str):
         """Load planning scene geometry from a file.
 
@@ -1152,6 +1185,7 @@ class MoveItInterface(BaseInterface):
                 entry_found, allowed_collision_type
             )
 
+    @_planning_scene_write_locked
     def _modify_collision_matrix(
         self,
         id_0: str | Iterable[str],
@@ -1276,6 +1310,7 @@ class MoveItInterface(BaseInterface):
         )
         return self._modify_collision_matrix(id_0, id_1, allow=False)
 
+    @_planning_scene_write_locked
     def process_add_collision_object(
         self,
         collision_object: CollisionObject,
@@ -1614,6 +1649,7 @@ class MoveItInterface(BaseInterface):
             self.grid_objects_by_id[object_id] = grid_object
             self.grid_objects_by_idx[(x, y)] = grid_object
 
+    @_planning_scene_write_locked
     def attach_collision_object(
         self,
         object_id: str,
@@ -1642,6 +1678,7 @@ class MoveItInterface(BaseInterface):
         )
         self.psm.process_attached_collision_object(attached_collision_object)
 
+    @_planning_scene_write_locked
     def detach_collision_object(self, object_id: str, link_name: str = ""):
         """Detach a collision object from a robot link.
 
@@ -1661,6 +1698,7 @@ class MoveItInterface(BaseInterface):
         )
         self.psm.process_attached_collision_object(attached_collision_object)
 
+    @_planning_scene_write_locked
     def detach_all_collision_objects(self):
         """Detach all attached collision objects from the robot.
 
@@ -1671,6 +1709,7 @@ class MoveItInterface(BaseInterface):
             self.detach_collision_object(object_id)
         assert len(self.attached_collision_object_ids) == 0
 
+    @_planning_scene_write_locked
     def remove_collision_object(self, object_id: str):
         """Remove a collision object from the planning scene.
 
@@ -1683,6 +1722,7 @@ class MoveItInterface(BaseInterface):
         )
         self.psm.process_collision_object(collision_object)
 
+    @_planning_scene_write_locked
     def remove_all_collision_objects(self):
         """Remove all collision objects from the planning scene.
 
@@ -1702,6 +1742,7 @@ class MoveItInterface(BaseInterface):
 
         assert len(self.collision_object_ids) == 0
 
+    @_planning_scene_write_locked
     def move_collision_object(self, object_id: str, pose_stamped: PoseStamped):
         """Move a collision object to a new pose.
 

@@ -25,6 +25,7 @@ Services provided:
     teensy/set_smartglass: Control smartglass visibility
     teensy/set_reward: Control reward solenoid
     teensy/set_solenoid: Control solenoid activation
+    teensy/set_sync_pulses: Enable sync pulses persistently or for a bounded duration
 
 Example:
     ros2 run tabletop_rig mock_teensy
@@ -54,6 +55,7 @@ from tabletop_interfaces.srv import (
     SetReward,
     SetSmartglass,
     SetSolenoid,
+    SetSyncPulses,
 )
 
 from tabletop_rig.executors import AIOExecutor
@@ -86,7 +88,7 @@ LEFT_ARM_BUZZER_CONTROL_PIN = 41
 RIGHT_ARM_BUZZER_CONTROL_PIN = 40
 SMARTGLASS_CONTROL_PIN = 3
 REWARD_CONTROL_PIN = 4
-SYNC_PULSE_CONTROL_PIN = 9
+SYNC_PULSE_CONTROL_PIN = 31
 SOLENOID_CONTROL_PIN = 12
 LEFT_ARM_LOCKED_STATE_PIN = 34
 RIGHT_ARM_LOCKED_STATE_PIN = 35
@@ -355,6 +357,7 @@ class MockTeensy(BaseNode):
 
         # State variables
         self.sync_pulse_control_pin_state = LOW
+        self.sync_pulses_enabled = False
         self.sync_pulse_last_time_on = self.get_clock().now()
         self.sync_pulse_last_time_off = self.get_clock().now()
         self.reward_active = False
@@ -422,6 +425,12 @@ class MockTeensy(BaseNode):
             self.set_solenoid_callback,  # pyright: ignore[reportArgumentType]
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
+        self.set_sync_pulses_service = self.create_service(
+            SetSyncPulses,
+            "~/set_sync_pulses",
+            self.set_sync_pulses_callback,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
 
         # Timers
         self.sensor_timer = self.create_timer(
@@ -438,10 +447,15 @@ class MockTeensy(BaseNode):
         self.sync_pulse_base_timer = self.create_timer(
             SYNC_PULSE_BASE_PERIOD_MS / 1000.0,
             self.sync_pulse_base_timer_callback,
+            autostart=False,
+        )
+        self.sync_pulses_duration_timer = self.create_timer(
+            10.0, self.sync_pulses_duration_timer_callback, autostart=False
         )
         self.reward_timer = self.create_timer(
             0.0, self.reward_timer_callback, autostart=False
         )
+
         self.smartglass_timer = self.create_timer(
             0.0, self.smartglass_timer_callback, autostart=False
         )
@@ -486,7 +500,9 @@ class MockTeensy(BaseNode):
 
         Brings the sync pulse pin LOW and logs the pulse duration.
         """
-        assert self.sync_pulse_control_pin_state
+        if not self.sync_pulse_control_pin_state:
+            self.sync_pulse_end_timer.cancel()
+            return
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
         self.sync_pulse_last_time_off = self.get_clock().now()
@@ -506,6 +522,9 @@ class MockTeensy(BaseNode):
 
         Brings the sync pulse pin HIGH and starts the end timer.
         """
+        if not self.sync_pulses_enabled:
+            self.sync_pulse_start_timer.cancel()
+            return
         assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, HIGH)
         self.sync_pulse_control_pin_state = HIGH
@@ -526,6 +545,9 @@ class MockTeensy(BaseNode):
         Schedules the next sync pulse with a random delay to simulate
         timing jitter in the actual hardware.
         """
+        if not self.sync_pulses_enabled:
+            self.sync_pulse_base_timer.cancel()
+            return
         assert not self.sync_pulse_control_pin_state
         digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
         self.sync_pulse_control_pin_state = LOW
@@ -539,6 +561,55 @@ class MockTeensy(BaseNode):
             f"Sync pulse start timer scheduled for {delay_ms:.1f} ms",
             severity="DEBUG",
         )
+
+    def _stop_sync_pulses(self) -> None:
+        """Stop the generator, cancel pending edges, and drive the pin LOW."""
+        self.sync_pulses_enabled = False
+        self.sync_pulse_base_timer.cancel()
+        self.sync_pulse_start_timer.cancel()
+        self.sync_pulse_end_timer.cancel()
+        if self.sync_pulse_control_pin_state:
+            self.sync_pulse_last_time_off = self.get_clock().now()
+        self.sync_pulse_control_pin_state = LOW
+        digital_write(SYNC_PULSE_CONTROL_PIN, LOW)
+
+    def sync_pulses_duration_timer_callback(self) -> None:
+        """Stop a firmware-bounded sync-pulse test at its deadline."""
+        self._stop_sync_pulses()
+        self.sync_pulses_duration_timer.cancel()
+        self.log("Sync pulses stopped after bounded duration")
+
+    def set_sync_pulses_callback(
+        self,
+        request: SetSyncPulses.Request,
+        response: SetSyncPulses.Response,
+    ) -> SetSyncPulses.Response:
+        """Enable sync pulses persistently or for a controller-bounded time."""
+        duration_ns = Duration.from_msg(request.duration).nanoseconds
+        if duration_ns < 0 or (not request.enable and duration_ns != 0):
+            response.success = False
+            response.message = "Invalid sync pulse duration"
+            return response
+
+        self._stop_sync_pulses()
+        self.sync_pulses_duration_timer.cancel()
+        if request.enable:
+            self.sync_pulses_enabled = True
+            self.sync_pulse_base_timer.reset()
+            if duration_ns > 0:
+                self.sync_pulses_duration_timer.timer_period_ns = duration_ns
+                self.sync_pulses_duration_timer.reset()
+            response.message = (
+                f"Sync pulses enabled for {duration_ns / 1e9:.3f} s"
+                if duration_ns > 0
+                else "Sync pulses enabled"
+            )
+        else:
+            response.message = "Sync pulses disabled"
+
+        response.success = True
+        self.log(response.message)
+        return response
 
     def ping_callback(
         self, request: Ping.Request, response: Ping.Response

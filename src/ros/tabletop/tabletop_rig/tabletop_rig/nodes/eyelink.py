@@ -19,7 +19,7 @@ Actions provided:
 Topics published:
     ~/sample: Individual Eyelink sample messages (if not batched).
     ~/sample_array: Batched array of Eyelink samples (if batched mode).
-    ~/ttl_input: Passive EyeLink input-port status while retrieval is already active.
+    ~/ttl_input: Passive EyeLink input-port status during idle and retrieval.
     /predicted_markers: Gaze estimation predictions (if model enabled).
 
 Parameters:
@@ -38,12 +38,13 @@ Example:
 """
 
 import argparse
+import json
 import os
 import threading
 import time
 from collections import deque
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
@@ -63,7 +64,10 @@ from rclpy.action.server import (
     GoalResponse,
     ServerGoalHandle,
 )
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import (
+    MutuallyExclusiveCallbackGroup,
+    ReentrantCallbackGroup,
+)
 from rclpy.event_handler import (
     PublisherEventCallbacks,
     QoSPublisherMatchedInfo,
@@ -72,6 +76,7 @@ from rclpy.exceptions import InvalidHandle, ParameterNotDeclaredException
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
 from std_msgs.msg import UInt16
+from std_srvs.srv import Trigger
 from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
 from tabletop_interfaces.msg import EyelinkBatch as EyelinkBatchMsg
@@ -296,6 +301,10 @@ class Eyelink(BaseNode):
         "publish_batch_size": 50,
         "publish_batch_max_latency": 0.01,  # seconds
         "ttl_status_rate": 10.0,  # Hz; change-driven edges publish immediately
+        "ttl_idle_poll_rate": 100.0,  # Hz; disabled during sample retrieval
+        "ttl_idle_button": 1,  # EyeLink Host button mapped to status pin 12
+        "ttl_idle_value": 127,  # Parallel-port status byte while idle
+        "ttl_asserted_value": 95,  # Status bit 5 active-low
         "link_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_sample_data": "LEFT,RIGHT,RAW,AREA,INPUT,STATUS",
         "file_event_filter": "null",
@@ -355,6 +364,14 @@ class Eyelink(BaseNode):
             )
             self.tracker.stopRecording()
             self._close_data_file(save=False)
+            # Initialize current button-state updates without enabling pylink's
+            # eight-event key/button queue. The idle TTL monitor reads the
+            # state bit directly and therefore must not fill that queue.
+            self.tracker.flushKeybuttons(0)
+            self.log(
+                "Initialized EyeLink idle TTL state monitoring without "
+                "button-event queuing"
+            )
         else:
             self.log("Simulating eyelink data...")
 
@@ -387,11 +404,16 @@ class Eyelink(BaseNode):
         self._subscribers_lock = threading.Lock()
         self._has_subscribers = False
 
+        self._active_session_dir: str | None = None
+        self._last_retrieval_stats: EyelinkRetrievalStats | None = None
+
         # The passive TTL topic never participates in subscriber-driven
-        # retrieval. It is fed only while a task/sample consumer has already
-        # started the normal retrieval loop.
+        # retrieval. During idle it is fed by a low-rate button-state poll;
+        # during retrieval the raw sample input field is authoritative.
         self._last_ttl_input: int | None = None
         self._last_ttl_publish_at = 0.0
+        self._last_ttl_idle_poll_error_at = 0.0
+        self._ttl_idle_poll_started = False
 
     def init_gaze_estimation(self) -> None:
         """Initialize the neural network gaze estimation model.
@@ -473,6 +495,27 @@ class Eyelink(BaseNode):
         self.ttl_input_publisher = self.create_publisher(
             UInt16, "~/ttl_input", 10
         )
+        ttl_idle_poll_rate = float(self.param("ttl_idle_poll_rate"))
+        ttl_idle_button = int(self.param("ttl_idle_button"))
+        if ttl_idle_poll_rate <= 0:
+            raise ValueError("ttl_idle_poll_rate must be positive")
+        if not 1 <= ttl_idle_button <= 8:
+            raise ValueError("ttl_idle_button must be between 1 and 8")
+        self.ttl_idle_timer = self.create_timer(
+            1.0 / ttl_idle_poll_rate,
+            self._poll_idle_ttl_input,
+            callback_group=ReentrantCallbackGroup(),
+        )
+
+        # The recorder calls this before closing its DDS subscriptions. The
+        # response is not returned until buffered samples have been drained and
+        # the tracker-native EDF has been copied into the current session.
+        self.stop_recording_service = self.create_service(
+            Trigger,
+            "~/stop_recording",
+            self.stop_recording_callback,
+            callback_group=ReentrantCallbackGroup(),
+        )
 
         event_callbacks = PublisherEventCallbacks(
             matched=self.sample_publisher_matched_callback
@@ -530,6 +573,33 @@ class Eyelink(BaseNode):
     @property
     def session_bag_dir(self) -> str | None:
         return self.param("session_bag_dir")
+
+    def _validate_session_bag_dir(self) -> str:
+        """Resolve and sanity-check the recorder-created session directory."""
+        session_bag_dir = self.session_bag_dir
+        if not session_bag_dir or not os.path.isdir(session_bag_dir):
+            raise RuntimeError(
+                f"EyeLink session directory is unavailable: {session_bag_dir!r}"
+            )
+
+        resolved = os.path.realpath(session_bag_dir)
+        if self._active_session_dir == resolved:
+            return resolved
+
+        try:
+            link_age = time.time() - os.lstat(session_bag_dir).st_mtime
+        except OSError as exc:
+            raise RuntimeError(
+                f"Cannot inspect EyeLink session directory {session_bag_dir}"
+            ) from exc
+        if link_age > 300:
+            raise RuntimeError(
+                f"EyeLink session link {session_bag_dir} is {link_age:.0f}s old. "
+                "The EyeLink container probably still has a stale bag mount; "
+                "recreate it with `docker compose up -d --force-recreate eyelink`."
+            )
+        self._active_session_dir = resolved
+        return resolved
 
     @property
     def goal_ongoing(self) -> bool:
@@ -670,7 +740,7 @@ class Eyelink(BaseNode):
             self._close_data_file(save=False)
             raise
 
-    def _close_data_file(self, *, save: bool) -> None:
+    def _close_data_file(self, *, save: bool) -> str | None:
         """Close the EDF file and transfer to local machine.
 
         Stops recording, closes the file on the Eyelink PC, transfers
@@ -685,7 +755,7 @@ class Eyelink(BaseNode):
         self.tracker.closeDataFile()
 
         if not save:
-            return
+            return None
 
         if self.session_bag_dir is None or not os.path.exists(
             self.session_bag_dir
@@ -695,7 +765,7 @@ class Eyelink(BaseNode):
                 f"does not exist, skipping data file transfer",
                 severity="WARN",
             )
-            return
+            return None
 
         received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
         edf_path = os.path.join(received_dir, "last.edf")
@@ -705,7 +775,7 @@ class Eyelink(BaseNode):
                 f"{edf_path} already exists, skipping data file transfer",
                 severity="WARN",
             )
-            return
+            return None
 
         os.makedirs(received_dir, exist_ok=True)
         edf_path = os.path.join(received_dir, "last.edf")
@@ -722,6 +792,41 @@ class Eyelink(BaseNode):
             raise DataFileConversionError("Error converting EDF to CSV") from e
 
         self.log(f"Converted EDF to CSV: {csv_file_name}")
+        return edf_path
+
+    def _write_retrieval_report(
+        self, edf_path: str | None, error: str | None = None
+    ) -> None:
+        """Persist source-side counters beside the session bag."""
+        if self._active_session_dir is None:
+            return
+
+        stats = None
+        if self._last_retrieval_stats is not None:
+            stats = asdict(self._last_retrieval_stats)
+            stats.pop("_last_tracker_time_ms", None)
+        report = {
+            "status": "error" if error else "complete",
+            "error": error,
+            "edf_path": edf_path,
+            "edf_saved": bool(edf_path and os.path.isfile(edf_path)),
+            "stats": stats,
+        }
+        report_path = os.path.join(
+            self._active_session_dir, "eyelink_integrity.json"
+        )
+        temporary_path = f"{report_path}.tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as file:
+                json.dump(report, file, indent=2, sort_keys=True)
+                file.write("\n")
+            os.replace(temporary_path, report_path)
+            self.log(f"Wrote EyeLink integrity report: {report_path}")
+        except OSError as exc:
+            self.log(
+                f"Could not write EyeLink integrity report: {exc}",
+                severity="ERROR",
+            )
 
     def _start_sample_retrieval_loop(self) -> None:
         """Start the background sample retrieval task.
@@ -794,6 +899,7 @@ class Eyelink(BaseNode):
 
             # Data file must be opened before starting recording
             if not self.simulate:
+                self._validate_session_bag_dir()
                 self._open_data_file()
             try:
                 if not self.simulate:
@@ -896,15 +1002,33 @@ class Eyelink(BaseNode):
                 )
             else:
                 self.tracker.stopRecording()
+                edf_path = None
+                report_error = None
                 try:
-                    self._close_data_file(save=True)
+                    edf_path = self._close_data_file(save=True)
                 except (DataFileReceiveError, DataFileConversionError) as e:
+                    report_error = f"{type(e).__name__}: {e}"
                     self.log(
-                        f"Error processing datafile: {type(e).__name__}: {e}",
+                        f"Error processing datafile: {report_error}",
                         severity="ERROR",
                     )
+                self._write_retrieval_report(edf_path, report_error)
 
             self._retrieving = False
+
+    def stop_recording_callback(
+        self, _request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
+        """Drain samples and transfer the EDF while rosbag is still active."""
+        try:
+            self.stop_retrieval(force=True)
+            response.success = True
+            response.message = "EyeLink recording stopped and data finalized"
+        except Exception as exc:
+            response.success = False
+            response.message = f"EyeLink finalization failed: {exc}"
+            self.log(response.message, severity="ERROR")
+        return response
 
     ###########################################################################
     # Sample retrieval
@@ -1001,7 +1125,9 @@ class Eyelink(BaseNode):
         msg.right_pupil = np.random.choice(
             [5000, MISSING_DATA], p=[p_normal + p_saccate, p_missing]
         )
-        msg.input = int(np.random.choice([255, 247]))
+        # Match the real rig's active-low sync input on parallel-port status
+        # pin 12 (status bit 5): 127 idle, 95 asserted.
+        msg.input = int(np.random.choice([127, 95]))
 
         return msg
 
@@ -1011,8 +1137,11 @@ class Eyelink(BaseNode):
         This publisher has no matched-event callback, so dashboard subscribers
         cannot start EyeLink recording.
         """
+        self._publish_ttl_value(int(msg.input))
+
+    def _publish_ttl_value(self, value: int) -> None:
+        """Publish one raw-equivalent parallel-port value."""
         now = time.monotonic()
-        value = int(msg.input)
         rate = max(float(self.param("ttl_status_rate")), 0.1)
         if (
             value == self._last_ttl_input
@@ -1022,6 +1151,44 @@ class Eyelink(BaseNode):
         self.ttl_input_publisher.publish(UInt16(data=value))
         self._last_ttl_input = value
         self._last_ttl_publish_at = now
+
+    def _poll_idle_ttl_input(self) -> None:
+        """Publish the mapped EyeLink button state while retrieval is idle.
+
+        ``flushKeybuttons(0)`` in :meth:`init_tracker` enables current-state
+        updates without queuing key/button events. Polling is suspended for the
+        entire recording/retrieval transition and while retrieval is active.
+        """
+        if self.simulate or self._recording_active.is_set():
+            return
+        if not self._ttl_idle_poll_started:
+            rate = float(self.param("ttl_idle_poll_rate"))
+            self.log(f"EyeLink idle TTL polling active at {rate:g} Hz")
+            self._ttl_idle_poll_started = True
+        if not self._retrieval_lock.acquire(blocking=False):
+            return
+        try:
+            if self._retrieving or self._recording_active.is_set():
+                return
+            button_states = int(self.tracker.getButtonStates())
+        except Exception as exc:
+            now = time.monotonic()
+            if now - self._last_ttl_idle_poll_error_at >= 5.0:
+                self.log(
+                    f"Could not poll idle EyeLink TTL state: {exc}",
+                    severity="WARN",
+                )
+                self._last_ttl_idle_poll_error_at = now
+            return
+        finally:
+            self._retrieval_lock.release()
+
+        button = int(self.param("ttl_idle_button"))
+        asserted = bool(button_states & (1 << (button - 1)))
+        value = int(
+            self.param("ttl_asserted_value" if asserted else "ttl_idle_value")
+        )
+        self._publish_ttl_value(value)
 
     def sample_retrieval_loop(self) -> None:
         """Retrieve every buffered tracker sample and publish ordered batches."""
@@ -1225,6 +1392,7 @@ class Eyelink(BaseNode):
             f"timestamp_discontinuities={stats.timestamp_discontinuities}",
             severity=severity,
         )
+        self._last_retrieval_stats = stats
 
     ###########################################################################
     # Smooth pursuit
@@ -1575,6 +1743,10 @@ class Eyelink(BaseNode):
         Stops recording, closes the bag writer, and disconnects
         from the Eyelink tracker before calling parent destroy.
         """
+
+        # Prevent an idle status callback from racing tracker shutdown.
+        if hasattr(self, "ttl_idle_timer"):
+            self.ttl_idle_timer.cancel()
 
         try:
             self.stop_retrieval(force=True)

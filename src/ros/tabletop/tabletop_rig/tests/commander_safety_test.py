@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from concurrent.futures import Future
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,14 +12,21 @@ import tabletop_rig.manipulation_preflight as preflight_module
 import tabletop_rig.nodes  # noqa: F401
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState
-from tabletop_interfaces.msg import TeensySensor
+from moveit_msgs.msg import MoveItErrorCodes
+from rclpy.exceptions import ParameterNotDeclaredException
+from std_srvs.srv import Trigger
+from tabletop_interfaces.msg import TaskEvent, TeensySensor
 from tabletop_rig.exceptions import (
     ExecutionInterruptedError,
+    ExecutionPreventedError,
     ExecutionStoppedError,
     ManipulationContextExitedError,
+    MaxPlanningAttemptsReachedError,
     NotSafeToExecuteError,
     PlanningError,
+    PlanningPipelineError,
     RigExecutionSafetyError,
+    RobotStateCollisionError,
     URSafetyViolationError,
 )
 from tabletop_rig.interfaces.moveit.moveit import MoveItInterface
@@ -45,18 +53,46 @@ def _make_commander(*, simulate: bool) -> Commander:
     commander._rig_safety_fault_lock = threading.Lock()
     commander._rig_safety_fault = None
     commander._rig_safety_monitor_armed = True
+    commander._entered_context = True
+    commander._exited_context = False
     commander._rig_safety_loop = None
     commander._rig_safety_event = None
+    commander._operator_stop_lock = threading.Lock()
+    commander._operator_stop_future = None
     commander.log = MagicMock()
     commander.param = MagicMock(return_value=simulate)
     commander._manipulation_contexts = {
         name: SimpleNamespace(
-            _manipulator=SimpleNamespace(stop_execution=MagicMock()),
+            _manipulator=SimpleNamespace(
+                group_name=name, stop_execution=MagicMock()
+            ),
             _ur=SimpleNamespace(stop_program=MagicMock()),
         )
         for name in ("left_manipulator", "right_manipulator")
     }
     return commander
+
+
+def test_operator_stop_uses_ctrl_c_cancellation_path_for_both_arms():
+    commander = _make_commander(simulate=False)
+    cancel_future = Future()
+    commander.bind_operator_stop_future(cancel_future)
+
+    response = commander._operator_stop_callback(
+        Trigger.Request(), Trigger.Response()
+    )
+
+    assert response.success
+    assert cancel_future.result() == "operator stop"
+    for context in commander._manipulation_contexts.values():
+        context._manipulator.stop_execution.assert_called_once_with()
+        context._ur.stop_program.assert_not_called()
+
+    repeated = commander._operator_stop_callback(
+        Trigger.Request(), Trigger.Response()
+    )
+    assert repeated.success
+    assert "already stopping" in repeated.message
 
 
 class TestRigSafetyCallback:
@@ -144,7 +180,7 @@ def test_pre_fetch_preserves_cache_at_normal_scaling():
     manipulator._simulate = True
     manipulator._manipulation_state = ManipulationState.IDLE
     manipulator.log = MagicMock()
-    manipulator.param = MagicMock(return_value=False)
+    manipulator.param = MagicMock(return_value={})
     manipulator._get_state_goal = MagicMock(
         return_value=MagicMock(spec=RobotState)
     )
@@ -165,6 +201,111 @@ def test_pre_fetch_preserves_cache_at_normal_scaling():
     assert request.mitigate_overshoot is False
     assert request.velocity_scaling_factor == 1.0
     assert request.acceleration_scaling_factor == 1.0
+
+
+def test_small_object_26_idle_pre_fetch_has_only_local_acceleration_limit():
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._simulate = False
+    manipulator._manipulation_state = ManipulationState.IDLE
+    manipulator._initial_pre_fetch_pending = False
+    manipulator.log = MagicMock()
+    manipulator.param = MagicMock(
+        return_value={
+            "small_object_26": {
+                "velocity_scaling_factor": 1.0,
+                "acceleration_scaling_factor": 0.75,
+            }
+        }
+    )
+    manipulator._get_state_goal = MagicMock(
+        return_value=MagicMock(spec=RobotState)
+    )
+    manipulator._transition_collisions_to_allow = MagicMock(return_value=[])
+    manipulator.plan_and_execute = AsyncMock(return_value=None)
+    manipulator._moveit = MagicMock()
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_26", ManipulationState.PRE_FETCH
+        )
+    )
+
+    request = manipulator.plan_and_execute.await_args.args[0]
+    assert request.use_cache is True
+    assert request.velocity_scaling_factor == 1.0
+    assert request.acceleration_scaling_factor == 0.75
+
+
+def test_missing_idle_pre_fetch_override_preserves_normal_scaling():
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._simulate = False
+    manipulator._manipulation_state = ManipulationState.IDLE
+    manipulator._initial_pre_fetch_pending = False
+    manipulator.log = MagicMock()
+    manipulator.param = MagicMock(
+        side_effect=ParameterNotDeclaredException(
+            ["pre_fetch_from_idle_overrides"]
+        )
+    )
+    manipulator._get_state_goal = MagicMock(
+        return_value=MagicMock(spec=RobotState)
+    )
+    manipulator._transition_collisions_to_allow = MagicMock(return_value=[])
+    manipulator.plan_and_execute = AsyncMock(return_value=None)
+    manipulator._moveit = MagicMock()
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_12", ManipulationState.PRE_FETCH
+        )
+    )
+
+    request = manipulator.plan_and_execute.await_args.args[0]
+    assert request.velocity_scaling_factor == 1.0
+    assert request.acceleration_scaling_factor == 1.0
+
+
+def test_only_first_pre_fetch_uses_startup_acceleration_scaling():
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._simulate = False
+    manipulator._manipulation_state = ManipulationState.IDLE
+    manipulator._initial_pre_fetch_pending = True
+    manipulator.log = MagicMock()
+    manipulator.param = MagicMock(
+        return_value={
+            "velocity_scaling_factor": 1.0,
+            "acceleration_scaling_factor": 0.3,
+        }
+    )
+    manipulator._get_state_goal = MagicMock(
+        return_value=MagicMock(spec=RobotState)
+    )
+    manipulator._transition_collisions_to_allow = MagicMock(return_value=[])
+    manipulator.plan_and_execute = AsyncMock(return_value=None)
+    manipulator._moveit = MagicMock()
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_15", ManipulationState.PRE_FETCH
+        )
+    )
+
+    first_request = manipulator.plan_and_execute.await_args.args[0]
+    assert first_request.use_cache is True
+    assert first_request.velocity_scaling_factor == 1.0
+    assert first_request.acceleration_scaling_factor == 0.3
+    assert manipulator._initial_pre_fetch_pending is False
+
+    manipulator.plan_and_execute.reset_mock()
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_15", ManipulationState.PRE_FETCH
+        )
+    )
+
+    later_request = manipulator.plan_and_execute.await_args.args[0]
+    assert later_request.velocity_scaling_factor == 1.0
+    assert later_request.acceleration_scaling_factor == 1.0
 
 
 def test_new_plan_is_validated_after_post_processing(monkeypatch):
@@ -204,6 +345,50 @@ def test_new_plan_is_validated_after_post_processing(monkeypatch):
         planning_scene=None,
     )
     result = interface._plan_pipeline(request)
+    assert result is processed_trajectory
+    interface._post_process_trajectory.assert_called_once_with(
+        raw_trajectory, request
+    )
+    interface._validate_trajectory.assert_called_once_with(
+        processed_trajectory
+    )
+
+
+def test_default_request_runs_totg_without_ruckig():
+    interface = object.__new__(PlanAndExecuteInterface)
+    interface.log = MagicMock()
+    raw_trajectory = object()
+    timed_trajectory = object()
+    interface._apply_totg = MagicMock(return_value=timed_trajectory)
+    interface._apply_smoothing = MagicMock()
+
+    request = PlanRequest(goal=PoseStamped())
+    result = interface._post_process_trajectory(raw_trajectory, request)
+
+    assert request.apply_totg is True
+    assert request.apply_smoothing is False
+    assert result is timed_trajectory
+    interface._apply_totg.assert_called_once()
+    assert interface._apply_totg.call_args.args[0] is raw_trajectory
+    interface._apply_smoothing.assert_not_called()
+
+
+def test_cached_trajectory_is_postprocessed_before_validation():
+    interface = object.__new__(PlanAndExecuteInterface)
+    interface.log = MagicMock()
+    raw_trajectory = object()
+    processed_trajectory = object()
+    interface._trajectory_cache = SimpleNamespace(
+        get_trajectories=MagicMock(return_value=[raw_trajectory])
+    )
+    interface._post_process_trajectory = MagicMock(
+        return_value=processed_trajectory
+    )
+    interface._validate_trajectory = MagicMock()
+    request = object()
+
+    result = interface._get_cached_trajectory(request)
+
     assert result is processed_trajectory
     interface._post_process_trajectory.assert_called_once_with(
         raw_trajectory, request
@@ -264,6 +449,98 @@ def test_native_planning_is_serialized_across_arm_interfaces():
     asyncio.run(run())
 
 
+def test_planning_scene_mutation_waits_for_native_planning():
+    planning_entered = threading.Event()
+    release_planning = threading.Event()
+    scene_mutated = threading.Event()
+
+    moveit = object.__new__(MoveItInterface)
+    moveit.planning_lock = threading.RLock()
+    moveit.log = MagicMock()
+    moveit.moveit_py = SimpleNamespace(
+        get_planning_scene_monitor=lambda: SimpleNamespace(
+            process_attached_collision_object=lambda _: scene_mutated.set()
+        )
+    )
+
+    planner = object.__new__(PlanAndExecuteInterface)
+    planner._moveit = moveit
+
+    def blocking_plan(request, *, cancel_event):
+        planning_entered.set()
+        assert release_planning.wait(1.0)
+        return object(), None
+
+    planner._plan_impl = MagicMock(side_effect=blocking_plan)
+
+    async def run():
+        plan_task = asyncio.create_task(planner.plan(goal=PoseStamped()))
+        assert await asyncio.to_thread(planning_entered.wait, 1.0)
+
+        mutation_task = asyncio.create_task(
+            asyncio.to_thread(
+                moveit.attach_collision_object,
+                "test_object",
+                "left_eef",
+            )
+        )
+        await asyncio.sleep(0.05)
+        assert not scene_mutated.is_set()
+
+        release_planning.set()
+        await asyncio.gather(plan_task, mutation_task)
+        assert scene_mutated.is_set()
+
+    asyncio.run(run())
+
+
+def test_detach_and_reposition_are_one_planning_scene_transaction():
+    events = []
+
+    class SceneTransaction:
+        def __enter__(self):
+            events.append("enter")
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            events.append("exit")
+
+    canonical_pose = PoseStamped()
+    moveit = SimpleNamespace(
+        planning_scene_write=lambda: SceneTransaction(),
+        detach_collision_object=lambda object_id: events.append(
+            ("detach", object_id)
+        ),
+        move_collision_object=lambda object_id, pose: events.append(
+            ("move", object_id, pose)
+        ),
+        grid_objects_by_id={
+            "small_object_0": SimpleNamespace(pose_stamped=canonical_pose)
+        },
+    )
+
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._manipulation_state = ManipulationState.PRE_DETACH
+    manipulator.log = MagicMock()
+    manipulator.param = MagicMock(return_value=1.0)
+    manipulator._get_state_goal = MagicMock(return_value=PoseStamped())
+    manipulator._transition_collisions_to_allow = MagicMock(return_value=[])
+    manipulator.plan_and_execute = AsyncMock(return_value=None)
+    manipulator._moveit = moveit
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_0", ManipulationState.DETACH
+        )
+    )
+
+    assert events == [
+        "enter",
+        ("detach", "small_object_0"),
+        ("move", "small_object_0", canonical_pose),
+        "exit",
+    ]
+
+
 def test_protective_stop_stops_both_real_arms_and_latches():
     commander = _make_commander(simulate=False)
 
@@ -295,6 +572,73 @@ def test_real_execution_failure_stops_rig_and_latches():
     for context in commander._manipulation_contexts.values():
         context._manipulator.stop_execution.assert_called_once_with()
         context._ur.stop_program.assert_called_once_with()
+
+
+def test_task_start_state_gate_accepts_collision_free_arms():
+    commander = _make_commander(simulate=True)
+    current_state = MagicMock()
+    commander._moveit = SimpleNamespace(
+        get_current_state=MagicMock(return_value=current_state),
+        is_state_valid=MagicMock(return_value=True),
+    )
+
+    commander.validate_task_start_state()
+
+    assert commander._moveit.is_state_valid.call_count == 2
+    assert not commander.rig_safety_faulted
+
+
+def test_task_start_state_collision_aborts_both_arms():
+    commander = _make_commander(simulate=True)
+    current_state = MagicMock()
+    commander._moveit = SimpleNamespace(
+        get_current_state=MagicMock(return_value=current_state),
+        is_state_valid=MagicMock(side_effect=(False, True)),
+    )
+
+    with pytest.raises(RobotStateCollisionError) as exc_info:
+        commander.validate_task_start_state()
+
+    assert exc_info.value.robot_names == ("left_manipulator",)
+    assert exc_info.value.phase == "task startup preflight"
+    assert commander._get_rig_safety_fault() is exc_info.value
+    for context in commander._manipulation_contexts.values():
+        context._manipulator.stop_execution.assert_called_once_with()
+
+
+def test_planner_start_state_collision_is_fatal_without_context_reset():
+    code = MoveItErrorCodes(val=MoveItErrorCodes.START_STATE_IN_COLLISION)
+    pipeline_error = PlanningPipelineError(code, group_name="left_manipulator")
+    planning_error = MaxPlanningAttemptsReachedError(
+        [pipeline_error], group_name="left_manipulator"
+    )
+    fault = RobotStateCollisionError(
+        ["left_manipulator"],
+        phase="motion planning",
+        cause=planning_error,
+    )
+    context = object.__new__(ManipulationContextManager)
+    context._entered_context = True
+    context.log = MagicMock()
+    context._manipulator = SimpleNamespace(group_name="left_manipulator")
+    context._rig_state_collision_fault_handler = MagicMock(return_value=fault)
+    context._reset = AsyncMock()
+
+    with pytest.raises(RobotStateCollisionError) as exc_info:
+        asyncio.run(
+            context.__aexit__(
+                type(planning_error),
+                planning_error,
+                planning_error.__traceback__,
+            )
+        )
+
+    assert exc_info.value is fault
+    context._rig_state_collision_fault_handler.assert_called_once_with(
+        planning_error
+    )
+    context._reset.assert_not_awaited()
+    assert not context._entered_context
 
 
 def test_real_execution_error_is_not_retried():
@@ -332,12 +676,80 @@ def test_real_execution_error_is_not_retried():
     context._rig_execution_fault_handler.assert_called_once_with(error)
 
 
+def test_real_start_state_mismatch_replans_instead_of_latching_fault():
+    error = ExecutionPreventedError(
+        "Trajectory start state deviates from current robot state by more "
+        "than 0.02",
+        group_name="left_manipulator",
+    )
+    attempts = 0
+
+    @handle_interruptions
+    async def operation(context):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise error
+        return "replanned"
+
+    context = SimpleNamespace(
+        _simulate=False,
+        _raise_if_rig_safety_faulted=MagicMock(),
+        _rig_execution_fault_handler=MagicMock(),
+        _safe_to_execute_condition=MagicMock(return_value=True),
+        _recover_after_laser_stop=AsyncMock(),
+        _laser_stop_pending=MagicMock(return_value=False),
+        _laser_break_generation_value=MagicMock(return_value=0),
+        param=MagicMock(return_value=3),
+        log=MagicMock(),
+    )
+
+    assert asyncio.run(operation(context)) == "replanned"
+    assert attempts == 2
+    context._rig_execution_fault_handler.assert_not_called()
+    assert context._recover_after_laser_stop.await_count == 3
+
+
+def test_real_start_state_mismatch_retries_remain_bounded():
+    error = ExecutionPreventedError(
+        "Trajectory start state mismatch",
+        group_name="left_manipulator",
+    )
+    attempts = 0
+
+    @handle_interruptions
+    async def operation(context):
+        nonlocal attempts
+        attempts += 1
+        raise error
+
+    context = SimpleNamespace(
+        _simulate=False,
+        _raise_if_rig_safety_faulted=MagicMock(),
+        _rig_execution_fault_handler=MagicMock(),
+        _safe_to_execute_condition=MagicMock(return_value=True),
+        _recover_after_laser_stop=AsyncMock(),
+        _laser_stop_pending=MagicMock(return_value=False),
+        _laser_break_generation_value=MagicMock(return_value=0),
+        param=MagicMock(return_value=3),
+        log=MagicMock(),
+    )
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        asyncio.run(operation(context))
+
+    assert attempts == 3
+    assert len(exc_info.value.exceptions) == 3
+    assert all(exc is error for exc in exc_info.value.exceptions)
+    context._rig_execution_fault_handler.assert_not_called()
+
+
 def test_real_pre_fetch_preserves_cache_and_normal_scaling():
     manipulator = object.__new__(ObjectManipulationInterface)
     manipulator._simulate = False
     manipulator._manipulation_state = ManipulationState.IDLE
     manipulator.log = MagicMock()
-    manipulator.param = MagicMock()
+    manipulator.param = MagicMock(return_value={})
     manipulator._get_state_goal = MagicMock(
         return_value=MagicMock(spec=RobotState)
     )
@@ -358,6 +770,85 @@ def test_real_pre_fetch_preserves_cache_and_normal_scaling():
     assert request.apply_smoothing is False
     assert request.velocity_scaling_factor == 1.0
     assert request.acceleration_scaling_factor == 1.0
+
+
+def _make_fetch_departure_manipulator(*, object_id):
+    manipulator = object.__new__(ObjectManipulationInterface)
+    manipulator._simulate = True
+    manipulator._manipulation_state = ManipulationState.POST_FETCH
+    manipulator.log = MagicMock()
+    override = {
+        "clearance_offset": [0.22, 0.0, -0.18],
+        "velocity_scaling_factor": 0.8,
+        "acceleration_scaling_factor": 0.6,
+    }
+
+    def param(name):
+        values = {
+            "skip_fetched_on_fetch": False,
+            "fetch_departure_overrides": {object_id: override},
+            "planning.fetched_max_attempts": 5,
+        }
+        return values[name]
+
+    manipulator.param = MagicMock(side_effect=param)
+    manipulator._get_state_goal = MagicMock(
+        return_value=MagicMock(spec=RobotState)
+    )
+    manipulator._grid_object_pose_stamped_with_offset = MagicMock(
+        return_value=PoseStamped()
+    )
+    manipulator._transition_collisions_to_allow = MagicMock(return_value=[])
+    manipulator.plan_and_execute = AsyncMock(return_value=None)
+    manipulator._moveit = MagicMock()
+    return manipulator
+
+
+def test_configured_fetch_departure_uses_clearance_and_local_scaling():
+    manipulator = _make_fetch_departure_manipulator(
+        object_id="small_object_14"
+    )
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_14", ManipulationState.FETCHED
+        )
+    )
+
+    assert manipulator.plan_and_execute.await_count == 2
+    clearance_call, fetched_call = manipulator.plan_and_execute.await_args_list
+    clearance_request = clearance_call.args[0]
+    assert clearance_request.planning_pipeline == "linear"
+    assert clearance_request.use_cache is False
+    assert clearance_request.velocity_scaling_factor == 0.8
+    assert clearance_request.acceleration_scaling_factor == 0.6
+    assert clearance_call.kwargs["cache_trajectories"] is False
+    manipulator._grid_object_pose_stamped_with_offset.assert_called_once_with(
+        "small_object_14", [0.22, 0.0, -0.18]
+    )
+
+    fetched_request = fetched_call.args[0]
+    assert fetched_request.velocity_scaling_factor == 0.8
+    assert fetched_request.acceleration_scaling_factor == 0.6
+    assert fetched_request.max_attempts == 5
+
+
+def test_fetch_departure_override_does_not_affect_other_objects():
+    manipulator = _make_fetch_departure_manipulator(
+        object_id="small_object_14"
+    )
+
+    asyncio.run(
+        manipulator._fetch_or_return_transition(
+            "small_object_12", ManipulationState.FETCHED
+        )
+    )
+
+    manipulator.plan_and_execute.assert_awaited_once()
+    request = manipulator.plan_and_execute.await_args.args[0]
+    assert request.velocity_scaling_factor == 1.0
+    assert request.acceleration_scaling_factor == 1.0
+    manipulator._grid_object_pose_stamped_with_offset.assert_not_called()
 
 
 def test_unspecified_pipeline_tries_ptp_before_ompl_fallback():
@@ -1032,10 +1523,108 @@ def _make_presentation_manipulator(
         "presentation_region.region_id": "presentation_region",
         "presentation_region.robot_collision_ids": ["right_gripper"],
         "presentation_region.region_collision_ids": ["region_wall"],
+        "present_overrides": {},
+        "unpresent_overrides": {},
         "skip_idle_on_return": True,
     }
     manipulator.param = MagicMock(side_effect=params.__getitem__)
     return manipulator
+
+
+def test_big_object_6_right_presentation_has_narrow_velocity_limit():
+    manipulator = _make_presentation_manipulator()
+    manipulator._current_manipulation_id = "big_object_6"
+    params = {
+        "group_name": "right_manipulator",
+        "presentation_region.region_id": "presentation_region",
+        "presentation_region.robot_collision_ids": ["right_gripper"],
+        "presentation_region.region_collision_ids": ["region_wall"],
+        "present_overrides": {
+            "big_object_6": {
+                "velocity_scaling_factor": 0.75,
+                "acceleration_scaling_factor": 1.0,
+            }
+        },
+        "unpresent_overrides": {},
+        "skip_idle_on_return": True,
+    }
+    manipulator.param = MagicMock(side_effect=params.__getitem__)
+
+    asyncio.run(manipulator._present_object_impl("big_object_6"))
+
+    request = manipulator.plan_and_execute.await_args.args[0]
+    assert request.goal == "presentation-goal"
+    assert request.use_cache is True
+    assert request.velocity_scaling_factor == 0.75
+    assert request.acceleration_scaling_factor == 1.0
+    assert (
+        manipulator.plan_and_execute.await_args.kwargs["cache_trajectories"]
+        is True
+    )
+    assert manipulator._manipulation_state == ManipulationState.PRESENTED
+
+
+def test_other_right_presentation_preserves_normal_cache_behavior():
+    manipulator = _make_presentation_manipulator()
+
+    asyncio.run(manipulator._present_object_impl("small_object_0"))
+
+    assert manipulator.plan_and_execute.await_args.kwargs == {
+        "goal": "presentation-goal",
+        "cache_trajectories": True,
+    }
+
+
+def test_big_object_6_right_unpresentation_has_narrow_velocity_limit():
+    manipulator = _make_presentation_manipulator(
+        ManipulationState.PRESENTED
+    )
+    manipulator._current_manipulation_id = "big_object_6"
+    manipulator._presentation_region_active.set()
+    manipulator._presentation_region_acquired = True
+    params = {
+        "group_name": "right_manipulator",
+        "presentation_region.region_id": "presentation_region",
+        "presentation_region.robot_collision_ids": ["right_gripper"],
+        "presentation_region.region_collision_ids": ["region_wall"],
+        "present_overrides": {},
+        "unpresent_overrides": {
+            "big_object_6": {
+                "velocity_scaling_factor": 0.75,
+                "acceleration_scaling_factor": 1.0,
+            }
+        },
+        "skip_idle_on_return": True,
+    }
+    manipulator.param = MagicMock(side_effect=params.__getitem__)
+
+    asyncio.run(manipulator._unpresent_object_impl("big_object_6"))
+
+    request = manipulator.plan_and_execute.await_args.args[0]
+    assert request.goal == "presentation-goal"
+    assert request.use_cache is True
+    assert request.velocity_scaling_factor == 0.75
+    assert request.acceleration_scaling_factor == 1.0
+    assert (
+        manipulator.plan_and_execute.await_args.kwargs["cache_trajectories"]
+        is True
+    )
+    assert manipulator._manipulation_state == ManipulationState.NEEDS_RESET
+
+
+def test_other_right_unpresentation_preserves_normal_cache_behavior():
+    manipulator = _make_presentation_manipulator(
+        ManipulationState.PRESENTED
+    )
+    manipulator._presentation_region_active.set()
+    manipulator._presentation_region_acquired = True
+
+    asyncio.run(manipulator._unpresent_object_impl("small_object_0"))
+
+    assert manipulator.plan_and_execute.await_args.kwargs == {
+        "goal": "presentation-goal",
+        "cache_trajectories": True,
+    }
 
 
 def test_interrupted_presentation_entry_retains_region_for_retry():
@@ -1227,10 +1816,11 @@ class _MinimalObjectTask(BaseObjectInteractionTask):
         raise AssertionError("run_trial should be replaced by the test")
 
 
-def _planning_trial_exit(message):
+def _planning_trial_exit(message, *, reached_presentation=False):
     return ManipulationContextExitedError(
         "recovered planning failure",
         recovered_error=PlanningError(message, "left_manipulator"),
+        reached_presentation=reached_presentation,
     )
 
 
@@ -1264,6 +1854,7 @@ def test_trial_restart_is_bounded_and_does_not_blacklist_object():
         ]
     )
     task._trial_lock = asyncio.Lock()
+    task._commander = MagicMock()
     task.log = MagicMock()
     spec = SimpleNamespace(
         trial_number=18,
@@ -1272,10 +1863,32 @@ def test_trial_restart_is_bounded_and_does_not_blacklist_object():
 
     assert asyncio.run(task._run_one_trial(spec)) is None
     assert task._run_one_trial_attempt.await_count == 2
+    task._commander.publish_task_event.assert_called_once()
+    assert (
+        task._commander.publish_task_event.call_args.args[0]
+        == TaskEvent.OBJECT_MISS
+    )
     assert any(
         "without blacklisting" in call.args[0]
         for call in task.log.call_args_list
     )
+
+
+def test_return_failure_after_presentation_is_not_an_object_miss():
+    task = object.__new__(_MinimalObjectTask)
+    task._run_one_trial_attempt = AsyncMock(
+        side_effect=[
+            _planning_trial_exit("return", reached_presentation=True),
+            _planning_trial_exit("retry"),
+        ]
+    )
+    task._trial_lock = asyncio.Lock()
+    task._commander = MagicMock()
+    task.log = MagicMock()
+    spec = SimpleNamespace(trial_number=20, object_id="small_object_11")
+
+    assert asyncio.run(task._run_one_trial(spec)) is None
+    task._commander.publish_task_event.assert_not_called()
 
 
 def test_nonplanning_trial_recovery_is_not_retried():
