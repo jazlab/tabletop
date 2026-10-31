@@ -20,7 +20,7 @@ services:
       file: compose.yaml
       service: rviz
     container_name: tabletop-rviz-cameras
-    profiles: [real]
+    profiles: !override [real]
     depends_on:
       novnc:
         condition: service_healthy
@@ -36,7 +36,7 @@ services:
       file: compose.yaml
       service: rviz
     container_name: tabletop-rviz-left-back
-    profiles: [real]
+    profiles: !override [real]
     depends_on:
       novnc:
         condition: service_healthy
