@@ -1,0 +1,30 @@
+# Sim-only rig details that no rig source file records. Everything else in the
+# generated model comes from the rig's own files (xacro, launch, SRDF,
+# commander.yaml, rig.step). Positions are world frame, meters (REP 103).
+
+# The monkey: virtual_tabletop/monkey_arm/right_arm_v0.xml (muSim-derived).
+# The arm's own frame is +x forward, +z up, +y toward the midline; a yaw of
+# +90 deg makes it face into the rig (+y), with the subject's right at +x.
+subject:
+  arm_file: monkey_arm/right_arm_v0.xml
+  # PROVISIONAL (needs the user's confirmation): right shoulder ~7 cm right
+  # of the rig midline (x = 0.9525), just in front of the frame's front face
+  # (posts span y 0.064-0.140), at roughly presentation height.
+  # NOTE: the presented object sits near (0.95, 0.40, 0.65) (SRDF "present"
+  # pose); from here that is ~0.36 m away, beyond this arm's ~0.30 m reach.
+  shoulder_position: [1.02, 0.05, 0.70]
+  yaw: 1.5708
+
+# Smartglass pane (switchable occluder). Not in rig.step; ASSUMED to fill
+# the presentation opening between the 1530-LS extrusions: x 0.674-1.233
+# (inner faces of 1530-LS_13:1/2), z 0.472-1.220 (top of 1530-LS_..943:1 to
+# bottom of 1530-LS_..943:2), in the extrusion plane y 0.102-0.140.
+smartglass:
+  center: [0.9535, 0.121, 0.846]
+  size: [0.559, 0.006, 0.748]
+  occluded_rgba: [0.85, 0.87, 0.9, 0.95]
+  revealed_rgba: [0.85, 0.87, 0.9, 0.08]
+
+# Parts of rig.step to draw specially (STEP node name -> rgba).
+part_colors:
+  "Hot mirror part:1": [0.75, 0.85, 0.95, 0.25]  # eye-tracker hot mirror
