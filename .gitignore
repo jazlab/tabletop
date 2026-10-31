@@ -62,3 +62,6 @@ flic.db
 
 # Saved models
 saved_weights/
+
+# gitignore/ directory
+gitignore/
