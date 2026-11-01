@@ -1,0 +1,38 @@
+# The virtual monkey. World frame, meters, radians (REP 103).
+# Read by: assets/parts.py (both models), assets/subject.py.
+
+# Right arm model (7 arm + 16 finger joints, no muscles); the left arm is its
+# mirror image, generated at build time (assets/subject.py). The arm's own
+# frame is +x forward, +z up, +y toward the midline; a yaw of +90 deg makes it
+# face into the rig (+y), with the subject's right at +x.
+arm_file: monkey_arm/right_arm_fingers_v0.xml
+
+# Shoulder placements, per model. Shoulders 6.75 cm either side of the rig
+# midline (x = 0.9525).
+placements:
+  # Rig model (bag replay, foraging sim, parity): where the animal sits on the
+  # rig, behind the smartglass. The original estimate (2026-10-31); replace
+  # with measured values (e.g. from OptiTrack) when available.
+  rig:
+    right: {shoulder_position: [1.02, 0.05, 0.70], yaw: 1.5708}
+    left: {shoulder_position: [0.885, 0.05, 0.70], yaw: 1.5708}
+  # RL model: tuned for reach (user, 2026-10-31). 10 cm forward and 8 cm up
+  # from the rig placement so the hand can come down into the small cup and
+  # press the button on its floor without passing through the wall
+  # (`uv run vtt-button-reach --scan`: both buttons reachable for +6..+10 cm
+  # forward and +6..+10 cm up from y 0.07, z 0.70; this is the middle).
+  # Raising matters as much as moving forward: at rim height the forearm
+  # comes in level and the wrist's +-30 deg can't point the fingers down.
+  rl:
+    right: {shoulder_position: [1.02, 0.15, 0.78], yaw: 1.5708}
+    left: {shoulder_position: [0.885, 0.15, 0.78], yaw: 1.5708}
+
+# Monkey actuation in the RL model (provisional, 2026-10-31; to be settled in
+# joint-control Session B): a position servo per joint (critically damped;
+# joint armature is 0.1, so kp 50 gives ~22 rad/s bandwidth), torque-limited,
+# with the (77 g) arm's gravity compensated. The rig model keeps the arm
+# file's own actuators (the monkey is static there).
+rl_actuation:
+  kp: 50.0
+  max_torque: 5.0
+  gravity_compensation: true

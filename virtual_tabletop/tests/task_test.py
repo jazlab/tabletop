@@ -1,4 +1,4 @@
-"""Tests for the MuJoCo foraging task: generators, config, sim, env."""
+"""Tests for the MuJoCo foraging task: generators, config, sim."""
 
 import tempfile
 from pathlib import Path
@@ -16,7 +16,11 @@ from virtual_tabletop.task.generators import (
     RandomChoiceAlternating,
     TrialFeedback,
 )
-from virtual_tabletop.task.motion import DEFAULT_LIBRARY, bridge
+from virtual_tabletop.task.motion import bridge
+
+#: A small motion library (clips for small_object_0 and small_object_15),
+#: built by ``vtt-clips`` from a 2-trial sim session.
+FIXTURE_LIBRARY = Path(__file__).parent / "fixtures" / "motion_library.npz"
 
 POSES = [{"position": [0.9525, 0.4, 0.6], "rpy": [0.0, 0.0, -1.5707]}]
 GROUPED = {
@@ -124,25 +128,18 @@ def test_bridge_is_smooth_and_hits_endpoints():
     assert clip.duration == pytest.approx(1.0)
 
 
-needs_library = pytest.mark.skipif(
-    not DEFAULT_LIBRARY.exists(),
-    reason="no motion library (record sim bags, then `vtt-clips`)",
-)
-
-
 def _test_config(tmp: Path, **generator) -> Path:
     cfg = yaml.safe_load(task_config_path("foraging_ordered").read_text())
     kwargs = cfg["tasks"][0]["kwargs"]
     kwargs["response_timeout"] = 3.0
-    kwargs["trial_generator"]["kwargs"].update(num_trials=4, **generator)
+    kwargs["trial_generator"]["kwargs"].update(num_trials=2, **generator)
     path = tmp / "task.yaml"
     path.write_text(yaml.safe_dump(cfg))
     return path
 
 
-@needs_library
 def test_sim_runs_the_task_and_rewards_flic_presses():
-    from virtual_tabletop.assets.build import load_model
+    from virtual_tabletop.assets.rig_model import load_rig_model
     from virtual_tabletop.bags.topics import TaskEventType as E
     from virtual_tabletop.task.motion import load_library
     from virtual_tabletop.task.responses import FlicSimResponse
@@ -150,12 +147,15 @@ def test_sim_runs_the_task_and_rewards_flic_presses():
 
     config = load_foraging_config(_test_config(Path(tempfile.mkdtemp())))
     sim = run_task(
-        load_model(), config, load_library(), FlicSimResponse(1.0, 2.0, seed=0)
+        load_rig_model(),
+        config,
+        load_library(FIXTURE_LIBRARY),
+        FlicSimResponse(1.0, 2.0, seed=0),
     )
     types = [e.type for e in sim.events]
     assert types[0] == E.TASK_STARTED and types[-1] == E.TASK_ENDED
-    assert types.count(E.TRIAL_PRESENTED) == 4
-    assert types.count(E.TRIAL_DEPRESENTING) == 4
+    assert types.count(E.TRIAL_PRESENTED) == 2
+    assert types.count(E.TRIAL_DEPRESENTING) == 2
     assert all(not r.feedback.timeout for r in sim.results.values())
     # Presentations never overlap (one presentation lock).
     windows = sorted(
@@ -164,13 +164,3 @@ def test_sim_runs_the_task_and_rewards_flic_presses():
     assert all(a[1] <= b[0] for a, b in zip(windows, windows[1:]))
     # Objects are back on their mounts at the end.
     assert all(sim.tracker.holding(s) is None for s in ("left", "right"))
-
-
-@needs_library
-def test_scripted_monkey_touches_presented_objects():
-    from virtual_tabletop.task.env import ForagingEnv, run_scripted_episode
-
-    path = _test_config(Path(tempfile.mkdtemp()), arms=["both"])
-    outcome = run_scripted_episode(ForagingEnv(path, max_time=300), seed=0)
-    assert outcome["trials"] == 4
-    assert outcome["rewarded"] == 4

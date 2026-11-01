@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from virtual_tabletop.assets.build import load_model
+from virtual_tabletop.assets.rig_model import load_rig_model
 from virtual_tabletop.assets.robots import ARM_SIDES
 from virtual_tabletop.bags import topics
 from virtual_tabletop.bags.reader import read_joint_states
@@ -182,7 +182,7 @@ def check_parity(bag: str | Path, task: str | Path) -> ParityReport:
     """
     report = ParityReport()
     config = load_foraging_config(task)
-    model = load_model()
+    model = load_rig_model()
     library = SequenceLibrary(build_library([bag], model).clips())
     joints = read_joint_states(bag)
     initial_q = {

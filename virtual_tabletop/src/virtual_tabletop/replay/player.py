@@ -20,24 +20,20 @@ Playback is kinematic: frames set ``qpos`` and mocap poses and call
 
 import argparse
 import functools
-import os
-import sys
-import time
 from pathlib import Path
 
 import mujoco
 import numpy as np
 
-from virtual_tabletop.assets.build import load_model, load_sim_config
+from virtual_tabletop import viewer
+from virtual_tabletop.assets.rig_model import load_rig_model
+from virtual_tabletop.assets.sim_config import load_rig_config
 from virtual_tabletop.replay.timeline import Timeline, build_timeline
-
-KEY_SPACE, KEY_RIGHT, KEY_LEFT = 32, 262, 263
-KEY_N, KEY_P, KEY_R, KEY_EQUAL, KEY_MINUS = 78, 80, 82, 61, 45
 
 
 @functools.cache
 def _glass_config() -> dict:
-    return load_sim_config()["smartglass"]
+    return load_rig_config()["smartglass"]
 
 
 def apply_frame(
@@ -102,69 +98,38 @@ def render_video(
 
 def run_viewer(model: mujoco.MjModel, timeline: Timeline) -> None:
     """Interactive playback in MuJoCo's passive viewer."""
-    import mujoco.viewer
-
     data = mujoco.MjData(model)
     mujoco.mj_resetDataKeyframe(model, data, model.key("home").id)
-    state = {"time": 0.0, "speed": 1.0, "paused": False}
+    playback = viewer.Playback()
+    state = {"time": 0.0}
     starts = [trial.start for trial in timeline.trials]
 
     def on_key(key: int) -> None:
+        if playback.on_key(key):
+            return
         now = state["time"]
-        if key == KEY_SPACE:
-            state["paused"] = not state["paused"]
-        elif key == KEY_RIGHT:
+        if key == viewer.KEY_RIGHT:
             state["time"] = now + 2.0
-        elif key == KEY_LEFT:
+        elif key == viewer.KEY_LEFT:
             state["time"] = max(0.0, now - 2.0)
-        elif key == KEY_N:
+        elif key == viewer.KEY_N:
             state["time"] = next((s for s in starts if s > now + 1e-3), now)
-        elif key == KEY_P:
+        elif key == viewer.KEY_P:
             state["time"] = next(
                 (s for s in reversed(starts) if s < now - 0.5), 0.0
             )
-        elif key == KEY_EQUAL:
-            state["speed"] = min(state["speed"] * 2, 16.0)
-        elif key == KEY_MINUS:
-            state["speed"] = max(state["speed"] / 2, 0.125)
-        elif key == KEY_R:
+        elif key == viewer.KEY_R:
             state["time"] = 0.0
 
-    with mujoco.viewer.launch_passive(model, data, key_callback=on_key) as v:
-        last = time.monotonic()
-        while v.is_running():
-            now = time.monotonic()
-            if not state["paused"]:
-                state["time"] += (now - last) * state["speed"]
-            last = now
-            state["time"] = min(state["time"], timeline.t[-1])
-            k = timeline.frame_at(state["time"])
-            # Never call viewer methods (set_texts, sync) while holding its
-            # lock: they take the same lock and would deadlock the viewer.
-            with v.lock():
-                apply_frame(model, data, timeline, k)
-            v.set_texts(
-                (
-                    mujoco.mjtFontScale.mjFONTSCALE_150,
-                    mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                    status_text(timeline, k, state["speed"]),
-                    "",
-                )
-            )
-            v.sync()
-            time.sleep(1 / 60)
+    def update(wall_dt: float) -> str:
+        state["time"] = min(
+            state["time"] + playback.advance(wall_dt), timeline.t[-1]
+        )
+        k = timeline.frame_at(state["time"])
+        apply_frame(model, data, timeline, k)
+        return status_text(timeline, k, playback.speed)
 
-
-def _ensure_mjpython() -> None:
-    """On macOS, re-run this command under mjpython (the viewer needs it)."""
-    if sys.platform != "darwin" or os.environ.get("VTT_UNDER_MJPYTHON"):
-        return
-    mjpython = Path(sys.executable).with_name("mjpython")
-    os.environ["VTT_UNDER_MJPYTHON"] = "1"
-    os.execv(
-        mjpython,
-        [str(mjpython), "-m", "virtual_tabletop.replay.player", *sys.argv[1:]],
-    )
+    viewer.run_passive(model, data, update, on_key=on_key)
 
 
 def main() -> None:
@@ -177,9 +142,9 @@ def main() -> None:
     parser.add_argument("--rate", type=float, default=30.0)
     args = parser.parse_args()
     if not args.video:
-        _ensure_mjpython()
+        viewer.ensure_mjpython("virtual_tabletop.replay.player")
 
-    model = load_model()
+    model = load_rig_model()
     timeline = build_timeline(args.bag, model, rate=args.rate)
     print(
         f"{len(timeline.t)} frames, {timeline.t[-1]:.1f} s, "

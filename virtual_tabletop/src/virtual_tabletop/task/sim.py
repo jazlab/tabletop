@@ -35,8 +35,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from virtual_tabletop import ik
-from virtual_tabletop.assets.build import SUBJECT_PREFIX, load_sim_config
 from virtual_tabletop.assets.robots import ARM_SIDES
+from virtual_tabletop.assets.sim_config import load_rig_config
 from virtual_tabletop.bags.topics import TaskEvent, TaskEventType
 from virtual_tabletop.replay.objects import ObjectTracker
 from virtual_tabletop.task import responses
@@ -134,14 +134,11 @@ class ForagingSim:
     """The foraging task running on the generated rig model.
 
     Args:
-        model: The generated rig model (``assets.build.load_model``).
+        model: The rig model (``assets.rig_model.load_rig_model``).
         config: Task config (``task.config.load_foraging_config``).
         library: Robot motion clips (``task.motion``).
         response: Source of button presses.
         dt: Control tick (s).
-        physics: If True, each tick runs ``mj_step`` substeps (the monkey
-            is simulated; robots and objects are driven kinematically).
-            If False, kinematics only (fast; monkey qpos set externally).
         seed: Seeds the random generator, if any.
         initial_q: Starting joint positions per arm (``ARM_JOINTS`` order);
             default the SRDF ``idle`` pose. The mock arms keep their pose
@@ -156,7 +153,6 @@ class ForagingSim:
         response: responses.ResponseModel | None = None,
         *,
         dt: float = 0.02,
-        physics: bool = False,
         seed: int | None = None,
         initial_q: dict[str, np.ndarray] | None = None,
     ):
@@ -166,11 +162,9 @@ class ForagingSim:
         self.library = library
         self.response = response or responses.FlicSimResponse(seed=seed)
         self.dt = dt
-        self.physics = physics
         self.seed = seed
         self.initial_q = initial_q or {}
-        self.subject_bodies = responses.subject_bodies(model, SUBJECT_PREFIX)
-        self._glass = load_sim_config()["smartglass"]
+        self._glass = load_rig_config()["smartglass"]
         self._glass_geom = model.geom("smartglass").id
         self._mocap_index = {
             model.body(b).name: int(model.body_mocapid[b])
@@ -247,24 +241,11 @@ class ForagingSim:
     def done(self) -> bool:
         return self._task.done
 
-    def step(
-        self,
-        monkey_qpos: np.ndarray | None = None,
-        monkey_ctrl: np.ndarray | None = None,
-    ) -> StepInfo:
-        """Advance one tick.
-
-        Args:
-            monkey_qpos: Kinematic monkey joint positions (``physics=False``).
-            monkey_ctrl: Monkey actuator controls (``physics=True``).
-        """
+    def step(self) -> StepInfo:
+        """Advance one tick."""
         self._step_info = StepInfo()
         self.time += self.dt
         self._advance_motions()
-        if monkey_qpos is not None:
-            self.data.qpos[self.subject_qadr] = monkey_qpos
-        if monkey_ctrl is not None:
-            self.data.ctrl[self.subject_actuators] = monkey_ctrl
         self._apply_state()
         self._run_ready()
         self._step_info.reward_active = self.reward_active
@@ -285,26 +266,6 @@ class ForagingSim:
     @property
     def reward_active(self) -> bool:
         return self.time < self.reward_until
-
-    @property
-    def subject_qadr(self) -> np.ndarray:
-        return np.array(
-            [
-                self.model.jnt_qposadr[j]
-                for j in range(self.model.njnt)
-                if self.model.joint(j).name.startswith(SUBJECT_PREFIX)
-            ]
-        )
-
-    @property
-    def subject_actuators(self) -> np.ndarray:
-        return np.array(
-            [
-                a
-                for a in range(self.model.nu)
-                if self.model.actuator(a).name.startswith(SUBJECT_PREFIX)
-            ]
-        )
 
     # --- scheduler ------------------------------------------------------
 
@@ -415,15 +376,7 @@ class ForagingSim:
         )
         state = "revealed" if self.glass_revealed else "occluded"
         self.model.geom_rgba[self._glass_geom] = self._glass[f"{state}_rgba"]
-        if self.physics:
-            substeps = max(1, round(self.dt / self.model.opt.timestep))
-            for _ in range(substeps):
-                for side in ARM_SIDES:
-                    data.qpos[self._arm_qadr[side]] = self.q[side]
-                    data.qvel[self._arm_dadr[side]] = 0.0
-                mujoco.mj_step(self.model, data)
-        else:
-            mujoco.mj_forward(self.model, data)
+        mujoco.mj_forward(self.model, data)
 
     def _emit(self, event_type: TaskEventType, spec: TrialSpec | None = None):
         event = TaskEvent(

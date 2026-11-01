@@ -1,33 +1,36 @@
-"""Minimal presentation task for RL: an object, the occluder, the monkey.
+"""The RL presentation tasks as a Gymnasium environment.
 
-A simplified version of foraging for training, on the minimal RL model
-(:func:`virtual_tabletop.assets.build.build_rl`): no robot arms, no object
-grid, and optionally no rig frame. The monkey has both arms. Each trial:
+The scene (:mod:`.scene`): the RL model (:mod:`virtual_tabletop.assets.rl_model`)
+with both monkey arms and one presented object per trial; no robot arms,
+object grid or smartglass; the rig frame optional (cosmetic). Trials and
+their phases (:mod:`.trials`) come from the rig's task YAML, one after
+another with no returning or resetting; one episode is ``num_trials``
+trials.
 
-1. **intertrial**: the trial's object is already held at its presentation
-   pose (as if by a robot, but no robot), behind the opaque smartglass;
-2. **stimulus**: the glass clears for ``stimulus_duration``;
-3. **delay**: ``delay_duration`` (the glass turns opaque if the trial spec
-   says ``occlude``);
-4. **response**: the subject arm(s) the spec names (``left``, ``right`` or
-   ``both``) are released (observation flags) for ``response_timeout``. The
-   trial **ends at the timeout** with no reward. Optionally
-   (``reward_on_touch``), a released hand touching the object instead ends
-   the trial at once with ``touch_reward``. Touches are always reported in
-   ``info``.
+Three tasks (``reward``), differing only in what is rewarded in the response
+window:
 
-Then the next trial starts immediately with its own object, with no
-returning or resetting. Objects, poses, released arms and timings come from
-the same task YAML as the rig (its trial generator, alternating the object
-lists of the two robot arms). One episode is ``num_trials`` trials.
+- ``"none"``: nothing; every trial ends at the timeout;
+- ``"touch"``: a released hand touching the object ends the trial at once
+  with ``reward_value``;
+- ``"button"``: a released hand pressing the object's button
+  (:mod:`virtual_tabletop.buttons`: the cup's inner floor, the drum's top)
+  does. Touching the object elsewhere is not rewarded.
 
-The action space is the same provisional one as the full foraging env:
-kinematic joint-position targets for the monkey joints (both arms by
-default). It will change once the joint-control design is settled
-(``gitignore/claude_plans/rl_joint_control.md``).
+Touches and presses are always recorded (``info``, :attr:`trials`).
+
+**Control.** ``"position"`` (default) simulates physics: the action is a
+target angle per controlled joint for the monkey's position servos
+(``rl_actuation`` in ``config/subject.yaml``; provisional) and
+``mj_step`` runs ``dt / timestep`` substeps, so contact forces act between
+the bones and the object (held fixed, as if by the robot) and between bones.
+``"kinematic"`` sets the angles directly with no dynamics (about 7× faster;
+bodies can pass through each other; velocities are zero).
+
+**Observation.** A flat float32 vector; :attr:`observation_layout` names
+its parts (see :meth:`PresentationEnv.observation_parts`).
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import gymnasium as gym
@@ -35,59 +38,38 @@ import mujoco
 import numpy as np
 
 from virtual_tabletop.assets import subject
-from virtual_tabletop.assets.build import (
-    RL_PARKED,
-    RL_STIMULI,
-    SUBJECT_PREFIX,
-    load_rl_model,
-    load_sim_config,
+from virtual_tabletop.assets.rl_model import load_rl_model
+from virtual_tabletop.rl.scene import (
+    PresentationScene,
+    grid_objects,
+    object_geometry,
 )
-from virtual_tabletop.assets.rig_config import load_rig_scene
-from virtual_tabletop.policies import ReachPolicy  # noqa: F401 (re-export)
+from virtual_tabletop.rl.trials import TrialRecord, TrialSchedule
 from virtual_tabletop.task.config import load_foraging_config
-from virtual_tabletop.task.generators import (
-    TrialFeedback,
-    TrialSpec,
-    make_generator,
-)
 
-PHASES = ("intertrial", "stimulus", "delay", "response")
-
-
-@dataclass
-class TrialRecord:
-    """One trial.
-
-    Attributes:
-        spec: The trial spec (object, pose, released arm(s), occlusion).
-        start: Sim time the trial began (s).
-        touched_at: First time a released hand touched the object during
-            the response window, or ``None``.
-        touched_by: Which arm touched first (``"left"``/``"right"``).
-        rewarded: Whether the touch was rewarded (``reward_on_touch``).
-    """
-
-    spec: TrialSpec
-    start: float
-    touched_at: float | None = None
-    touched_by: str | None = None
-    rewarded: bool = False
+#: The RL tasks: what (if anything) is rewarded in the response window.
+REWARDS = ("none", "touch", "button")
+#: How actions move the arms: servo targets under physics, or set angles.
+CONTROLS = ("position", "kinematic")
 
 
 class PresentationEnv(gym.Env):
-    """Presented objects behind a switchable occluder; the monkey acts.
+    """Presented objects; the monkey's arms act.
 
     Args:
         task: Task config name or path (timings, objects, poses, arms).
         num_trials: Trials per episode.
-        intertrial: Duration of the opaque phase that starts each trial (s).
-        reward_on_touch: End the trial with ``touch_reward`` when a released
-            hand touches the object in the response window.
-        touch_reward: Reward for such a touch.
+        intertrial: Duration of the phase that starts each trial (s).
+        response_timeout: Override the task config's response window (s);
+            the rig's 0.5 s is short for learning or for the scripted press.
+        reward: The task: ``"none"``, ``"touch"`` or ``"button"``.
+        reward_value: Reward for a rewarded response.
         include_rig: Show the rig frame CAD (cosmetic).
         joints: Monkey joints the action controls, e.g.
             ``"right/elbow_flexion"`` (default: all of both arms).
         dt: Control tick (s).
+        control: ``"position"`` (physics, servo targets) or
+            ``"kinematic"`` (set angles, no dynamics).
         render_mode: ``"rgb_array"`` or ``None``.
         camera: Render camera (``subject`` or ``overview``).
         seed: Seed for the random trial generator.
@@ -101,82 +83,110 @@ class PresentationEnv(gym.Env):
         *,
         num_trials: int = 20,
         intertrial: float = 0.5,
-        reward_on_touch: bool = False,
-        touch_reward: float = 1.0,
+        response_timeout: float | None = None,
+        reward: str = "none",
+        reward_value: float = 1.0,
         include_rig: bool = False,
         joints: list[str] | None = None,
         dt: float = 0.02,
+        control: str = "position",
         render_mode: str | None = None,
         camera: str = "subject",
         seed: int | None = None,
     ):
-        self.model = load_rl_model(include_rig)
-        self.data = mujoco.MjData(self.model)
-        scene = load_rig_scene()
-        self._objects = {o.object_id: o for o in scene.grid_objects}
-        self.config = load_foraging_config(task, available=set(self._objects))
-        self.num_trials = num_trials
-        self.intertrial = intertrial
-        self.reward_on_touch = reward_on_touch
-        self.touch_reward = touch_reward
-        self.dt = dt
-        self.render_mode = render_mode
-        self.camera = camera
+        if reward not in REWARDS:
+            raise ValueError(f"reward must be one of {REWARDS}: {reward!r}")
+        if control not in CONTROLS:
+            raise ValueError(f"control must be one of {CONTROLS}: {control!r}")
+        self.reward, self.reward_value = reward, reward_value
+        self.control, self.dt = control, dt
+        self.render_mode, self.camera = render_mode, camera
         self._seed = seed
         self._renderer = None
+        self._objects = grid_objects()
+        self.config = load_foraging_config(task, available=set(self._objects))
+        self.schedule = TrialSchedule(
+            self.config, num_trials, intertrial, response_timeout
+        )
+        self.model = load_rl_model(include_rig)
+        self.data = mujoco.MjData(self.model)
+        self.scene = PresentationScene(self.model, self.data)
+        self.sides = self.scene.sides
 
         m = self.model
-        self.sides = subject.sides_in(m)
         self.joint_names = (
-            [SUBJECT_PREFIX + j for j in joints]
+            [subject.SUBJECT_PREFIX + j for j in joints]
             if joints
             else [n for s in self.sides for n in subject.joint_names(m, s)]
         )
         ids = [m.joint(n).id for n in self.joint_names]
         self._qadr = np.array([m.jnt_qposadr[j] for j in ids])
+        self._dofadr = np.array([m.jnt_dofadr[j] for j in ids])
+        servo = {
+            m.actuator_trnid[a, 0]: a
+            for a in range(m.nu)
+            if m.actuator_trntype[a] == mujoco.mjtTrn.mjTRN_JOINT
+        }
+        self._actuators = np.array([servo[j] for j in ids])
+        self._substeps = max(1, round(dt / m.opt.timestep))
         self.action_space = gym.spaces.Box(
             m.jnt_range[ids, 0].astype(np.float32),
             m.jnt_range[ids, 1].astype(np.float32),
         )
-        n_obs = len(ids) + 3 * len(self.sides) + 3 + len(self.sides) + 2
+        self.observation_layout = self._layout()
+        size = max(s.stop for s in self.observation_layout.values())
         self.observation_space = gym.spaces.Box(
-            -np.inf, np.inf, (n_obs,), np.float32
+            -np.inf, np.inf, (size,), np.float32
         )
-        self._hands = [m.site(subject.hand_site(m, s)).id for s in self.sides]
-        self._side_bodies = {s: subject.body_ids(m, s) for s in self.sides}
-        self._stim = {s: m.body(f"stim/{s}").id for s in RL_STIMULI}
-        self._stim_mocap = {
-            s: int(m.body_mocapid[b]) for s, b in self._stim.items()
-        }
-        self._stim_geoms = {
-            s: [g for g in range(m.ngeom) if m.geom_bodyid[g] == b]
-            for s, b in self._stim.items()
-        }
-        glass = load_sim_config()["smartglass"]
-        self._glass_rgba = {
-            True: glass["revealed_rgba"],
-            False: glass["occluded_rgba"],
-        }
-        self._glass = m.geom("smartglass").id
 
-    # --- gym API ----------------------------------------------------------
+    # --- public state -------------------------------------------------------
+
+    @property
+    def num_trials(self) -> int:
+        return self.schedule.num_trials
+
+    @property
+    def trials(self) -> list[TrialRecord]:
+        return self.schedule.trials
+
+    @property
+    def trial(self) -> TrialRecord:
+        return self.schedule.trial
+
+    @property
+    def phase(self) -> str:
+        return self.schedule.phase
+
+    @property
+    def stimulus_visible(self) -> bool:
+        return self.schedule.stimulus_visible
+
+    @property
+    def stimulus(self) -> str:
+        """Geometry of the presented object (``small_object``, ...)."""
+        return self.scene.current.geometry
+
+    @property
+    def released_sides(self) -> list[str]:
+        """Subject arms free to respond now (response phase, per the spec)."""
+        return self.schedule.released(self.sides)
+
+    @property
+    def joint_positions(self) -> np.ndarray:
+        """Current angles of the controlled joints (action order)."""
+        return self.data.qpos[self._qadr].copy()
+
+    # --- gym API ------------------------------------------------------------
 
     def reset(self, *, seed: int | None = None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetDataKeyframe(
             self.model, self.data, self.model.key("home").id
         )
-        kwargs = dict(self.config.generator_kwargs, num_trials=self.num_trials)
-        self.generator = make_generator(
-            self.config.generator_class,
-            kwargs,
-            seed=self._seed if seed is None else seed,
-            prefer_feedback_group=False,  # no parallel robot arms: alternate
-        )
-        self._steps = 0
-        self._finished = False
+        self.schedule.reset(self._seed if seed is None else seed)
+        self.episode_steps = 0
         self.time = 0.0
-        self.trials: list[TrialRecord] = []
+        self._finished = False
         self._start_trial()
         mujoco.mj_forward(self.model, self.data)
         return self._obs(), self._info()
@@ -184,48 +194,44 @@ class PresentationEnv(gym.Env):
     def step(self, action):
         if self._finished:
             raise RuntimeError("The episode has ended; call reset() first")
-        self._steps += 1
-        self.time = self._steps * self.dt
-        self.data.qpos[self._qadr] = np.clip(
-            action, self.action_space.low, self.action_space.high
-        )
-        self._update_phase()
-        mujoco.mj_forward(self.model, self.data)
+        self.episode_steps += 1
+        self.time = self.episode_steps * self.dt
+        target = np.clip(action, self.action_space.low, self.action_space.high)
+        self.schedule.update(self.time)
+        if self.control == "kinematic":
+            self.data.qpos[self._qadr] = target
+            mujoco.mj_forward(self.model, self.data)
+        else:
+            self.data.ctrl[self._actuators] = target
+            mujoco.mj_step(self.model, self.data, self._substeps)
 
         reward, trial_ended = 0.0, False
-        touched_by = self._touching_sides()
-        if (
-            self.phase == "response"
-            and touched_by
-            and self.trial.touched_at is None
-        ):
-            self.trial.touched_at = self.time
-            self.trial.touched_by = touched_by[0]
-            if self.reward_on_touch:
-                self.trial.rewarded = True
-                reward, trial_ended = self.touch_reward, True
-        if (
-            self.phase == "response"
-            and self.phase_time >= self._phase_durations["response"] - 1e-9
-        ):
-            trial_ended = True
+        trial, released = self.trial, self.released_sides
+        touched_by = self.scene.touching_sides(released)
+        pressed_by = self.scene.pressing_sides(released)
+        if touched_by and trial.touched_at is None:
+            trial.touched_at, trial.touched_by = self.time, touched_by[0]
+        if pressed_by and trial.pressed_at is None:
+            trial.pressed_at, trial.pressed_by = self.time, pressed_by[0]
+        if {"touch": touched_by, "button": pressed_by}.get(self.reward):
+            trial.rewarded = True
+            reward, trial_ended = self.reward_value, True
+        trial_ended = trial_ended or self.schedule.response_over
 
         terminated = False
         if trial_ended:
-            ended = self.trial
-            feedback = TrialFeedback(
-                reaction_time=None
-                if ended.touched_at is None
-                else ended.touched_at - (self.time - self.phase_time),
-                timeout=not ended.rewarded,
+            responded_at = (
+                trial.pressed_at
+                if self.reward == "button"
+                else trial.touched_at
             )
-            self.generator.send(ended.spec, feedback)
-            if len(self.trials) >= self.num_trials:
+            self.schedule.finish(self.time, responded_at)
+            if self.schedule.last:
                 terminated = self._finished = True
             else:
                 self._start_trial()
                 mujoco.mj_forward(self.model, self.data)
-        info = self._info(touched_by=touched_by, trial_ended=trial_ended)
+        info = self._info(touched_by, pressed_by, trial_ended)
         return self._obs(), reward, terminated, False, info
 
     def render(self):
@@ -241,102 +247,72 @@ class PresentationEnv(gym.Env):
             self._renderer.close()
             self._renderer = None
 
-    # --- trial logic ------------------------------------------------------
+    # --- internals ----------------------------------------------------------
 
     def _start_trial(self) -> None:
-        spec = next(self.generator)
-        self.trial = TrialRecord(spec, self.time)
-        self.trials.append(self.trial)
-        self._trial_start = self.time
-        cfg = self.config
-        self._phase_durations = {
-            "intertrial": self.intertrial,
-            "stimulus": cfg.stimulus_duration,
-            "delay": cfg.delay_duration,
-            "response": cfg.response_timeout,
-        }
+        spec = self.schedule.start(self.time).spec
         obj = self._objects[spec.object_id]
-        self.stimulus = obj.mesh_path.resolve().stem
-        for stem, mocap in self._stim_mocap.items():
-            if stem == self.stimulus:
-                self.data.mocap_pos[mocap] = spec.object_pose.position
-                self.data.mocap_quat[mocap] = spec.object_pose.quat
-            else:
-                self.data.mocap_pos[mocap] = RL_PARKED
-        for g in self._stim_geoms[self.stimulus]:
-            self.model.geom_rgba[g] = (*obj.rgba[:3], 1.0)
-        self._update_phase()
-
-    def _update_phase(self) -> None:
-        elapsed = self.time - self._trial_start
-        for phase in PHASES:
-            duration = self._phase_durations[phase]
-            if elapsed < duration - 1e-9 or phase == "response":
-                self.phase, self.phase_time = phase, elapsed
-                break
-            elapsed -= duration
-        revealed = self.phase == "stimulus" or (
-            self.phase in ("delay", "response") and not self.trial.spec.occlude
+        self.scene.show(
+            object_geometry(spec.object_id), spec.object_pose, obj.rgba
         )
-        self.glass_revealed = revealed
-        self.model.geom_rgba[self._glass] = self._glass_rgba[revealed]
 
-    def _touching_sides(self) -> list[str]:
-        """Released arms in contact with the presented object."""
-        released = self.released_sides
-        if not released:
-            return []
-        target = self._stim[self.stimulus]
-        m, d = self.model, self.data
-        sides = []
-        for i in range(d.ncon):
-            bodies = {
-                m.geom_bodyid[d.contact[i].geom1],
-                m.geom_bodyid[d.contact[i].geom2],
-            }
-            if target not in bodies:
-                continue
-            for side in released:
-                if bodies & self._side_bodies[side] and side not in sides:
-                    sides.append(side)
-        return sides
+    def observation_parts(self) -> list[tuple[str, int]]:
+        """The observation's parts, in order: ``(name, size)``.
 
-    # --- observations -----------------------------------------------------
+        - ``joint_positions``, ``joint_velocities``: controlled joints
+          (action order; velocities are 0 with kinematic control);
+        - ``fingertip_<side>``: each arm's middle fingertip (world, m);
+        - ``object_position``: the presented object's base centre;
+        - ``button_position``: the top centre of its button;
+        - ``released_<side>``: 1 while that arm may respond;
+        - ``stimulus_visible``: 1 if the rig's glass would be clear;
+        - ``phase_time_left``: seconds left in the current phase.
+        """
+        n = len(self.joint_names)
+        return [
+            ("joint_positions", n),
+            ("joint_velocities", n),
+            *((f"fingertip_{s}", 3) for s in self.sides),
+            ("object_position", 3),
+            ("button_position", 3),
+            *((f"released_{s}", 1) for s in self.sides),
+            ("stimulus_visible", 1),
+            ("phase_time_left", 1),
+        ]
 
-    @property
-    def released_sides(self) -> list[str]:
-        """Subject arms free to respond (response phase, per the spec)."""
-        if self.phase != "response":
-            return []
-        arm = self.trial.spec.arm
-        wanted = self.sides if arm == "both" else [arm]
-        return [s for s in self.sides if s in wanted]
-
-    @property
-    def target_position(self) -> np.ndarray:
-        return self.data.xpos[self._stim[self.stimulus]].copy()
+    def _layout(self) -> dict[str, slice]:
+        layout, start = {}, 0
+        for name, size in self.observation_parts():
+            layout[name] = slice(start, start + size)
+            start += size
+        return layout
 
     def _obs(self) -> np.ndarray:
-        remaining = self._phase_durations[self.phase] - self.phase_time
         released = self.released_sides
+        parts = {
+            "joint_positions": self.data.qpos[self._qadr],
+            "joint_velocities": self.data.qvel[self._dofadr],
+            "object_position": self.scene.object_position,
+            "button_position": self.scene.button_position,
+            "stimulus_visible": [float(self.stimulus_visible)],
+            "phase_time_left": [self.schedule.time_left],
+        }
+        for side in self.sides:
+            parts[f"fingertip_{side}"] = self.scene.hand_position(side)
+            parts[f"released_{side}"] = [float(side in released)]
         return np.concatenate(
-            [
-                self.data.qpos[self._qadr],
-                self.data.site_xpos[self._hands].ravel(),
-                self.target_position,
-                [float(s in released) for s in self.sides],
-                [float(self.glass_revealed), remaining],
-            ]
+            [parts[name] for name in self.observation_layout]
         ).astype(np.float32)
 
-    def _info(self, touched_by=(), trial_ended: bool = False) -> dict:
+    def _info(self, touched_by=(), pressed_by=(), trial_ended=False) -> dict:
         return {
             "time": self.time,
-            "trial": len(self.trials) - 1,
+            "trial": self.schedule.index,
             "object_id": self.trial.spec.object_id,
             "arm": self.trial.spec.arm,
             "phase": self.phase,
             "touched_by": list(touched_by),
+            "pressed_by": list(pressed_by),
             "trial_ended": trial_ended,
         }
 
@@ -345,12 +321,14 @@ class PresentationEnv(gym.Env):
         spec, trial = self.trial.spec, self.trial
         extra = ""
         if trial.touched_at is not None:
-            extra = f"  TOUCH({trial.touched_by})"
-            if trial.rewarded:
-                extra += " REWARD"
+            extra += f"  TOUCH({trial.touched_by})"
+        if trial.pressed_at is not None:
+            extra += f"  PRESS({trial.pressed_by})"
+        if trial.rewarded:
+            extra += " REWARD"
+        visible = "visible" if self.stimulus_visible else "hidden"
         return (
-            f"t={self.time:6.2f}s  trial {len(self.trials) - 1}/"
-            f"{self.num_trials}  {spec.object_id}  arm:{spec.arm}  "
-            f"{self.phase}  glass:{'clear' if self.glass_revealed else 'opaque'}"
-            f"{extra}"
+            f"[{self.reward}] t={self.time:6.2f}s  trial "
+            f"{self.schedule.index}/{self.num_trials}  {spec.object_id}  "
+            f"arm:{spec.arm}  {self.phase}  stimulus:{visible}{extra}"
         )

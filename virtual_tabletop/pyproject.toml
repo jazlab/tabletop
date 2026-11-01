@@ -24,7 +24,11 @@ dependencies = [
 cad = ["cascadio"]
 
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = [
+    "matplotlib>=3.11.2",
+    "pytest",
+    "ruff",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -40,3 +44,12 @@ vtt-replay = "virtual_tabletop.replay.player:main"
 vtt-clips = "virtual_tabletop.task.motion:main"
 vtt-parity = "virtual_tabletop.task.parity:main"
 vtt-rl-demo = "virtual_tabletop.rl.demo:main"
+vtt-arm-explorer = "virtual_tabletop.design.arm_explorer:main"
+vtt-arm-report = "virtual_tabletop.design.arm_report:main"
+vtt-object-sheets = "virtual_tabletop.design.object_sheets:main"
+vtt-button-reach = "virtual_tabletop.design.button_reach:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: multi-second tests (optimisation, long episodes); skip with -m 'not slow'",
+]

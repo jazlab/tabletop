@@ -25,8 +25,8 @@ import mujoco
 import numpy as np
 
 from virtual_tabletop import paths
-from virtual_tabletop.assets.build import ROBOT_KP
 from virtual_tabletop.assets.named_poses import load_named_poses
+from virtual_tabletop.assets.rig_model import ROBOT_KP
 from virtual_tabletop.bags.topics import TaskEventType
 from virtual_tabletop.replay.timeline import Timeline, build_timeline
 
@@ -345,7 +345,7 @@ def load_library(path: Path = DEFAULT_LIBRARY) -> MotionLibrary:
 def main() -> None:
     import argparse
 
-    from virtual_tabletop.assets.build import load_model
+    from virtual_tabletop.assets.rig_model import load_rig_model
 
     parser = argparse.ArgumentParser(
         description="Cut robot motion clips from recorded sessions."
@@ -353,7 +353,7 @@ def main() -> None:
     parser.add_argument("bags", nargs="+", type=Path)
     parser.add_argument("-o", "--output", type=Path, default=DEFAULT_LIBRARY)
     args = parser.parse_args()
-    library = build_library(args.bags, load_model())
+    library = build_library(args.bags, load_rig_model())
     library.save(args.output)
     print(f"{len(library)} clips -> {args.output}")
     for arm in GROUPS:

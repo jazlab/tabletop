@@ -13,7 +13,12 @@
 # limitations under the License.
 # ============================================================================
 
-"""Functions for computing inverse kinematics on MuJoCo models."""
+"""Functions for computing inverse kinematics on MuJoCo models.
+
+Adapted from dm_control's ``dm_control/utils/inverse_kinematics.py``
+(Apache 2.0, licence above): plain MuJoCo bindings instead of dm_control's
+physics wrapper, stdlib logging, and joint types compared as ints.
+"""
 
 import collections
 import logging

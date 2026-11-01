@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from bags_test import JOINT_STATE_MSGDEF
 from mcap_ros2.writer import Writer
-from virtual_tabletop.assets import build, named_poses
+from virtual_tabletop.assets import named_poses, rig_model
 from virtual_tabletop.replay.objects import ObjectTracker
 from virtual_tabletop.replay.timeline import build_timeline
 
@@ -55,7 +55,7 @@ def test_tracker_rotation_follows_eef():
 
 @pytest.fixture(scope="module")
 def model():
-    return build.load_model(build.build())
+    return rig_model.load_rig_model(rig_model.build_rig_model())
 
 
 def _left_qpos_at_object(model, object_id: str) -> dict[str, float]:

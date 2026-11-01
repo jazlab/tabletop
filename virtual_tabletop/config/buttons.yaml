@@ -1,0 +1,34 @@
+# Response buttons on the task objects (RL model only). One entry per
+# distinct object geometry (mesh stem). Positions are in the object frame
+# (the mesh's own frame): origin at the centre of the base, +z up; at the
+# presentation pose +x faces the monkey and +y is the subject's right.
+# Meters. See `uv run vtt-object-sheets` for drawings of each geometry.
+#
+# Placement chosen by the user, 2026-10-31.
+
+buttons:
+  small_object:
+    # Centre of the cup's inner floor (flat at z 0.0275 inside a raised
+    # ring of radius 0.0157).
+    position: [0.0, 0.0, 0.0275]
+    normal: [0.0, 0.0, 1.0]
+    radius: 0.015
+    height: 0.004
+    rgba: [0.85, 0.1, 0.1, 1.0]
+  big_object:
+    # Centre of the drum's top face.
+    position: [0.0, 0.0, 0.117]
+    normal: [0.0, 0.0, 1.0]
+    radius: 0.015
+    height: 0.004
+    rgba: [0.85, 0.1, 0.1, 1.0]
+
+# Collision shapes for geometries whose convex hull would hide a button
+# (MuJoCo collides meshes as their convex hull, which fills the cup).
+# The mesh stays as the visual; these primitives replace its collision.
+hollow:
+  small_object:
+    # Solid lower body up to the floor, then a wall ring up to the rim.
+    base: {radius: 0.0315, z: [-0.006, 0.0275]}
+    wall: {inner_radius: 0.0315, outer_radius: 0.040, z: [0.0275, 0.084]}
+    segments: 24

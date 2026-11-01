@@ -21,8 +21,14 @@ CACHE_DIR = Path(
 #: Generated MuJoCo model output directory.
 GENERATED_DIR = CACHE_DIR / "generated"
 
-#: Sim-only rig details (subject placement, smartglass, part colors).
-SIM_CONFIG = PROJECT_DIR / "config" / "sim_rig.yaml"
+#: The virtual tabletop's own configuration (see documentation/configuration.md).
+CONFIG_DIR = PROJECT_DIR / "config"
+#: Sim-only rig details (smartglass, part colours).
+RIG_CONFIG = CONFIG_DIR / "rig.yaml"
+#: The monkey: arm file, shoulder placements per model, RL actuation.
+SUBJECT_CONFIG = CONFIG_DIR / "subject.yaml"
+#: Response buttons on the task objects (RL model).
+BUTTONS_CONFIG = CONFIG_DIR / "buttons.yaml"
 
 ROS_TABLETOP_DIR = REPO_DIR / "src" / "ros" / "tabletop"
 TABLETOP_DESCRIPTION_DIR = ROS_TABLETOP_DIR / "tabletop_description"

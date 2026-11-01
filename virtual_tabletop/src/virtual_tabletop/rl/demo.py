@@ -1,8 +1,9 @@
-"""Watch the RL presentation task played by a scripted (or idle) monkey.
+"""Watch an RL task played by a scripted (or idle) monkey.
 
 Interactive (macOS re-launches itself under ``mjpython``)::
 
-    uv run vtt-rl-demo [--rig] [--reward-on-touch] [--policy reach|still]
+    uv run vtt-rl-demo [--reward none|touch|button] [--rig]
+        [--policy scripted|still] [--response-timeout S]
 
 Video instead::
 
@@ -12,24 +13,23 @@ Keys in the viewer: space pause/resume, R restart, =/- faster/slower.
 """
 
 import argparse
-import os
-import sys
-import time
 from pathlib import Path
 
 import mujoco
 
-from virtual_tabletop.policies import ReachPolicy
-from virtual_tabletop.rl.env import PresentationEnv
+from virtual_tabletop import viewer
+from virtual_tabletop.rl.env import REWARDS, PresentationEnv
+from virtual_tabletop.rl.policies import scripted_policy
 
-KEY_SPACE, KEY_R, KEY_EQUAL, KEY_MINUS = 32, 82, 61, 45
+#: Seconds the viewer lingers on the end of an episode before restarting.
+END_PAUSE = 1.0
 
 
 def make_policy(env: PresentationEnv, name: str):
-    if name == "reach":
-        return ReachPolicy(env)
+    if name == "scripted":
+        return scripted_policy(env)
     if name == "still":
-        return lambda obs: env.data.qpos[env._qadr].copy()
+        return lambda obs: env.joint_positions
     raise ValueError(f"Unknown policy {name}")
 
 
@@ -55,70 +55,40 @@ def render_video(env, policy_name: str, output: Path, fps: int = 30) -> Path:
 
 
 def run_viewer(env, policy_name: str) -> None:
-    import mujoco.viewer
-
-    state = {"paused": False, "speed": 1.0, "restart": False}
+    playback = viewer.Playback()
+    state = {"restart": True, "budget": 0.0, "linger": 0.0, "done": False}
 
     def on_key(key: int) -> None:
-        if key == KEY_SPACE:
-            state["paused"] = not state["paused"]
-        elif key == KEY_R:
+        if not playback.on_key(key) and key == viewer.KEY_R:
             state["restart"] = True
-        elif key == KEY_EQUAL:
-            state["speed"] = min(state["speed"] * 2, 16.0)
-        elif key == KEY_MINUS:
-            state["speed"] = max(state["speed"] / 2, 0.125)
 
-    obs, _ = env.reset()
-    policy = make_policy(env, policy_name)
-    with mujoco.viewer.launch_passive(
-        env.model, env.data, key_callback=on_key
-    ) as v:
-        v.cam.lookat[:] = (0.95, 0.25, 0.65)
-        v.cam.distance, v.cam.azimuth, v.cam.elevation = 1.4, -60, -20
-        last, budget, done = time.monotonic(), 0.0, False
-        while v.is_running():
-            now = time.monotonic()
-            if not state["paused"]:
-                budget += (now - last) * state["speed"]
-            last = now
-            if done:
-                time.sleep(1.0)  # show the end of the episode briefly
-                last = time.monotonic()
-            # Change the shared model/data only while holding the viewer
-            # lock, but never call viewer methods (set_texts, sync) inside
-            # it: they take the same lock and would deadlock the viewer.
-            with v.lock():
-                if state["restart"] or done:
-                    obs, _ = env.reset()
-                    policy = make_policy(env, policy_name)
-                    state["restart"], done, budget = False, False, 0.0
-                while budget >= env.dt and not done:
-                    obs, _, terminated, truncated, _ = env.step(policy(obs))
-                    done = terminated or truncated
-                    budget -= env.dt
-                status = env.status_text() + f"  x{state['speed']:g}"
-            v.set_texts(
-                (
-                    mujoco.mjtFontScale.mjFONTSCALE_150,
-                    mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                    status,
-                    "",
-                )
+    def update(wall_dt: float) -> str:
+        if state["done"]:  # show the end of the episode briefly
+            state["linger"] -= wall_dt
+            if state["linger"] > 0:
+                return env.status_text()
+            state["restart"] = True
+        if state["restart"]:
+            state["obs"], _ = env.reset()
+            state["policy"] = make_policy(env, policy_name)
+            state.update(restart=False, done=False, budget=0.0)
+        state["budget"] += playback.advance(wall_dt)
+        while state["budget"] >= env.dt and not state["done"]:
+            state["obs"], _, terminated, truncated, _ = env.step(
+                state["policy"](state["obs"])
             )
-            v.sync()
-            time.sleep(1 / 60)
+            state["done"] = terminated or truncated
+            state["budget"] -= env.dt
+        if state["done"]:
+            state["linger"] = END_PAUSE
+        return env.status_text() + f"  x{playback.speed:g}"
 
+    def camera(cam: mujoco.MjvCamera) -> None:
+        cam.lookat[:] = (0.95, 0.25, 0.65)
+        cam.distance, cam.azimuth, cam.elevation = 1.4, -60, -20
 
-def _ensure_mjpython() -> None:
-    """On macOS, re-run under mjpython (MuJoCo's viewer needs it)."""
-    if sys.platform != "darwin" or os.environ.get("VTT_UNDER_MJPYTHON"):
-        return
-    mjpython = Path(sys.executable).with_name("mjpython")
-    os.environ["VTT_UNDER_MJPYTHON"] = "1"
-    os.execv(
-        mjpython,
-        [str(mjpython), "-m", "virtual_tabletop.rl.demo", *sys.argv[1:]],
+    viewer.run_passive(
+        env.model, env.data, update, on_key=on_key, setup_camera=camera
     )
 
 
@@ -127,9 +97,20 @@ def main() -> None:
     parser.add_argument("--task", default="foraging_ordered")
     parser.add_argument("--trials", type=int, default=10)
     parser.add_argument(
-        "--policy", choices=["reach", "still"], default="reach"
+        "--policy", choices=["scripted", "still"], default="scripted"
     )
-    parser.add_argument("--reward-on-touch", action="store_true")
+    parser.add_argument(
+        "--reward",
+        choices=REWARDS,
+        default="none",
+        help="the task: no reward, reward on touch, or on button press",
+    )
+    parser.add_argument(
+        "--response-timeout",
+        type=float,
+        help="response window (s); default: the task config's, or 3 s for "
+        "the button task (the scripted press needs about 1.5 s)",
+    )
     parser.add_argument(
         "--rig", action="store_true", help="show the rig frame"
     )
@@ -137,20 +118,25 @@ def main() -> None:
     parser.add_argument("--video", type=Path, help="render to this file")
     args = parser.parse_args()
     if not args.video:
-        _ensure_mjpython()
+        viewer.ensure_mjpython("virtual_tabletop.rl.demo")
     env = PresentationEnv(
         args.task,
         num_trials=args.trials,
-        reward_on_touch=args.reward_on_touch,
+        reward=args.reward,
+        response_timeout=args.response_timeout
+        or (3.0 if args.reward == "button" else None),
         include_rig=args.rig,
         camera=args.camera,
     )
     if args.video:
         print(render_video(env, args.policy, args.video))
-        rewarded = sum(t.rewarded for t in env.trials)
-        touched = sum(t.touched_at is not None for t in env.trials)
+        trials = env.trials
+        touched = sum(t.touched_at is not None for t in trials)
+        pressed = sum(t.pressed_at is not None for t in trials)
+        rewarded = sum(t.rewarded for t in trials)
         print(
-            f"{len(env.trials)} trials, {touched} touched, {rewarded} rewarded"
+            f"{len(trials)} trials, {touched} touched, {pressed} pressed,"
+            f" {rewarded} rewarded"
         )
     else:
         run_viewer(env, args.policy)

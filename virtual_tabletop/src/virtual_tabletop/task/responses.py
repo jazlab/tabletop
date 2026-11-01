@@ -8,18 +8,13 @@ instead:
   ``uniform(min_delay, max_delay)`` s; ``flic.py`` with ``simulate:=true``);
 - :class:`ScheduledResponse`: fixed reaction times per trial, e.g. taken
   from a bag for parity checks;
-- :class:`HandContactResponse`: a released monkey arm touching the
-  presented object (contact), the response a policy has to earn;
 - :class:`NoResponse`: every trial times out.
 """
 
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-import mujoco
 import numpy as np
-
-from virtual_tabletop.assets import subject
 
 if TYPE_CHECKING:
     from virtual_tabletop.task.sim import ForagingSim, Presentation
@@ -79,47 +74,3 @@ class ScheduledResponse(ResponseModel):
 
     def pressed(self, sim, presentation):
         return self._press_at is not None and sim.time >= self._press_at
-
-
-class HandContactResponse(ResponseModel):
-    """A released monkey arm touching the presented object counts as a press.
-
-    Only arms released for this trial count (``sim.arm_locked``).
-    """
-
-    def __init__(self):
-        self._bodies: dict[str, set[int]] | None = None
-
-    def pressed(self, sim, presentation):
-        model, data = sim.model, sim.data
-        if self._bodies is None:
-            self._bodies = {
-                side: subject.body_ids(model, side)
-                for side in subject.sides_in(model)
-            }
-        free = set().union(
-            *(
-                b
-                for side, b in self._bodies.items()
-                if not sim.arm_locked[side]
-            )
-        )
-        if not free:
-            return False
-        target = model.body(presentation.spec.object_id).id
-        for i in range(data.ncon):
-            contact = data.contact[i]
-            bodies = {
-                model.geom_bodyid[contact.geom1],
-                model.geom_bodyid[contact.geom2],
-            }
-            if target in bodies and bodies & free:
-                return True
-        return False
-
-
-def subject_bodies(model: mujoco.MjModel, prefix: str) -> set[int]:
-    """Body ids of the attached monkey arm."""
-    return {
-        b for b in range(model.nbody) if model.body(b).name.startswith(prefix)
-    }
