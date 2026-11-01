@@ -20,7 +20,8 @@ decodes MCAP bags with the schemas embedded in them. It never imports ROS.
    ┌─────────────┴─────────────┐                     rl/  (env, scene, trials,
  replay/                    task/                         policies, press_paths)
  bag → playback          foraging on sim time,                 │
- (vtt-replay)            parity vs bags                  RL agents, vtt-rl-demo
+ (vtt-replay)            parity vs bags                  vtt-rl-demo; training/
+                         (vtt-clips, vtt-parity)         (PPO: vtt-rl-train, vtt-rl-eval)
                          (vtt-clips, vtt-parity)
    bags/: MCAP reading (vtt-bag-info), used by replay/ and task/
 
@@ -50,6 +51,7 @@ decodes MCAP bags with the schemas embedded in them. It never imports ROS.
 | `buttons/` | button config and model additions (incl. the cup's hollow collision) | |
 | `rl/` | `PresentationEnv` (Gymnasium) and its scene, trial schedule, scripted policies, press-path planner | `vtt-rl-demo` |
 | `design/` | arm explorer, arm report, object sheets, button reach | `vtt-arm-explorer`, `vtt-arm-report`, `vtt-object-sheets`, `vtt-button-reach` |
+| `training/` | RL training (optional `rl` extra): wrappers (delta actions, reach shaping), run configs, PPO, evaluation | `vtt-rl-train`, `vtt-rl-eval` |
 | `viewer.py` | MuJoCo passive-viewer loop (and its locking rule), macOS `mjpython` re-launch, playback keys | |
 | `ik.py` | damped least-squares IK (adapted from dm_control) | |
 
@@ -69,7 +71,9 @@ sim; how-to 2).
 | `vtt-arm-explorer` | pose the arms with sliders |
 | `vtt-arm-report` | sweep videos, workspace, joint ablation |
 | `vtt-object-sheets` | drawings of each object geometry |
-| `vtt-button-reach [--scan]` | button reachability vs shoulder placement |
+| `vtt-button-reach [--offset F U] [--scan]` | button reachability (every pose, both arms) vs shoulder placement |
+| `vtt-rl-train CONFIG` | train PPO on an RL task |
+| `vtt-rl-eval RUN [--baselines] [--video F]` | evaluate a trained policy (and baselines) |
 
 ## Conventions
 
@@ -94,6 +98,7 @@ sim; how-to 2).
 | `ur_description/` | the UR description package, pinned commit | `vtt-build`, on demand |
 | `motion/library.npz` | robot motion clips | `vtt-clips` |
 | `arm_report/`, `object_sheets/` | design-tool outputs | `vtt-arm-report`, `vtt-object-sheets` |
+| `runs/<name>/` | training runs (config, logs, policy, evaluation, video) | `vtt-rl-train`, `vtt-rl-eval` |
 
 ## Known gaps
 
@@ -102,8 +107,11 @@ sim; how-to 2).
 - The smartglass pane's extent is assumed (it isn't in the CAD).
 - Objects left at the reset stations, and failed grasps, aren't tracked in
   replay.
-- The shipped tasks present every object at one pose; tools that need "the"
-  presentation pose take the first trial's (`rl.scene.presentation_pose`).
+- `foraging_ordered` presents at three poses (centred; 5 cm either side,
+  tilted). Its own order cycles them only every ~78 trials, so RL training
+  samples trials randomly (`trial_order="random"`). Tools showing "the"
+  pose use the first (`rl.scene.presentation_pose`); press paths and
+  reachability cover all three.
 - `tabletop_tasks/config/foraging_random.yaml` lists objects that aren't on
   the grid in `commander.yaml`; they're dropped as unavailable.
 - RL actuation (servo gains, torque limit, gravity compensation) and the

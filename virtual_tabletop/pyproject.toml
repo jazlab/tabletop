@@ -22,6 +22,10 @@ dependencies = [
 [project.optional-dependencies]
 # STEP -> mesh conversion for the rig CAD files
 cad = ["cascadio"]
+rl = [
+    "stable-baselines3>=2.4",
+    "tensorboard>=2.21.0",
+]
 
 [dependency-groups]
 dev = [
@@ -48,6 +52,8 @@ vtt-arm-explorer = "virtual_tabletop.design.arm_explorer:main"
 vtt-arm-report = "virtual_tabletop.design.arm_report:main"
 vtt-object-sheets = "virtual_tabletop.design.object_sheets:main"
 vtt-button-reach = "virtual_tabletop.design.button_reach:main"
+vtt-rl-train = "virtual_tabletop.training.train:main"
+vtt-rl-eval = "virtual_tabletop.training.evaluate:main"
 
 [tool.pytest.ini_options]
 markers = [

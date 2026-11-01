@@ -106,7 +106,9 @@ def test_physics_keeps_the_hand_out_of_the_object():
 
 
 def test_kinematic_control_sets_angles_directly():
-    env = PresentationEnv(num_trials=1, control="kinematic", seed=0)
+    env = PresentationEnv(
+        num_trials=1, control="kinematic", lock_arms=False, seed=0
+    )
     env.reset(seed=0)
     target = env.joint_positions
     target[env.joint_names.index("monkey/right/elbow_flexion")] = 1.0
@@ -141,3 +143,34 @@ def test_scripted_policy_matches_the_task():
     assert type(scripted_policy(PresentationEnv(reward="touch"))) is (
         ReachPolicy
     )
+
+
+def test_locked_arms_stay_at_rest_until_released():
+    env = PresentationEnv(
+        num_trials=1, control="kinematic", arms=["right"], seed=0
+    )
+    env.reset(seed=0)
+    elbow = env.joint_names.index("monkey/right/elbow_flexion")
+    reach = env.joint_positions
+    reach[elbow] = 1.0
+    env.step(reach)
+    while env.phase != "response":
+        assert env.joint_positions[elbow] == 0.0  # locked
+        env.step(reach)
+    assert env.joint_positions[elbow] == pytest.approx(1.0)  # released
+
+
+def test_random_order_samples_poses_and_honours_arm_override():
+    env = PresentationEnv(
+        num_trials=60, trial_order="random", arms=["right"], seed=0
+    )
+    env.reset(seed=0)
+    specs = []
+    for _ in range(60):
+        specs.append(env.trial.spec)
+        env.schedule.finish(env.time, None)
+        if not env.schedule.last:
+            env.schedule.start(env.time)
+    assert {s.arm for s in specs} == {"right"}
+    assert len({s.object_pose.position for s in specs}) == 3
+    assert len({s.object_id for s in specs}) > 10

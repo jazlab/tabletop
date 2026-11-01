@@ -9,8 +9,9 @@ collision geoms (e.g. the cup's walls). Kinematic only.
 - :meth:`PressPlanner.press_path`: waypoints coming down onto the button
   along its normal, each free of overlap (the scripted button policy follows
   them);
-- :func:`load_press_paths`: every (geometry, arm) path, cached in
-  ``<cache>/press_paths/`` keyed by the RL model's contents.
+- :func:`load_press_paths`: every (geometry, arm, presentation pose) path,
+  cached in ``<cache>/press_paths/`` keyed by the RL model's contents and
+  the poses.
 
 The design tool ``vtt-button-reach`` uses the same planner to check
 reachability and scan shoulder placements.
@@ -25,12 +26,20 @@ from scipy.optimize import minimize
 
 from virtual_tabletop import paths
 from virtual_tabletop.assets import subject
+from virtual_tabletop.assets.rig_config import Pose
 from virtual_tabletop.assets.rl_model import load_rl_model, rl_model_path
-from virtual_tabletop.rl.scene import PresentationScene, presentation_pose
+from virtual_tabletop.rl.scene import (
+    PresentationScene,
+    pose_key,
+    presentation_pose,
+    presentation_poses,
+)
 
-#: Heights above the button (along its normal) of the press path's
-#: waypoints (m); the last one presses.
-PRESS_HEIGHTS = (0.09, 0.06, 0.04, 0.02, 0.0)
+#: Heights above the button's top (along its normal) of the press path's
+#: waypoints (m). The last one is 5 mm *into* the button, so that under
+#: physics the servos press on it (a target exactly at its surface leaves
+#: the finger resting a hair above it).
+PRESS_HEIGHTS = (0.09, 0.06, 0.04, 0.02, -0.005)
 
 PATH_CACHE = paths.CACHE_DIR / "press_paths"
 
@@ -84,9 +93,9 @@ class PressPlanner:
         for side, body in self.roots.items():
             self.model.body_pos[body] = self.root_pos[side] + (0, dy, dz)
 
-    def _show(self, geometry: str, side: str) -> None:
+    def _show(self, geometry: str, side: str, pose: Pose | None) -> None:
         m, d = self.model, self.data
-        self.scene.show(geometry, self.pose)
+        self.scene.show(geometry, pose or self.pose)
         self.side = side
         self.joints = subject.arm_joint_names(m, side)
         self.addrs = np.array([m.joint(n).qposadr[0] for n in self.joints])
@@ -140,10 +149,16 @@ class PressPlanner:
         ]
 
     def solve(
-        self, geometry: str, side: str = "right", starts=48, seed=0
+        self,
+        geometry: str,
+        side: str = "right",
+        starts=48,
+        seed=0,
+        pose: Pose | None = None,
     ) -> Posture:
-        """The best posture pressing ``geometry``'s button with ``side``."""
-        self._show(geometry, side)
+        """The best posture pressing ``geometry``'s button with ``side``
+        (object at ``pose``; default the task's first pose)."""
+        self._show(geometry, side, pose)
         return self._posture(self._optimise(self._random_inits(starts, seed)))
 
     def press_path(
@@ -153,6 +168,7 @@ class PressPlanner:
         heights=PRESS_HEIGHTS,
         starts=48,
         seed=0,
+        pose: Pose | None = None,
     ) -> list[Posture]:
         """Waypoints (highest first) down onto the button, free of overlap.
 
@@ -160,7 +176,7 @@ class PressPlanner:
         warm-started from the one below it, so consecutive postures stay
         close (no swinging through the walls in between).
         """
-        self._show(geometry, side)
+        self._show(geometry, side, pose)
         path, q = [], None
         for height in sorted(heights):
             self.target = self.button_top + height * self.normal
@@ -171,46 +187,55 @@ class PressPlanner:
 
 
 def load_press_paths(
-    heights=PRESS_HEIGHTS,
-) -> dict[tuple[str, str], list[dict[str, float]]]:
-    """Press paths (joint angles per waypoint) for every geometry and arm.
+    task: str = "foraging_ordered", heights=PRESS_HEIGHTS
+) -> dict[tuple[str, str, str], list[dict[str, float]]]:
+    """Press paths (joint angles per waypoint), by
+    ``(geometry, side, pose_key(pose))`` for every pose of ``task``.
 
-    Planned once (a few seconds) and cached, keyed by the RL model file's
-    contents, so any change to the model (placement, buttons, arm) replans.
+    Planned once (about 20 s) and cached, keyed by the RL model file's
+    contents and the poses, so any change (placement, buttons, arm, task
+    poses) replans.
     """
     model_file = rl_model_path()
     if not model_file.exists():
         load_rl_model()  # builds it
-    digest = hashlib.sha1(model_file.read_bytes() + repr(heights).encode())
+    poses = presentation_poses(task)
+    digest = hashlib.sha1(
+        model_file.read_bytes()
+        + repr(heights).encode()
+        + repr([pose_key(p) for p in poses]).encode()
+    )
     key = digest.hexdigest()[:16]
     cache = PATH_CACHE / f"{key}.npz"
     if cache.exists():
         with np.load(cache) as saved:
             return _unpack(saved)
-    planner = PressPlanner()
+    planner = PressPlanner(task)
     arrays = {}
-    for geometry in planner.scene.stimuli:
-        for side in planner.scene.sides:
-            path = planner.press_path(geometry, side, heights)
-            names = list(path[0].angles)
-            arrays[f"{geometry}|{side}|joints"] = np.array(names)
-            arrays[f"{geometry}|{side}|angles"] = np.array(
-                [[p.angles[n] for n in names] for p in path]
-            )
+    for pose in poses:
+        for geometry in planner.scene.stimuli:
+            for side in planner.scene.sides:
+                path = planner.press_path(geometry, side, heights, pose=pose)
+                names = list(path[0].angles)
+                name = f"{geometry}|{side}|{pose_key(pose)}"
+                arrays[f"{name}|joints"] = np.array(names)
+                arrays[f"{name}|angles"] = np.array(
+                    [[p.angles[n] for n in names] for p in path]
+                )
     PATH_CACHE.mkdir(parents=True, exist_ok=True)
     np.savez(cache, **arrays)
     return _unpack(arrays)
 
 
-def _unpack(arrays) -> dict[tuple[str, str], list[dict[str, float]]]:
+def _unpack(arrays) -> dict[tuple[str, str, str], list[dict[str, float]]]:
     paths_ = {}
     for name in arrays:
-        geometry, side, kind = name.split("|")
+        geometry, side, pose, kind = name.split("|")
         if kind != "joints":
             continue
         joints = [str(j) for j in arrays[name]]
-        angles = arrays[f"{geometry}|{side}|angles"]
-        paths_[geometry, side] = [
+        angles = arrays[f"{geometry}|{side}|{pose}|angles"]
+        paths_[geometry, side, pose] = [
             dict(zip(joints, map(float, row), strict=True)) for row in angles
         ]
     return paths_

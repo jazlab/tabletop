@@ -16,16 +16,18 @@ placements:
   rig:
     right: {shoulder_position: [1.02, 0.05, 0.70], yaw: 1.5708}
     left: {shoulder_position: [0.885, 0.05, 0.70], yaw: 1.5708}
-  # RL model: tuned for reach (user, 2026-10-31). 10 cm forward and 8 cm up
-  # from the rig placement so the hand can come down into the small cup and
-  # press the button on its floor without passing through the wall
-  # (`uv run vtt-button-reach --scan`: both buttons reachable for +6..+10 cm
-  # forward and +6..+10 cm up from y 0.07, z 0.70; this is the middle).
-  # Raising matters as much as moving forward: at rim height the forearm
-  # comes in level and the wrist's +-30 deg can't point the fingers down.
+  # RL model: tuned for reach (user, 2026-10-31). 16 cm forward and 10 cm up
+  # from the rig placement so the hand can press every button at every
+  # presentation pose without passing through the object
+  # (`uv run vtt-button-reach`). The hard case is the cup at the third pose
+  # (x 0.9), tilted 17 deg with its opening away from the monkey: it needed
+  # +6 cm forward and +2 cm up from the earlier y 0.15, z 0.78 (neighbouring
+  # offsets +4/+2 and +6/0 also work). Raising matters as much as moving
+  # forward: at rim height the forearm comes in level and the wrist's
+  # +-30 deg can't point the fingers down into the cup.
   rl:
-    right: {shoulder_position: [1.02, 0.15, 0.78], yaw: 1.5708}
-    left: {shoulder_position: [0.885, 0.15, 0.78], yaw: 1.5708}
+    right: {shoulder_position: [1.02, 0.21, 0.80], yaw: 1.5708}
+    left: {shoulder_position: [0.885, 0.21, 0.80], yaw: 1.5708}
 
 # Monkey actuation in the RL model (provisional, 2026-10-31; to be settled in
 # joint-control Session B): a position servo per joint (critically damped;

@@ -25,6 +25,7 @@ uv run pytest tests         # or -m "not slow" for the quick ones
 
 uv run vtt-replay ../bags/latest/bag          # replay a bag (viewer)
 uv run vtt-rl-demo --reward touch             # watch the touch task
+uv run vtt-rl-train config/training/touch_right_arm.yaml   # train an agent
 ```
 
 ## Documentation
@@ -36,7 +37,7 @@ See [`documentation/`](documentation/README.md):
 - [configuration.md](documentation/configuration.md): the `config/` files
   and the rig sources read;
 - how-tos: run the ROS sim and RViz on a Mac; record and replay bags; the RL
-  tasks; the arm-design tools.
+  tasks; the arm-design tools; training RL agents.
 
 ## Layout
 
@@ -53,6 +54,7 @@ src/virtual_tabletop/
 ├── buttons/       response buttons on the objects (RL model)
 ├── rl/            the RL env, scene, trials, scripted policies (vtt-rl-demo)
 ├── design/        tools for deciding the RL setup (vtt-arm-explorer, …)
+├── training/      RL training: wrappers, PPO, evaluation (vtt-rl-train, vtt-rl-eval)
 ├── viewer.py      shared interactive-viewer loop
 └── ik.py          IK (adapted from dm_control)
 tests/             pytest; fixtures/ holds a small motion library

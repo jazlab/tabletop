@@ -38,6 +38,15 @@ the rig doesn't record. Rebuild after changing any of them:
 `big_object` (the drum). See `vtt-object-sheets` for drawings in the object
 frame.
 
+## `config/training/*.yaml`: RL training runs
+
+One file per run (e.g. `touch_right_arm.yaml`): `name`, `seed`,
+`eval_every`, `eval_trials`, and groups `env` (task, reward, trials,
+response window, trial order, released and controlled arms, control),
+`wrappers` (delta-action speed, shaping scale) and `ppo`
+(hyperparameters, length, parallel envs). Every key is documented in
+`src/virtual_tabletop/training/config.py`.
+
 ## Rig sources read directly
 
 | Source | For |

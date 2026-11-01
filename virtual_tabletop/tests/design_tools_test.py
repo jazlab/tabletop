@@ -26,4 +26,6 @@ def test_arm_report_best_reach_touches_with_arm_joints():
 
     arm = Arm.load()
     reach = best_reach(arm, arm.joints, starts=4)
-    assert reach.gap < 0  # the hull overlaps the object: a touch
+    # The fingertip reaches the object's centre (for the hollow cup that is
+    # inside it, where the hand needn't touch the walls).
+    assert reach.tip_to_center < 0.01

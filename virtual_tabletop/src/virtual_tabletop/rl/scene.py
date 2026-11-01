@@ -18,7 +18,6 @@ from virtual_tabletop.assets.rl_model import RL_PARKED, RL_STIMULI
 from virtual_tabletop.buttons.config import load_buttons
 from virtual_tabletop.buttons.model import button_name
 from virtual_tabletop.task.config import load_foraging_config
-from virtual_tabletop.task.generators import make_generator
 
 
 @dataclass(frozen=True)
@@ -98,6 +97,11 @@ class PresentationScene:
         return self.data.xpos[self.current.body].copy()
 
     @property
+    def object_center(self) -> np.ndarray:
+        """Centre of the presented object's mesh (its bounding volume)."""
+        return self.data.geom_xpos[list(self.current.meshes)].mean(axis=0)
+
+    @property
     def button_position(self) -> np.ndarray:
         """Top centre of the presented object's button."""
         return self.data.site_xpos[self.current.button_site].copy()
@@ -169,17 +173,24 @@ def grid_objects() -> dict:
     return {o.object_id: o for o in load_rig_scene().grid_objects}
 
 
-def presentation_pose(task: str | Path = "foraging_ordered") -> Pose:
-    """Where ``task`` presents objects (its first trial's pose).
+def presentation_poses(task: str | Path = "foraging_ordered") -> list[Pose]:
+    """Every pose ``task`` presents objects at (its generator's ``poses``).
 
-    The shipped tasks present every object at one pose; tools that need "the"
-    presentation pose (the arm explorer, reports, press planning) use this.
+    ``foraging_ordered`` has three: centred, and 5 cm either side with the
+    object tilted.
     """
     config = load_foraging_config(task, available=set(grid_objects()))
-    generator = make_generator(
-        config.generator_class,
-        dict(config.generator_kwargs, num_trials=1),
-        seed=0,
-        prefer_feedback_group=False,
-    )
-    return next(generator).object_pose
+    return [Pose.from_config(p) for p in config.generator_kwargs["poses"]]
+
+
+def presentation_pose(task: str | Path = "foraging_ordered") -> Pose:
+    """The task's first presentation pose (the one the rig starts with).
+
+    Design tools that show "the" presented object use it.
+    """
+    return presentation_poses(task)[0]
+
+
+def pose_key(pose: Pose) -> str:
+    """A short stable label for a pose (to key per-pose data)."""
+    return ",".join(f"{v:.3f}" for v in (*pose.position, *pose.quat))

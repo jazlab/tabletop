@@ -12,9 +12,20 @@ another with no returning or resetting. Each trial runs the rig's phases:
 
 "Stimulus visible" says whether the rig's glass would be clear; the RL scene
 has no glass.
+
+Two trial orders: ``"config"`` runs the task YAML's own generator (the
+rig's order: ``foraging_ordered`` cycles objects fastest, then arms, then
+its three poses, so a short episode from a reset only ever sees the first
+few objects and the first pose); ``"random"`` samples objects, poses,
+released arms and occlusion independently each trial (the rig's
+``RandomChoiceAlternating`` on the same lists), which RL training wants.
+``arms`` overrides which subject arm(s) trials release.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+import numpy as np
 
 from virtual_tabletop.task.config import ForagingConfig
 from virtual_tabletop.task.generators import (
@@ -24,6 +35,8 @@ from virtual_tabletop.task.generators import (
 )
 
 PHASES = ("intertrial", "stimulus", "delay", "response")
+#: Trial orders: the task YAML's generator, or independent random sampling.
+ORDERS = ("config", "random")
 
 
 @dataclass
@@ -59,6 +72,9 @@ class TrialSchedule:
         num_trials: Trials per episode.
         intertrial: Duration of the phase that starts each trial (s).
         response_timeout: Overrides the config's response window (s).
+        order: ``"config"`` or ``"random"`` (see the module docstring).
+        arms: Overrides the released arm(s) trials cycle through or sample
+            from, e.g. ``["right"]``.
     """
 
     def __init__(
@@ -67,9 +83,16 @@ class TrialSchedule:
         num_trials: int,
         intertrial: float = 0.5,
         response_timeout: float | None = None,
+        order: str = "config",
+        arms: Sequence[str] | None = None,
     ):
+        if order not in ORDERS:
+            raise ValueError(f"order must be one of {ORDERS}: {order!r}")
         self.config = config
         self.num_trials = num_trials
+        self.generator_class, self.generator_kwargs = _generator(
+            config, order, arms
+        )
         self.durations = {
             "intertrial": intertrial,
             "stimulus": config.stimulus_duration,
@@ -80,8 +103,8 @@ class TrialSchedule:
 
     def reset(self, seed: int | None) -> None:
         self._generator = make_generator(
-            self.config.generator_class,
-            dict(self.config.generator_kwargs, num_trials=self.num_trials),
+            self.generator_class,
+            dict(self.generator_kwargs, num_trials=self.num_trials),
             seed=seed,
             prefer_feedback_group=False,  # no parallel robot arms: alternate
         )
@@ -147,3 +170,15 @@ class TrialSchedule:
                 timeout=not self.trial.rewarded,
             ),
         )
+
+
+def _generator(config: ForagingConfig, order: str, arms) -> tuple[str, dict]:
+    """The generator class and kwargs for a trial order."""
+    cls, kwargs = config.generator_class, dict(config.generator_kwargs)
+    if arms is not None:
+        kwargs["arms"] = list(arms)
+    if order == "random" and cls != "RandomChoiceAlternating":
+        occlude = kwargs.pop("occlude", [False])
+        kwargs["occlude_prob"] = float(np.mean(occlude))
+        cls = "RandomChoiceAlternating"
+    return cls, kwargs

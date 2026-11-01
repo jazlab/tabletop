@@ -27,6 +27,12 @@ the bones and the object (held fixed, as if by the robot) and between bones.
 ``"kinematic"`` sets the angles directly with no dynamics (about 7× faster;
 bodies can pass through each other; velocities are zero).
 
+**Arm locks.** As on the rig (the Teensy's arm locks), a subject arm is
+held at rest except while released in the response window (``lock_arms``,
+default on): actions for a locked arm's joints are replaced by its rest
+posture (all joints 0: hanging, fingers straight). Without locks a policy
+could hover at the object before the response window opens.
+
 **Observation.** A flat float32 vector; :attr:`observation_layout` names
 its parts (see :meth:`PresentationEnv.observation_parts`).
 """
@@ -62,6 +68,11 @@ class PresentationEnv(gym.Env):
         intertrial: Duration of the phase that starts each trial (s).
         response_timeout: Override the task config's response window (s);
             the rig's 0.5 s is short for learning or for the scripted press.
+        arms: Override which subject arm(s) trials release, e.g.
+            ``["right"]``.
+        trial_order: ``"config"`` (the task YAML's generator) or
+            ``"random"`` (objects, poses, arms sampled each trial; see
+            :mod:`.trials`).
         reward: The task: ``"none"``, ``"touch"`` or ``"button"``.
         reward_value: Reward for a rewarded response.
         include_rig: Show the rig frame CAD (cosmetic).
@@ -70,6 +81,7 @@ class PresentationEnv(gym.Env):
         dt: Control tick (s).
         control: ``"position"`` (physics, servo targets) or
             ``"kinematic"`` (set angles, no dynamics).
+        lock_arms: Hold arms at rest unless released (see above).
         render_mode: ``"rgb_array"`` or ``None``.
         camera: Render camera (``subject`` or ``overview``).
         seed: Seed for the random trial generator.
@@ -84,12 +96,15 @@ class PresentationEnv(gym.Env):
         num_trials: int = 20,
         intertrial: float = 0.5,
         response_timeout: float | None = None,
+        arms: list[str] | None = None,
+        trial_order: str = "config",
         reward: str = "none",
         reward_value: float = 1.0,
         include_rig: bool = False,
         joints: list[str] | None = None,
         dt: float = 0.02,
         control: str = "position",
+        lock_arms: bool = True,
         render_mode: str | None = None,
         camera: str = "subject",
         seed: int | None = None,
@@ -100,13 +115,19 @@ class PresentationEnv(gym.Env):
             raise ValueError(f"control must be one of {CONTROLS}: {control!r}")
         self.reward, self.reward_value = reward, reward_value
         self.control, self.dt = control, dt
+        self.task, self.lock_arms = task, lock_arms
         self.render_mode, self.camera = render_mode, camera
         self._seed = seed
         self._renderer = None
         self._objects = grid_objects()
         self.config = load_foraging_config(task, available=set(self._objects))
         self.schedule = TrialSchedule(
-            self.config, num_trials, intertrial, response_timeout
+            self.config,
+            num_trials,
+            intertrial,
+            response_timeout,
+            order=trial_order,
+            arms=arms,
         )
         self.model = load_rl_model(include_rig)
         self.data = mujoco.MjData(self.model)
@@ -128,6 +149,16 @@ class PresentationEnv(gym.Env):
             if m.actuator_trntype[a] == mujoco.mjtTrn.mjTRN_JOINT
         }
         self._actuators = np.array([servo[j] for j in ids])
+        # Each arm's action columns, and the rest posture locks hold.
+        self._side_cols = {
+            s: [
+                i
+                for i, n in enumerate(self.joint_names)
+                if n.startswith(subject.prefix(s))
+            ]
+            for s in self.sides
+        }
+        self._rest = np.clip(0.0, m.jnt_range[ids, 0], m.jnt_range[ids, 1])
         self._substeps = max(1, round(dt / m.opt.timestep))
         self.action_space = gym.spaces.Box(
             m.jnt_range[ids, 0].astype(np.float32),
@@ -186,6 +217,7 @@ class PresentationEnv(gym.Env):
         self.schedule.reset(self._seed if seed is None else seed)
         self.episode_steps = 0
         self.time = 0.0
+        self.last_target = self.joint_positions
         self._finished = False
         self._start_trial()
         mujoco.mj_forward(self.model, self.data)
@@ -198,6 +230,12 @@ class PresentationEnv(gym.Env):
         self.time = self.episode_steps * self.dt
         target = np.clip(action, self.action_space.low, self.action_space.high)
         self.schedule.update(self.time)
+        if self.lock_arms:
+            released = self.released_sides
+            for side, cols in self._side_cols.items():
+                if side not in released:
+                    target[cols] = self._rest[cols]
+        self.last_target = target
         if self.control == "kinematic":
             self.data.qpos[self._qadr] = target
             mujoco.mj_forward(self.model, self.data)
@@ -231,7 +269,9 @@ class PresentationEnv(gym.Env):
             else:
                 self._start_trial()
                 mujoco.mj_forward(self.model, self.data)
-        info = self._info(touched_by, pressed_by, trial_ended)
+        info = self._info(
+            touched_by, pressed_by, trial_ended, trial_ended and trial.rewarded
+        )
         return self._obs(), reward, terminated, False, info
 
     def render(self):
@@ -304,7 +344,13 @@ class PresentationEnv(gym.Env):
             [parts[name] for name in self.observation_layout]
         ).astype(np.float32)
 
-    def _info(self, touched_by=(), pressed_by=(), trial_ended=False) -> dict:
+    def _info(
+        self,
+        touched_by=(),
+        pressed_by=(),
+        trial_ended=False,
+        trial_rewarded=False,
+    ) -> dict:
         return {
             "time": self.time,
             "trial": self.schedule.index,
@@ -314,6 +360,7 @@ class PresentationEnv(gym.Env):
             "touched_by": list(touched_by),
             "pressed_by": list(pressed_by),
             "trial_ended": trial_ended,
+            "trial_rewarded": trial_rewarded,
         }
 
     def status_text(self) -> str:

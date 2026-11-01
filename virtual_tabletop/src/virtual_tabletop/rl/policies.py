@@ -21,6 +21,7 @@ import numpy as np
 from virtual_tabletop import ik
 from virtual_tabletop.assets import subject
 from virtual_tabletop.rl.press_paths import load_press_paths
+from virtual_tabletop.rl.scene import pose_key
 
 
 class ScriptedPolicy:
@@ -115,12 +116,13 @@ class ButtonPressPolicy(ScriptedPolicy):
     def __init__(self, env, max_speed: float = 3.0, tolerance: float = 0.03):
         super().__init__(env, max_speed)
         self.tolerance = tolerance
-        self.paths = load_press_paths()
+        self.paths = load_press_paths(env.task)
         self._waypoint: dict[tuple[int, str], int] = {}
 
     def arm_goal(self, side: str, goal: np.ndarray) -> None:
         env = self.env
-        path = self.paths[env.stimulus, side]
+        pose = pose_key(env.trial.spec.object_pose)
+        path = self.paths[env.stimulus, side, pose]
         key = (env.schedule.index, side)
         index = self._waypoint.get(key, 0)
         angles = path[index]
