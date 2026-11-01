@@ -16,6 +16,7 @@ dependencies = [
   "mcap",
   "mcap-ros2-support",
   "xacro",
+  "gymnasium",
 ]
 
 [project.optional-dependencies]
@@ -36,3 +37,6 @@ packages = ["src/virtual_tabletop"]
 vtt-build = "virtual_tabletop.assets.build:main"
 vtt-bag-info = "virtual_tabletop.bags.reader:main"
 vtt-replay = "virtual_tabletop.replay.player:main"
+vtt-clips = "virtual_tabletop.task.motion:main"
+vtt-parity = "virtual_tabletop.task.parity:main"
+vtt-rl-demo = "virtual_tabletop.rl.demo:main"

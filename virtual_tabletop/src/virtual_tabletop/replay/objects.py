@@ -67,12 +67,17 @@ class ObjectTracker:
         return None if grasp is None else grasp.index
 
     def update(
-        self, eef: dict[str, tuple[np.ndarray, np.ndarray]]
+        self,
+        eef: dict[str, tuple[np.ndarray, np.ndarray]],
+        allowed: dict[str, set[int]] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Advance one frame.
 
         Args:
             eef: ``{arm: (position, quat_wxyz)}`` end-effector poses.
+            allowed: Optional ``{arm: object indices}`` an arm may grasp
+                this frame (e.g. only the object being fetched); arms
+                missing from the dict may grasp any object.
 
         Returns:
             Object positions ``(n, 3)`` and orientations ``(n, 4)``.
@@ -89,6 +94,10 @@ class ObjectTracker:
                 dist = np.linalg.norm(self.mount_pos - pos, axis=1)
                 if held:
                     dist[list(held)] = np.inf
+                if allowed is not None and arm in allowed:
+                    mask = np.ones(len(dist), bool)
+                    mask[list(allowed[arm])] = False
+                    dist[mask] = np.inf
                 index = int(np.argmin(dist))
                 if dist[index] < self.attach_tol:
                     eef_rot = _rot(quat)

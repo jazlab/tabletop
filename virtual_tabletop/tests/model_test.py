@@ -6,7 +6,13 @@ import mujoco
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
-from virtual_tabletop.assets import build, named_poses, rig_config, robots
+from virtual_tabletop.assets import (
+    build,
+    named_poses,
+    rig_config,
+    robots,
+    subject,
+)
 
 
 @pytest.fixture(scope="module")
@@ -157,6 +163,44 @@ def test_present_pose_matches_commander_comment(model):
 
 def test_subject_and_smartglass_present(model):
     assert model.geom("smartglass").id >= 0
-    assert model.body(f"{build.SUBJECT_PREFIX}humerus").id >= 0
+    for side in ("right", "left"):
+        assert model.body(f"{build.subject_prefix(side)}humerus").id >= 0
+        joints = subject.joint_names(model, side)
+        assert len(joints) == 7 + 16
+        assert sum(subject.is_finger_joint(n) for n in joints) == 16
+        assert model.site(subject.hand_site(model, side)).id >= 0
     muscles = model.actuator_trntype == mujoco.mjtTrn.mjTRN_TENDON
-    assert muscles.sum() == 39
+    assert muscles.sum() == 0
+
+
+def test_left_arm_mirrors_right_arm(model):
+    """Same joint angles on both arms give mirror-image postures."""
+    data = mujoco.MjData(model)
+    sides = {
+        s: [
+            model.jnt_qposadr[model.joint(n).id]
+            for n in subject.joint_names(model, s)
+        ]
+        for s in ("right", "left")
+    }
+    midline = 0.9525
+    rng = np.random.default_rng(0)
+    right_range = model.jnt_range[
+        [model.joint(n).id for n in subject.joint_names(model, "right")]
+    ]
+    bodies = [
+        model.body(i).name.split("/")[-1]
+        for i in range(model.nbody)
+        if model.body(i).name.startswith(subject.prefix("right"))
+    ]
+    for _ in range(20):
+        q = rng.uniform(right_range[:, 0], right_range[:, 1])
+        data.qpos[sides["right"]] = q
+        data.qpos[sides["left"]] = q
+        mujoco.mj_kinematics(model, data)
+        for name in bodies:
+            r = data.xpos[model.body(subject.prefix("right") + name).id]
+            left = data.xpos[model.body(subject.prefix("left") + name).id]
+            np.testing.assert_allclose(
+                left, [2 * midline - r[0], r[1], r[2]], atol=1e-5
+            )

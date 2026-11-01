@@ -19,6 +19,7 @@ Playback is kinematic: frames set ``qpos`` and mocap poses and call
 """
 
 import argparse
+import functools
 import os
 import sys
 import time
@@ -34,6 +35,11 @@ KEY_SPACE, KEY_RIGHT, KEY_LEFT = 32, 262, 263
 KEY_N, KEY_P, KEY_R, KEY_EQUAL, KEY_MINUS = 78, 80, 82, 61, 45
 
 
+@functools.cache
+def _glass_config() -> dict:
+    return load_sim_config()["smartglass"]
+
+
 def apply_frame(
     model: mujoco.MjModel, data: mujoco.MjData, timeline: Timeline, k: int
 ) -> None:
@@ -42,7 +48,7 @@ def apply_frame(
     data.mocap_pos[:] = timeline.mocap_pos[k]
     data.mocap_quat[:] = timeline.mocap_quat[k]
     if timeline.glass_revealed is not None:
-        glass = load_sim_config()["smartglass"]
+        glass = _glass_config()
         state = "revealed" if timeline.glass_revealed[k] else "occluded"
         model.geom_rgba[model.geom("smartglass").id] = glass[f"{state}_rgba"]
     mujoco.mj_forward(model, data)
@@ -133,16 +139,18 @@ def run_viewer(model: mujoco.MjModel, timeline: Timeline) -> None:
             last = now
             state["time"] = min(state["time"], timeline.t[-1])
             k = timeline.frame_at(state["time"])
+            # Never call viewer methods (set_texts, sync) while holding its
+            # lock: they take the same lock and would deadlock the viewer.
             with v.lock():
                 apply_frame(model, data, timeline, k)
-                v.set_texts(
-                    (
-                        mujoco.mjtFontScale.mjFONTSCALE_150,
-                        mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                        status_text(timeline, k, state["speed"]),
-                        "",
-                    )
+            v.set_texts(
+                (
+                    mujoco.mjtFontScale.mjFONTSCALE_150,
+                    mujoco.mjtGridPos.mjGRID_TOPLEFT,
+                    status_text(timeline, k, state["speed"]),
+                    "",
                 )
+            )
             v.sync()
             time.sleep(1 / 60)
 

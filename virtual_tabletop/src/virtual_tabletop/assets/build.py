@@ -46,6 +46,7 @@ from virtual_tabletop.assets.meshes import split_by_color
 from virtual_tabletop.assets.named_poses import load_named_poses
 from virtual_tabletop.assets.rig_config import RigScene, load_rig_scene
 from virtual_tabletop.assets.robots import ARM_SIDES, expand_urdf
+from virtual_tabletop.assets.subject import arm_file as subject_arm_file
 
 GROUP_VISUAL = 2
 GROUP_COLLISION = 3
@@ -69,7 +70,8 @@ ROBOT_KP = {
     "wrist_3_joint": 500.0,
 }
 
-#: Prefix for every element of the attached monkey arm.
+#: Prefix for every element of the monkey (both arms:
+#: ``monkey/right/...``, ``monkey/left/...``).
 SUBJECT_PREFIX = "monkey/"
 
 #: Keyframe holding both arms at the SRDF ``idle`` pose.
@@ -263,9 +265,18 @@ def _add_rig(
     library: _MeshLibrary,
     scene: RigScene,
     sim_config: dict,
+    *,
+    primitives: bool = True,
+    meshes: set[str] | None = None,
 ):
+    """Add the planning volumes (``primitives``) and the rig meshes.
+
+    Args:
+        meshes: Names of ``planning_scene.rig.meshes`` to include (default
+            all: the frame ``rig`` and the reset stations).
+    """
     world = spec.worldbody
-    for box in scene.primitives:
+    for box in scene.primitives if primitives else []:
         world.add_geom(
             name=box.name,
             type=mujoco.mjtGeom.mjGEOM_BOX,
@@ -278,6 +289,8 @@ def _add_rig(
             group=GROUP_PLANNING,
         )
     for rig_mesh in scene.meshes:
+        if meshes is not None and rig_mesh.name not in meshes:
+            continue
         body = world.add_body(
             name=rig_mesh.name,
             pos=rig_mesh.pose.position,
@@ -301,8 +314,11 @@ def _add_rig(
                 group=GROUP_PLANNING,
             )
 
+
+def _add_smartglass(spec: mujoco.MjSpec, sim_config: dict) -> None:
+    """The switchable occluder pane (``config/sim_rig.yaml``)."""
     glass = sim_config["smartglass"]
-    world.add_geom(
+    spec.worldbody.add_geom(
         name="smartglass",
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=[s / 2 for s in glass["size"]],
@@ -382,20 +398,27 @@ def _decorate_robots(
             spec.joint(f"{side}_{joint}").armature = 0.1
 
 
+def subject_prefix(side: str) -> str:
+    """Name prefix of one monkey arm, e.g. ``monkey/right/``."""
+    return f"{SUBJECT_PREFIX}{side}/"
+
+
 def _add_subject(spec: mujoco.MjSpec, sim_config: dict) -> None:
-    """Attach the monkey arm at its configured shoulder pose."""
+    """Attach the monkey arms at their configured shoulder poses."""
     subject = sim_config["subject"]
-    arm_file = paths.PROJECT_DIR / subject["arm_file"]
-    arm = mujoco.MjSpec.from_file(str(arm_file))
-    # Make mesh paths absolute: the written MJCF lives elsewhere.
-    mesh_dir = arm_file.parent / (arm.meshdir or "")
-    for mesh in arm.meshes:
-        mesh.file = str((mesh_dir / mesh.file).resolve())
-    x, y, z, w = Rotation.from_euler("z", subject["yaw"]).as_quat()
-    frame = spec.worldbody.add_frame(
-        pos=subject["shoulder_position"], quat=(w, x, y, z)
-    )
-    spec.attach(arm, prefix=SUBJECT_PREFIX, frame=frame)
+    right_arm = paths.PROJECT_DIR / subject["arm_file"]
+    for side, placement in subject["arms"].items():
+        arm_file = subject_arm_file(side, right_arm)
+        arm = mujoco.MjSpec.from_file(str(arm_file))
+        # Make mesh paths absolute: the written MJCF lives elsewhere.
+        mesh_dir = arm_file.parent / (arm.meshdir or "")
+        for mesh in arm.meshes:
+            mesh.file = str((mesh_dir / mesh.file).resolve())
+        x, y, z, w = Rotation.from_euler("z", placement["yaw"]).as_quat()
+        frame = spec.worldbody.add_frame(
+            pos=placement["shoulder_position"], quat=(w, x, y, z)
+        )
+        spec.attach(arm, prefix=subject_prefix(side), frame=frame)
     for geom in spec.geoms:
         if geom.name.startswith(SUBJECT_PREFIX):
             geom.contype = 1
@@ -407,8 +430,11 @@ def _add_home_key(spec: mujoco.MjSpec, model: mujoco.MjModel) -> None:
     poses = load_named_poses()
     qpos = model.qpos0.copy()
     ctrl = np.zeros(model.nu)
+    robot_joints = {model.joint(j).name for j in range(model.njnt)}
     for side in ARM_SIDES:
         for joint, value in poses[side]["idle"].items():
+            if joint not in robot_joints:
+                continue  # model without robot arms
             qpos[model.jnt_qposadr[model.joint(joint).id]] = value
             ctrl[model.actuator(joint).id] = value
     # Muscles rest at their minimum activation.
@@ -424,9 +450,14 @@ def _add_home_key(spec: mujoco.MjSpec, model: mujoco.MjModel) -> None:
     )
 
 
-def build_spec() -> mujoco.MjSpec:
-    """Assemble the full rig model as an (uncompiled) ``MjSpec``."""
-    sim_config = load_sim_config()
+def build_spec(sim_config: dict | None = None) -> mujoco.MjSpec:
+    """Assemble the full rig model as an (uncompiled) ``MjSpec``.
+
+    Args:
+        sim_config: Overrides ``config/sim_rig.yaml`` (e.g. to try another
+            subject placement).
+    """
+    sim_config = sim_config or load_sim_config()
     urdf, visuals = _urdf_for_mujoco(expand_urdf())
     spec = mujoco.MjSpec.from_file(str(urdf))
     library = _MeshLibrary(spec)
@@ -434,20 +465,95 @@ def build_spec() -> mujoco.MjSpec:
     _add_environment(spec)
     scene = load_rig_scene()
     _add_rig(spec, library, scene, sim_config)
+    _add_smartglass(spec, sim_config)
     _add_grid_objects(spec, library, scene)
     _add_subject(spec, sim_config)
     _add_home_key(spec, spec.compile())
     return spec
 
 
-def build(output: Path | None = None) -> Path:
+def build(output: Path | None = None, sim_config: dict | None = None) -> Path:
     """Generate and compile the rig model, writing MJCF to ``output``."""
     output = output or paths.GENERATED_DIR / "tabletop.xml"
     output.parent.mkdir(parents=True, exist_ok=True)
-    spec = build_spec()
+    spec = build_spec(sim_config)
     spec.compile()
     output.write_text(spec.to_xml())
     return output
+
+
+#: Mocap bodies of the RL model that hold the presented object, by mesh.
+RL_STIMULI = ("small_object", "big_object")
+
+#: Where unused stimulus bodies wait, out of sight.
+RL_PARKED = (0.0, 0.0, -10.0)
+
+
+def build_rl_spec(
+    sim_config: dict | None = None, include_rig: bool = False
+) -> mujoco.MjSpec:
+    """The minimal model for the RL task.
+
+    The monkey arm, the smartglass occluder, floor, lights and cameras, and
+    one mocap "stimulus" body per object mesh (``stim/small_object``,
+    ``stim/big_object``) that the env places and colours each trial. No
+    robot arms, planning volumes or object grid. ``include_rig`` adds the
+    rig frame CAD (``rig.step``, including the hot mirror).
+    """
+    sim_config = sim_config or load_sim_config()
+    spec = mujoco.MjSpec()
+    spec.compiler.degree = False
+    library = _MeshLibrary(spec)
+    _add_environment(spec)
+    spec.modelname = "tabletop_rl"
+    scene = load_rig_scene()
+    if include_rig:
+        _add_rig(
+            spec, library, scene, sim_config, primitives=False, meshes={"rig"}
+        )
+    _add_smartglass(spec, sim_config)
+    meshes = {
+        o.mesh_path.resolve().stem: o.mesh_path for o in scene.grid_objects
+    }
+    for stem in RL_STIMULI:
+        body = spec.worldbody.add_body(
+            name=f"stim/{stem}", pos=RL_PARKED, mocap=True
+        )
+        _add_visual_meshes(
+            body,
+            library,
+            meshes[stem],
+            stem,
+            rgba=(0.8, 0.8, 0.8, 1.0),
+            conaffinity=1,  # the monkey can touch it
+        )
+    _add_subject(spec, sim_config)
+    _add_home_key(spec, spec.compile())
+    return spec
+
+
+def build_rl(
+    output: Path | None = None,
+    sim_config: dict | None = None,
+    include_rig: bool = False,
+) -> Path:
+    """Generate the RL model (see :func:`build_rl_spec`)."""
+    name = "rl_tabletop_rig.xml" if include_rig else "rl_tabletop.xml"
+    output = output or paths.GENERATED_DIR / name
+    output.parent.mkdir(parents=True, exist_ok=True)
+    spec = build_rl_spec(sim_config, include_rig)
+    spec.compile()
+    output.write_text(spec.to_xml())
+    return output
+
+
+def load_rl_model(include_rig: bool = False) -> mujoco.MjModel:
+    """Load the RL model, building it if needed."""
+    name = "rl_tabletop_rig.xml" if include_rig else "rl_tabletop.xml"
+    path = paths.GENERATED_DIR / name
+    if not path.exists():
+        build_rl(path, include_rig=include_rig)
+    return mujoco.MjModel.from_xml_path(str(path))
 
 
 def load_model(path: Path | None = None) -> mujoco.MjModel:
@@ -463,6 +569,9 @@ def main() -> None:
     parser.add_argument("-o", "--output", type=Path, default=None)
     args = parser.parse_args()
     print(build(args.output))
+    if args.output is None:
+        print(build_rl())
+        print(build_rl(include_rig=True))
 
 
 if __name__ == "__main__":

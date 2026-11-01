@@ -128,13 +128,13 @@ def _resolve_path(value: str) -> Path:
     return Path(_FIND_PKG.sub(lambda m: str(packages[m.group(1)]), value))
 
 
-def _find_key(node: Any, key: str) -> Any:
+def find_key(node: Any, key: str) -> Any:
     """Depth-first search for the first mapping entry named ``key``."""
     if isinstance(node, dict):
         if key in node:
             return node[key]
         for value in node.values():
-            found = _find_key(value, key)
+            found = find_key(value, key)
             if found is not None:
                 return found
     return None
@@ -163,7 +163,7 @@ def load_rig_scene(config_file: Path = paths.COMMANDER_CONFIG) -> RigScene:
         The rig primitives, rig meshes and grid objects.
     """
     config = yaml.safe_load(config_file.read_text())
-    scene = _find_key(config, "planning_scene")
+    scene = find_key(config, "planning_scene")
     if scene is None:
         raise ValueError(f"No planning_scene block in {config_file}")
 
