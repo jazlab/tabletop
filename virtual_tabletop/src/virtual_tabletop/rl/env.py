@@ -27,6 +27,12 @@ the bones and the object (held fixed, as if by the robot) and between bones.
 ``"kinematic"`` sets the angles directly with no dynamics (about 7× faster;
 bodies can pass through each other; velocities are zero).
 
+**Trial start.** Every trial starts with both arms at rest (all joints 0,
+at rest velocity), as on the rig, where the robot presents an object only
+once the arm is back on its rest. Without this, a new object could appear
+around a hand left where the previous trial ended (e.g. a cup enclosing
+it), trapping it there.
+
 **Arm locks.** As on the rig (the Teensy's arm locks), a subject arm is
 held at rest except while released in the response window (``lock_arms``,
 default on): actions for a locked arm's joints are replaced by its rest
@@ -159,6 +165,20 @@ class PresentationEnv(gym.Env):
             for s in self.sides
         }
         self._rest = np.clip(0.0, m.jnt_range[ids, 0], m.jnt_range[ids, 1])
+        # Every monkey joint (controlled or not), for the trial-start rest.
+        monkey = [
+            j
+            for s in self.sides
+            for j in (m.joint(n).id for n in subject.joint_names(m, s))
+        ]
+        self._monkey_qadr = m.jnt_qposadr[monkey]
+        self._monkey_dofadr = m.jnt_dofadr[monkey]
+        self._monkey_rest = np.clip(
+            0.0, m.jnt_range[monkey, 0], m.jnt_range[monkey, 1]
+        )
+        self._monkey_actuators = np.array(
+            [servo[j] for j in monkey if j in servo]
+        )
         self._substeps = max(1, round(dt / m.opt.timestep))
         self.action_space = gym.spaces.Box(
             m.jnt_range[ids, 0].astype(np.float32),
@@ -290,6 +310,12 @@ class PresentationEnv(gym.Env):
     # --- internals ----------------------------------------------------------
 
     def _start_trial(self) -> None:
+        d = self.data
+        d.qpos[self._monkey_qadr] = self._monkey_rest
+        d.qvel[self._monkey_dofadr] = 0.0
+        if len(self._monkey_actuators):
+            d.ctrl[self._monkey_actuators] = 0.0
+        self.last_target = self._rest.copy()
         spec = self.schedule.start(self.time).spec
         obj = self._objects[spec.object_id]
         self.scene.show(

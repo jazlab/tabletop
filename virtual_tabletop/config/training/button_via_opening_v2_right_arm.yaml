@@ -1,0 +1,38 @@
+# The button task, shaping through the opening, second design (2026-11-01):
+# entry 4 cm above the cup rim, wider funnel, straight to the drum's button.
+name: button_via_opening_v2_right_arm
+seed: 0
+eval_every: 100000      # env steps between evaluations
+eval_trials: 100        # trials per evaluation (unshaped success rate)
+
+env:
+  task: foraging_ordered
+  reward: button
+  num_trials: 5             # trials per episode
+  response_timeout: 3.0     # s (the rig's is 0.5 s; a later curriculum step)
+  trial_order: random       # objects, poses sampled per trial
+  released_arms: [right]    # every trial releases the right arm
+  controlled_arms: [right]  # the agent moves its 7 arm joints; fingers straight
+  control: position         # physics, position servos
+
+wrappers:
+  max_speed: 3.0            # rad/s for an action of 1 (delta actions)
+  shaping_scale: 5.0        # reach-shaping potential per metre (0 = off)
+  shaping_target: button_via_opening  # via the opening above the button
+  funnel_radius: 0.025      # m, the funnel above the button
+  approach_margin: 0.04     # m, entry point above the cup's rim
+  approach_default: 0.0     # no entry point for the drum: straight
+
+ppo:
+  total_timesteps: 1000000
+  n_envs: 8
+  n_steps: 1024             # per env per rollout (8192 per update)
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0
+  net_arch: [128, 128]
+  log_std_init: -0.5

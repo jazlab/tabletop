@@ -56,6 +56,20 @@ trials (fixed seed), plus breakdowns by object geometry and pose; writes
 | Physics | position servos, contact forces | the hand can't pass through the object |
 | Learner | stable-baselines3 PPO, 8 parallel envs, observation and reward normalisation, 128×128 MLPs | robust default for continuous control; parallelises on CPU |
 
+## The button task
+
+Three button-task configs (1 M steps each, about 6 minutes):
+
+| Config | Shaping | Result (200 trials) |
+|---|---|---|
+| `button_right_arm.yaml` | straight toward the button (`shaping_target: button`) | 16.5%: every drum, no cup (the hand presses against the cup's outer wall) |
+| `button_via_opening_right_arm.yaml` | through the opening: entry 1 cm above the rim, 2 cm funnel (`button_via_opening`) | 0% (the hand stalls above the near rim) |
+| `button_via_opening_v2_right_arm.yaml` | entry 4 cm above the rim, 2.5 cm funnel, drum straight (`approach_margin`, `funnel_radius`, `approach_default`) | 5% (drums at one pose) |
+
+The scripted press-path policy scores 100%. Entering the cup is the open
+problem; see the report (`gitignore/reports/rl_report.pdf`) for the
+analysis and next steps (demonstrations, a cup curriculum, longer runs).
+
 Other experiments: copy the YAML, change keys (every key is documented in
 `src/virtual_tabletop/training/config.py`), give it a new `name`.
 

@@ -42,10 +42,23 @@ class EnvConfig:
 
 @dataclass
 class WrapperConfig:
-    """Training wrappers: delta actions and reach shaping (0 = off)."""
+    """Training wrappers: delta actions and reach shaping (0 = off).
+
+    ``shaping_target`` is what the fingertip is pulled toward: ``"object"``
+    (its centre), ``"button"`` (straight to it) or ``"button_via_opening"``
+    (to it through the opening above it; see ``ReachShaping``); default
+    the button for the button task, else the object. ``funnel_radius`` is
+    the via-opening funnel's radius (m); ``approach_margin`` the entry
+    point's height above a hollow geometry's rim and ``approach_default``
+    above other geometries' buttons (m; 0 = straight to the button).
+    """
 
     max_speed: float = 3.0
     shaping_scale: float = 5.0
+    shaping_target: str | None = None
+    funnel_radius: float = 0.02
+    approach_margin: float = 0.01
+    approach_default: float = 0.03
 
 
 @dataclass
@@ -140,7 +153,16 @@ def make_env(
     """The training env: task env + delta actions (+ reach shaping)."""
     env = make_base_env(config.env, seed, **kwargs)
     if shaping and config.wrappers.shaping_scale > 0:
+        target = config.wrappers.shaping_target or (
+            "button" if config.env.reward == "button" else "object"
+        )
         env = ReachShaping(
-            env, config.wrappers.shaping_scale, gamma=config.ppo.gamma
+            env,
+            config.wrappers.shaping_scale,
+            gamma=config.ppo.gamma,
+            target=target,
+            funnel_radius=config.wrappers.funnel_radius,
+            approach_margin=config.wrappers.approach_margin,
+            approach_default=config.wrappers.approach_default,
         )
     return DeltaJointAction(env, config.wrappers.max_speed)

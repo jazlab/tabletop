@@ -50,36 +50,87 @@ class DeltaJointAction(gym.ActionWrapper):
 
 
 class ReachShaping(gym.Wrapper):
-    """Potential-based reward for bringing a released fingertip to the object.
+    """Potential-based reward for bringing a released fingertip to a target.
 
-    The potential is ``phi = -scale * min_side |fingertip_side - centre|``
-    over the released arms while a response window is open, and 0 otherwise
-    (the phase is in the observation, so ``phi`` is a function of the
-    state). Each step adds ``gamma * phi(s') - phi(s)`` to the reward (Ng,
-    Harada & Russell 1999), which leaves the optimal policy unchanged. The
-    task's own reward is kept in ``info["task_reward"]`` and the shaping
-    term in ``info["shaping"]``.
+    The potential is ``phi = -scale * min_side d(fingertip_side)`` over the
+    released arms while a response window is open, and 0 otherwise (the
+    phase is in the observation, so ``phi`` is a function of the state).
+    Each step adds ``gamma * phi(s') - phi(s)`` to the reward (Ng, Harada &
+    Russell 1999), which leaves the optimal policy unchanged. The task's own
+    reward is kept in ``info["task_reward"]`` and the shaping term in
+    ``info["shaping"]``.
+
+    Targets (the distance ``d``):
+
+    - ``"object"``: straight to the presented object's centre;
+    - ``"button"``: straight to the top centre of its button;
+    - ``"button_via_opening"``: to the button *through the opening above
+      it*. An entry point sits on the button's axis, ``approach`` above it
+      (``approach_margin`` above the rim for a hollow geometry such as the
+      cup; ``approach_default`` otherwise, where 0 means straight to the
+      button), and a funnel (radius ``funnel_radius``, from the button
+      up to the entry point) runs along the axis. Inside the funnel ``d``
+      is the straight distance to the button; outside it is the distance
+      to the entry point plus the entry point's height above the button,
+      so the hand is drawn up and over the rim first instead of into the
+      wall. (Straight-line shaping led the hand against the outside of the
+      cup's wall at floor height.)
 
     Args:
         scale: Potential per metre of distance.
         gamma: The learner's discount factor.
+        target: One of :attr:`TARGETS`.
+        funnel_radius: Radius of the funnel above the button (m).
+        approach_margin: Entry point height above a hollow geometry's rim
+            (m).
+        approach_default: Entry point height above the button for other
+            geometries (m).
     """
 
-    def __init__(self, env: gym.Env, scale: float = 1.0, gamma: float = 0.99):
+    TARGETS = ("object", "button", "button_via_opening")
+
+    def __init__(
+        self,
+        env: gym.Env,
+        scale: float = 1.0,
+        gamma: float = 0.99,
+        target: str = "object",
+        funnel_radius: float = 0.02,
+        approach_margin: float = 0.01,
+        approach_default: float = 0.03,
+    ):
         super().__init__(env)
-        self.scale, self.gamma = scale, gamma
+        if target not in self.TARGETS:
+            raise ValueError(f"target must be one of {self.TARGETS}")
+        self.scale, self.gamma, self.target = scale, gamma, target
+        self.funnel_radius = funnel_radius
+        self.approach = _approach_heights(approach_margin, approach_default)
         self._phi = 0.0
 
+    def distance(self, side: str) -> float:
+        """``d`` for one arm's fingertip (m)."""
+        scene = self.unwrapped.scene
+        tip = scene.hand_position(side)
+        if self.target == "object":
+            return float(np.linalg.norm(tip - scene.object_center))
+        button = scene.button_position
+        if self.target == "button":
+            return float(np.linalg.norm(tip - button))
+        normal = scene.button_normal
+        offset = tip - button
+        height = float(offset @ normal)
+        radial = float(np.linalg.norm(offset - height * normal))
+        approach = self.approach[scene.current.geometry]
+        if radial <= self.funnel_radius and height <= approach:
+            return float(np.linalg.norm(offset))
+        entry = button + approach * normal
+        return float(np.linalg.norm(tip - entry)) + approach
+
     def potential(self) -> float:
-        env = self.unwrapped
-        sides = env.released_sides
+        sides = self.unwrapped.released_sides
         if not sides:
             return 0.0
-        centre = env.scene.object_center
-        distance = min(
-            np.linalg.norm(env.scene.hand_position(s) - centre) for s in sides
-        )
-        return -self.scale * float(distance)
+        return -self.scale * min(self.distance(s) for s in sides)
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -95,3 +146,21 @@ class ReachShaping(gym.Wrapper):
         self._phi = phi
         info = dict(info, task_reward=reward, shaping=shaping)
         return obs, reward + shaping, terminated, truncated, info
+
+
+def _approach_heights(margin: float = 0.01, default: float = 0.03) -> dict:
+    """Per geometry: the entry point's height above the button's top (m).
+
+    For a hollow geometry, ``margin`` above its rim; otherwise ``default``.
+    """
+    from virtual_tabletop.buttons.config import load_buttons, load_hollow
+
+    hollow = load_hollow()
+    heights = {}
+    for geometry, button in load_buttons().items():
+        top = float(button.position[2] + button.height)
+        if geometry in hollow:
+            heights[geometry] = hollow[geometry].wall_z[1] - top + margin
+        else:
+            heights[geometry] = default
+    return heights

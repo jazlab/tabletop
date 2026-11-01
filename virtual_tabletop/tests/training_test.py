@@ -77,3 +77,48 @@ def test_tiny_training_run_writes_a_loadable_policy(config, tmp_path):
         make_env(config, shaping=False), trained_policy(run), n_trials=2
     )
     assert metrics["trials"] == 2
+
+
+def test_button_task_shapes_toward_the_button(config):
+    config.env.reward = "button"
+    env = make_env(config, seed=0)
+    shaping = env.env
+    assert isinstance(shaping, ReachShaping) and shaping.target == "button"
+    env.reset(seed=0)
+    base = env.unwrapped
+    while base.phase != "response":
+        env.step(np.zeros(7))
+    distance = np.linalg.norm(
+        base.scene.hand_position("right") - base.scene.button_position
+    )
+    assert shaping.potential() == pytest.approx(-shaping.scale * distance)
+
+
+def test_via_opening_shaping_prefers_the_opening_to_the_wall():
+    """Above the cup's opening scores better than against its outer wall
+    at the button's height, though the wall point is straight-line closer."""
+    from virtual_tabletop.rl.env import PresentationEnv
+
+    env = ReachShaping(
+        PresentationEnv(num_trials=1, seed=0), target="button_via_opening"
+    )
+    env.reset(seed=0)
+    scene = env.unwrapped.scene
+    scene.show("small_object", env.unwrapped.trial.spec.object_pose)
+    import mujoco
+
+    mujoco.mj_kinematics(scene.model, scene.data)
+    button, normal = scene.button_position, scene.button_normal
+    side = np.cross(normal, [1.0, 0.0, 0.0])
+    side /= np.linalg.norm(side)
+    wall = button + 0.045 * side  # outside the wall, at the button's height
+    above = button + 0.07 * normal  # above the opening
+    in_funnel = button + 0.02 * normal
+
+    def d(point):
+        scene.hand_position = lambda s: point  # place the "fingertip"
+        return env.distance("right")
+
+    assert np.linalg.norm(wall - button) < np.linalg.norm(above - button)
+    assert d(above) < d(wall)
+    assert d(in_funnel) == pytest.approx(0.02)

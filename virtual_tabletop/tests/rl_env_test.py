@@ -174,3 +174,21 @@ def test_random_order_samples_poses_and_honours_arm_override():
     assert {s.arm for s in specs} == {"right"}
     assert len({s.object_pose.position for s in specs}) == 3
     assert len({s.object_id for s in specs}) > 10
+
+
+def test_every_trial_starts_with_the_arms_at_rest():
+    """A new object never appears around a hand left from the last trial."""
+    env = PresentationEnv(
+        num_trials=3, control="kinematic", lock_arms=False, seed=0
+    )
+    env.reset(seed=0)
+    reach = env.joint_positions
+    reach[env.joint_names.index("monkey/right/elbow_flexion")] = 1.0
+    starts = 0
+    while starts < 2:
+        _, _, done, _, info = env.step(reach)
+        if info["trial_ended"]:
+            starts += 1
+            assert env.joint_positions == pytest.approx(0.0)
+        if done:
+            break
