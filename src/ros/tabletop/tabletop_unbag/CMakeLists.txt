@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(rosbag2_storage REQUIRED)
+find_package(mcap_vendor REQUIRED)
 find_package(rosidl_typesupport_introspection_cpp REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(rcpputils REQUIRED)
@@ -46,6 +47,16 @@ ament_target_dependencies(
 target_link_libraries(unbag fastcdr ${OpenCV_LIBS} Threads::Threads)
 
 install(TARGETS unbag DESTINATION lib/${PROJECT_NAME})
+
+# Diagnostic tool: isolates the storage-read cost of unbagging (rosbag2 indexed
+# log-time reader vs. an mmap'd file-order mcap scan). See docs/performance.md.
+add_executable(bag_read_bench tools/bag_read_bench.cpp)
+target_include_directories(
+  bag_read_bench PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(bag_read_bench rosbag2_cpp rosbag2_storage
+                          mcap_vendor)
+target_link_libraries(bag_read_bench Threads::Threads)
+install(TARGETS bag_read_bench DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
