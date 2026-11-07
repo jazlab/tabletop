@@ -1,6 +1,11 @@
 # NWB conversion plan
 
-Status: **plan only — nothing implemented.**
+Status: **v0.1 implemented** for the `sim` and `rig` profiles (`task.nwb`,
+`video.nwb`, and the post-conversion test suite), and run on all five laptop
+recordings in `bags/` with no failures. `ephys.nwb` and `spike_sorting.nwb`
+are not implemented yet. What exists, what was learned, and the remaining work
+are in **§11 (status and to-do list)**.
+
 Scope: convert one recorded TableTop session (rosbag + EyeLink EDF + camera
 frames + SpikeGLX/Neuropixels) into four NWB files that share one timeline:
 
@@ -20,13 +25,15 @@ frames + SpikeGLX/Neuropixels) into four NWB files that share one timeline:
 | D4 | Video encoding / archiving | **Open:** you will test video sizes first. |
 | D5 | Raw ephys in `ephys.nwb` | **Decided:** full raw. Probes are **Neuropixels 2.0**, so this is one wideband 30 kHz stream per probe, and LFP is contained in it (§4.3). |
 | D6 | Trial definition | **Decided:** a trial starts when its object reaches the presentation pose (`TRIAL_PRESENTED`). Every trial event is recorded (§4.1). |
-| — | Post-conversion test suite | **Planned** (§10) |
+| — | Post-conversion test suite | **Implemented, v0.1** (§10, §11): categories A–F; G and H wait for ephys. |
+| — | Recording profiles | **Implemented** (§3.1): `sim` and `rig` work end to end; `rig+ephys` is recognized but its ephys file isn't written yet, so validation fails it as "not converted". |
 
 Where to find things:
 
 - **§8: Questions for you.** Open decisions with my recommendations, plus facts only you can supply.
 - **§9: Uncertainties.** Things I couldn't verify from the code, each with how and when it gets resolved.
 - **§10: Post-conversion test suite.**
+- **§11: Implementation status, findings from real data, and the to-do list.**
 
 ---
 
@@ -201,6 +208,54 @@ session dir + SpikeGLX run folder + session_metadata.yaml
 Principles: stages are idempotent and resumable; the MCAP is read once; no ROS
 is needed except for `unbag`; metadata is declarative (YAML); raw sources are
 never modified.
+
+### 3.1 Recording profiles
+
+The pipeline is built for every kind of session, not only the full rig. Each
+session gets a **profile**, and the profile decides which files are written,
+how each stream is synchronized, and what the test suite expects.
+
+| | `sim` (laptop, `tt-compose --profile=sim`) | `rig` (rig, no ephys) | `rig+ephys` (full) |
+| --- | --- | --- | --- |
+| Sources | bag only: mock Teensy, mock UR, simulated EyeLink and Flic | bag + EyeLink EDF + camera frames (+ OptiTrack) | `rig` + SpikeGLX run folder |
+| Files written | `task.nwb` | `task.nwb`, `video.nwb` (if any frames were recorded) | all four |
+| Teensy pulse times | yes (mock Teensy emits the same jittered train in ROS time) | yes | yes |
+| EyeLink sync | **none**: the simulated `input` field is random 127/95 noise, not the pulse; the sim samples' host timestamps are used as is | EDF `input` bit vs Teensy | same |
+| Video, OptiTrack, UR DI3 sync | absent (no cameras or OptiTrack; mock UR has no DI3 pulse) | fitted | fitted |
+| Ephys sync | absent | absent | SY channel per probe |
+| `session_start_time` | earliest bag sample | earliest sample of any stream | same |
+| Test categories run (§10.3) | A, C, D, F; B and E reduced to the Teensy alone; G, H skipped | A–F; triangle test EyeLink ↔ video; G, H skipped | A–H |
+
+How the profile is chosen:
+
+1. **Explicitly**, with `tt-nwb convert --profile sim|rig|rig+ephys`.
+2. **Otherwise inferred at stage [0]** from what is present: a SpikeGLX run
+   folder → `rig+ephys`; an EDF or camera frames → `rig`; neither, plus mock
+   node names in `/rosout` (e.g. `mock_teensy`) → `sim`. Once R9 lands the rig
+   records its profile in the session directory, and inference becomes a
+   cross-check. The chosen profile and the reason are written to
+   `inventory.json` and to every file's `processing/sync` metadata.
+
+Rules that keep the profiles honest:
+
+- **Absent ≠ lost.** A file or stream not produced because the profile doesn't
+  include it is listed in `nwb/manifest.json` with the reason. If a source
+  is present but its output is missing (e.g. a SpikeGLX folder exists but no
+  `ephys.nwb`), that is a **FAIL**, whatever the profile.
+- **Profile mismatch fails loudly.** `--profile rig+ephys` with no SpikeGLX
+  folder, or an inferred `sim` session that contains an EDF, stops at stage [0]
+  rather than quietly writing a smaller set of files.
+- **No fake sync.** Streams without a real pulse (sim EyeLink, mock UR) get
+  `sync_method = host_clock` in the sync table instead of a fit. The pulse
+  matcher must *reject* the random sim EyeLink `input` rather than produce a
+  spurious fit. This doubles as a negative test (§10.5).
+- **Same code path.** All profiles use the same readers, writers and tests; the
+  profile only changes `expectations.yaml` and which stages run. Bugs in
+  `task.nwb` therefore show up on a laptop before they cost rig time.
+- **Runs without the rig.** Conversion needs only Python (no ROS) for `sim`
+  sessions. For `rig` sessions, EDF parsing needs `edf2asc` (U13) and video
+  needs `unbag` or a ROS-free equivalent (§5); both run on any machine that has
+  the session directory.
 
 ---
 
@@ -460,50 +515,64 @@ probe's sync map → `spike_sorting.nwb`. Sorter output is archived alongside.
 
 ---
 
-## 5. Proposed code layout (inside `nwb_conversion/`)
+## 5. Code layout (inside `nwb_conversion/`)
+
+As built in v0.1. Planned modules that don't exist yet are marked *(to-do)*.
 
 ```text
 nwb_conversion/
-├── PLAN.md
-├── pyproject.toml             # uv project; no ROS dependency
-├── metadata/                  # lab.yaml, devices.yaml, subjects/<id>.yaml
+├── PLAN.md  README.md
+├── pyproject.toml  uv.lock    # standalone uv project; no ROS dependency
 ├── src/tabletop_nwb/
-│   ├── cli.py                 # tt-nwb inventory|extract|sync|convert|validate|sort
-│   ├── session.py
-│   ├── readers/               # mcap.py, edf.py, video.py, spikeglx.py
-│   ├── sync/                  # detect.py, match.py, fit.py, report.py
-│   ├── writers/               # common.py, task.py, video.py, ephys.py, sorting.py
-│   ├── trials.py              # events → trials table + trial assignment
-│   └── validation/            # post-conversion test suite (§10)
-│       ├── expectations.yaml  # which streams are required/optional, thresholds
-│       ├── conftest.py        # --nwb-dir / --session fixtures, lazy file handles
-│       └── test_*.py          # one module per check category (§10.3)
-├── fixtures/                  # synthetic-session generator (§10.6)
-└── tests/                     # unit tests of the converter code itself
+│   ├── cli.py                 # tt-nwb convert | validate | run | synth
+│   ├── bag.py                 # MCAP reading + service-event schema fix
+│   ├── session.py             # stage [0]: inventory + profile choice
+│   ├── extract.py             # stage [1]: one MCAP pass → per-stream tables
+│   ├── sync.py                # stage [2]: pulse detection, interval matching, robust fit
+│   ├── timeline.py            # shared session clock, per-stream time method, reordering
+│   ├── trials.py              # TaskEvent → trials/epochs + event assignment
+│   ├── nwb_common.py          # NWBFile header, EventsTable helpers, provenance, atomic write
+│   ├── write_task.py          # task.nwb
+│   ├── write_video.py         # video.nwb (external unbag segments + camera metadata)
+│   ├── convert.py             # stages [0]–[3] + manifest.json
+│   ├── (edf.py, write_ephys.py, sorting.py)   # (to-do)
+│   ├── validation/            # post-conversion test suite (§10)
+│   │   ├── expectations.yaml  # per-profile file/stream/sync expectations + thresholds
+│   │   ├── checks.py          # check registry, categories A–H
+│   │   └── __init__.py        # validate() → report.json / report.md
+│   └── testing/
+│       ├── synth.py           # synthetic sessions with ground truth (§10.6)
+│       └── schemas.json       # the rig's message schemas, copied from a real bag
+└── tests/                     # pytest: units, pipeline, ground truth, mutations, regressions
 ```
 
-Key dependencies: `pynwb`, `hdmf`, `neuroconv[spikeglx]`, `spikeinterface`,
-`probeinterface`, `ndx-events`, `nwbinspector`, `mcap`, `mcap-ros2-support`,
-`numpy`, `pandas`/`pyarrow`, `scipy`, `dandi` (optional). Kilosort4 goes in a
-separate GPU environment.
+Dependencies so far: `pynwb` 4.2 (core `EventsTable`, so `ndx-events` isn't
+needed), `hdmf`, `nwbinspector`, `mcap`, `mcap-ros2-support`, `numpy`,
+`pandas`, `pyyaml`, `pytest`. Still to add: `neuroconv[spikeglx]`,
+`spikeinterface`, `probeinterface`, an EDF reader, `dandi` (optional).
+Kilosort4 goes in a separate GPU environment.
 
 Output per session:
 
 ```text
 <session_dir>/nwb/
-├── task.nwb  video.nwb  ephys.nwb  spike_sorting.nwb
-├── video/<camera>/<segment>.mp4
-├── sorting/                  # sorter + curation outputs
-└── sync/                     # sync_report.json, residual plots
+├── task.nwb  video.nwb  (ephys.nwb  spike_sorting.nwb: to-do)
+├── manifest.json            # what was written, what is absent and why
+├── inventory.json           # stage [0] inventory + profile + reasons
+├── sync_report.json         # every stream's fit
+└── validation/report.{md,json}
 ```
+
+Videos stay where `unbag` wrote them (`<session_dir>/unbag/...`), and
+`video.nwb` references them by relative path.
 
 ---
 
 ## 6. Build order
 
-0. **Synthetic-session generator + test-suite skeleton** (§10.6). The file-level, cross-file, and sync checks come first, so every later milestone is validated as it lands.
+0. **Synthetic-session generator + test-suite skeleton + profile handling** (§3.1, §10.6). The file-level, cross-file, and sync checks come first, so every later milestone is validated as it lands. The five local sessions in `bags/` (they look like sim runs: no frames, no EDF) are the first real inputs.
 1. **Sync** for Teensy, EyeLink EDF, FLIR Line3, and UR DI3 on an existing bag. This also measures Teensy timestamp quality and sets the initial sync thresholds (§10.4).
-2. **`task.nwb`** with today's data: trials from `TaskEvent`, all event tables, Teensy, robot, sync, config.
+2. **`task.nwb`** with today's data: trials from `TaskEvent`, all event tables, Teensy, robot, sync, config. Developed and tested end to end on laptop `sim` sessions, then on a `rig` session.
 3. **EyeLink** from the EDF.
 4. **`video.nwb`** (after D4 testing).
 5. **SpikeGLX test recording** with pin 31 wired: verify SY edges, fit per probe, then **`ephys.nwb`**. Cross-check the ephys fit against EyeLink and video independently.
@@ -530,6 +599,7 @@ wired to an NI-DAQ input.
 | R6 | Fix the empty TCP pose topics (or accept FK) | robot pose |
 | R7 | Check host clock discipline (chrony slewing/stepping) during sessions; log chrony tracking | linearity of ROS time (§2.4) |
 | R8 | Start SpikeGLX before the task and stop it after; check levels and grounding between the Teensy and the chassis | coverage, signal integrity |
+| R9 | Write the rig profile to the session dir: compose profile (`sim`/`real`), each subsystem's `simulate`/`robot_mode` flag, hostname, and whether SpikeGLX was expected | profile choice without guessing (§3.1); could be folded into R3 |
 
 ---
 
@@ -560,6 +630,7 @@ unless you say otherwise.
 | D14 | Include `/rosout` and Teensy logs | yes / no | yes | milestone 2 |
 | D15 | Robot detail | joint states + wrench + pose / + dynamic extras | without the dynamic extras | milestone 2 |
 | D16 | Test-suite strictness | which checks FAIL vs WARN (§10.2) | defaults in §10.3; tune after the first real sessions | milestone 0 |
+| D17 | How sim output is marked | same file names, profile in metadata / also a `_sim` suffix or separate output dir | same names, profile in `session_description`, `keywords` and `processing/sync`; never uploaded to DANDI | milestone 0 |
 
 ### 8.2 Facts I need from you
 
@@ -567,7 +638,7 @@ unless you say otherwise.
 2. **Will you use an NI-DAQ (NIDQ) stream** in SpikeGLX (e.g. for a photodiode, juice line, or as a fallback sync input; U1 in §9)?
 3. **Subject metadata:** species, subject IDs, sex, DOB/age, and how weight is tracked. Also the lab/institution/protocol strings for the NWB header.
 4. **Probe localization:** what will you have, and when (planned coordinates, insertion depth, post-hoc histology/atlas registration)? This determines the electrodes table's `location`/`x,y,z` fields, and whether they get filled in later.
-5. **Behavior-only sessions:** will there be sessions with no ephys? (The design supports them; this just confirms the test expectations.)
+5. **Profiles (§3.1):** besides `sim`, `rig` and `rig+ephys`, are there other mixes, e.g. rig sessions without EyeLink or cameras, or laptop sessions with real hardware attached? Each mix becomes an `expectations.yaml` profile.
 6. **Rig changes R1–R8 (§7):** which you'll make and roughly when. In particular, **R2a/R2b** (full trial records and every phase event) gate the "all trial events" requirement for Foraging/Present.
 7. **R5:** is it OK to run sync pulses for the whole recording instead of only during the task?
 8. **DANDI:** is public or archive upload a goal? This affects naming (D8), extension choice (D9), and how strict the inspector checks are (§10.3 A).
@@ -586,7 +657,7 @@ Things I could not verify from the code. Each lists how and when it gets resolve
 | U2 | **Voltage level**: the Teensy outputs 3.3 V; the chassis sync input threshold is unchecked. | Missed edges | Check the imec/PXIe module spec before wiring (R1). |
 | U3 | **Teensy timestamp accuracy** vs the host clock: software-timed, micro-ROS re-sync every 10 s, unmeasured. | It sets the floor on sync residuals and therefore the test thresholds | Milestone 1: compare against EyeLink and FLIR, which are hardware-timed. |
 | U4 | **Host clock linearity** (NTP/chrony slewing) | Linear vs piecewise ephys map (§2.4) | R7; also visible as steps in the sync residuals. |
-| U5 | **`ur_msgs/IOStates` has no header** (to my knowledge; not vendored in this repo) | UR DI3 timing would be bag-receive time only | Inspect a bag's schema (milestone 1). |
+| U5 | ~~`ur_msgs/IOStates` has no header~~ **Resolved:** confirmed from the bag schema. Also, only the *left* arm's `io_states` is in `rosbag.yaml`. | UR DI3 timing is bag-receive time; the fit corrects its mean latency, and the remaining jitter goes into the "software" threshold class | Done (v0.1). Add the right arm's topic if needed (§11 to-do). |
 | U6 | **FLIR timing details**: how the driver's `TimeEstimator` behaves across dropped frames; whether `line_status` is latched at exposure start | Video timestamp accuracy | Milestone 4: compare the frame-index fit against header stamps. |
 | U7 | **OptiTrack**: whether `mid_exposure_time`/`data_received_time` are populated | Motive-side clock available or not | Inspect a bag with OptiTrack data. |
 | U8 | **UR joint effort units** from `ur_robot_driver` | Correct `unit` field | Driver docs / inspect values. |
@@ -594,6 +665,8 @@ Things I could not verify from the code. Each lists how and when it gets resolve
 | U10 | **Trial structure differs by task**: task-specific columns are NaN elsewhere; SmoothPursuit may need its own intervals table | Trials table design | When tasks are prioritized (§8.2 Q10). |
 | U11 | **Initial test thresholds** (§10.4) are educated guesses | False FAILs or missed problems | Tune after the first ~3 real sessions; recorded in `expectations.yaml`. |
 | U12 | **Multiple task classes per run**: `run.py` can run several in sequence under one `TASK_STARTED`; per-class boundaries aren't evented | Epochs table | R2c. |
+| U13 | **`edf2asc` off the rig**: the existing EDF reader (`tabletop_py/gaze/edf.py`) shells out to SR Research's `edf2asc`. It's unchecked whether that is installed on the laptop, or which macOS build works | Converting `rig` sessions on the laptop | Install the EyeLink Developers Kit for macOS, run in the rig's Docker image, or use a pure-Python EDF reader (e.g. `pyedfread`). Decide at milestone 3. |
+| U14 | ~~Profile inference from mock node names in `/rosout`~~ **Resolved: that doesn't work.** The local bags' `/rosout` contains no mock node names. v0.1 infers the profile from the files present (SpikeGLX → `rig+ephys`; EDF, cameras, OptiTrack or `eyelink_integrity.json` → `rig`; otherwise `sim`) and from the simulator's signature: its EyeLink input word changes on about 50% of samples, versus about 0.2% for real pulses. | Wrong profile → wrong expectations | Done (v0.1). R9 would make this a cross-check instead of an inference. |
 
 ---
 
@@ -611,7 +684,7 @@ After every conversion, an automated suite checks that:
 It answers the question "can I trust this session's NWB files?" and is
 separate from the unit tests of the converter code (§10.6).
 
-- **Runner:** pytest, invoked as `tt-nwb validate <session_dir>/nwb` (pipeline stages [4] and [6]). Tests are parameterized over the streams listed in `expectations.yaml`.
+- **Runner:** `tt-nwb validate <session_dir>/nwb` (pipeline stages [4] and [6]). *As built:* the checks are a plain registry (`validation/checks.py`) driven by `expectations.yaml`, not pytest tests, so a check reports PASS/WARN/FAIL/INFO/SKIP with a measured value instead of just pass/fail. pytest is used for the converter's own tests, including the mutation tests (§10.5–10.6).
 - **Inputs:** the NWB files, `inventory.json` (counts taken from the raw sources during stage 0), `sync_report.json`, and (for spot checks) read-only access to the raw sources: MCAP, EDF, SpikeGLX `.bin/.meta`, video files.
 - **Outputs:** `nwb/validation/report.json` (machine-readable: every check, status, measured value, threshold), `report.md` (human summary at the top: PASS/WARN/FAIL counts plus each failure with an explanation), JUnit XML, and sync residual plots. Exit code is non-zero if any FAIL.
 - **Speed:** heavy checks (raw-vs-NWB equality on ephys, frame decoding) use random **samples** of chunks and frames, with a fixed, recorded seed. A `--full` flag runs exhaustive versions.
@@ -626,9 +699,12 @@ separate from the unit tests of the converter code (§10.6).
 - sync class and thresholds
 - severity of each check
 
-A per-session override (generated from `session_metadata.yaml` and
-`inventory.json`) handles cases like "OptiTrack not used today" or "behavior-only
-session". This distinguishes *the stream was never recorded* (WARN or skip)
+Expectations are layered: a base file, then the **profile** (`sim`, `rig`,
+`rig+ephys`; §3.1), then a per-session override (generated from
+`session_metadata.yaml` and `inventory.json`) for cases like "OptiTrack not
+used today". The profile also selects the test categories, and skipped
+categories are listed as SKIPPED in the report with the reason, so a `sim`
+report can't be mistaken for a full one. This distinguishes *the stream was never recorded* (WARN or skip)
 from *the stream was recorded but lost in conversion* (FAIL).
 
 Severity levels:
@@ -757,6 +833,9 @@ FAIL** for each of these:
 - mismatch `session_start_time` between files
 - truncate a video segment
 - corrupt one ephys chunk
+- delete `ephys.nwb` from a `rig+ephys` session (absent ≠ lost)
+- convert a `rig` session with `--profile sim` (profile mismatch)
+- feed random EyeLink `input` values, as the simulator does (no spurious fit)
 
 These run in CI on every change to the converter or the suite.
 
@@ -764,4 +843,129 @@ These run in CI on every change to the converter or the suite.
 
 - **Synthetic session generator** (`fixtures/`): writes a small MCAP with the rig's message types (via `mcap`), a fake EDF-equivalent, a few seconds of fake SpikeGLX `.bin/.meta` (NP2.0 geometry), and short video segments. Every stream carries a known Teensy-style jittered pulse train with **known injected** drift, offset, jitter, dropouts, and one clock step. The generator also writes the ground truth, so the converter's fits can be checked against it exactly.
 - **Unit tests**: pulse detection per stream (EyeLink mask, Line3 bit, UR active-low, SY bit, OptiTrack displacement); interval matching under dropouts and different start times; robust/piecewise fitting; trial assignment edge cases (events at window boundaries, overlapping preparation on the other arm, aborted trials).
-- **Golden real session**: once a short real session with all streams exists, it becomes a regression fixture. Its validation report is stored and compared across converter versions.
+- **Synthetic sessions per profile**: the generator writes `sim`, `rig` and `rig+ephys` variants, so every profile is covered in CI without real data.
+- **Golden sessions, one per profile**: a short laptop `sim` session (the smallest local one, ~50 MB, works now), a short `rig` session, and, once one exists, a short `rig+ephys` session. Each becomes a regression fixture whose validation report is stored and compared across converter versions.
+
+---
+
+## 11. Implementation status (v0.1) and to-do
+
+### 11.1 What exists
+
+```bash
+cd nwb_conversion
+uv sync                                      # one-time: creates nwb_conversion/.venv
+uv run tt-nwb run ../bags/session_*          # convert + validate; exit 1 on any FAIL
+uv run tt-nwb convert <session> [--profile sim|rig|rig+ephys]
+uv run tt-nwb validate <session>/nwb         # → <session>/nwb/validation/report.md
+uv run tt-nwb synth /tmp/x --profile rig     # synthetic session with ground truth
+uv run pytest                                # 35 tests, ~20 s
+```
+
+| Stage | v0.1 |
+| --- | --- |
+| [0] inventory | Bag summary, EDF/cameras/OptiTrack/SpikeGLX detection, profile inference or a checked `--profile` (a mismatch stops the run), `inventory.json` |
+| [1] extract | One pass over the MCAP, all topics except images, `/dynamic_joint_states` and visualization topics. 1.6 GB bag in ~15 s, in memory. |
+| [2] sync | Teensy reference from `sync_pulse_last_time_on/off`. EyeLink (input bit 0x20, tracker clock), FLIR (Line3 on `left_back_top_cam`, header clock) and UR left DI3 (bag receive time) get pulse detection with a width filter, matching on 5-interval signatures, a robust linear fit, plausibility limits, and `sync_report.json`. |
+| [3] write | `task.nwb`: epochs, trials, all `TaskEvent`s, every Teensy service as an events table (reward, arm lock, smartglass, solenoid, buzzer, …), Flic, EyeLink gaze/pupil/input/tracker clock, joints, wrench, TCP pose, UR IO, Teensy flags and glove, OptiTrack markers, sync fits and pulses, `/rosout`, Teensy log, provenance. `video.nwb`: external `unbag` segments, per-frame timestamps from the sidecars, per-frame camera metadata, dropped frames. `manifest.json`. |
+| [4] validate | Categories A–F (≈80–170 checks per session), `report.md`/`report.json`. G and H are placeholders. |
+| tests | Unit tests (schema fix, service-call dedup, pulse detection, matching incl. rejection of random and unrelated trains, trials edge cases); end-to-end on synthetic `rig` and `sim` sessions; ground truth (written EyeLink, Teensy and camera times vs the true host time); 14 mutation tests; a regression test. |
+
+### 11.2 Results on the laptop recordings
+
+All five recordings in `bags/` were inferred as `sim` and validate with no
+FAIL:
+
+| Session | Length | Bag | Trials | Task events | Teensy pulses | EyeLink samples | Convert | PASS / WARN / FAIL |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `session_2026-10-31_16-12-05` | 69 s | 296 MB | 4 | 10 | 44 | 57,376 | 2.9 s | 75 / 3 / 0 |
+| `session_2026-10-31_16-16-20` | 56 s | 237 MB | 2 | 6 | 30 | 45,149 | 2.3 s | 78 / 8 / 0 |
+| `session_2026-10-31_16-44-30` | 12 s | 52 MB | 0 (no task ran) | 0 | 0 | 9,300 | 0.5 s | 46 / 6 / 0 |
+| `session_2026-10-31_16-45-36` | 64 s | 273 MB | 3 | 8 | 38 | 52,647 | 2.7 s | 77 / 6 / 0 |
+| `session_2026-10-31_20-16-48` | 382 s | 1,642 MB | 30 | 62 | 356 | 316,485 | 16.6 s | 77 / 7 / 0 |
+
+The warnings are real properties of the sim recordings:
+- the simulated subject has no age (check A3)
+- there are short gaps in the mock streams, up to 0.34 s (check D2)
+- the converter had to reorder a few samples (check D4, §11.3)
+
+`task.nwb` is about 1.6% of the bag size: 27 MB for the 1.6 GB bag, since the
+bag's bulk is `/dynamic_joint_states`, which isn't written (D15).
+
+**Not yet run on a real rig recording.** The `rig` path, which covers sync of
+EyeLink, cameras and UR, `video.nwb`, and the closure and triangle tests, has so
+far only been exercised on synthetic sessions.
+
+### 11.3 Findings from the real bags
+
+**Schemas and topics**
+- **Service events can't be decoded by `mcap-ros2-support`.** rosbag2 records `/teensy/*/_service_event` with a schema named `pkg/srv/X_Event` whose text is the `.srv` file. `bag.py` rewrites it into the equivalent message definition, which has the same CDR layout.
+- **Each service call appears twice.** The client (`REQUEST_SENT`/`RESPONSE_RECEIVED`) and the server (`REQUEST_RECEIVED`/`RESPONSE_SENT`) publish under different GIDs. Calls are built from the server side when it is introspected, which is the time the Teensy acted on the request.
+- **U5 resolved:** `IOStates` has no header, and only the left arm's IO topic is recorded.
+- **NWB column naming:** `object_id` can't be used as a column name because NWB reserves it, so the presented object is stored as `presented_object`.
+
+**Timing**
+- **The Teensy's `sync_pulse_last_time_on` persists across sessions.** The first messages of a bag carry a pulse time from about 3.5 h earlier. Pulses are restricted to the bag's time span.
+- **The mock Teensy's intervals are 812–1191 ms**, slightly wider than the firmware's 850–1150 ms. The matcher accepts 0.7–1.4 s.
+- **Header stamps are occasionally out of receive order.** One sample is stamped about 1 ms ahead of the next, in EyeLink, joints and wrench, and `/rosout` mixes nodes' clocks by seconds. Streams are now stably sorted by timestamp, and the number of samples moved is recorded and reported (check D4).
+- **Edge-time bias:** taking the first asserted sample as the pulse onset biases it late by half a sample (4.2 ms at 120 fps). Edges are now estimated as the midpoint between the last low and the first high sample. Synthetic ground truth caught this.
+- **The fit needs plausibility limits.** An unrelated pulse train once "fitted" with a clock rate of 0.41. Fits now need the rate within 1% of 1, at least 3 agreeing anchors, and at least 50% of pulses matched.
+- **Decoder-cache bug, fixed:** caching decoders by `id(schema)` gave one type's decoder to another when several bags were converted in one process. They're now cached by schema content, with a regression test.
+
+**Sim behavior**
+- **U14 resolved:** profile inference uses the EyeLink input signature plus rig-only files (§9).
+- **The simulator isn't real-time.** Simulated EyeLink samples arrive at about 875 Hz in host time (1 kHz in tracker time). The mock robot publishes NaN wrench, and the TCP pose topics are empty (R6 confirmed).
+
+### 11.4 Deviations from the plan (v0.1)
+
+**Changes to file contents**
+- **Aborted trials are kept in `trials`**, with `completed=False` and a `stop_reason` of `next_trial` or `task_end`, instead of a separate `aborted_trials` table (§4.1). Revisit once `OBJECT_MISS` and abort semantics are settled per task (R2, U10).
+- **EyeLink comes from the bag** (`/eyelink/sample_array`, which includes the tracker clock and input word), not the EDF yet.
+- **One camera fit for all six cameras:** the Line3 fit on `left_back_top_cam` header stamps is applied to every camera. Frame-index timing (§2.3) isn't done yet.
+- **`session_start_time` is floored to the microsecond** so that the datetime represents it exactly. All files carry the exact `session_start_ns` in provenance.
+- **Simulated sessions get the placeholder subject `simulated`**, are labelled SIMULATED in `session_description`, and carry `profile:sim` in their keywords (D17 as recommended).
+
+**Changes to how the pipeline runs**
+- **No parquet cache:** extraction is a single in-memory pass. That's fine at this scale; revisit for multi-hour rig bags (U9).
+- **The validator is a check registry, not pytest** (§10.1). There's no JUnit XML or residual plots yet.
+
+### 11.5 To-do
+
+Grouped by what it unblocks. Items marked **(you)** need a decision, hardware or data from you.
+
+**A. First real rig session (`rig` profile)**
+- [ ] **(you)** Record a short real rig session with the task running, sync pulses, EyeLink recording and cameras on. Then run `tt-nwb run` on it and fix what breaks. This is the first real test of the EyeLink, camera and UR fits and of checks E4 (closure) and E5 (triangle).
+- [ ] Tune the thresholds in `expectations.yaml` on the first ~3 real sessions (U11). Measure Teensy timestamp quality against EyeLink and FLIR (U3).
+- [ ] Check D3 (cameras agree on the same frame) on real header stamps. If they disagree, add per-camera frame-index timing (U6).
+- [ ] **EDF reader** (U13). Choose `edf2asc` on macOS, the Docker image, or a pure-Python reader. Write EDF samples, fixations, saccades, blinks and messages. Decide whether the EDF or the bag stream is primary, and cross-check one against the other.
+- [ ] **Video:** run `unbag --handlers video` on a real session and confirm the sidecar layout matches `write_video.py`. Handle `*_unmatched` frames. Add camera calibration (`flir_preflight.yaml` / CameraInfo). Settle D4.
+- [ ] Add a validator check that each segment's decoded frame count equals its sidecar rows (needs `ffprobe` or PyAV). Today only file existence and timestamp counts are checked.
+- [ ] **OptiTrack:** detect the solenoid marker and fit it to the Teensy (U7). Markers are currently written with header stamps only.
+- [ ] **Session metadata** (R4): a `session_metadata.yaml` template with subject, experimenter, lab and protocol. Without it, a real `rig` session deliberately FAILs A3 (no subject).
+- [ ] **(you)** Add `/right_io_and_status_controller/io_states` to `rosbag.yaml` if you want right-arm DI3 sync. Fix the empty TCP pose topics (R6), or add forward kinematics.
+- [ ] Piecewise fits and clock-step detection (U4), plus residual plots in the report.
+
+**B. Ephys (`rig+ephys`)**
+- [ ] **(you)** Wire Teensy pin 31 to the SpikeGLX chassis (R1, U2). Make a short test recording and confirm SpikeGLX accepts the irregular sync (U1). Answer §8.2 Q1–2 (NP2.0 variant, number of probes, NIDQ).
+- [ ] `ephys.nwb` writer with the neuroconv SpikeGLX interface: NP2.0 wideband, IMRO geometry and electrode table, `starting_time`/`rate` from the per-probe fit, SY-edge extraction, NIDQ if used (§4.3).
+- [ ] Validator category G: random-chunk bitwise equality against the `.bin`, gains, SY edges re-extracted from raw, `starting_time`/`rate` consistent with the sync table. Triangle tests ephys ↔ EyeLink and ephys ↔ video.
+- [ ] Synthetic SpikeGLX `.bin`/`.meta` (NP2.0) in the generator. Mutation tests: delete ephys samples, remove SY edges, corrupt a chunk.
+
+**C. Spike sorting**
+- [ ] SpikeInterface → Kilosort4 → curation (D11) → `spike_sorting.nwb`, with category H checks (spike times recomputed from sample indices).
+
+**D. Task content** (depends on rig changes R2 and R3)
+- [ ] **(you)** R2a: full trial records (`TrialSpec`/`TrialFeedback`/outcome). Then add them as trial columns.
+- [ ] **(you)** R2b/R2c: phase events for Foraging/Present, sounds, manipulation lifecycle, per-task-class boundaries. Then add event tables, task-specific trial columns (U10) and per-class epochs (U12).
+- [ ] **(you)** R3: save the task config, launch args and git commit, then write them to provenance and configuration.
+- [ ] `/dynamic_joint_states` extras (D15): not written today.
+
+**E. Pipeline and test-suite infrastructure**
+- [ ] Extraction cache and streaming for multi-hour bags. Profile memory on a ≥1 h bag (U9).
+- [ ] Generate `expectations.override.yaml` from `session_metadata.yaml` ("OptiTrack not used today"). Today it is a hand-written file.
+- [ ] Golden-session regression: store a reference session's `report.json` and diff it across converter versions (§10.6).
+- [ ] CI: run `uv run pytest` in `nwb_conversion/` on every change.
+- [ ] JUnit XML output. A `--full` mode for heavy checks once there are ephys and video decoding checks.
+- [ ] **(you)** R9: the rig writes its profile into the session dir, and inference becomes a cross-check.
+- [ ] DANDI (only if you want it, §8.2 Q8): naming (D8), `dandi validate` as an A-level check.
+- [ ] Resolve the remaining nwbinspector suggestions: joint-effort units (U8), and rate plus `starting_time` for truly regular streams.

@@ -1,0 +1,70 @@
+# What the post-conversion test suite expects, per recording profile (PLAN §3.1, §10.2).
+# Levels: required (missing → FAIL) | optional (missing → INFO) | absent (present → WARN).
+# A per-session override file (<nwb_dir>/expectations.override.yaml) is merged on top.
+
+files:
+  task.nwb:          {sim: required, rig: required, rig+ephys: required}
+  video.nwb:         {sim: absent,   rig: required, rig+ephys: required}
+  ephys.nwb:         {sim: absent,   rig: absent,   rig+ephys: required}
+  spike_sorting.nwb: {sim: absent,   rig: absent,   rig+ephys: optional}
+
+# Streams in task.nwb. `nwb` is the object path; `topic` is the raw source used for count conservation;
+# `rate_hz` (optional) is checked against the median sample interval.
+streams:
+  task_events:      {nwb: events/task_events,            topic: /tabletop/task_event,                         sim: optional, rig: required, rig+ephys: required}
+  teensy_sensor:    {nwb: acquisition/teensy_digital_states, topic: /teensy/sensor, rate_hz: 100,               sim: required, rig: required, rig+ephys: required}
+  eyelink:          {nwb: acquisition/eyelink_input,     topic: /eyelink/sample_array, unit: samples, rate_hz: 1000, sim: optional, rig: required, rig+ephys: required}
+  joint_states:     {nwb: acquisition/robot_joint_position, topic: /joint_states,                             sim: required, rig: required, rig+ephys: required}
+  wrench_left:      {nwb: acquisition/robot_left_force,  topic: /left_force_torque_sensor_broadcaster/wrench,  sim: optional, rig: optional, rig+ephys: optional}
+  wrench_right:     {nwb: acquisition/robot_right_force, topic: /right_force_torque_sensor_broadcaster/wrench, sim: optional, rig: optional, rig+ephys: optional}
+  tcp_pose_left:    {nwb: acquisition/robot_left_tcp_position,  topic: /left_tcp_pose_broadcaster/pose,       sim: optional, rig: optional, rig+ephys: optional}
+  tcp_pose_right:   {nwb: acquisition/robot_right_tcp_position, topic: /right_tcp_pose_broadcaster/pose,      sim: optional, rig: optional, rig+ephys: optional}
+  io_left:          {nwb: acquisition/ur_left_digital_in,  topic: /left_io_and_status_controller/io_states,   sim: optional, rig: required, rig+ephys: required}
+  flic_press:       {nwb: events/flic_press,             topic: /flic/button_pressed_time,                    sim: optional, rig: optional, rig+ephys: optional}
+  reward:           {nwb: events/reward,                 topic: /teensy/set_reward/_service_event, unit: calls, sim: optional, rig: optional, rig+ephys: optional}
+  arm_lock:         {nwb: events/arm_lock,               topic: /teensy/set_arm_lock/_service_event, unit: calls, sim: optional, rig: optional, rig+ephys: optional}
+  smartglass:       {nwb: events/smartglass,             topic: /teensy/set_smartglass/_service_event, unit: calls, sim: optional, rig: optional, rig+ephys: optional}
+  solenoid:         {nwb: events/solenoid,               topic: /teensy/set_solenoid/_service_event, unit: calls, sim: optional, rig: optional, rig+ephys: optional}
+  buzzer:           {nwb: events/buzzer,                 topic: /teensy/set_buzzer/_service_event, unit: calls, sim: optional, rig: optional, rig+ephys: optional}
+  optitrack:        {nwb: acquisition/optitrack_markers, topic: /markers, unit: markers,                       sim: absent,   rig: optional, rig+ephys: optional}
+  rosout:           {nwb: processing/logs/rosout,        topic: /rosout,                                      sim: optional, rig: optional, rig+ephys: optional}
+
+# How each stream must be synchronized. pulse_fit = fitted to the Teensy pulses;
+# host_clock = no pulses, stamped by the host (expected for simulated EyeLink);
+# any = either is acceptable; absent = stream not expected.
+sync:
+  teensy:   {sim: reference_if_task, rig: reference,  rig+ephys: reference}
+  eyelink:  {sim: host_clock,        rig: pulse_fit,  rig+ephys: pulse_fit}
+  cameras:  {sim: absent,            rig: pulse_fit,  rig+ephys: pulse_fit}
+  ur_left:  {sim: any,               rig: pulse_fit_warn, rig+ephys: pulse_fit_warn}
+
+sync_class:
+  eyelink: hardware
+  cameras: frames
+  ur_left: software
+
+inspector:
+  # Deliberate choices, reported as "ignored": JSON provenance values; sensor timestamps kept even when
+  # nearly regular (real hardware jitter matters for sync).
+  ignore: [check_table_values_for_dict, check_regular_timestamps]
+  # Simulated sessions have no real subject; missing age/DOB is a WARN there, a FAIL on the rig.
+  sim_warn_only: [check_subject_age, check_subject_exists, check_subject_sex, check_subject_species_exists]
+
+thresholds:
+  matched_fraction:        {fail: 0.90, warn: 0.95}
+  drift_ppm_abs:           {fail: 500,  warn: 200}
+  # residual RMS / max (ms) between a stream's fitted pulse onsets and the Teensy's (U11: tune on real data)
+  residual_ms:
+    hardware: {rms_warn: 1.0, rms_fail: 3.0, max_fail: 10.0}
+    frames:   {rms_warn: 3.5, rms_fail: 6.0, max_fail: 17.0}   # 120 fps → ±4.2 ms quantization
+    software: {rms_warn: 5.0, rms_fail: 15.0, max_fail: 50.0}
+  closure_median_ms:
+    hardware: 2.0
+    frames: 6.0
+    software: 15.0
+  triangle_median_ms: 6.0          # EyeLink ↔ cameras, independent of Teensy jitter
+  teensy_ipi_s: [0.7, 1.4]
+  teensy_width_s: [0.05, 0.2]
+  rate_tolerance: 0.05            # median sample rate within ±5 % of rate_hz
+  gap_factor: 10                  # gap > 10× median interval → WARN
+  timestamp_margin_s: 5.0         # samples may precede bag start / follow bag end by this much
