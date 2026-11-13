@@ -1,0 +1,4 @@
+# Contrastive successor-feature skills (METRA-like), 4-D skills.
+method: csf
+method_kwargs: {feats: interaction, z_dim: 4}
+steps: 700000

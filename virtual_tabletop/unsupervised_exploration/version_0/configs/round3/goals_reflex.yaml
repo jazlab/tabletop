@@ -1,0 +1,7 @@
+# Goal babbling + developmental priors: a fading grasp reflex (on for the
+# first part of training) and a static -> dynamic curriculum (mostly fixed
+# objects first). Still no reward.
+method: goals
+method_kwargs: {her: 0.7}
+schedule: {reflex: [1.0, 0.0, 0.7], p_fixed: [0.8, 0.5, 0.5]}
+steps: 700000

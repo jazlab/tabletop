@@ -1,0 +1,7 @@
+# RND (interaction) with pink exploration noise and DEP-RL switching
+# (DEP takes over an env for 15 steps with prob 0.01 per step).
+method: rnd
+method_kwargs: {feats: interaction}
+noise: pink
+dep_switch: {p: 0.01, h: 15}
+steps: 700000

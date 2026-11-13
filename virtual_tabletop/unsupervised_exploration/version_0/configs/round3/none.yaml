@@ -1,0 +1,3 @@
+# Control: max-entropy SAC with zero reward.
+method: none
+steps: 700000

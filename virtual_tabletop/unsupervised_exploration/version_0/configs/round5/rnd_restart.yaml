@@ -1,0 +1,8 @@
+# RND (interaction) + Go-Explore-style restarts: 30% of trials start from
+# an archived state in which >= 2 hand units touch the block (a curriculum
+# prior; no reward). More experience in the in-hand regime, where lifting
+# and in-hand turning become reachable.
+method: rnd
+method_kwargs: {feats: interaction}
+env: {restart_p: 0.3}
+steps: 700000

@@ -1,0 +1,4 @@
+# RND on interaction features.
+method: rnd
+method_kwargs: {feats: interaction}
+steps: 700000

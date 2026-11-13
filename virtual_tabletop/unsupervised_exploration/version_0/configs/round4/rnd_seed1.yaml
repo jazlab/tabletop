@@ -1,0 +1,5 @@
+# Replicate of r1_rnd with another seed (variance across seeds).
+method: rnd
+method_kwargs: {feats: interaction}
+steps: 700000
+seed: 1

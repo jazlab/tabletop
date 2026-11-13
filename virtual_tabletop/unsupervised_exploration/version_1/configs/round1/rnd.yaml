@@ -1,0 +1,8 @@
+# Version 1 reference: RND (interaction) + smoothness costs, v1 hand and
+# shapes, no teacher. Seed 0.
+mix:
+  - [rnd, 1.0, {feats: interaction}]
+  - [smooth, 1.0, {w_effort: 0.1, w_jerk: 0.2}]
+env: {hand: v1, shapes: v1}
+steps: 700000
+seed: 0

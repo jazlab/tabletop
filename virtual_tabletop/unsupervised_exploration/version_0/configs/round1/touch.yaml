@@ -1,0 +1,4 @@
+# Tactile surprise: ensemble disagreement on next contacts + object motion.
+method: touch
+method_kwargs: {w_obj: 0.5}
+steps: 700000

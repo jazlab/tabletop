@@ -1,0 +1,5 @@
+# Replicate of r1_contact with another seed.
+method: contact
+method_kwargs: {w_set: 0.5, w_reach: 0.1}
+steps: 700000
+seed: 1

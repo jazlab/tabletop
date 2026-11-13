@@ -1,0 +1,5 @@
+# The best reward-free explorer (RND on interaction features), 2x longer:
+# does lifting emerge with more experience?
+method: rnd
+method_kwargs: {feats: interaction}
+steps: 1400000

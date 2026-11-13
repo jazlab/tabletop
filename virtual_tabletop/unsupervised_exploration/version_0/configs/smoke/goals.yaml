@@ -1,0 +1,4 @@
+method: goals
+steps: 12000
+warmup: 4000
+log_every: 4000

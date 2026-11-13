@@ -1,0 +1,6 @@
+# Modular goal babbling (IMGEP + HER): self-generated goals over palm
+# position, contact pattern, object displacement and rotation; module
+# chosen by learning progress. Purely reward-free (no task knowledge).
+method: goals
+method_kwargs: {her: 0.7}
+steps: 700000

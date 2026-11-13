@@ -1,0 +1,5 @@
+# Control: RND on the FULL observation (incl. 69 proprioceptive dims), the
+# naive choice the literature warns about.
+method: rnd
+method_kwargs: {feats: all}
+steps: 700000

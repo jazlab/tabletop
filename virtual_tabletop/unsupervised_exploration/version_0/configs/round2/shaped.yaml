@@ -1,0 +1,3 @@
+# SUPERVISED reference: dense reach + contact + grasp + lift reward.
+method: shaped
+steps: 700000

@@ -1,0 +1,10 @@
+# C: residual policy on the scripted controller,
+# executed = clip(a_script + 0.5 * a_policy); the script's action is in the
+# observation. 2 env workers (the script costs ~1 ms per step). Seed 1.
+mix:
+  - [rnd, 1.0, {feats: interaction}]
+  - [smooth, 1.0, {w_effort: 0.1, w_jerk: 0.2}]
+env: {hand: v1, shapes: v1, residual_scale: 0.5}
+n_workers: 2
+steps: 700000
+seed: 1

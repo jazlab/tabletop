@@ -1,0 +1,4 @@
+# Object-centric ensemble disagreement (CEE-US-lite, model-free).
+method: disagreement
+method_kwargs: {feats: interaction}
+steps: 700000

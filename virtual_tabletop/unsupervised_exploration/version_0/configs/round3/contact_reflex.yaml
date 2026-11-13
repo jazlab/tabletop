@@ -1,0 +1,5 @@
+# Contact coverage + fading grasp reflex + static -> dynamic curriculum.
+method: contact
+method_kwargs: {w_set: 0.5, w_reach: 0.1}
+schedule: {reflex: [1.0, 0.0, 0.7], p_fixed: [0.8, 0.5, 0.5]}
+steps: 700000

@@ -1,0 +1,7 @@
+# MUSIC v3: object state = velocity + wrench only (zero unless the block
+# is acted on; no trial-identifying offsets), reward clipped at 0, plus
+# contact coverage (0.5) to bootstrap.
+mix:
+  - [music, 1.0, {clip_min: 0.0, s_parts: [obj_vel, wrench]}]
+  - [contact, 0.5, {w_set: 0.5, w_reach: 0.1}]
+steps: 700000

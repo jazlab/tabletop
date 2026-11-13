@@ -1,0 +1,9 @@
+# C + D (sparse lift bonus). Seed 0.
+mix:
+  - [rnd, 1.0, {feats: interaction}]
+  - [smooth, 1.0, {w_effort: 0.1, w_jerk: 0.2}]
+  - [lift, 1.0, {}]
+env: {hand: v1, shapes: v1, residual_scale: 0.5}
+n_workers: 2
+steps: 700000
+seed: 0

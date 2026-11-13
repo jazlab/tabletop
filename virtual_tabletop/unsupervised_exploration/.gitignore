@@ -1,0 +1,10 @@
+# Large regenerable training outputs (kept locally, not in git)
+*.pt
+*.pkl
+*.npz
+# Per-run videos duplicate report/videos/
+version_*/runs/*/*.mp4
+# Local control/scratch files
+STOP_AUTOEVAL
+MUJOCO_LOG.TXT
+.ipynb_checkpoints/

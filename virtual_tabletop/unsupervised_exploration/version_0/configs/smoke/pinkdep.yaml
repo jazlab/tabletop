@@ -1,0 +1,7 @@
+method: rnd
+method_kwargs: {feats: interaction}
+noise: pink
+dep_switch: {p: 0.02, h: 15}
+steps: 9000
+warmup: 4000
+log_every: 3000

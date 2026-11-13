@@ -1,0 +1,8 @@
+# Goal babbling v2: reach goals kept within 6 cm of the object (r1 sampled
+# far-away rare goals, so contacts never happened), plus a contact-coverage
+# exploration term (0.5) so that contact/move/turn goals become reachable.
+# Still reward-free: goals are own past outcomes, the bonus is intrinsic.
+mix:
+  - [goals, 1.0, {her: 0.7, reach_radius: 0.3}]
+  - [contact, 0.5, {w_set: 0.5, w_reach: 0.1}]
+steps: 700000

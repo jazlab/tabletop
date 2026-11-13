@@ -1,0 +1,5 @@
+# DIAYN: 16 discrete skills, discriminator on agent-controlled interaction
+# features ("skill" group), plus an RND bonus (w 0.5).
+method: diayn
+method_kwargs: {n_skills: 16, w_rnd: 0.5}
+steps: 700000

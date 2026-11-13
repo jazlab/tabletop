@@ -1,0 +1,4 @@
+# APT: kNN particle entropy over interaction features.
+method: apt
+method_kwargs: {feats: interaction, k: 12}
+steps: 700000

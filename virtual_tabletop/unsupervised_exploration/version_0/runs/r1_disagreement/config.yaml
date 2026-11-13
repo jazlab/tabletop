@@ -1,0 +1,27 @@
+batch: 512
+buffer: 600000
+env: {}
+fixed_alpha: null
+gamma: 0.97
+hidden:
+- 256
+- 256
+init_alpha: 0.05
+log_every: 10000
+lr: 0.0003
+method: disagreement
+method_kwargs:
+  feats: interaction
+mix: null
+n_envs: 8
+n_step: 3
+n_workers: 1
+name: r1_disagreement
+schedule: {}
+seed: 0
+snapshot_every: 200000
+steps: 700000
+target_entropy: null
+torch_threads: 1
+utd: 0.25
+warmup: 8000

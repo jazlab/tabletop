@@ -1,0 +1,6 @@
+# Contact coverage + Go-Explore-style restarts (30%, from >= 2-unit contact
+# states).
+method: contact
+method_kwargs: {w_set: 0.5, w_reach: 0.1}
+env: {restart_p: 0.3}
+steps: 700000

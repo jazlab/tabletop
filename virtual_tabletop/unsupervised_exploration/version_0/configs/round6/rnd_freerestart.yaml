@@ -1,0 +1,7 @@
+# rnd with free-block-focused Go-Explore restarts: 75% free blocks,
+# half the trials restart from an archived free-block state with >= 2 hand
+# units in contact. Aimed at the grasp -> lift gap.
+method: rnd
+method_kwargs: {feats: interaction}
+env: {p_fixed: 0.25, restart_p: 0.5, restart_free_only: true}
+steps: 600000

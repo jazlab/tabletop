@@ -1,0 +1,7 @@
+# RND (interaction) + contact coverage, equal weights after per-term std
+# normalisation: object novelty (pushing, turning) + contact coverage
+# (grasp configurations).
+mix:
+  - [rnd, 1.0, {feats: interaction}]
+  - [contact, 1.0, {w_set: 0.5, w_reach: 0.1}]
+steps: 700000

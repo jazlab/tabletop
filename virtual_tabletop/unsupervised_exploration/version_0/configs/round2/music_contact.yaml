@@ -1,0 +1,6 @@
+# MUSIC (hand-object mutual information, separable InfoNCE critic) with
+# the reward clipped at 0 (as in MUSIC), bootstrapped with contact counts.
+mix:
+  - [music, 1.0, {clip_min: 0.0}]
+  - [contact, 0.5, {w_set: 0.5, w_reach: 0.1}]
+steps: 700000

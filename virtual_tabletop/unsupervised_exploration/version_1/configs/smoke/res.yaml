@@ -1,0 +1,8 @@
+mix:
+  - [rnd, 1.0, {feats: interaction}]
+  - [smooth, 1.0, {w_effort: 0.1, w_jerk: 0.2}]
+  - [lift, 1.0, {}]
+env: {hand: v1, shapes: v1, residual_scale: 0.5}
+steps: 12000
+warmup: 4000
+log_every: 6000

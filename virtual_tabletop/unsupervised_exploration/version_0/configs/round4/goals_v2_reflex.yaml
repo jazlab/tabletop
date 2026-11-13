@@ -1,0 +1,6 @@
+# Goal babbling v2 + fading grasp reflex + static -> dynamic curriculum.
+mix:
+  - [goals, 1.0, {her: 0.7, reach_radius: 0.3}]
+  - [contact, 0.5, {w_set: 0.5, w_reach: 0.1}]
+schedule: {reflex: [1.0, 0.0, 0.7], p_fixed: [0.8, 0.5, 0.5]}
+steps: 700000

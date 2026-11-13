@@ -1,0 +1,4 @@
+# CCGE-lite contact-coverage counts (purely unsupervised, tactile).
+method: contact
+method_kwargs: {w_set: 0.5, w_reach: 0.1}
+steps: 700000

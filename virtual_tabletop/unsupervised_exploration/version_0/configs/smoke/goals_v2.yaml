@@ -1,0 +1,6 @@
+mix:
+  - [goals, 1.0, {her: 0.7, reach_radius: 0.3}]
+  - [contact, 0.5, {}]
+steps: 9000
+warmup: 4000
+log_every: 3000
