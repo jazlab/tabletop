@@ -30,6 +30,7 @@ Safety:
 """
 
 import asyncio
+import math
 import os
 import threading
 from collections.abc import Callable
@@ -113,6 +114,49 @@ def _is_constraints_goal(goal: Any) -> bool:
     )
 
 
+def validate_joint_velocity_limit(
+    message: JointTrajectory, joint_name: str, limit: float
+) -> None:
+    """Check reported velocities and segment displacement against a limit.
+
+    Reject malformed timing or missing derivatives rather than letting a raw
+    trajectory bypass the retimer. This checks the commanded message, not
+    measured hardware tracking or the controller's internal interpolation.
+    """
+    if joint_name not in message.joint_names:
+        return
+    if not math.isfinite(limit) or limit <= 0:
+        raise ValueError(f"Invalid velocity bound for {joint_name}: {limit}")
+    if not message.points:
+        raise ValueError(f"Empty trajectory for {joint_name}")
+    index = message.joint_names.index(joint_name)
+    tolerance = 1e-3  # rad/s; numerical retiming roundoff only
+    previous = None
+    for point in message.points:
+        if (
+            len(point.positions) != len(message.joint_names)
+            or len(point.velocities) != len(message.joint_names)
+        ):
+            raise ValueError(f"Missing positions/velocities for {joint_name}")
+        position = point.positions[index]
+        velocity = point.velocities[index]
+        stamp = point.time_from_start.sec + point.time_from_start.nanosec * 1e-9
+        if not all(math.isfinite(v) for v in (position, velocity, stamp)) or stamp < 0:
+            raise ValueError(f"Invalid trajectory values for {joint_name}")
+        if abs(velocity) > limit + tolerance:
+            raise ValueError(
+                f"{joint_name} velocity {velocity:.6f} exceeds {limit:.6f} rad/s"
+            )
+        if previous is not None:
+            old_stamp, old_position = previous
+            dt = stamp - old_stamp
+            if dt <= 0:
+                raise ValueError(f"Non-increasing trajectory times for {joint_name}")
+            if abs(position - old_position) > (limit + tolerance) * dt:
+                raise ValueError(f"{joint_name} segment speed exceeds {limit:.6f} rad/s")
+        previous = stamp, position
+
+
 class PlanAndExecuteInterface(BaseInterface):
     """Motion planning and trajectory execution interface.
 
@@ -150,6 +194,7 @@ class PlanAndExecuteInterface(BaseInterface):
         moveit_interface: MoveItInterface,
         safe_to_execute_condition: Callable[[], bool],
         parameter_fallback_prefix: Optional[str] = None,
+        execution_shutdown_requested: threading.Event | None = None,
     ):
         """Initializes the MoveItPlanInterface
 
@@ -173,6 +218,7 @@ class PlanAndExecuteInterface(BaseInterface):
 
         # REQUIRED user callback that is checked before executing
         self._safe_to_execute_condition = safe_to_execute_condition
+        self._execution_shutdown_requested = execution_shutdown_requested
 
         # Trajectory cache to store previously executed trajectories
         base_dir: str = self.param("trajectory_cache.base_dir")
@@ -418,6 +464,18 @@ class PlanAndExecuteInterface(BaseInterface):
 
         return trajectory
 
+    def _check_right_base_velocity(self, message: JointTrajectory) -> None:
+        """Use the same model bound as TOTG, including for direct execute()."""
+        name = "right_shoulder_pan_joint"
+        if name not in message.joint_names:
+            return
+        group = self._moveit.robot_model.get_joint_model_group("right_manipulator")
+        index = group.active_joint_model_names.index(name)
+        bounds = group.active_joint_model_bounds[index][0]
+        if not bounds.velocity_bounded:
+            raise ValueError(f"No configured velocity limit for {name}")
+        validate_joint_velocity_limit(message, name, bounds.max_velocity)
+
     def _validate_trajectory(self, trajectory: RobotTrajectory):
         """Validate trajectory against current planning scene.
 
@@ -430,6 +488,17 @@ class PlanAndExecuteInterface(BaseInterface):
             TrajectoryError: If collision detected or validation failed.
         """
         self.log("Validating trajectory", severity="DEBUG")
+
+        try:
+            self._check_right_base_velocity(
+                trajectory.get_robot_trajectory_msg().joint_trajectory
+            )
+        except ValueError as exc:
+            self.log(str(exc), severity="WARN")
+            raise TrajectoryError(
+                TrajectoryErrorCodes.INVALID_TRAJECTORY,
+                group_name=trajectory.joint_model_group_name,
+            ) from exc
 
         if not self._moveit.is_path_valid(trajectory, verbose=False):
             raise TrajectoryError(
@@ -1036,7 +1105,15 @@ class PlanAndExecuteInterface(BaseInterface):
         finally:
             cancel_event.set()
 
+    def _check_execution_shutdown(self, group_name: str) -> None:
+        requested = getattr(self, "_execution_shutdown_requested", None)
+        if requested is not None and requested.is_set():
+            raise ExecutionStoppedError(
+                "Intentional task shutdown requested", group_name=group_name
+            )
+
     async def _send_trajectory(self, trajectory: RobotTrajectory) -> None:
+        self._check_execution_shutdown(trajectory.joint_model_group_name)
         allowed_start_tolerance = self.param(
             "execution.allowed_start_tolerance"
         )
@@ -1098,6 +1175,13 @@ class PlanAndExecuteInterface(BaseInterface):
             trajectory.get_robot_trajectory_msg().joint_trajectory
         )
         try:
+            self._check_right_base_velocity(traj_msg)
+        except ValueError as exc:
+            raise ExecutionPreventedError(
+                str(exc), group_name=trajectory.joint_model_group_name
+            ) from exc
+        try:
+            self._check_execution_shutdown(trajectory.joint_model_group_name)
             goal_handle = await self._execution_client.send_goal_async(
                 FollowJointTrajectory.Goal(
                     trajectory=traj_msg,

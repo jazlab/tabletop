@@ -362,6 +362,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
         safe_to_execute_condition: Callable[[], bool],
         simulate: bool,
         parameter_fallback_prefix: Optional[str] = None,
+        execution_shutdown_requested: threading.Event | None = None,
     ):
         """Initializes the ObjectInterface"""
         super().__init__(
@@ -370,6 +371,7 @@ class ObjectManipulationInterface(PlanAndExecuteInterface):
             moveit_interface=moveit_interface,
             safe_to_execute_condition=safe_to_execute_condition,
             parameter_fallback_prefix=parameter_fallback_prefix,
+            execution_shutdown_requested=execution_shutdown_requested,
         )
 
         self._simulate = simulate

@@ -1,5 +1,23 @@
 # Long-running manipulation reliability
 
+The right shoulder-pan/base joint now has a 2.4 rad/s velocity ceiling in
+`joint_limits.yaml`. Other joints retain their velocity limits, and all joints
+retain the 14 rad/s² acceleration ceiling. Normal trajectory post-processing
+retimes cached geometry and new plans using these model bounds. Planning
+validation and the final controller-send check reject right-base waypoint
+velocities or segment displacement rates that exceed the loaded bound (allowing
+1e-3 rad/s numerical tolerance), including trajectories passed to `execute()`
+directly. The check rejects missing derivatives, non-finite values, or invalid
+timing. It does not change protective-stop detection or automatically clear a
+robot fault. This is a tracking-headroom mitigation; physical validation still
+requires an operator-run test.
+
+The older `big_object_6` presentation-entry and presentation-exit 0.75
+velocity multipliers have been removed from the default Commander config.
+These motions use normal request scaling and the same 2.4 rad/s right-base
+limit as other objects, without stacking a second reduction to 1.8 rad/s.
+Cached paths are still retimed before use; no cache deletion is necessary.
+
 This page documents the long-running manipulation reliability and safety
 changes. It is both an operator guide and a record of the behavior that differs
 from the earlier implementation.

@@ -1,0 +1,7 @@
+<library path="tabletop_visualization">
+  <class name="tabletop_visualization/VisibilityRenderGuard"
+         type="tabletop_visualization::VisibilityRenderGuard"
+         base_class_type="rviz_common::Display">
+    <description>Pause hidden render windows without pausing ROS callbacks or scene updates.</description>
+  </class>
+</library>

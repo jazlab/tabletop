@@ -1,4 +1,4 @@
-"""Passive noVNC workspace-7 dashboard for live session data health."""
+"""Passive noVNC workspace-6 dashboard for live session data health."""
 
 from __future__ import annotations
 
@@ -651,7 +651,7 @@ class SessionHealthState:
 
 
 class SessionHealthNode(Node):
-    """Passive ROS subscriptions behind the workspace-7 dashboard."""
+    """Passive ROS subscriptions behind the workspace-6 dashboard."""
 
     def __init__(self) -> None:
         super().__init__("session_health_dashboard")
@@ -972,7 +972,7 @@ def render_dashboard(
     snapshot: SessionSnapshot,
     stop_control: StopControlSnapshot | None = None,
 ) -> np.ndarray:
-    """Render a deterministic workspace-7 frame for GUI and tests."""
+    """Render a deterministic workspace-6 frame for GUI and tests."""
     canvas = np.full((HEIGHT, WIDTH, 3), BG, dtype=np.uint8)
     _text(canvas, "TableTop Session Health", (44, 55), 1.10, TEXT, 2)
     subtitle = (
@@ -1075,12 +1075,12 @@ def render_dashboard(
     disk = snapshot.disk
     _rounded_rect(canvas, 44, 270, 1856, 342, PANEL_ALT, 14)
     if disk.error:
-        disk_text = f"HDD  {disk.path}  unavailable: {disk.error}"
+        disk_text = f"Storage  {disk.path}  unavailable: {disk.error}"
         disk_color = RED
     elif disk.total:
         percent = disk.used / disk.total * 100.0
         disk_text = (
-            f"HDD  {disk.path}     used {_format_bytes(disk.used)} / "
+            f"Storage  {disk.path}     used {_format_bytes(disk.used)} / "
             f"{_format_bytes(disk.total)} ({percent:.1f}%)     "
             f"free {_format_bytes(disk.free)}"
         )
@@ -1088,7 +1088,7 @@ def render_dashboard(
             RED if percent >= 95 else AMBER if percent >= 85 else GREEN
         )
     else:
-        disk_text = f"HDD  {disk.path}  waiting for capacity data"
+        disk_text = f"Storage  {disk.path}  waiting for capacity data"
         disk_color = GREY
     _text(canvas, disk_text, (67, 316), 0.55, disk_color, 2)
 
@@ -1188,6 +1188,8 @@ def _switch_dwm_workspace(number: int) -> bool:
 
 
 def main(args=None) -> None:
+    from tabletop_rig.utils.novnc_visibility import WindowVisibility
+
     rclpy.init(args=args)
     node = SessionHealthNode()
     stopped = threading.Event()
@@ -1201,7 +1203,7 @@ def main(args=None) -> None:
     )
     spin_thread.start()
 
-    _switch_dwm_workspace(7)
+    _switch_dwm_workspace(6)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, WIDTH, HEIGHT)
 
@@ -1213,14 +1215,16 @@ def main(args=None) -> None:
     cv2.setMouseCallback(WINDOW_NAME, mouse_callback)
     return_to_rig_at = time.monotonic() + 0.75
     returned_to_rig = False
+    visible = WindowVisibility(WINDOW_NAME)
     try:
         while not stopped.is_set() and rclpy.ok():
-            cv2.imshow(
-                WINDOW_NAME,
-                render_dashboard(
-                    node.state.snapshot(), node.stop_control_snapshot()
-                ),
-            )
+            if visible():
+                cv2.imshow(
+                    WINDOW_NAME,
+                    render_dashboard(
+                        node.state.snapshot(), node.stop_control_snapshot()
+                    ),
+                )
             key = cv2.waitKey(100) & 0xFF
             if key in (ord("q"), 27):
                 break

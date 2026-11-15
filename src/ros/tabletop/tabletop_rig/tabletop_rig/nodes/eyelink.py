@@ -40,6 +40,7 @@ Example:
 import argparse
 import json
 import os
+import tempfile
 import threading
 import time
 from collections import deque
@@ -81,7 +82,6 @@ from tabletop_interfaces.action import EyelinkSmoothPursuit
 from tabletop_interfaces.msg import Eyelink as EyelinkMsg
 from tabletop_interfaces.msg import EyelinkBatch as EyelinkBatchMsg
 
-from tabletop_py.gaze.edf import edf_to_csv
 from tabletop_py.gaze.preprocess import (
     EYELINK_DATA_COLS,
     calculate_eyelink_speed,
@@ -97,6 +97,8 @@ from tabletop_py.gaze.utils import (
 from tabletop_py.utils.common import dict_update_recursive
 from tabletop_rig.executors import ErrorHandlingMultiThreadedExecutor
 from tabletop_rig.nodes.base import BaseNode
+from tabletop_rig.utils.eyelink_csv import EyeLinkCSVWorker
+from tabletop_rig.utils.recording_storage import validate_recording_environment
 from tabletop_rig.utils.ros import seconds_from_ros_time
 
 try:
@@ -406,6 +408,8 @@ class Eyelink(BaseNode):
 
         self._active_session_dir: str | None = None
         self._last_retrieval_stats: EyelinkRetrievalStats | None = None
+        self._last_finalization_error: str | None = None
+        self._csv_worker: EyeLinkCSVWorker | None = None
 
         # The passive TTL topic never participates in subscriber-driven
         # retrieval. During idle it is fed by a low-rate button-state poll;
@@ -583,6 +587,7 @@ class Eyelink(BaseNode):
             )
 
         resolved = os.path.realpath(session_bag_dir)
+        validate_recording_environment(resolved)
         if self._active_session_dir == resolved:
             return resolved
 
@@ -744,11 +749,11 @@ class Eyelink(BaseNode):
         """Close the EDF file and transfer to local machine.
 
         Stops recording, closes the file on the Eyelink PC, transfers
-        it to the local session directory, and converts to CSV format.
+        it to the local session directory. CSV is derived separately, after
+        capture finalization and bag closure.
 
         Raises:
             DataFileReceiveError: If file transfer fails.
-            DataFileConversionError: If EDF to CSV conversion fails.
         """
         self.log("Closing data file")
         self.tracker.setOfflineMode()
@@ -757,9 +762,10 @@ class Eyelink(BaseNode):
         if not save:
             return None
 
-        if self.session_bag_dir is None or not os.path.exists(
-            self.session_bag_dir
-        ):
+        # Pin transfer/report paths to the session that began retrieval, not
+        # the mutable latest symlink (also makes exported provenance stable).
+        session_dir = getattr(self, "_active_session_dir", None) or self.session_bag_dir
+        if session_dir is None or not os.path.exists(session_dir):
             self.log(
                 f"session_bag_dir ({self.session_bag_dir}) not provided or "
                 f"does not exist, skipping data file transfer",
@@ -767,39 +773,44 @@ class Eyelink(BaseNode):
             )
             return None
 
-        received_dir = os.path.join(self.session_bag_dir, "eyelink_received")
+        received_dir = os.path.join(session_dir, "eyelink_received")
         edf_path = os.path.join(received_dir, "last.edf")
 
         if os.path.exists(edf_path):
-            self.log(
-                f"{edf_path} already exists, skipping data file transfer",
-                severity="WARN",
+            raise DataFileReceiveError(
+                f"{edf_path} already exists; refusing to overwrite saved EDF"
             )
-            return None
 
         os.makedirs(received_dir, exist_ok=True)
-        edf_path = os.path.join(received_dir, "last.edf")
+        # A failed transfer must not leave a partial file named last.edf.
         try:
-            self.tracker.receiveDataFile("last.edf", edf_path)
+            with tempfile.TemporaryDirectory(
+                prefix=".edf-transfer-", dir=received_dir
+            ) as staging:
+                temporary_path = os.path.join(staging, "last.edf")
+                result = self.tracker.receiveDataFile("last.edf", temporary_path)
+                if isinstance(result, int) and result < 0:
+                    raise RuntimeError(f"EDF transfer returned {result}")
+                size = os.path.getsize(temporary_path)
+                if size == 0:
+                    raise RuntimeError("EDF transfer produced an empty file")
+                if isinstance(result, int) and result > 0 and result != size:
+                    raise RuntimeError(
+                        f"EDF transfer size mismatch: {result} reported, {size} saved"
+                    )
+                os.replace(temporary_path, edf_path)
         except Exception as e:
             raise DataFileReceiveError("Error receiving EDF file") from e
 
         self.log(f"Received EDF data file and saved to {edf_path}")
-
-        try:
-            csv_file_name = edf_to_csv(edf_path)
-        except Exception as e:
-            raise DataFileConversionError("Error converting EDF to CSV") from e
-
-        self.log(f"Converted EDF to CSV: {csv_file_name}")
         return edf_path
 
     def _write_retrieval_report(
         self, edf_path: str | None, error: str | None = None
-    ) -> None:
+    ) -> bool:
         """Persist source-side counters beside the session bag."""
         if self._active_session_dir is None:
-            return
+            return False
 
         stats = None
         if self._last_retrieval_stats is not None:
@@ -811,6 +822,9 @@ class Eyelink(BaseNode):
             "edf_path": edf_path,
             "edf_saved": bool(edf_path and os.path.isfile(edf_path)),
             "stats": stats,
+            "csv_conversion_report": os.path.join(
+                self._active_session_dir, "eyelink_conversion.json"
+            ),
         }
         report_path = os.path.join(
             self._active_session_dir, "eyelink_integrity.json"
@@ -822,11 +836,20 @@ class Eyelink(BaseNode):
                 file.write("\n")
             os.replace(temporary_path, report_path)
             self.log(f"Wrote EyeLink integrity report: {report_path}")
+            return True
         except OSError as exc:
             self.log(
                 f"Could not write EyeLink integrity report: {exc}",
                 severity="ERROR",
             )
+            return False
+
+    def _queue_csv_conversion(self, edf_path: str) -> None:
+        """Keep derived-file work outside capture finalization and ROS callbacks."""
+        if self._csv_worker is None:
+            self._csv_worker = EyeLinkCSVWorker()
+        self._csv_worker.submit(edf_path)
+        self.log(f"Queued separate CSV conversion after bag closure: {edf_path}")
 
     def _start_sample_retrieval_loop(self) -> None:
         """Start the background sample retrieval task.
@@ -842,6 +865,8 @@ class Eyelink(BaseNode):
 
         self.message_queue.clear()
         self._recording_active.clear()
+        self._last_retrieval_stats = None
+        self._last_finalization_error = None
 
         self.stop_sample_retrieval_event.clear()
         # self.sample_retrieval_future = self.tpe.submit(
@@ -866,15 +891,18 @@ class Eyelink(BaseNode):
         self.stop_sample_retrieval_event.set()
         self._recording_active.clear()
         if hasattr(self, "sample_retrieval_future"):
-            try:
-                self.sample_retrieval_future.result()
-            except Exception as e:
-                self.log(
-                    f"Error in sample retrieval loop during stop: {type(e).__name__}: {e}",
-                    severity="ERROR",
-                )
-            finally:
-                del self.sample_retrieval_future
+            future = self.sample_retrieval_future
+            deadline = time.monotonic() + 10.0
+            # rclpy.Future.result() is nonblocking even while a task is pending.
+            # Do not acknowledge finalization before the final batch is flushed.
+            while not future.done():
+                if future.cancelled() or time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        "EyeLink sample drain did not complete within 10 seconds"
+                    )
+                time.sleep(0.001)
+            future.result()
+            del self.sample_retrieval_future
 
     def start_retrieval(self) -> None:
         """Start recording eye-gaze samples from the Eyelink tracker.
@@ -896,6 +924,13 @@ class Eyelink(BaseNode):
                     severity="WARN",
                 )
                 return
+
+            if self._last_finalization_error is not None:
+                raise RuntimeError(
+                    "Previous EyeLink capture was not finalized; refusing to "
+                    "start a new recording and overwrite the tracker EDF: "
+                    f"{self._last_finalization_error}"
+                )
 
             # Data file must be opened before starting recording
             if not self.simulate:
@@ -958,7 +993,7 @@ class Eyelink(BaseNode):
 
             self._retrieving = True
 
-    def stop_retrieval(self, force: bool = False) -> None:
+    def stop_retrieval(self, force: bool = False) -> bool:
         """Stop recording eye-gaze samples and close the data file.
 
         Halts the sample retrieval loop and closes the EDF file on the
@@ -976,14 +1011,14 @@ class Eyelink(BaseNode):
                     "Not retrieving, skipping sample retrieval stop",
                     severity="WARN",
                 )
-                return
+                return self._last_finalization_error is None
 
             if not force and (self.goal_ongoing or self.has_subscribers):
                 self.log(
                     "Retrieval still needed, can't stop yet",
                     severity="WARN",
                 )
-                return
+                return False
 
             # Stop gaze_estimation_timer
             if hasattr(self, "gaze_estimation_timer"):
@@ -993,37 +1028,69 @@ class Eyelink(BaseNode):
                     pass
 
             # Stop sample retrieval before stopping recording
-            self._stop_sample_retrieval_loop()
+            try:
+                self._stop_sample_retrieval_loop()
+            except Exception as exc:
+                self._last_finalization_error = f"Sample drain failed: {exc}"
+                self._write_retrieval_report(
+                    None, self._last_finalization_error
+                )
+                self.log(self._last_finalization_error, severity="ERROR")
+                # Keep the retrieval state/future for a subsequent stop attempt;
+                # never start a second retrieval loop over an unconfirmed drain.
+                return False
 
+            edf_path = None
+            report_error = None
             if self.simulate:
                 self.log(
                     "Simulating eyelink, skipping recording stop",
                     severity="WARN",
                 )
             else:
-                self.tracker.stopRecording()
-                edf_path = None
-                report_error = None
                 try:
+                    self.tracker.stopRecording()
                     edf_path = self._close_data_file(save=True)
-                except (DataFileReceiveError, DataFileConversionError) as e:
+                    if edf_path is None:
+                        raise DataFileReceiveError(
+                            "EDF was not saved to a session directory"
+                        )
+                except Exception as e:
                     report_error = f"{type(e).__name__}: {e}"
                     self.log(
                         f"Error processing datafile: {report_error}",
                         severity="ERROR",
                     )
-                self._write_retrieval_report(edf_path, report_error)
+                if not self._write_retrieval_report(edf_path, report_error):
+                    report_error = (
+                        report_error or "Could not persist EyeLink integrity report"
+                    )
 
             self._retrieving = False
+            self._last_finalization_error = report_error
+            if edf_path and report_error is None:
+                try:
+                    self._queue_csv_conversion(edf_path)
+                except Exception as exc:
+                    # Capture finalization already succeeded. A derived-file
+                    # scheduling failure must not masquerade as EDF/data loss.
+                    self.log(
+                        f"EDF saved; could not queue CSV conversion: {exc}",
+                        severity="ERROR",
+                    )
+            return report_error is None
 
     def stop_recording_callback(
         self, _request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
         """Drain samples and transfer the EDF while rosbag is still active."""
         try:
-            self.stop_retrieval(force=True)
-            response.success = True
-            response.message = "EyeLink recording stopped and data finalized"
+            response.success = self.stop_retrieval(force=True)
+            response.message = (
+                "EyeLink samples drained and EDF/integrity report saved; CSV is separate"
+                if response.success
+                else f"EyeLink finalization failed: {self._last_finalization_error}"
+            )
         except Exception as exc:
             response.success = False
             response.message = f"EyeLink finalization failed: {exc}"
@@ -1755,6 +1822,9 @@ class Eyelink(BaseNode):
                 f"Error stopping recording: {type(e).__name__}: {e}",
                 severity="ERROR",
             )
+
+        if self._csv_worker is not None:
+            self._csv_worker.close()
 
         # self.log("Shutting down thread pool")
         # try:

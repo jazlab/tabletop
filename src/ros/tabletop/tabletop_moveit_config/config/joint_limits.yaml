@@ -30,6 +30,10 @@ joint_limits:
     has_jerk_limits: true
     max_jerk: 500.0
   right_shoulder_pan_joint:
+    # Lower only the right base-joint speed to leave tracking headroom during
+    # presentation and mount transits. TOTG also retimes cached geometry.
+    has_velocity_limits: true
+    max_velocity: 2.4
     has_acceleration_limits: true
     max_acceleration: 14.0
     has_jerk_limits: true

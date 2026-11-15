@@ -89,6 +89,24 @@ response button.
 
 Launch it with `tt-launch tasks task:=invariant_affordance robot_mode:=mock`.
 
+## Recording readiness at task startup
+
+With `rosbag:=true`, the task waits for this launch's combined camera/recorder
+preflight and EyeLink recorder discovery before enabling task sync pulses,
+publishing `TASK_STARTED`, or running a trial. A missing, failed, stale, or
+camera-only preflight report cannot release the task. The wait is bounded and
+cancellable; it is not a fixed sleep and does not change trajectory speed or ITI.
+Unrecorded tasks keep their existing startup behavior.
+
+Commander starts from a delayed robot-description event. Its recording-gate
+flags and launch timestamp are therefore captured into the process's explicit
+environment before the temporary task-launch scope ends. This prevents the
+readiness checks from silently disappearing when the event fires later.
+
+The normal launch command is unchanged. For a recorded run, expect
+`Waiting for FLIR recording preflight` followed by
+`FLIR recording preflight passed` before task sync pulses are enabled.
+
 ## Manipulation preflight and real commissioning
 
 After moving or recalibrating mounts, regenerate the branch report in mock

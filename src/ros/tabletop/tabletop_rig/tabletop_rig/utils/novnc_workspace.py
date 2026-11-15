@@ -16,12 +16,15 @@ DEFAULT_LOCK_PATH = Path(
         "/tabletop/.cache/tabletop/novnc-workspace.lock",
     )
 )
+WORKSPACE_COUNT = 6
 
 
 def switch_dwm_workspace(number: int) -> bool:
     """Send DWM's Alt+number workspace shortcut through XTest."""
-    if not 1 <= number <= 9:
-        raise ValueError("DWM workspace number must be between 1 and 9")
+    if not 1 <= number <= WORKSPACE_COUNT:
+        raise ValueError(
+            f"DWM workspace number must be between 1 and {WORKSPACE_COUNT}"
+        )
     try:
         x11 = ctypes.CDLL("libX11.so.6")
         xtst = ctypes.CDLL("libXtst.so.6")
@@ -70,8 +73,13 @@ def reserve_dwm_workspace(
     sequence atomic across containers.  Locks are released automatically if a
     process exits.
     """
-    if not 1 <= number <= 9 or not 1 <= return_workspace <= 9:
-        raise ValueError("DWM workspace numbers must be between 1 and 9")
+    if (
+        not 1 <= number <= WORKSPACE_COUNT
+        or not 1 <= return_workspace <= WORKSPACE_COUNT
+    ):
+        raise ValueError(
+            f"DWM workspace numbers must be between 1 and {WORKSPACE_COUNT}"
+        )
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)

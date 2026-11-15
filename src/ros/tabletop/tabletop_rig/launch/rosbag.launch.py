@@ -17,6 +17,7 @@ Example:
 """
 
 import os
+import json
 from datetime import datetime
 
 import yaml
@@ -40,6 +41,7 @@ from launch.substitutions import (
     LaunchLogDir,
 )
 from launch_ros.actions import SetROSLogDir
+from tabletop_rig.utils.recording_storage import validate_recording_environment
 
 
 def declare_arguments():
@@ -52,8 +54,8 @@ def declare_arguments():
         ),
         DeclareLaunchArgument(
             "rosbag_sigterm_timeout",
-            default_value="90",
-            description="Sigterm timeout for rosbag recorder (set to high so we don't lose data)",
+            default_value="180",
+            description="Recorder shutdown grace: allow EyeLink drain/EDF/report (up to 90 s), then bag flush; CSV is separate",
         ),
         DeclareLaunchArgument(
             "log_level",
@@ -83,6 +85,8 @@ def declare_arguments():
 
 
 def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
+    # Fail before changing latest or creating a session if a NAS bind is absent.
+    validate_recording_environment(os.environ["ROS_BAG_DIR"])
     # Set up session directory with timestamp and latest symlink,
     # then build rosbag recorder command with topics/services from config
     set_ros_log_dir = SetROSLogDir(LaunchLogDir().perform(context))
@@ -95,6 +99,14 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
     bag_dir = os.path.join(session_bag_dir, "bag")
 
     os.makedirs(session_bag_dir, exist_ok=True)
+    with open(os.path.join(session_bag_dir, "recording_storage.json"), "w") as file:
+        json.dump({
+            "backend": os.environ.get("TABLETOP_RECORDING_BACKEND", "local"),
+            "session_root": os.environ["ROS_BAG_DIR"],
+            "nas_source": os.environ.get("TABLETOP_NAS_SOURCE") if os.environ.get("TABLETOP_RECORDING_BACKEND") == "nas" else None,
+            "camera_reader_depth": 512 if os.environ.get("TABLETOP_RECORDING_BACKEND") == "nas" else 32,
+            "camera_reader_reliability": "best_effort",
+        }, file, indent=2)
     try:
         os.remove(symlink_path)
     except FileNotFoundError:

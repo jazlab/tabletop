@@ -45,6 +45,71 @@ so they do not each reserve an unnecessary 64 MiB segment.
 | `TEENSY_DEV` | Serial device path for the Teensy micro-controller | `/dev/ttyACM0` |
 | `FLIR_MAX_DEVS` | Maximum number of FLIR cameras mapped into containers | `6` |
 
+### NAS session recording (opt-in)
+
+Mount the NAS **outside the repository and `.cache`** before starting ROS
+drivers. The tested SMB configuration is `vers=3.1.1,cache=none,mfsymlinks`.
+`cache=none` avoids multi-second dirty-cache flushes at MCAP file changes;
+`mfsymlinks` is required for the recorder/EyeLink `latest` session pointer.
+Passwords are prompted locally and are not stored in `.env` or a credentials
+file. The mount must be re-established after reboot:
+
+```bash
+source setup.bash
+tt-nas-mount --source //NAS_ADDRESS/tabletop
+tt-recording-storage nas /mnt/tabletop-nas //NAS_ADDRESS/tabletop
+docker compose up -d --no-deps --force-recreate eyelink session-dashboard
+```
+
+NAS selection saves a private `.env` backup and the previous local bag root.
+Recorder MCAP, EyeLink EDF/CSV/integrity reports, dashboard storage statistics,
+and exporter inputs share `/mnt/tabletop-nas/sessions` (container `/bags`).
+NAS image subscriptions use a **bounded 512-frame best-effort reader queue**
+to bridge MCAP rollovers; publisher reliability, raw camera buffers, robot
+speed/acceleration, and CPU affinity are unchanged. NAS shutdown gives data
+finalization up to 180 seconds of container grace; robot cancellation remains
+immediate and does not wait for data transfer.
+
+Connect the NAS network adapter **before** bringing up acquisition drivers.
+Fast DDS host identifiers depend on network interfaces; hot-plugging an
+adapter can disable shared-memory delivery between old and new processes.
+NAS startup checks reject this mismatch rather than automatically restarting
+robot controllers. Refresh the acquisition stack only while tasks are stopped.
+
+The host preflight checks the expected SMB share, mount options, and competing
+reads using `/proc/fs/cifs/Stats`. Recorder and EyeLink also reject a missing
+or incorrect container mount. There is no silent local-directory/HDD fallback.
+Do not copy/export/analyze the same share during high-bandwidth recording.
+Healthy-link validation does not certify data preservation through NAS power
+failure or a disconnected network; use a UPS and qualify multi-hour sessions.
+
+To return to the previous HDD setup while stopped:
+
+```bash
+tt-recording-storage hdd
+docker compose up -d --no-deps --force-recreate eyelink session-dashboard
+```
+
+Existing NAS sessions are not moved or deleted by rollback. The NAS remains
+mounted until explicitly unmounted; no `/etc/fstab` entry is installed.
+Compose will not auto-create missing recording directories: after reboot,
+mount the NAS first, then bring up/recreate its data-consumer containers. This
+prevents empty local directories from shadowing a later NAS mount. Service
+debug logs stay local to keep network I/O out of controller logging paths;
+session data, EDF/CSV, integrity reports, and `/rosout` in MCAP are on the NAS.
+`latest` is a Linux `mfsymlinks` pointer; other NAS clients should open the
+timestamped session directory directly if they display it as a small file.
+
+Validation on the reference 2.5 Gb/s Synology connection used a passive,
+all-stream recording with six 120 Hz cameras, robot telemetry, EyeLink,
+OptiTrack, and Teensy data, including a 100 GB MCAP rollover. No task or robot
+motion was commanded. Retain a longer operator-run qualification before relying
+on a new NAS/network configuration for multi-hour experiments; a successful
+short test does not cover network outages or recording while another client
+loads the NAS. An unrelated first-sample omission in sample-only EyeLink
+EDF-to-CSV conversion was also corrected; original EDF and MCAP samples were
+unaffected.
+
 ### Optional camera CPU affinity
 
 The camera publisher, recorder, and preview conversion expose optional

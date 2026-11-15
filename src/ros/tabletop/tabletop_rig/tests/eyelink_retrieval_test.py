@@ -1,10 +1,28 @@
 from collections import deque
+from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 from tabletop_rig.nodes import eyelink
 
 from tabletop_py.gaze.preprocess import eyelink_array_to_samples
+
+
+def test_edf_transfer_stays_in_originating_session(tmp_path,monkeypatch):
+    original=tmp_path/"original"
+    newer=tmp_path/"newer"
+    original.mkdir();newer.mkdir()
+    class Tracker:
+        def setOfflineMode(self): pass
+        def closeDataFile(self): pass
+        def receiveDataFile(self,name,destination): Path(destination).write_bytes(b"test EDF")
+    node=SimpleNamespace(tracker=Tracker(),session_bag_dir=str(newer),
+                         _active_session_dir=str(original),log=lambda *a,**kw:None)
+    result=eyelink.Eyelink._close_data_file(node,save=True)
+    assert Path(result)==original/"eyelink_received/last.edf"
+    assert Path(result).read_bytes()==b"test EDF"
+    assert not (newer/"eyelink_received").exists()
 
 
 class FakeSample:

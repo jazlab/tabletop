@@ -211,6 +211,8 @@ def _switch_dwm_workspace(number: int) -> bool:
 
 
 def main(args=None) -> None:
+    from tabletop_rig.utils.novnc_visibility import WindowVisibility
+
     rclpy.init(args=args)
     data = ExposureData()
     node = rclpy.create_node("camera_trigger_monitor")
@@ -240,16 +242,18 @@ def main(args=None) -> None:
     )
     spin_thread.start()
 
-    _switch_dwm_workspace(4)
+    _switch_dwm_workspace(3)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, 1900, 1015)
     cv2.imshow(WINDOW_NAME, render(data))
     cv2.waitKey(1)
     return_to_rig_at = monotonic() + 0.75
     returned_to_rig = False
+    visible = WindowVisibility(WINDOW_NAME)
 
     while not stopped.is_set() and rclpy.ok():
-        cv2.imshow(WINDOW_NAME, render(data))
+        if visible():
+            cv2.imshow(WINDOW_NAME, render(data))
         # Ten redraws per second are enough to make the 250 ms event history
         # feel live while avoiding a full CPU core for an always-on dashboard.
         key = cv2.waitKey(100) & 0xFF

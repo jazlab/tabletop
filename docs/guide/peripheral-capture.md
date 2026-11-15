@@ -40,12 +40,12 @@ rate or resolution of the acquisition and recording topics.
 
 The committed layouts are:
 
-- `tabletop_rig/config/camera_robot.rviz`: all six previews on the left and the
-  MoveIt planning scene/full rig on the right.
+- noVNC tab 1 (`rviz-cameras` service): a lightweight six-camera-only grid,
+  without RViz or a 3D rig renderer. It consumes the existing 10 Hz previews.
 - `tabletop_rig/config/left_back_rig.rviz`: color left-back preview on the left
   and the MoveIt planning scene/full rig on the right.
-- `tabletop_rig/config/rig.rviz`: the main rig view, reduced to a 10 Hz redraw
-  rate to lower idle CPU use.
+- `tabletop_rig/config/rig.rviz`: optional main rig view, disabled in automatic
+  startup to avoid redundant rendering. The full rig remains on tab 2.
 
 The Compose stack uses UDPv4 for these GUI readers. This avoids Fast DDS shared
 memory stalls seen when one RViz participant consumes all six large streams.
@@ -77,7 +77,7 @@ See the dedicated [I/O Check Dashboard](io-dashboard.md) guide for the complete
 pin map, firmware/interface changes, safety bounds, installation procedure, and
 troubleshooting notes.
 
-noVNC workspace 5 contains the compact TableTop I/O Check dashboard. Its input
+noVNC workspace 4 contains the compact TableTop I/O Check dashboard. Its input
 cards show any Flic press received on `/flic/button_pressed_time`, the live
 left- and right-hand sensor states, and the safety-laser state. Missing or stale
 Teensy data is grey instead of being presented as healthy.
@@ -127,6 +127,15 @@ A healthy session has `estimated_missing=0`, `invalid_samples=0`, and
 recording. Live gaze prediction still receives individual samples through the
 node's bounded in-process queue; batching reduces ROS publication overhead
 without intentionally adding inference latency.
+
+At shutdown, the recorder waits for the final sample flush, EDF transfer, and
+capture-integrity report—not EDF-to-CSV conversion. CSV is derived afterward by
+one separate low-priority worker in the persistent EyeLink service, once the bag
+has closed. It has its own `eyelink_conversion.json` status and log; a CSV
+failure cannot overwrite the EDF or mark an otherwise successful capture as
+lost. See [shutdown finalization](troubleshooting.md#eyelink-shutdown-finalization)
+for status interpretation and a retry command. Live retrieval and gaze inference
+do not perform conversion work.
 
 ## Robot pose and force/torque recording
 

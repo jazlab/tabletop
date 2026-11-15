@@ -142,6 +142,15 @@ dotenv_get_required FLIR_MAX_DEVS
 
 # Get optional variables (may be unset or empty)
 dotenv_get_optional ROS_BAG_DIR_HOST
+dotenv_get_optional TABLETOP_RECORDING_BACKEND
+case "${TABLETOP_RECORDING_BACKEND:-local}" in
+    local) ;;
+    nas)
+        dotenv_get_required TABLETOP_NAS_MOUNT_HOST
+        dotenv_get_required TABLETOP_NAS_SOURCE
+        ;;
+    *) print_error "TABLETOP_RECORDING_BACKEND must be local or nas"; exit 1 ;;
+esac
 
 # Set host uid and gid
 dotenv_set HOST_UID "$(id -u)"

@@ -1,7 +1,7 @@
 # I/O Check Dashboard
 
 The TableTop I/O Check dashboard is an always-available bench diagnostic on
-noVNC workspace 5. It provides a compact view of the rig's discrete inputs and
+noVNC workspace 4. It provides a compact view of the rig's discrete inputs and
 short, bounded tests for non-robot outputs. The dashboard never commands either
 robot.
 
@@ -25,7 +25,7 @@ The I/O work adds the following behavior:
 - every output button is disabled while a `commander` node is present.
 
 The dashboard is started by the `io-dashboard` Compose service for both real
-and simulated profiles. It moves its window to noVNC workspace 5 at startup and
+and simulated profiles. It moves its window to noVNC workspace 4 at startup and
 then returns the visible desktop to workspace 1.
 
 ## Teensy firmware and interfaces
@@ -54,7 +54,7 @@ the normal persistent task behavior.
 firmware boots with this generator disabled. The task runner enables it only
 after recording/manipulation preflight and disables it on normal completion,
 task failure, or Ctrl-C. Commander entry and exit also issue defensive disable
-commands. A positive service duration is enforced on the Teensy; workspace 5
+commands. A positive service duration is enforced on the Teensy; workspace 4
 always requests ten seconds.
 
 The firmware now creates seven ROS services. Its statically allocated micro-ROS

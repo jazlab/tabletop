@@ -1,4 +1,4 @@
-"""Regression tests for the passive workspace-6 TTL dashboard."""
+"""Regression tests for the passive workspace-5 TTL dashboard."""
 
 import threading
 from unittest.mock import MagicMock, patch

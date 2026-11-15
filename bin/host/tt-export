@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Offline, guarded session export; no tasks or robot motion are launched.
+set -eo pipefail
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+exec python "$TABLETOP_DIR/src/tabletop_py/utils/session_export.py" "$@"

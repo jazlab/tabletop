@@ -1,4 +1,4 @@
-"""Compact noVNC workspace-5 dashboard for TableTop rig I/O checks."""
+"""Compact noVNC workspace-4 dashboard for TableTop rig I/O checks."""
 
 from __future__ import annotations
 
@@ -786,6 +786,8 @@ def _switch_dwm_workspace(number: int) -> bool:
 
 
 def main(args=None) -> None:
+    from tabletop_rig.utils.novnc_visibility import WindowVisibility
+
     rclpy.init(args=args)
     node = IODashboardNode()
     stopped = threading.Event()
@@ -802,7 +804,7 @@ def main(args=None) -> None:
     )
     executor_thread.start()
 
-    _switch_dwm_workspace(5)
+    _switch_dwm_workspace(4)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, WIDTH, HEIGHT)
 
@@ -822,13 +824,15 @@ def main(args=None) -> None:
     cv2.setMouseCallback(WINDOW_NAME, mouse)
     return_to_rig_at = monotonic() + 0.75
     returned_to_rig = False
+    visible = WindowVisibility(WINDOW_NAME)
 
     try:
         while not stopped.is_set() and rclpy.ok():
-            cv2.imshow(
-                WINDOW_NAME,
-                render_dashboard(node.snapshot(), hovered=hovered),
-            )
+            if visible():
+                cv2.imshow(
+                    WINDOW_NAME,
+                    render_dashboard(node.snapshot(), hovered=hovered),
+                )
             key = cv2.waitKey(50) & 0xFF
             if key in (ord("q"), 27):
                 break

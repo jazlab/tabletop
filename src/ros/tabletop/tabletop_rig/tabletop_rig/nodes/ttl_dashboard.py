@@ -1,4 +1,4 @@
-"""Passive noVNC workspace-6 monitor for device-observed sync TTLs."""
+"""Passive noVNC workspace-5 monitor for device-observed sync TTLs."""
 
 from __future__ import annotations
 
@@ -798,6 +798,8 @@ def _switch_dwm_workspace(number: int) -> bool:
 
 
 def main(args=None) -> None:
+    from tabletop_rig.utils.novnc_visibility import WindowVisibility
+
     rclpy.init(args=args)
     node = TTLMonitorNode()
     stopped = threading.Event()
@@ -808,14 +810,16 @@ def main(args=None) -> None:
     )
     spin_thread.start()
 
-    _switch_dwm_workspace(6)
+    _switch_dwm_workspace(5)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, WIDTH, HEIGHT)
     return_to_rig_at = monotonic() + 0.75
     returned_to_rig = False
+    visible = WindowVisibility(WINDOW_NAME)
     try:
         while not stopped.is_set() and rclpy.ok():
-            cv2.imshow(WINDOW_NAME, render_dashboard(node.state.snapshot()))
+            if visible():
+                cv2.imshow(WINDOW_NAME, render_dashboard(node.state.snapshot()))
             key = cv2.waitKey(100) & 0xFF
             if key in (ord("q"), 27):
                 break

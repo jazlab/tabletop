@@ -63,6 +63,25 @@ from moveit_configs_utils import MoveItConfigsBuilder
 COMMANDER_OVERRIDES_TMP_PATH = "/tmp/commander_overrides.yaml"
 
 
+def commander_scoped_environment(context: LaunchContext) -> dict[str, str]:
+    """Snapshot task flags before their launch group restores its environment.
+
+    Commander is executed later by OnProcessExit, outside that group's scope.
+    Plain string values here must not be deferred environment substitutions.
+    """
+    names = (
+        "TABLETOP_REQUIRE_FLIR_PREFLIGHT",
+        "TABLETOP_REQUIRE_EYELINK_RECORDER",
+        "TABLETOP_TASK_LAUNCH_EPOCH",
+        "OVERRIDE_LAUNCH_PROCESS_OUTPUT",
+    )
+    return {
+        name: context.environment[name]
+        for name in names
+        if name in context.environment
+    }
+
+
 def declare_arguments():
     return [
         DeclareLaunchArgument(
@@ -351,6 +370,7 @@ def launch_setup(context: LaunchContext) -> list[LaunchDescriptionEntity]:
         package="tabletop_rig",
         executable="commander",
         output="both",
+        additional_env=commander_scoped_environment(context),
         sigterm_timeout=sigterm_timeout,
         parameters=[
             moveit_config.to_dict(),

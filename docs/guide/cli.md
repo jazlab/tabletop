@@ -15,6 +15,10 @@ depending on context. Under the hood, the host wrappers mostly shell out to
 | `tt-env-gen` | Generate `.env` from `.env.example` with hardware detection |
 | `tt-attach` | Open a shell in a compose service (a fresh container by default; `-e` to reuse a running one) |
 | `tt-flir-reset` | Reset FLIR cameras (reload udev, factory reset, regenerate env) |
+| `tt-nas-mount` | Mount/verify the configured CIFS recording share |
+| `tt-recording-storage` | Select and report the opt-in recording backend |
+| `tt-storage-preflight` | Check the expected recording mount and available space |
+| `tt-export` | Guarded offline CSV/video export with NAS output and local scratch; see [Offline Session Export](offline-export.md) |
 
 !!! note "Host setup"
     Real-hardware host configuration (udev rules, USB buffer size, CPU

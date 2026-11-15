@@ -1,5 +1,45 @@
 # Troubleshooting
 
+## EyeLink shutdown finalization
+
+The diagnostic recorder keeps the bag open while EyeLink drains/publishes its
+final sample batch, saves the EDF, and writes `eyelink_integrity.json`.
+This capture-finalization step has a 90-second bounded timeout
+(`--eyelink-finalize-timeout` on the recorder). The launch process allows
+180 seconds before sending SIGTERM, leaving additional time to flush the bag.
+Robot motion still stops immediately; these waits only affect recording teardown.
+
+CSV conversion is no longer part of this stop service. A single low-priority
+worker owned by the persistent EyeLink service waits for bag closure, then
+converts the saved EDF. It uses the originating session's absolute path, not
+`latest`, and publishes CSV atomically only after successful conversion.
+`eyelink_integrity.json` describes original capture and EDF preservation;
+`eyelink_conversion.json` and `eyelink_conversion.log` describe derived CSV work.
+Conversion states are `queued`, `waiting_bag_close`, `running`, `complete`,
+`error`, and `interrupted`. Pending or failed CSV conversion does not mean the
+EDF or MCAP samples were lost. CSV may finish after the task terminal exits.
+Do not stop the EyeLink service until conversion is complete if you want its
+automatic CSV job to finish. Restarting it interrupts the derived-file job;
+the EDF remains available for a retry.
+
+To retry a failed/interrupted CSV conversion while the rig is idle, use the
+specific session path (replace `SESSION_NAME`):
+
+```bash
+tt-compose exec -T eyelink bash -lc 'source /tabletop/setup.bash && python -m tabletop_rig.utils.eyelink_csv /bags/SESSION_NAME/eyelink_received/last.edf'
+```
+
+A capture-finalization failure is different: the stop service now reports
+failure when draining, EDF transfer, or integrity-report persistence fails.
+The recorder retains its bounded shutdown behavior and logs that failure.
+Do not assume an EDF is complete merely because a CSV was queued; verify
+`eyelink_integrity.json`. The transfer is staged separately, and incomplete
+transfers are never published as `last.edf` or used for CSV conversion.
+After a capture-finalization failure, the node refuses a new recording rather
+than risk overwriting the tracker-native EDF. Preserve/recover that recording
+before restarting EyeLink and beginning another session. A CSV-only failure does
+not block subsequent capture.
+
 Battle-tested notes for the current command set. For a symptom →
 starting-point table, see
 [Architecture §6](../architecture.md). Known code/config bugs are tracked in
@@ -60,7 +100,7 @@ tt-launch tasks task:=foraging_ordered     # run a task (starts a commander too)
     ```
 
 - **Mock-hardware demo:** there is no single `rig` launch anymore — bring up the
-  `sim` profile (mock UR, teensy-sim, flic-sim, eyelink-sim, rviz) and run a task
+  `sim` profile (mock UR, teensy-sim, flic-sim, eyelink-sim) and run a task
   on top:
 
     ```bash
@@ -276,6 +316,23 @@ Check synchronization afterward with
 `ros2 run tabletop_rig system_check`.
 
 ## Performance
+
+### Missing joint-state recordings after successful startup
+
+ROS Jazzy rosbag2 0.26.10 can stop discovery prematurely when explicit data
+topics and service events are recorded together: it counts service-event
+subscriptions against the number of requested data topics. The diagnostic
+recorder avoids this path by selecting data topics with an exact, escaped regex
+and retaining the explicit service list. Discovery stays active for late topics;
+the recorded topic set and best-effort robot QoS are unchanged.
+
+Recorded task startup also requires live samples on `/joint_states` and
+`/dynamic_joint_states` and actual recorder subscription endpoints for both.
+These checks run before the readiness report releases task execution. They
+time out after 15 seconds and fail closed. The temporary observer is then
+destroyed, adding no per-message work during the task. These checks confirm
+source activity and recorder subscriptions; final bag counts still provide the
+end-to-end recording audit.
 
 For real-time control, pin the CPU to the `performance` governor (see
 [Real Hardware Setup → CPU governor](../getting-started/real-hardware.md#cpu-governor-real-time-control)).

@@ -1,11 +1,18 @@
 # Session Health Dashboard
 
-The session-health dashboard occupies noVNC workspace 7. Its monitoring path
+The session-health dashboard occupies noVNC workspace 6. Its monitoring path
 is passive. The sole control is the red **STOP ROBOTS** button, available only
 while a Commander task is active. It cancels both active trajectory goals and
 the task through the same shutdown path as Ctrl-C; it never starts cleanup or
 other robot motion. This is a software stop, not a substitute for the physical
 emergency stop.
+
+Intentional shutdown is latched before controller cancellation. Expected
+`ExecutionStoppedError` or pre-submission rejection during that shutdown is
+treated as task cancellation, not a new fatal execution fault. The shared
+latch also prevents a newly planned motion from starting after Stop. Real
+UR safety faults retain precedence, and other execution failures remain
+fatal. Ctrl-C uses this same immediate-stop ordering.
 
 The dashboard starts with the normal Compose stack. Click **7** in noVNC to
 open it. While a task is active it reports:

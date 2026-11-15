@@ -7,16 +7,20 @@ import signal
 import time
 from dataclasses import dataclass
 
-from tabletop_rig.utils.novnc_workspace import switch_dwm_workspace
+from tabletop_rig.utils.novnc_visibility import VisibilityPublisher
+from tabletop_rig.utils.novnc_workspace import (
+    WORKSPACE_COUNT,
+    switch_dwm_workspace,
+)
 
 WORKSPACE_TITLES = (
-    ("/rig.rviz", 1),
-    ("/camera_robot.rviz", 2),
-    ("/left_back_rig.rviz", 3),
-    ("TableTop Camera Trigger / Exposure Monitor", 4),
-    ("TableTop I/O Check", 5),
-    ("TableTop TTL Monitor", 6),
-    ("TableTop Session Health", 7),
+    ("/camera_robot.rviz", 1),
+    ("TableTop Six Camera Views", 1),
+    ("/left_back_rig.rviz", 2),
+    ("TableTop Camera Trigger / Exposure Monitor", 3),
+    ("TableTop I/O Check", 4),
+    ("TableTop TTL Monitor", 5),
+    ("TableTop Session Health", 6),
 )
 
 
@@ -296,17 +300,28 @@ class XDesktop:
 
 def repair_layout(desktop: XDesktop) -> None:
     """Inspect every managed workspace and retag misplaced standard windows."""
-    for current_workspace in range(1, 8):
+    for current_workspace in range(1, WORKSPACE_COUNT + 1):
         switch_dwm_workspace(current_workspace)
         time.sleep(0.15)
-        for window in desktop.windows():
-            target = workspace_for_title(window.title)
-            if (
-                target is not None
-                and target != current_workspace
-                and window.visible
+        # Retagging retiles the remaining windows. Refresh positions after
+        # each move rather than clicking stale coordinates during migration.
+        for _ in range(2 * len(WORKSPACE_TITLES)):
+            misplaced = next(
+                (
+                    window
+                    for window in desktop.windows()
+                    if window.visible
+                    and workspace_for_title(window.title) is not None
+                    and workspace_for_title(window.title) != current_workspace
+                ),
+                None,
+            )
+            if misplaced is None:
+                break
+            if not desktop.tag(
+                misplaced, workspace_for_title(misplaced.title)
             ):
-                desktop.tag(window, target)
+                break
     switch_dwm_workspace(1)
 
 
@@ -321,6 +336,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
 
     desktop = XDesktop()
+    visibility = VisibilityPublisher()
     try:
         time.sleep(2.0)
         repair_layout(desktop)
@@ -350,7 +366,10 @@ def main() -> int:
                     needs_scan = True
             if needs_scan:
                 repair_layout(desktop)
-            time.sleep(0.02)
+            visibility.publish(
+                {window.title: window.visible for window in desktop.windows()}
+            )
+            time.sleep(0.05)
     finally:
         desktop.close()
     return 0

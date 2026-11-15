@@ -1,6 +1,6 @@
 # TTL Sync Dashboard
 
-The TableTop TTL Monitor is a passive timing dashboard on noVNC workspace 6.
+The TableTop TTL Monitor is a passive timing dashboard on noVNC workspace 5.
 It compares the once-per-second synchronization pulse as observed independently
 by EyeLink, Robot 1, the designated FLIR sync camera, and OptiTrack. It never
 commands a robot or changes an output.
@@ -16,12 +16,12 @@ Standard Teensy firmware generates two unrelated signals:
 
 Pin 31 is the primary synchronization output. Pin 12 can mirror pin 31 only while
 the optional sync-pulse solenoid mode is armed; it is not the primary TTL
-output. The workspace-6 monitor follows pin 31 and intentionally excludes the
+output. The workspace-5 monitor follows pin 31 and intentionally excludes the
 120 Hz pin-33 signal.
 
 The reference pulse is intentionally idle outside task execution. It starts
 after task preflight succeeds and is stopped on completion, error, or Ctrl-C.
-For bench checks, workspace 5 has a firmware-bounded ten-second test button.
+For bench checks, workspace 4 has a firmware-bounded ten-second test button.
 
 ## Observed device inputs
 
@@ -113,8 +113,8 @@ the raw parallel-port value in each tracker sample drives the same topic.
 
 EyeLink Host configuration maps button 1 to DB25 status pin 12. The node maps
 the normalized idle button state back to raw-equivalent values (`127` idle,
-`95` asserted), so workspace 6 uses identical decoding in both modes. The
-workspace-5 ten-second output test is therefore visible at EyeLink even while
+`95` asserted), so workspace 5 uses identical decoding in both modes. The
+workspace-4 ten-second output test is therefore visible at EyeLink even while
 the tracker is idle.
 
 ## Display

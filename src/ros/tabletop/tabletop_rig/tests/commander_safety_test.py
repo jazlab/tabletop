@@ -59,6 +59,7 @@ def _make_commander(*, simulate: bool) -> Commander:
     commander._rig_safety_event = None
     commander._operator_stop_lock = threading.Lock()
     commander._operator_stop_future = None
+    commander._execution_shutdown_requested = threading.Event()
     commander.log = MagicMock()
     commander.param = MagicMock(return_value=simulate)
     commander._manipulation_contexts = {
@@ -77,6 +78,12 @@ def test_operator_stop_uses_ctrl_c_cancellation_path_for_both_arms():
     commander = _make_commander(simulate=False)
     cancel_future = Future()
     commander.bind_operator_stop_future(cancel_future)
+
+    def check_shutdown_intent():
+        assert commander._execution_shutdown_requested.is_set()
+
+    for context in commander._manipulation_contexts.values():
+        context._manipulator.stop_execution.side_effect = check_shutdown_intent
 
     response = commander._operator_stop_callback(
         Trigger.Request(), Trigger.Response()
@@ -1002,7 +1009,7 @@ def test_cancelled_task_guard_stops_both_and_awaits_experiment_cleanup():
     async def run():
         commander = SimpleNamespace(
             wait_for_rig_safety_fault=safety_waiter,
-            stop_all_execution=MagicMock(),
+            request_execution_shutdown=MagicMock(),
         )
         task = asyncio.create_task(experiment())
         guard = asyncio.create_task(
@@ -1014,7 +1021,7 @@ def test_cancelled_task_guard_stops_both_and_awaits_experiment_cleanup():
             await guard
         assert task.cancelled()
         assert experiment_cleaned.is_set()
-        commander.stop_all_execution.assert_called_once_with()
+        commander.request_execution_shutdown.assert_called_once_with()
 
 
 def test_cancelled_object_task_does_not_start_cleanup_motion():

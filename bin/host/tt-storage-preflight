@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Validate an opt-in NAS target without importing ROS or commanding hardware."""
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[2] / "src/ros/tabletop/tabletop_rig"),
+)
+from tabletop_rig.utils.recording_storage import (
+    check_nas_idle,
+    validate_nas_storage,
+)
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("directory")
+parser.add_argument(
+    "--mountpoint",
+    default=os.environ.get("TABLETOP_NAS_MOUNT_HOST", "/mnt/tabletop-nas"),
+)
+parser.add_argument(
+    "--source", default=os.environ.get("TABLETOP_NAS_SOURCE", "")
+)
+parser.add_argument("--mount-only", action="store_true")
+args = parser.parse_args()
+try:
+    if args.mount_only:
+        report = validate_nas_storage(
+            args.directory, args.mountpoint, args.source
+        )
+    else:
+        report = check_nas_idle(
+            args.directory,
+            args.mountpoint,
+            args.source,
+            int(os.environ.get("TABLETOP_STORAGE_PREFLIGHT_SECONDS", "5")),
+            int(os.environ.get("TABLETOP_STORAGE_MAX_READ_MIB_S", "5")),
+        )
+    print(
+        f"NAS preflight passed: {report['source']}; {report['available_bytes'] / 1e12:.2f} TB available"
+        + (
+            f"; {report['read_mib_s']:.1f} MiB/s competing reads"
+            if "read_mib_s" in report
+            else ""
+        )
+    )
+except (RuntimeError, OSError, ValueError) as error:
+    print(f"Storage preflight failed: {error}", file=sys.stderr)
+    raise SystemExit(2)

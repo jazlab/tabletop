@@ -105,6 +105,8 @@ nav:
       - CLI & Tooling: guide/cli.md
       - Configuration: guide/configuration.md
       - Rig Reliability Checkpoint: guide/rig-reliability-checkpoint.md
+      - November Reliability Checkpoint: guide/november-reliability-checkpoint.md
+      - Offline Session Export: guide/offline-export.md
       - Tasks & Experiments: guide/tasks.md
       - Manipulation Reliability: guide/manipulation-reliability.md
       - Peripheral Capture & Diagnostics: guide/peripheral-capture.md

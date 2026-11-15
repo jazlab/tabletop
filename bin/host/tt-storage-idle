@@ -10,6 +10,9 @@ if [[ $# -ne 1 ]]; then
 fi
 
 bag_directory=$1
+if [[ "${TABLETOP_RECORDING_BACKEND:-local}" == nas ]]; then
+    exec "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/tt-storage-preflight" "$bag_directory"
+fi
 sample_seconds=${TABLETOP_STORAGE_PREFLIGHT_SECONDS:-5}
 max_read_mib_s=${TABLETOP_STORAGE_MAX_READ_MIB_S:-5}
 

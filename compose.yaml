@@ -99,11 +99,12 @@ services:
     restart: unless-stopped
     command: tt-launch foxglove
 
-  # RViz visualization, rendered to the noVNC display.
+  # Optional main rig view. Off by default to avoid redundant rendering;
+  # workspace 2 retains the standard full-rig view.
   rviz:
     extends: ros-base
     container_name: tabletop-rviz
-    profiles: !override [ real, sim ]
+    profiles: !override [ rviz-manual ]
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       # Fast DDS shared memory stalls when one RViz process receives all six
@@ -237,7 +238,7 @@ services:
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/camera_trigger_monitor.py
 
-  # Compact bench-diagnostics GUI on noVNC workspace 5. It observes Flic,
+  # Compact bench-diagnostics GUI on noVNC workspace 4. It observes Flic,
   # hand-button, and safety-laser inputs and exposes only short, bounded output
   # tests. Output buttons lock automatically while Commander is running.
   io-dashboard:
@@ -257,7 +258,7 @@ services:
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/io_dashboard.py
 
-  # Passive once-per-second synchronization monitor on noVNC workspace 6.
+  # Passive once-per-second synchronization monitor on noVNC workspace 5.
   # It observes device-reported TTL state and never creates output clients.
   ttl-dashboard:
     extends: ros-base
@@ -280,7 +281,7 @@ services:
     restart: unless-stopped
     command: python3 /tabletop/src/ros/tabletop/tabletop_rig/tabletop_rig/nodes/ttl_dashboard.py
 
-  # Task/session health monitor on noVNC workspace 7. Monitoring uses only
+  # Task/session health monitor on noVNC workspace 6. Monitoring uses only
   # low-bandwidth status/metadata streams; its sole command is a user-clicked
   # stop request routed through Commander's normal Ctrl-C cancellation path.
   session-dashboard:
@@ -288,11 +289,18 @@ services:
     container_name: tabletop-session-dashboard
     profiles: !override [ real, sim ]
     volumes:
-      - $ROS_BAG_DIR_MNT
+      - type: bind
+        source: ${ROS_BAG_DIR_HOST:-/dev/null}
+        target: ${ROS_BAG_DIR_CONTAINER:-/dev/null}
+        bind:
+          create_host_path: false
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - TABLETOP_RECORDING_BACKEND=${TABLETOP_RECORDING_BACKEND:-local}
+      - TABLETOP_NAS_SOURCE=${TABLETOP_NAS_SOURCE:-}
+      - TABLETOP_NAS_MOUNT=/bags
       - TABLETOP_TTL_EYELINK_MASK=0x20
       - TABLETOP_TTL_OPTITRACK_CENTER=-0.48133,-0.08284,0.53280
       - TABLETOP_TTL_OPTITRACK_AXIS=-0.97052,0.23989,0.02343
@@ -358,11 +366,19 @@ services:
     ulimits:
       rtprio: 99
     volumes:
-      - $ROS_BAG_DIR_MNT
+      - type: bind
+        source: ${ROS_BAG_DIR_HOST:-/dev/null}
+        target: ${ROS_BAG_DIR_CONTAINER:-/dev/null}
+        bind:
+          create_host_path: false
     environment:
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - TABLETOP_RECORDING_BACKEND=${TABLETOP_RECORDING_BACKEND:-local}
+      - TABLETOP_NAS_SOURCE=${TABLETOP_NAS_SOURCE:-}
+      - TABLETOP_NAS_MOUNT=/bags
     restart: unless-stopped
     command: tt-launch eyelink simulate:=false
+    stop_grace_period: ${TABLETOP_RECORDING_STOP_GRACE:-10s}
 
   # Mock EyeLink node (simulated samples), no hardware.
   eyelink-sim:
@@ -382,18 +398,25 @@ services:
     profiles: !override [ commander ]
     runtime: $COMMANDER_RUNTIME
     volumes:
-      - $ROS_BAG_DIR_MNT
+      - type: bind
+        source: ${ROS_BAG_DIR_HOST:-/dev/null}
+        target: ${ROS_BAG_DIR_CONTAINER:-/dev/null}
+        bind:
+          create_host_path: false
       - $PULSE_SERVER_MNT
       - $PULSE_COOKIE_MNT
     environment:
       - DISPLAY=$NOVNC_DISPLAY
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - TABLETOP_RECORDING_BACKEND=${TABLETOP_RECORDING_BACKEND:-local}
+      - TABLETOP_NAS_SOURCE=${TABLETOP_NAS_SOURCE:-}
+      - TABLETOP_NAS_MOUNT=/bags
       - NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES
       - NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES
       - PULSE_SERVER=$PULSE_SERVER_CONTAINER
       - PULSE_COOKIE=$PULSE_COOKIE_CONTAINER
       - TABLETOP_RECORDER_CPU_SET=$TABLETOP_RECORDER_CPU_SET
-    stop_grace_period: 40s
+    stop_grace_period: ${TABLETOP_RECORDING_STOP_GRACE:-40s}
     command: tt-launch commander
 
   # Offline-only GPU exporter. Its fixed NVIDIA runtime is intentionally
@@ -407,9 +430,16 @@ services:
     runtime: nvidia
     user: "$HOST_UID:$HOST_GID"
     volumes:
-      - $ROS_BAG_DIR_MNT
+      - type: bind
+        source: ${ROS_BAG_DIR_HOST:-/dev/null}
+        target: ${ROS_BAG_DIR_CONTAINER:-/dev/null}
+        bind:
+          create_host_path: false
     environment:
       - ROS_BAG_DIR=$ROS_BAG_DIR_CONTAINER
+      - TABLETOP_RECORDING_BACKEND=${TABLETOP_RECORDING_BACKEND:-local}
+      - TABLETOP_NAS_SOURCE=${TABLETOP_NAS_SOURCE:-}
+      - TABLETOP_NAS_MOUNT=/bags
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
     init: true

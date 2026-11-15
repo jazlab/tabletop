@@ -100,9 +100,26 @@ if $is_real_task_run; then
             exit 1
         fi
         print_status "Checking recorded-session storage for competing reads"
-        if ! "$bin_dir/tt-storage-idle" "$ros_bag_dir_host"; then
+        if ! TABLETOP_RECORDING_BACKEND="$(dotenv --file .env get TABLETOP_RECORDING_BACKEND 2>/dev/null || echo local)" \
+            TABLETOP_NAS_MOUNT_HOST="$(dotenv --file .env get TABLETOP_NAS_MOUNT_HOST 2>/dev/null || true)" \
+            TABLETOP_NAS_SOURCE="$(dotenv --file .env get TABLETOP_NAS_SOURCE 2>/dev/null || true)" \
+            "$bin_dir/tt-storage-idle" "$ros_bag_dir_host"; then
             print_error "Recorded task was not started."
             exit 1
+        fi
+        if [[ $(dotenv --file .env get TABLETOP_RECORDING_BACKEND 2>/dev/null || true) == nas ]]; then
+            nas_source=$(dotenv --file .env get TABLETOP_NAS_SOURCE)
+            # Existing containers retain their original bind even if a NAS is
+            # mounted later at the same host pathname. Inspect the actual
+            # consumer namespaces; never silently split EDF and bag roots.
+            python_check='import os,sys; from tabletop_rig.utils.recording_storage import validate_nas_storage; assert os.environ.get("TABLETOP_RECORDING_BACKEND") == "nas", "consumer still has local-storage configuration"; validate_nas_storage(os.environ["ROS_BAG_DIR"], "/bags", sys.argv[1])'
+            for consumer in eyelink session-dashboard; do
+                if ! docker compose exec -T "$consumer" bash -lc \
+                    'source /tabletop/setup.bash >/dev/null 2>&1; exec python3 -c "$1" "$2"' _ "$python_check" "$nas_source"; then
+                    print_error "$consumer has a stale/missing NAS bind. While stopped, run: docker compose up -d --no-deps --force-recreate eyelink session-dashboard"
+                    exit 1
+                fi
+            done
         fi
     fi
 fi

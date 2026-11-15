@@ -106,10 +106,11 @@ camera_params_common:
   image_width: 1920
   image_height: 1200
 
-  # Chunk data — required by the synchronized driver to match frames across
-  # cameras: it uses the FrameID chunk as the synchronization key. Also
-  # enables reporting line status of other lines (in this case Line0, which
-  # is connected to the teensy sync pulse pin)
+  # Chunk data — FrameID is a per-camera counter used to detect gaps; it is
+  # not a global key for matching equal IDs across cameras. The shared time
+  # estimator groups frames using callback host times. See the hardware guide
+  # for offline alignment caveats. Also enables reporting line status of other
+  # lines (in this case Line0, which is connected to the Teensy sync pulse pin)
   # line0_selector: Line0
   # line0_linemode: Input
   # line1_selector: Line1

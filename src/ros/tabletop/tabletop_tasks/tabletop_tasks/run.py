@@ -81,6 +81,12 @@ async def _wait_for_flir_preflight(commander: Commander) -> None:
                 if report.get("status") != "PASS":
                     failures = "; ".join(report.get("failures", []))
                     raise RuntimeError(f"FLIR preflight failed: {failures}")
+                if report.get("robot_recording_preflight", {}).get(
+                    "status"
+                ) != "PASS":
+                    # A camera-only/old report must not release the task.
+                    await asyncio.sleep(0.1)
+                    continue
                 rates = report.get("metadata_rates_hz", {})
                 commander.log(
                     "FLIR recording preflight passed: "

@@ -51,7 +51,7 @@ def _add_check(
 def _wait_for_eyelink_report(
     session_path: Path, timeout_sec: float = EYELINK_REPORT_WAIT_SEC
 ) -> None:
-    """Allow bounded EyeLink EDF/CSV finalization to finish before reporting."""
+    """Allow bounded EyeLink capture finalization to finish before reporting."""
     report_path = session_path / "eyelink_integrity.json"
     if report_path.exists() or timeout_sec <= 0:
         return
@@ -162,7 +162,7 @@ def build_session_report(
             checks,
             "WARN",
             "eyelink",
-            "source integrity report absent (EyeLink may not have recorded)",
+            "source integrity report absent; EyeLink capture finalization was not verified",
         )
 
     for topic in REQUIRED_TASK_TOPICS:

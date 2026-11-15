@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Mount SMB outside the repository; no stored password or fstab changes.
+set -euo pipefail
+original_args=("$@")
+mountpoint=/mnt/tabletop-nas
+source_share=//169.254.101.0/tabletop
+adopt=
+release=()
+while (($#)); do
+    case "$1" in
+        --mountpoint) mountpoint=$2; shift 2 ;;
+        --source) source_share=$2; shift 2 ;;
+        --adopt) adopt=$2; shift 2 ;;
+        --release) release+=("$2"); shift 2 ;;
+        -h|--help) echo 'tt-nas-mount [--mountpoint /mnt/tabletop-nas] [--source //server/share] [--adopt EXISTING_MOUNT] [--release OLD_MOUNT]'; exit 0 ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+if ((EUID != 0)); then exec sudo -- "$(realpath "${BASH_SOURCE[0]}")" "${original_args[@]}"; fi
+owner_uid=${SUDO_UID:-${PKEXEC_UID:-}}
+[[ -n "$owner_uid" && "$owner_uid" != 0 ]] || { echo 'Run through sudo/pkexec from your normal account.' >&2; exit 2; }
+owner_gid=$(id -g "$owner_uid")
+[[ "$mountpoint" == /* && "$mountpoint" != / && "$mountpoint" != /home && "$mountpoint" != /mnt ]] || exit 2
+[[ "$source_share" == //*/* && "$source_share" != *,* ]] || exit 2
+check_mount() {
+    local candidate=$1
+    [[ $(findmnt -nr -M "$candidate" -o FSTYPE) == cifs ]] || return 1
+    [[ $(findmnt -nr -M "$candidate" -o SOURCE) == "$source_share" ]] || return 1
+    local options
+    options=,$(findmnt -nr -M "$candidate" -o OPTIONS),
+    [[ "$options" == *,cache=none,* && "$options" == *,mfsymlinks,* ]]
+}
+if findmnt -nr -M "$mountpoint" >/dev/null; then
+    check_mount "$mountpoint" || { echo 'Existing target mount is not the expected recording share.' >&2; exit 2; }
+else
+    install -d -m 0755 "$mountpoint"
+    [[ -z $(ls -A "$mountpoint") ]] || { echo 'Target is not empty; refusing to hide files.' >&2; exit 2; }
+    if [[ -n "$adopt" ]]; then
+        check_mount "$adopt" || { echo 'Adoption source is not a validated uncached SMB mount.' >&2; exit 2; }
+        mount --bind "$adopt" "$mountpoint"
+    else
+        read -r -p 'Synology username: ' nas_username
+        [[ -n "$nas_username" && "$nas_username" != *,* ]] || exit 2
+        mount -t cifs "$source_share" "$mountpoint" \
+            -o "username=$nas_username,vers=3.1.1,uid=$owner_uid,gid=$owner_gid,cache=none,mfsymlinks,nosuid,nodev,noexec"
+    fi
+fi
+check_mount "$mountpoint"
+for old_mount in "${release[@]}"; do
+    [[ "$old_mount" != "$mountpoint" ]] || exit 2
+    [[ $(findmnt -nr -M "$old_mount" -o FSTYPE) == cifs && $(findmnt -nr -M "$old_mount" -o SOURCE) == "$source_share" ]] || { echo "Unexpected release target: $old_mount" >&2; exit 2; }
+    umount "$old_mount"
+done
+findmnt -M "$mountpoint" -o TARGET,SOURCE,FSTYPE,OPTIONS
+echo 'NAS recording mount ready. No credentials were saved. Remount after reboot before starting ROS services.'

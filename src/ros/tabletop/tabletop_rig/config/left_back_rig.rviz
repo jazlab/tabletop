@@ -2,6 +2,10 @@ Panels: []
 Visualization Manager:
   Class: ""
   Displays:
+    - Class: tabletop_visualization/VisibilityRenderGuard
+      Enabled: true
+      Name: Pause hidden rendering
+      Value: true
     - Class: rviz_default_plugins/Image
       Enabled: true
       Max Value: 1

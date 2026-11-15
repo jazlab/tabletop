@@ -104,6 +104,9 @@ def asc_to_df(
     df = pd.read_csv(
         io.StringIO("\n".join(file_text)),
         sep=r"\s+",
+        # edf2asc -s emits numeric sample rows, not a column-name header.
+        # Pandas' inferred header otherwise consumes the first real sample.
+        header=None,
         index_col=False,
         na_values=["."],
         on_bad_lines="warn",

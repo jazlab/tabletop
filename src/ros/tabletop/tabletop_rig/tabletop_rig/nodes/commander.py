@@ -169,6 +169,19 @@ def ensure_context(fn):
         return wrapper
 
 
+def _execution_shutdown_is_requested(context) -> bool:
+    """The shared intentional-shutdown latch is separate from safety faults."""
+    requested = getattr(context, "_execution_shutdown_requested", None)
+    return requested is not None and requested.is_set()
+
+
+def _raise_if_execution_shutdown_requested(context) -> None:
+    # A genuine, already-latched UR safety fault always retains precedence.
+    context._raise_if_rig_safety_faulted()
+    if _execution_shutdown_is_requested(context):
+        raise asyncio.CancelledError("Intentional task shutdown requested")
+
+
 def handle_interruptions(coro_fn):
     """Decorator for methods requiring safety-checked robot execution.
 
@@ -187,7 +200,7 @@ def handle_interruptions(coro_fn):
 
     @functools.wraps(coro_fn)
     async def wrapper(self: "ManipulationContextManager", *args, **kwargs):
-        self._raise_if_rig_safety_faulted()
+        _raise_if_execution_shutdown_requested(self)
         max_attempts = self.param("interruptions.max_attempts")
         if max_attempts < 1:
             raise ValueError(
@@ -197,7 +210,7 @@ def handle_interruptions(coro_fn):
 
         async def wait_until_safe(phase: str) -> None:
             """Apply the safety gate immediately before each motion attempt."""
-            self._raise_if_rig_safety_faulted()
+            _raise_if_execution_shutdown_requested(self)
             if self._safe_to_execute_condition():
                 return
             assert self._manipulator.presentation_region_active
@@ -209,10 +222,11 @@ def handle_interruptions(coro_fn):
             await self._teensy.lock_arms_and_wait(
                 condition=self._safe_to_execute_condition
             )
-            self._raise_if_rig_safety_faulted()
+            _raise_if_execution_shutdown_requested(self)
 
         excs: list[Exception] = []
         while remaining > 0:
+            _raise_if_execution_shutdown_requested(self)
             await self._recover_after_laser_stop()
             # The beam can break while the UR dashboard is being restored or
             # between attempts. Re-apply the stable-clear gate immediately
@@ -234,6 +248,19 @@ def handle_interruptions(coro_fn):
                 # has already cleared: the generation counter preserves that
                 # evidence independently of the controller-restart flag.
                 self._raise_if_rig_safety_faulted()
+                if isinstance(
+                    e,
+                    (
+                        ExecutionStoppedError,
+                        ExecutionPreventedError,
+                        NotSafeToExecuteError,
+                    ),
+                ):
+                    # Dashboard/Ctrl-C cancels controller goals synchronously,
+                    # before asyncio cancellation is necessarily delivered.
+                    # Only expected stop/pre-submit errors become cancellation;
+                    # unrelated execution errors still follow the fatal path.
+                    _raise_if_execution_shutdown_requested(self)
                 laser_event_observed = (
                     self._laser_stop_pending()
                     or not self._safe_to_execute_condition()
@@ -344,7 +371,13 @@ class ManipulationContextManager(BaseInterface):
         ur_interface_name: str,
         manipulation_interface_name: str,
         parameter_fallback_prefix: Optional[str] = None,
+        execution_shutdown_requested: threading.Event | None = None,
     ):
+        self._execution_shutdown_requested = (
+            execution_shutdown_requested
+            if execution_shutdown_requested is not None
+            else threading.Event()
+        )
         self._ur = URInterface(
             node,
             ur_interface_name,
@@ -358,6 +391,7 @@ class ManipulationContextManager(BaseInterface):
             moveit_interface=moveit_interface,
             safe_to_execute_condition=self._safe_to_execute_condition,
             parameter_fallback_prefix="common_manipulation_interface",
+            execution_shutdown_requested=self._execution_shutdown_requested,
         )
         super().__init__(
             node, name, parameter_fallback_prefix=parameter_fallback_prefix
@@ -989,6 +1023,7 @@ class Commander(BaseNode):
         self._task_session_id = ""
         self._operator_stop_lock = threading.Lock()
         self._operator_stop_future: concurrent.futures.Future | None = None
+        self._execution_shutdown_requested = threading.Event()
 
         self._sound = SoundInterface(self, "sound_interface")
         self._teensy = TeensyInterface(
@@ -1032,6 +1067,7 @@ class Commander(BaseNode):
                     "manipulation_interface_name"
                 ],
                 parameter_fallback_prefix="common_manipulation_context_interface",
+                execution_shutdown_requested=self._execution_shutdown_requested,
             )
             # self._urs[robot_name] = ur_interface
             # self._manipulators[robot_name] = manipulation_interface
@@ -1139,6 +1175,15 @@ class Commander(BaseNode):
         with self._operator_stop_lock:
             self._operator_stop_future = cancel_future
 
+    def request_execution_shutdown(self) -> None:
+        """Latch intentional shutdown before immediately canceling both arms.
+
+        Safety fault handlers keep using stop_all_execution() directly: they
+        must never be reclassified as an operator-requested cancellation.
+        """
+        self._execution_shutdown_requested.set()
+        self.stop_all_execution()
+
     def _operator_stop_callback(
         self, _request: Trigger.Request, response: Trigger.Response
     ) -> Trigger.Response:
@@ -1147,9 +1192,9 @@ class Commander(BaseNode):
             "Operator stop requested from session dashboard",
             severity="WARN",
         )
-        # Stop controller goals synchronously before scheduling coroutine
-        # cancellation. This is the same ordering used by the Ctrl-C path.
-        self.stop_all_execution()
+        # Mark intent before canceling goals; coroutine cancellation may arrive
+        # after a controller's expected ExecutionStoppedError.
+        self.request_execution_shutdown()
         with self._operator_stop_lock:
             cancel_future = self._operator_stop_future
             if cancel_future is None:
@@ -1670,7 +1715,7 @@ async def _wait_for_task_or_safety_fault(
         # run. Awaiting the task here keeps that cleanup inside the live
         # Commander context and prevents asyncio.run() from discovering an
         # orphan task during shutdown.
-        commander.stop_all_execution()
+        commander.request_execution_shutdown()
         if not task.done():
             task.cancel()
         try:
@@ -1741,7 +1786,7 @@ async def asyncio_runner(
             task = asyncio.create_task(coro_fn(commander, config))
 
             def stop_and_cancel() -> None:
-                commander.stop_all_execution()
+                commander.request_execution_shutdown()
                 task.cancel()
 
             cancel_future.add_done_callback(
@@ -1753,7 +1798,9 @@ async def asyncio_runner(
             )
             await _wait_for_task_or_safety_fault(commander, task)
     except asyncio.CancelledError:
-        pass
+        # Cancellation is a clean exit only in the absence of a real fault,
+        # including one reported concurrently during stop/teardown.
+        commander.raise_if_rig_safety_faulted()
     except BaseException as e:
         print(
             f"Caught exception in task: \n "

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Select recording storage, keeping the previous local directory for rollback.
+set -eo pipefail
+bin_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+source "$bin_dir/../../setup.bash"
+set -u
+cd "$TABLETOP_DIR"
+backend=${1:-}
+mountpoint=${2:-/mnt/tabletop-nas}
+source_share=${3:-//169.254.101.0/tabletop}
+[[ "$backend" == nas || "$backend" == hdd ]] || { echo 'Usage: tt-recording-storage nas [MOUNTPOINT] [//server/share] | hdd'; exit 2; }
+if [[ -n $(docker ps --filter label=com.docker.compose.service=commander --format '{{.Names}}') ]]; then
+    echo 'Stop the task before changing recording storage.' >&2; exit 2
+fi
+get() { dotenv --file .env get "$1" 2>/dev/null || true; }
+set_value() { dotenv --file .env --quote never set -- "$1" "$2" >/dev/null; }
+if [[ "$backend" == nas ]]; then
+    "$bin_dir/tt-storage-preflight" "$mountpoint" --mountpoint "$mountpoint" --source "$source_share" --mount-only
+    target=$mountpoint/sessions
+    mkdir -p "$target"
+else
+    target=$(get TABLETOP_HDD_BAG_DIR_HOST)
+    target=${target:-/hdd/bags}
+    [[ -d "$target" ]] || { echo "Local recording directory does not exist: $target" >&2; exit 2; }
+fi
+backup_dir=$(mktemp -d "$TABLETOP_DIR/.cache/recording-storage.XXXXXX")
+cp --preserve=mode .env "$backup_dir/env.before"
+chmod 600 "$backup_dir/env.before"
+if [[ "$backend" == nas && $(get TABLETOP_RECORDING_BACKEND) != nas ]]; then
+    previous_local=$(get ROS_BAG_DIR_HOST)
+    set_value TABLETOP_HDD_BAG_DIR_HOST "${previous_local:-$TABLETOP_DIR/bags}"
+fi
+set_value TABLETOP_RECORDING_BACKEND "$([[ "$backend" == nas ]] && echo nas || echo local)"
+set_value ROS_BAG_DIR_HOST "$target"
+set_value ROS_BAG_DIR_MNT "$target:/bags"
+set_value ROS_BAG_DIR_CONTAINER /bags
+if [[ "$backend" == nas ]]; then
+    set_value TABLETOP_NAS_MOUNT_HOST "$mountpoint"
+    set_value TABLETOP_NAS_SOURCE "$source_share"
+    set_value TABLETOP_RECORDING_STOP_GRACE 180s
+else
+    set_value TABLETOP_RECORDING_STOP_GRACE ''
+fi
+echo "Recording storage selected: $target"
+echo "Previous environment: $backup_dir/env.before"
+echo 'Recreate EyeLink and session-dashboard containers before recording; existing containers retain their old mounts.'

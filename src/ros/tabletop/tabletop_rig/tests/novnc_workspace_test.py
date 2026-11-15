@@ -51,7 +51,7 @@ def test_failed_switch_does_not_change_return_workspace(
     assert calls == [5]
 
 
-@pytest.mark.parametrize("workspace", [0, 10])
+@pytest.mark.parametrize("workspace", [0, 7, 10])
 def test_invalid_workspace_is_rejected(workspace: int, tmp_path: Path):
     with pytest.raises(ValueError):
         with novnc_workspace.reserve_dwm_workspace(
