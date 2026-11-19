@@ -50,6 +50,7 @@ setup(
             "mock_dashboard_client = tabletop_rig.nodes.mock_dashboard_client:main",
             "mock_robot_state_helper = tabletop_rig.nodes.mock_robot_state_helper:main",
             "eyelink = tabletop_rig.nodes.eyelink:main",
+            "gaze_preview = tabletop_rig.nodes.gaze_preview:main",
             "flic = tabletop_rig.nodes.flic:main",
             "flic_smash_test = tabletop_rig.nodes.flic_smash_test:main",
             "system_check = tabletop_rig.nodes.system_check:main",

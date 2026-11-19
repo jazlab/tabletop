@@ -108,6 +108,7 @@ nav:
       - November Reliability Checkpoint: guide/november-reliability-checkpoint.md
       - Offline Session Export: guide/offline-export.md
       - Tasks & Experiments: guide/tasks.md
+      - Pupil-corrected gaze calibration: guide/pupil-corrected-gaze.md
       - Manipulation Reliability: guide/manipulation-reliability.md
       - Peripheral Capture & Diagnostics: guide/peripheral-capture.md
       - I/O Check Dashboard: guide/io-dashboard.md
