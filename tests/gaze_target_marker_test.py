@@ -78,6 +78,23 @@ def test_static_markers_do_not_count_as_following_the_tool():
         select_target_marker(markers, tcp)
 
 
+def test_hold_only_decoy_is_never_fitted_when_freezing_moving_marker_identity():
+    markers, tcp, target = _frames(target_separation=0.060)
+    # Remove the extra tool-mounted decoy only in the moving block.
+    markers.loc[:210, [f"markers[2].translation.{ax}" for ax in "xyz"]] = (
+        np.nan
+    )
+    first = 1_700_000_000_000_000_000
+    observed = select_target_marker(
+        markers, tcp, fit_window_ns=(first, first + 210 * 2_000_000)
+    )
+    expected = target.copy()
+    expected[200] = np.nan
+    np.testing.assert_allclose(observed, expected)
+    with pytest.raises(ValueError, match="fit window"):
+        select_target_marker(markers, tcp, fit_window_ns=(1, 2))
+
+
 def test_no_tcp_timestamp_overlap_fails_instead_of_using_a_fixed_slot():
     markers, tcp, _ = _frames()
     tcp["header.stamp.sec"] += 10

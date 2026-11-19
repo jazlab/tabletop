@@ -57,12 +57,15 @@ def select_target_marker(
     position_tolerance_m: float = 0.015,
     max_tool_offset_m: float = 0.30,
     max_tcp_skew_sec: float = 0.020,
+    fit_window_ns: tuple[int, int] | None = None,
 ) -> np.ndarray:
     """Return measured OptiTrack XYZ; leave unmatched/ambiguous rows as NaN.
 
     Learn the target's fixed offset in the tool frame from spatially spread
     samples. A lone point that dominates only while the tool is still is not
     sufficient evidence. Never substitute the robot pose for a measurement.
+    An optional half-open timestamp window limits offset fitting to training
+    frames; the frozen identity is then applied to all frames.
     """
     if min(position_tolerance_m, max_tool_offset_m, max_tcp_skew_sec) <= 0:
         raise ValueError("Target selection tolerances must be positive")
@@ -139,7 +142,15 @@ def select_target_marker(
     )
     offsets[np.linalg.norm(offsets, axis=2) > max_tool_offset_m] = np.nan
 
-    fit_rows = _representative_frames(tcp_position)
+    eligible = np.arange(len(rows))
+    if fit_window_ns is not None:
+        start, end = fit_window_ns
+        eligible = np.flatnonzero((t[rows] >= start) & (t[rows] < end))
+        if not len(eligible):
+            raise ValueError(
+                "No overlapping target measurements in the fit window"
+            )
+    fit_rows = eligible[_representative_frames(tcp_position[eligible])]
     fit_offsets = offsets[fit_rows]
     points = fit_offsets[np.isfinite(fit_offsets).all(axis=2)]
     if len(points) < 12:
