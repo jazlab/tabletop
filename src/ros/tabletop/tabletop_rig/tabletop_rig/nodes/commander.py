@@ -41,6 +41,7 @@ import inspect
 import threading
 import traceback
 from collections.abc import Callable, Coroutine, Mapping
+from contextlib import asynccontextmanager, contextmanager
 from types import TracebackType
 from typing import Any, Literal, Optional, Self
 
@@ -213,7 +214,7 @@ def handle_interruptions(coro_fn):
             _raise_if_execution_shutdown_requested(self)
             if self._safe_to_execute_condition():
                 return
-            assert self._manipulator.presentation_region_active
+            assert self.presentation_safety_required
             self.log(
                 f"Not safe to execute {phase} '{coro_fn.__name__}'. "
                 f"Locking arms and waiting for safety.",
@@ -408,6 +409,7 @@ class ManipulationContextManager(BaseInterface):
         self._laser_state_lock = threading.Lock()
         self._laser_is_broken: bool | None = None
         self._laser_break_generation = 0
+        self._force_presentation_safety = False
 
         self._initial_reset = False
         self._entered_context = False
@@ -416,9 +418,16 @@ class ManipulationContextManager(BaseInterface):
         # manager is reentrant
         self._exited_context = False
 
+    @property
+    def presentation_safety_required(self) -> bool:
+        return (
+            self._force_presentation_safety
+            or self._manipulator.presentation_region_active
+        )
+
     def _safe_to_execute_condition(self) -> bool:
         return self._rig_safety_fault_getter() is None and (
-            not self._manipulator.presentation_region_active
+            not self.presentation_safety_required
             or self._teensy.safe_to_execute
         )
 
@@ -776,11 +785,11 @@ class ManipulationContextManager(BaseInterface):
         while remaining > 0:
             try:
                 self._raise_if_rig_safety_faulted()
-                if self._manipulator.presentation_region_active:
+                if self.presentation_safety_required:
                     await self._teensy.set_smartglass(reveal=False)
 
                 if not self._safe_to_execute_condition():
-                    assert self._manipulator.presentation_region_active
+                    assert self.presentation_safety_required
                     self.log(
                         "Not safe to execute during manipulation context reset. "
                         "Locking arms and waiting for safety.",
@@ -1228,24 +1237,56 @@ class Commander(BaseNode):
             )
         )
 
+    @contextmanager
+    def _allow_right_wall_for_start_check(
+        self, attached_object_id: str | None
+    ):
+        """Temporarily allow the right arm through its virtual wall only."""
+        right = self._manipulation_contexts["right_manipulator"]._manipulator
+        ids = list(right.param("presentation_region.robot_collision_ids"))
+        if attached_object_id is not None:
+            ids.append(attached_object_id)
+        with self._moveit.planning_scene_write():
+            modified = self._moveit.allow_collision(
+                ids, "right_presentation_wall"
+            )
+            try:
+                yield
+            finally:
+                if modified:
+                    self._moveit.disallow_collision(*zip(*modified))
+
     @ensure_context
-    def validate_task_start_state(self) -> None:
+    def validate_task_start_state(
+        self,
+        *,
+        allow_right_presentation_wall: bool = False,
+        attached_object_id: str | None = None,
+    ) -> None:
         """Refuse task execution if either arm starts in collision.
 
-        This is an observational check only. In particular, it does not try to
-        retreat from a mount or presentation area because the process cannot
-        safely infer the attached object or interrupted transition direction.
+        Smooth pursuit may allow overlap with the right virtual presentation
+        wall, including for its modeled fixture when known. All other checks
+        still run for both arms. This method never moves either arm.
         """
         current_state = self._moveit.get_current_state()
-        invalid_robots = [
-            robot_name
-            for robot_name, context in self._manipulation_contexts.items()
-            if not self._moveit.is_state_valid(
-                current_state,
-                context._manipulator.group_name,
-                verbose=True,
-            )
-        ]
+
+        def find_invalid_robots() -> list[str]:
+            return [
+                robot_name
+                for robot_name, context in self._manipulation_contexts.items()
+                if not self._moveit.is_state_valid(
+                    current_state,
+                    context._manipulator.group_name,
+                    verbose=True,
+                )
+            ]
+
+        if allow_right_presentation_wall:
+            with self._allow_right_wall_for_start_check(attached_object_id):
+                invalid_robots = find_invalid_robots()
+        else:
+            invalid_robots = find_invalid_robots()
         if not invalid_robots:
             self.log("Task startup robot-state collision check passed")
             return
@@ -1309,7 +1350,7 @@ class Commander(BaseNode):
             for robot_name, context in self._manipulation_contexts.items():
                 if (
                     context._manipulator.executing
-                    and context._manipulator.presentation_region_active
+                    and context.presentation_safety_required
                 ):
                     if context.request_laser_safety_stop():
                         self.log(
@@ -1321,7 +1362,7 @@ class Commander(BaseNode):
     def _safe_to_execute_condition(self) -> bool:
         return not self.rig_safety_faulted and (
             not any(
-                x._manipulator.presentation_region_active
+                x.presentation_safety_required
                 for x in self._manipulation_contexts.values()
             )
             or self._teensy.safe_to_execute
@@ -1562,6 +1603,18 @@ class Commander(BaseNode):
                 f"Available: {self.robot_names}"
             )
         return self._manipulation_contexts[robot_name]
+
+    @asynccontextmanager
+    async def presentation_manipulation_context(self, robot_name: str):
+        """Keep the laser gate active even before the arm has moved."""
+        context = self.manipulation_context(robot_name)
+        previous = context._force_presentation_safety
+        context._force_presentation_safety = True
+        try:
+            async with context as manipulator:
+                yield manipulator
+        finally:
+            context._force_presentation_safety = previous
 
     @ensure_context
     async def manipulation_preflight(

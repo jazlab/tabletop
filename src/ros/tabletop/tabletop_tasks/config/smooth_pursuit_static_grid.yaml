@@ -1,0 +1,17 @@
+# Static-only 3D gaze calibration; no sinusoid or pursuit reward.
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: static_grid
+      motion_kwargs:
+        center_pose:
+          frame_id: world
+          position: [0.9525, 0.6, 0.53]
+          rpy: [1.5707, 1.5707, 0.0]
+      num_repetitions: 1
+      robot_name: right_manipulator
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.075
+      static_hold_seconds: 0.5
+      static_block_seconds: 300.0
+      static_half_span_m: 0.07

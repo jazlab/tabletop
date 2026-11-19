@@ -613,6 +613,43 @@ def test_task_start_state_collision_aborts_both_arms():
         context._manipulator.stop_execution.assert_called_once_with()
 
 
+@pytest.mark.parametrize(
+    "invalid_robot", [None, "left_manipulator", "right_manipulator"]
+)
+def test_smooth_pursuit_start_only_allows_right_virtual_wall(invalid_robot):
+    commander = _make_commander(simulate=True)
+    right = commander._manipulation_contexts["right_manipulator"]._manipulator
+    right.param = MagicMock(return_value=["right_wrist_3_link"])
+    fixture = "smooth_pursuit_object"
+    wall = "right_presentation_wall"
+    modified = [("right_wrist_3_link", wall), (fixture, wall)]
+    commander._moveit = MagicMock()
+    commander._moveit.allow_collision.return_value = modified
+
+    def is_state_valid(_state, group_name, **_kwargs):
+        commander._moveit.allow_collision.assert_called_once_with(
+            ["right_wrist_3_link", fixture], wall
+        )
+        commander._moveit.disallow_collision.assert_not_called()
+        return group_name != invalid_robot
+
+    commander._moveit.is_state_valid.side_effect = is_state_valid
+    kwargs = dict(
+        allow_right_presentation_wall=True, attached_object_id=fixture
+    )
+    if invalid_robot is None:
+        commander.validate_task_start_state(**kwargs)
+        assert not commander.rig_safety_faulted
+    else:
+        with pytest.raises(RobotStateCollisionError) as exc_info:
+            commander.validate_task_start_state(**kwargs)
+        assert exc_info.value.robot_names == (invalid_robot,)
+    assert commander._moveit.is_state_valid.call_count == 2
+    commander._moveit.disallow_collision.assert_called_once_with(
+        *zip(*modified)
+    )
+
+
 def test_planner_start_state_collision_is_fatal_without_context_reset():
     code = MoveItErrorCodes(val=MoveItErrorCodes.START_STATE_IN_COLLISION)
     pipeline_error = PlanningPipelineError(code, group_name="left_manipulator")
@@ -1142,6 +1179,7 @@ def _make_laser_context(*, ready_side_effect=False):
     context._laser_state_lock = threading.Lock()
     context._laser_is_broken = None
     context._laser_break_generation = 0
+    context._force_presentation_safety = False
     context._manipulator = SimpleNamespace(
         stop_execution=MagicMock(),
         manipulation_state=ManipulationState.PRESENTED,
@@ -1285,6 +1323,51 @@ def test_laser_does_not_stop_fetched_motion_outside_presentation_region():
 
     context._ur.stop_program.assert_not_called()
     assert not context._laser_stop_pending()
+
+
+def test_smooth_pursuit_gate_covers_initial_reset_and_approach(monkeypatch):
+    commander = _make_commander(simulate=False)
+    context = _make_laser_context(ready_side_effect=True)
+    commander._manipulation_contexts = {"right_manipulator": context}
+    commander._teensy = context._teensy
+    context._teensy.safe_to_execute = False
+    context._rig_safety_fault_getter = MagicMock(return_value=None)
+    context._safe_to_execute_condition = (
+        ManipulationContextManager._safe_to_execute_condition.__get__(context)
+    )
+    context._manipulator.presentation_region_active = False
+    context._manipulator.executing = False
+
+    async def enter(self):
+        assert self.presentation_safety_required
+        assert not self._safe_to_execute_condition()
+        return self
+
+    async def leave(self, *_args):
+        assert self.presentation_safety_required
+
+    monkeypatch.setattr(ManipulationContextManager, "__aenter__", enter)
+    monkeypatch.setattr(ManipulationContextManager, "__aexit__", leave)
+
+    async def run():
+        async with commander.presentation_manipulation_context(
+            "right_manipulator"
+        ):
+            assert not context._safe_to_execute_condition()
+            context._teensy.safe_to_execute = True
+            assert context._safe_to_execute_condition()
+            context._manipulator.executing = True
+            context._teensy.safe_to_execute = False
+            commander._teensy_sensor_callback(
+                TeensySensor(is_safety_laser_broken=True)
+            )
+            context._manipulator.executing = False
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(run())
+    context._ur.stop_program.assert_called_once_with()
+    assert not context.presentation_safety_required
 
 
 def test_one_hundred_simulated_presentation_interruptions_recover():

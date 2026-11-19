@@ -1,0 +1,20 @@
+# Continue the standard sinusoid for twice as long without a midpoint reset.
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: sin
+      motion_kwargs:
+        center_pose:
+          position: [0.9525, 0.6, 0.53]
+          rpy: [1.5707, 1.5707, 0.0]
+        amplitudes: [0.1, 0.1, 0.1]
+        periods: [4.3, 6.2, 10.0]
+        num_revolutions: 20
+        num_segments: 1600
+      robot_name: right_manipulator
+      num_repetitions: 1
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.075
+      max_motion_generation_attempts: 20
+      static_hold_seconds: 1.0
+      static_half_span_m: 0.07

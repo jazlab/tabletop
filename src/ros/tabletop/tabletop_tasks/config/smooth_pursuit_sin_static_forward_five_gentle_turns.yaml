@@ -1,0 +1,23 @@
+# Same five-inch-closer one-lap curve and 27 half-second holds, with eased turns.
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: sin
+      motion_kwargs:
+        center_pose:
+          position: [0.9525, 0.473, 0.53]
+          rpy: [1.5707, 1.5707, 0.0]
+        amplitudes: [0.1, 0.1, 0.1]
+        periods: [4.3, 6.2, 10.0]
+        num_revolutions: 10
+        num_segments: 800
+      robot_name: right_manipulator
+      num_repetitions: 1
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.075
+      # Startup planning only; never retries an executed lap.
+      max_motion_generation_attempts: 40
+      # A floor, not a fixed slowdown. The blend eases in and out of each turn.
+      corner_speed_fraction: 0.80
+      static_hold_seconds: 0.5
+      static_half_span_m: 0.07

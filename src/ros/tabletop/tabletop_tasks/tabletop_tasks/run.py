@@ -128,10 +128,20 @@ async def run_tasks(commander: Commander, config_file: str) -> None:
         each having 'class' and 'kwargs' keys.
     """
     print("Running tasks")
-    # A clean post-return pose need not be the named IDLE pose, but it must be
-    # collision-free under the normal planning scene. Never attempt an
-    # automatic retreat from an unknown mount/presentation state.
-    commander.validate_task_start_state()
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    # Only a standalone right-arm smooth-pursuit run can start across the
+    # virtual wall. Other tasks still validate against the normal scene.
+    tasks = config["tasks"]
+    if (
+        len(tasks) == 1
+        and tasks[0]["class"] == "SmoothPursuitTask"
+        and tasks[0].get("kwargs", {}).get("robot_name") == "right_manipulator"
+    ):
+        commander.validate_task_start_state(allow_right_presentation_wall=True)
+    else:
+        commander.validate_task_start_state()
     if os.environ.get("TABLETOP_REQUIRE_FLIR_PREFLIGHT") == "true":
         await _wait_for_flir_preflight(commander)
     if os.environ.get("TABLETOP_REQUIRE_EYELINK_RECORDER") == "true":
@@ -142,10 +152,6 @@ async def run_tasks(commander: Commander, config_file: str) -> None:
             "Waiting for the rosbag recorder to subscribe to EyeLink batches"
         )
         await commander.wait_for_eyelink_recorder(timeout=eyelink_timeout)
-
-    # Load task configuration from YAML file
-    with open(config_file, "r") as f:
-        config = yaml.safe_load(f)
 
     preflight_config = config.pop("manipulation_preflight", None)
     if preflight_config is not None:

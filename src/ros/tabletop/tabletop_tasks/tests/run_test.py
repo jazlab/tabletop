@@ -16,11 +16,15 @@ class FakeCommander:
     def __init__(self) -> None:
         self.sync_calls: list[tuple[bool, int | float | None]] = []
         self.start_state_checks = 0
+        self.start_state_wall_exceptions: list[bool] = []
         self.task_events: list[tuple[int, dict]] = []
         self.eyelink_waits: list[float] = []
 
-    def validate_task_start_state(self) -> None:
+    def validate_task_start_state(
+        self, *, allow_right_presentation_wall: bool = False
+    ) -> None:
         self.start_state_checks += 1
+        self.start_state_wall_exceptions.append(allow_right_presentation_wall)
 
     async def set_sync_pulses(
         self, enable: bool, duration: int | float | None = None
@@ -43,6 +47,44 @@ def _write_config(tmp_path) -> str:
     return str(config)
 
 
+@pytest.mark.parametrize(
+    ("robot_name", "mixed_tasks", "expected_exception"),
+    [
+        ("right_manipulator", False, True),
+        ("left_manipulator", False, False),
+        ("right_manipulator", True, False),
+    ],
+)
+def test_startup_wall_exception_is_scoped(
+    tmp_path, robot_name, mixed_tasks, expected_exception
+) -> None:
+    commander = FakeCommander()
+    tasks = [
+        {"class": "SmoothPursuitTask", "kwargs": {"robot_name": robot_name}}
+    ]
+    if mixed_tasks:
+        tasks.append({"class": "FakeTask", "kwargs": {}})
+    config = tmp_path / "task.yaml"
+    config.write_text(yaml.safe_dump({"tasks": tasks}))
+
+    class FakeTask:
+        def __init__(self, commander, **_kwargs) -> None:
+            assert commander.start_state_wall_exceptions == [
+                expected_exception
+            ]
+
+        async def run(self) -> None:
+            pass
+
+    with patch(
+        "tabletop_tasks.run.importlib.import_module",
+        return_value=SimpleNamespace(
+            SmoothPursuitTask=FakeTask, FakeTask=FakeTask
+        ),
+    ):
+        asyncio.run(run_tasks(commander, str(config)))
+
+
 def test_sync_pulses_span_only_successful_task_execution(tmp_path) -> None:
     commander = FakeCommander()
 
@@ -61,6 +103,7 @@ def test_sync_pulses_span_only_successful_task_execution(tmp_path) -> None:
 
     assert commander.sync_calls == [(True, None), (False, None)]
     assert commander.start_state_checks == 1
+    assert commander.start_state_wall_exceptions == [False]
     assert [event[0] for event in commander.task_events] == [
         TaskEvent.TASK_STARTED,
         TaskEvent.TASK_ENDED,

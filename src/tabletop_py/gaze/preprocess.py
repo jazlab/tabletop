@@ -43,6 +43,7 @@ import yaml
 from scipy.signal import savgol_filter
 from scipy.stats import zscore
 
+from tabletop_py.gaze.target_marker import TCP_CSV, select_target_marker
 from tabletop_py.gaze.visualize import (
     animate_2d_dots,
     plot_eyelink_markers,
@@ -189,8 +190,9 @@ def format_eyelink_columns(
 def format_marker_columns(
     df: pd.DataFrame,
     *,
-    marker_idx: int,
+    marker_idx: int | None,
     freq: float,
+    tcp: pd.DataFrame | None = None,
     verify: bool = True,
     freq_rtol: Optional[float] = None,
     freq_var_tol: Optional[float] = None,
@@ -201,8 +203,9 @@ def format_marker_columns(
 
     Args:
         df: The optical marker data.
-        marker_idx: The index of the marker to format.
+        marker_idx: An explicit array slot, or None to identify the target.
         freq: The expected frequency of the optical marker data.
+        tcp: Right-arm TCP poses, required for automatic selection.
         verify: Whether to verify the timestamps and monotonicity.
         freq_rtol: The relative tolerance for the frequency.
         freq_var_tol: The absolute tolerance for the frequency.
@@ -213,18 +216,20 @@ def format_marker_columns(
     """
     df = df.copy()
 
-    # Rename columns to the expected format
-    if f"markers[{marker_idx}].id_type" not in df.columns:
-        raise ValueError(
-            f"Marker {marker_idx} not found. Columns: {df.columns}"
-        )
-    df[MARKER_DATA_COLS] = df[
-        [
-            f"markers[{marker_idx}].translation.x",
-            f"markers[{marker_idx}].translation.y",
-            f"markers[{marker_idx}].translation.z",
+    if marker_idx is None:
+        if tcp is None:
+            raise ValueError(
+                "Automatic marker selection requires right TCP poses"
+            )
+        df[MARKER_DATA_COLS] = select_target_marker(df, tcp)
+    else:
+        if f"markers[{marker_idx}].id_type" not in df.columns:
+            raise ValueError(
+                f"Marker {marker_idx} not found. Columns: {df.columns}"
+            )
+        df[MARKER_DATA_COLS] = df[
+            [f"markers[{marker_idx}].translation.{axis}" for axis in "xyz"]
         ]
-    ]
 
     # Convert ROS timestamp to seconds
     df["time"] = df["header.stamp.sec"] + df["header.stamp.nanosec"] / 1e9
@@ -530,6 +535,34 @@ def reindex_and_interpolate(
         new_df[col] = data
 
     return new_df
+
+
+def interpolate_selected_marker(
+    selected: pd.DataFrame,
+    frame_times: np.ndarray,
+    new_times: np.ndarray,
+    *,
+    tolerance: float,
+) -> pd.DataFrame:
+    """Resample only between consecutive accepted frames within tolerance."""
+    result = reindex_and_interpolate(
+        selected, new_times, on="time", tolerance=tolerance
+    )
+    good = np.isin(frame_times, selected["time"])
+    right = np.searchsorted(frame_times, new_times).clip(
+        0, len(frame_times) - 1
+    )
+    left = (right - 1).clip(0)
+    exact = good[right] & (new_times == frame_times[right])
+    between = (
+        good[left]
+        & good[right]
+        & (new_times > frame_times[left])
+        & (new_times < frame_times[right])
+        & (frame_times[right] - frame_times[left] <= tolerance)
+    )
+    result.loc[~(exact | between), MARKER_DATA_COLS] = np.nan
+    return result
 
 
 def smooth_rolling_deprecated(
@@ -938,7 +971,7 @@ def preprocess_data(
     session_dir: str | os.PathLike,
     config: MutableMapping[str, Any] | os.PathLike | str,
     *,
-    marker_idx: int,
+    marker_idx: int | None = None,
     start_time: float = 0.0,
     end_time: float = float("inf"),
     skip_verify: bool = False,
@@ -975,6 +1008,15 @@ def preprocess_data(
         raw_eyelink_df = eyelink_array_to_samples(raw_eyelink_array_df)
 
     raw_markers_df = pd.read_csv(markers_path, index_col=False)
+    tcp = None
+    if marker_idx is None:
+        tcp_path = os.path.join(session_dir, TCP_CSV)
+        if not os.path.isfile(tcp_path):
+            raise FileNotFoundError(
+                f"Automatic target selection needs {tcp_path}; export the right TCP "
+                "topic or pass --marker-idx for a verified marker slot"
+            )
+        tcp = pd.read_csv(tcp_path, index_col=False)
 
     logger.info("Formatting columns")
     if skip_verify:
@@ -989,6 +1031,7 @@ def preprocess_data(
     raw_markers_df = format_marker_columns(
         raw_markers_df,
         marker_idx=marker_idx,
+        tcp=tcp,
         freq=config["markers_freq"],
         **marker_config["format_columns"],
     )
@@ -1032,12 +1075,20 @@ def preprocess_data(
         on="time",
         **eyelink_config["reindex_and_interpolate"],
     )
-    markers_df = reindex_and_interpolate(
-        markers_df,
-        steady_idx,
-        on="time",
-        **marker_config["reindex_and_interpolate"],
-    )
+    if marker_idx is None:
+        markers_df = interpolate_selected_marker(
+            markers_df,
+            raw_markers_df["time"].to_numpy(),
+            steady_idx,
+            tolerance=marker_config["reindex_and_interpolate"]["tolerance"],
+        )
+    else:
+        markers_df = reindex_and_interpolate(
+            markers_df,
+            steady_idx,
+            on="time",
+            **marker_config["reindex_and_interpolate"],
+        )
 
     # logger.info("Filtering eyelink data by speed")
     # eyelink_df = filter_eyelink_by_speed_savgol(
@@ -1145,8 +1196,8 @@ def main(args=None):
         "-m",
         "--marker-idx",
         type=int,
-        default=0,
-        help="The index of the marker to use.",
+        default=None,
+        help="Use a verified array slot instead of automatic right-tool target selection.",
     )
     parser.add_argument(
         "--skip-verify",

@@ -626,16 +626,24 @@ class PlanAndExecuteInterface(BaseInterface):
             params = PlanRequestParameters(
                 self._moveit.moveit_py, request.planning_pipeline
             )
-            if request.planning_time is not None:
-                params.planning_time = request.planning_time
+            planning_params = [params]
         else:
             assert isinstance(request.planning_pipeline, (list, tuple))
             params = MultiPipelinePlanRequestParameters(
                 self._moveit.moveit_py, request.planning_pipeline
             )
+            planning_params = params.multi_plan_request_parameters
+        for param in planning_params:
             if request.planning_time is not None:
-                for params in params.multi_plan_request_parameters:
-                    params.planning_time = request.planning_time
+                param.planning_time = request.planning_time
+            if request.planning_velocity_scaling_factor is not None:
+                param.max_velocity_scaling_factor = (
+                    request.planning_velocity_scaling_factor
+                )
+            if request.planning_acceleration_scaling_factor is not None:
+                param.max_acceleration_scaling_factor = (
+                    request.planning_acceleration_scaling_factor
+                )
 
         return planning_component, params
 

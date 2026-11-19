@@ -1,0 +1,23 @@
+# One depth-balanced moving calibration sweep, then the original 27-point grid.
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: depth_sweep
+      motion_kwargs:
+        center_pose:
+          position: [0.9525, 0.6, 0.53]
+          rpy: [1.5707, 1.5707, 0.0]
+        num_segments: 1000
+        # Nominal range from the viewing origin to the LED at the center.
+        nominal_viewing_distance_m: 0.50
+        depth_half_span_m: 0.075
+        viewing_grid_half_span_m: 0.064
+        angular_dither_at_center_m: 0.012
+      robot_name: right_manipulator
+      num_repetitions: 1
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.075
+      max_motion_generation_attempts: 5
+      pursuit_duration_seconds: 150.0
+      static_hold_seconds: 1.0
+      static_half_span_m: 0.07

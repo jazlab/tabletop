@@ -151,6 +151,10 @@ class _BasePlanRequest(
         path_constraints: Optional path constraints for planning.
         planning_scene: Custom planning scene. If None, uses current scene.
         planning_time: Allowed planning time for one planning attempt.
+        planning_velocity_scaling_factor: Optional speed scale used by the
+            planner itself, independent of final trajectory post-processing.
+        planning_acceleration_scaling_factor: Optional acceleration scale
+            used by the planner itself, independent of final post-processing.
         max_attempts: Maximum planning attempts before failing.
         exp_backoff_factor: Planning time is multiplied by this factor after each failed attempt.
         use_cache: Whether to use the trajectory cache.
@@ -172,6 +176,8 @@ class _BasePlanRequest(
     path_constraints: Optional[Constraints] = None
     planning_scene: Optional[PlanningScene] = None
     planning_time: Optional[PositiveFloat] = None
+    planning_velocity_scaling_factor: Optional[BoundFloat] = None
+    planning_acceleration_scaling_factor: Optional[BoundFloat] = None
     max_attempts: Optional[PositiveInt] = None
     exp_backoff_factor: Optional[PositiveFloat] = None
     use_cache: bool = True

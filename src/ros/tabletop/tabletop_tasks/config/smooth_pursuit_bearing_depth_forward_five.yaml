@@ -1,0 +1,23 @@
+# Repeated viewing directions at different depths, then 27 independent holds.
+tasks:
+  - class: SmoothPursuitTask
+    kwargs:
+      motion_type: bearing_depth
+      motion_kwargs:
+        center_pose:
+          position: [0.9525, 0.473, 0.53]
+          rpy: [1.5707, 1.5707, 0.0]
+        num_segments: 1100
+        # World XYZ displacement in meters from the central LED to the midpoint
+        # of the participant's eyes. Default is a fit to the prior closer run;
+        # replace it with the measured displacement for a different setup.
+        viewpoint_offset_from_center_led_m: [-0.006508, -0.483680, 0.334647]
+      robot_name: right_manipulator
+      num_repetitions: 1
+      object_id: smooth_pursuit_object
+      velocity_scaling_factor: 0.075
+      # Same bounded retry budget as the closer sinusoid. Only planning is retried.
+      max_motion_generation_attempts: 20
+      pursuit_duration_seconds: 150.0
+      static_hold_seconds: 0.5
+      static_half_span_m: 0.07

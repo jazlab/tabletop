@@ -30,6 +30,7 @@ from typing import Any, cast
 import yaml
 
 from tabletop_py.gaze.preprocess import preprocess_data
+from tabletop_py.gaze.target_marker import TCP_CSV, TCP_TOPIC
 from tabletop_py.gaze.train import train_and_evaluate
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,8 @@ def main(args=None):
         "-m",
         "--marker-idx",
         type=int,
-        default=0,
-        help="The index of the marker to use.",
+        default=None,
+        help="Use a verified array slot instead of automatic right-tool target selection.",
     )
     parser.add_argument(
         "-f",
@@ -117,6 +118,10 @@ def main(args=None):
     already_converted = (
         os.path.exists(eyelink_path) or os.path.exists(eyelink_array_path)
     ) and os.path.exists(markers_path)
+    if args.marker_idx is None:
+        already_converted &= os.path.exists(
+            os.path.join(args.session_dir, TCP_CSV)
+        )
 
     if args.force or not already_converted:
         try:
@@ -130,30 +135,20 @@ def main(args=None):
                     "to convert the session bags to CSV files"
                 )
         else:
-            rosbag_session_to_dfs(
-                args.session_dir,
-                topics=[
-                    "/eyelink/sample",
-                    "/eyelink/sample_array",
-                    "/markers",
-                ],
-            )
+            topics = ["/eyelink/sample", "/eyelink/sample_array", "/markers"]
+            if args.marker_idx is None:
+                topics.append(TCP_TOPIC)
+            rosbag_session_to_dfs(args.session_dir, topics=topics)
 
-    # Preprocess data
-    path = os.path.join(args.session_dir, config["preprocess"]["filename"])
-    already_preprocessed = os.path.exists(path)
-    print(f"Path: {path}")
-    print(f"Already preprocessed: {already_preprocessed}")
-
-    if args.force or not already_preprocessed:
-        print("Preprocessing data...")
-        preprocess_data(
-            args.session_dir,
-            config,
-            marker_idx=args.marker_idx,
-            start_time=args.start_time,
-            end_time=args.end_time,
-        )
+    # Never train from a cached file whose marker selection or time limits may
+    # have come from a different invocation. Keep the exported source CSVs.
+    preprocess_data(
+        args.session_dir,
+        config,
+        marker_idx=args.marker_idx,
+        start_time=args.start_time,
+        end_time=args.end_time,
+    )
 
     # Train and evaluate
     train_and_evaluate(args.session_dir, config, visualize=args.visualize)

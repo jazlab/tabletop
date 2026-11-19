@@ -263,10 +263,23 @@ container has been **removed** (its definition is preserved in
 Run the pipeline steps individually for debugging:
 
 ```bash
-tt-gaze-preprocess -d /path/to/session --visualize
+tt-gaze-preprocess -d /path/to/export
 tt-gaze-train -d /path/to/session
 tt-gaze-visualize -d /path/to/session
 ```
+
+For right-arm smooth pursuit, calibration now selects the OptiTrack point
+that stays fixed relative to the tool during motion, regardless of its array
+slot. Pass a directory containing the EyeLink and marker CSVs plus
+`right_tcp_pose_broadcaster_pose.csv` (from `/right_tcp_pose_broadcaster/pose`).
+`tt-gaze-calibrate` requests that topic when converting a bag. Selection uses
+the rig's standard `right_base` and `optitrack` transforms. It excludes
+missing or ambiguous frames and does not interpolate across them. If two
+points move with the tool, or the TCP stream is unavailable, use
+`--marker-idx N` only after verifying that slot holds the intended target.
+This selects the observed marker; it does not change the separate
+`transform_marker_to_led` setting. Use a zero offset if the marker itself
+is the point the observer looked at.
 
 If training stalls or loss won't drop, check that preprocessing produced no
 NaNs, that EyeLink and OptiTrack data are synchronized, and that the config
